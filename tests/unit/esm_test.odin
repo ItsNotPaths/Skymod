@@ -9,6 +9,7 @@ package unit_tests
 import "core:encoding/endian"
 import "core:testing"
 import "../../src/formats/esm"
+import "../../src/gamedb"
 
 @(test)
 test_esm_walk_and_decode :: proc(t: ^testing.T) {
@@ -93,6 +94,88 @@ test_esm_xxxx_overflow :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_esm_land_heights :: proc(t: ^testing.T) {
+	// VHGT = base offset f32 + 33×33 signed-byte gradients + 3 pad. Heights accumulate:
+	// the first column of each row is a delta from the previous row's first column, and
+	// every other cell is a delta from the previous cell in its row.
+	G :: esm.LAND_GRID
+	vhgt := make([]u8, 4 + G * G + 3)
+	defer delete(vhgt)
+	put_f32(vhgt, 0, 100) // base offset
+	vhgt[4 + 0] = transmute(u8)i8(5) // (0,0): 100 + 5 = 105
+	vhgt[4 + 1] = transmute(u8)i8(2) // (1,0): 105 + 2 = 107
+	vhgt[4 + 2] = transmute(u8)i8(-4) // (2,0): 107 - 4 = 103
+	vhgt[4 + G] = transmute(u8)i8(10) // (0,1): col0 105 + 10 = 115
+
+	body := make([dynamic]u8, 0, 1200)
+	defer delete(body)
+	field(&body, "VHGT", vhgt)
+	rec := esm.Record{type = "LAND", data = body[:]}
+	fl, backing, ok := esm.fields(rec)
+	testing.expect(t, ok, "split LAND fields")
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	h, hok := esm.land_heights(fl, context.allocator)
+	testing.expect(t, hok, "decode VHGT")
+	defer delete(h)
+	testing.expect_value(t, len(h), G * G)
+	testing.expect_value(t, h[0], f32(105))
+	testing.expect_value(t, h[1], f32(107))
+	testing.expect_value(t, h[2], f32(103))
+	testing.expect_value(t, h[G], f32(115)) // first cell of row 1
+}
+
+@(test)
+test_esm_land_textures :: proc(t: ^testing.T) {
+	// LAND BTXT base-texture-per-quadrant (8 bytes: LTEX formID + quadrant + pad + layer).
+	body := make([dynamic]u8, 0, 64)
+	defer delete(body)
+	b0: [8]u8
+	put_u32(b0[:], 0, 0x0000_0111) // quadrant 0 (SW) → LTEX 0x111
+	field(&body, "BTXT", b0[:])
+	b2: [8]u8
+	put_u32(b2[:], 0, 0x0000_0222)
+	b2[4] = 2 // quadrant 2 (NW) → LTEX 0x222
+	field(&body, "BTXT", b2[:])
+
+	rec := esm.Record{type = "LAND", data = body[:]}
+	fl, backing, ok := esm.fields(rec)
+	testing.expect(t, ok, "split LAND fields")
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	bt := esm.land_base_textures(fl)
+	testing.expect_value(t, bt[0], u32(0x0000_0111))
+	testing.expect_value(t, bt[2], u32(0x0000_0222))
+	testing.expect_value(t, bt[1], u32(0)) // no BTXT for quadrant 1
+
+	// LTEX TNAM → TXST formID.
+	lbody := make([dynamic]u8, 0, 16)
+	defer delete(lbody)
+	field(&lbody, "TNAM", u32_bytes(0x0000_0333))
+	lrec := esm.Record{type = "LTEX", data = lbody[:]}
+	lfl, lb, lok := esm.fields(lrec)
+	testing.expect(t, lok, "split LTEX fields")
+	defer delete(lfl)
+	defer if lb != nil {delete(lb)}
+	txst, has := esm.landscape_txst(lfl)
+	testing.expect(t, has, "LTEX has TNAM")
+	testing.expect_value(t, txst, u32(0x0000_0333))
+
+	// TXST TX00 → diffuse path (NUL-terminated zstring).
+	tbody := make([dynamic]u8, 0, 32)
+	defer delete(tbody)
+	field(&tbody, "TX00", transmute([]u8)string("Landscape\\Dirt02.dds\x00"))
+	trec := esm.Record{type = "TXST", data = tbody[:]}
+	tfl, tb, tok := esm.fields(trec)
+	testing.expect(t, tok, "split TXST fields")
+	defer delete(tfl)
+	defer if tb != nil {delete(tb)}
+	testing.expect_value(t, esm.texture_set_diffuse(tfl), "Landscape\\Dirt02.dds")
+}
+
+@(test)
 test_esm_worldspace :: proc(t: ^testing.T) {
 	// Exterior structure: TES4 + top WRLD GRUP → WRLD record → world-children GRUP(1)
 	// → exterior CELL (with XCLC grid) → cell-children GRUP(6) → REFR. The REFR must
@@ -136,6 +219,35 @@ test_esm_worldspace :: proc(t: ^testing.T) {
 	testing.expect(t, seen.has_grid, "exterior CELL has XCLC grid")
 	testing.expect_value(t, seen.gx, i32(3))
 	testing.expect_value(t, seen.gy, i32(-2))
+}
+
+@(test)
+test_gamedb_grid_index :: proc(t: ^testing.T) {
+	// gamedb should index the synthetic worldspace: find it by name, list its cell,
+	// resolve that cell by grid coordinate (the streamer's lookup), and keep the
+	// exterior REFR under it.
+	data := build_world_plugin()
+	defer delete(data)
+
+	db := gamedb.build(data)
+	defer gamedb.destroy(&db)
+
+	wfid, wok := gamedb.find_world(&db, "testworld") // case-insensitive
+	testing.expect(t, wok, "find_world TestWorld")
+	testing.expect_value(t, wfid, u32(0x0000_0099))
+
+	cells := gamedb.cells_of(&db, wfid)
+	testing.expect_value(t, len(cells), 1)
+
+	cid, cok := gamedb.cell_at(&db, wfid, 3, -2) // the CELL's XCLC grid
+	testing.expect(t, cok, "cell_at (3,-2)")
+	testing.expect_value(t, cid, u32(0x0000_00CC))
+
+	miss, mok := gamedb.cell_at(&db, wfid, 99, 99) // a hole
+	_ = miss
+	testing.expect(t, !mok, "cell_at hole misses")
+
+	testing.expect_value(t, len(gamedb.refs_of(&db, cid)), 1) // exterior REFR kept
 }
 
 // --- synthetic plugin builder ---

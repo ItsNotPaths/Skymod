@@ -35,6 +35,9 @@ Renderer :: struct {
 
 	cube_pipeline:    ^sdl.GPUGraphicsPipeline,
 	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3)
+	grass_pipeline:   ^sdl.GPUGraphicsPipeline, // instanced grass clusters (F2 vegetation)
+	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD)
+	effect_pipeline:  ^sdl.GPUGraphicsPipeline, // alpha-blended ghosted effect shapes
 	cube_vbuf:        ^sdl.GPUBuffer,
 	cube_ibuf:        ^sdl.GPUBuffer,
 	cube_index_count: u32,
@@ -95,6 +98,27 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		return {}, false
 	}
 
+	r.grass_pipeline = make_grass_pipeline(&r)
+	if r.grass_pipeline == nil {
+		log.errorf("render: grass pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
+	r.obj_pipeline = make_obj_pipeline(&r)
+	if r.obj_pipeline == nil {
+		log.errorf("render: obj pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
+	r.effect_pipeline = make_effect_pipeline(&r)
+	if r.effect_pipeline == nil {
+		log.errorf("render: effect pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
 	verts, indices := build_cube(1.0)
 	r.cube_vbuf = upload_buffer(device, {.VERTEX}, bytes_of(verts[:]))
 	r.cube_ibuf = upload_buffer(device, {.INDEX}, bytes_of(indices[:]))
@@ -138,6 +162,9 @@ shutdown :: proc(r: ^Renderer) {
 	if r.cube_ibuf != nil {sdl.ReleaseGPUBuffer(r.device, r.cube_ibuf)}
 	if r.cube_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.cube_pipeline)}
 	if r.mesh_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)}
+	if r.grass_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.grass_pipeline)}
+	if r.obj_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.obj_pipeline)}
+	if r.effect_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.effect_pipeline)}
 	if r.device != nil && r.window != nil {sdl.ReleaseWindowFromGPUDevice(r.device, r.window)}
 	if r.device != nil {sdl.DestroyGPUDevice(r.device)}
 	r^ = {}

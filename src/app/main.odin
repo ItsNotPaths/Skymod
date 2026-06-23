@@ -9,6 +9,7 @@ package main
 // Phase 0 progress: window (step 2) + textured cube (step 4) + free-fly debug
 // camera (step 5) + Dear ImGui overlay (step 6) + logging (step 7).
 
+import "base:runtime"
 import "core:fmt"
 import "core:log"
 import "core:mem"
@@ -30,6 +31,13 @@ WINDOW_W :: 1280
 WINDOW_H :: 720
 
 main :: proc() {
+	// The raw heap allocator, captured BEFORE the debug tracking wrap below. The
+	// streamer's worker thread allocates CPU bundles that the main thread frees; using
+	// this (thread-safe, untracked) allocator for them keeps that cross-thread
+	// allocate/free off the single-threaded tracking allocator (which would flag it as
+	// a bad free). In release builds it's just the heap allocator.
+	loader_alloc := context.allocator
+
 	// Debug builds: wrap the heap allocator to catch leaks / double-frees (see
 	// docs/memory.md). The report is deferred FIRST so it runs LAST — after every
 	// other defer has freed — and prints to stderr directly (the logger is already
@@ -61,6 +69,13 @@ main :: proc() {
 		log.infof("SkyMod starting — log: %s (persist=%v)", logging.path, persist)
 	}
 
+	// Dev: `--lodtest` skips straight to the BSLODTriShape LOD test grid (needs
+	// source_game set; mounts the archives directly, no install/streaming).
+	if slice.contains(os.args, "--lodtest") {
+		run_lod_test(&cfg)
+		return
+	}
+
 	// Console-recomp boot: no installed content => show the GUI installer, install
 	// from the user's own Skyrim files, then re-exec into a clean process that
 	// finds content/ ready and launches the game. relaunch() only returns if exec
@@ -75,7 +90,7 @@ main :: proc() {
 		relaunch()
 	}
 
-	run_game(&logging, &cfg)
+	run_game(&logging, &cfg, loader_alloc)
 }
 
 // run_installer shows the first-boot installer window: a small ImGui screen that
@@ -147,7 +162,7 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 // free-fly debug camera (step 5) + Dear ImGui overlay (step 6) + logging (step 7).
 // Reached once content/ is installed. Logging is already up; cfg is borrowed for
 // any future window/gameplay settings.
-run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config) {
+run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator) {
 	p, ok := platform.init("SkyMod", WINDOW_W, WINDOW_H)
 	if !ok {
 		return
@@ -165,10 +180,10 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config) {
 	defer render.ui_shutdown(&r) // runs before render.shutdown (LIFO) — device still alive
 	p.on_event = render.ui_process_event
 
-	// Section E: load Whiterun's exterior worldspace and fly the city. VFS over the
-	// install's archives → gamedb from Skyrim.esm → world places every cell's REFRs at
-	// their (absolute worldspace) transforms, one chunk per cell (assetdb caches/dedups).
-	// Building doors still work: walk to one + F enters the interior (Milestone D path).
+	// Section F: STREAM Tamriel around Riverwood. VFS over the install's archives →
+	// gamedb from Skyrim.esm → a Streamer keeps a window of cells loaded around the
+	// player, decoding meshes on a worker thread (no hitches) and uploading them under
+	// a per-frame budget. Fly out of the window and watch cells stream in/out.
 	src := settings.get(cfg, "source_game")
 	v := mount_game(src)
 	defer vfs.destroy(&v)
@@ -181,28 +196,41 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config) {
 	defer gamedb.destroy(&db)
 
 	scene := world.scene_init(&r, &v)
-	defer world.scene_destroy(&scene)
-	if wfid, found := gamedb.find_world(&db, "WhiterunWorld"); found {
-		world.load_worldspace(&scene, &db, wfid)
+	defer world.scene_destroy(&scene) // runs AFTER stream_destroy (LIFO) — worker stopped first
+
+	RIVERWOOD_GX :: 5
+	RIVERWOOD_GY :: -11
+	// Full-detail radius (objects+grass+textured terrain) and the outer terrain-LOD
+	// radius, behind the render_distance / lod_distance settings. Cells between them
+	// stream as terrain-only, downsampled coarser with distance.
+	full_radius := settings.get_int(cfg, "render_distance", 2)
+	lod_radius := max(settings.get_int(cfg, "lod_distance", 12), full_radius)
+	obj_radius := settings.get_int(cfg, "object_lod_distance", 8)
+
+	// Grass draw distance (world units) + a basic, reusable wind (a future HDT-SMP-style
+	// sim would drive/replace the procedural sway). `elapsed` advances the wind phase.
+	grass_dist := f32(settings.get_int(cfg, "grass_distance", 8192))
+	wind := render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
+	elapsed: f32
+
+	cam := Camera{yaw = 2.3, pitch = -0.3}
+	streamer: world.Streamer
+	if wfid, found := gamedb.find_world(&db, "Tamriel"); found {
+		world.build_far_terrain(&scene, &db, wfid) // whole-world coarse backdrop (visible from anywhere)
+		world.stream_init(&streamer, &scene, &db, wfid, lod_radius, full_radius, obj_radius, loader_alloc)
+		if pos, sok := stream_spawn(&db, wfid, RIVERWOOD_GX, RIVERWOOD_GY); sok {
+			cam.pos = pos
+		}
+		world.stream_update(&streamer, cam.pos) // prime the first window before frame 1
 	} else {
-		log.error("worldspace WhiterunWorld not found")
+		log.error("worldspace Tamriel not found")
 	}
+	defer world.stream_destroy(&streamer)
 
-	// Spawn above the city centre, angled down to survey it (no-clip: fly with WASD/QE).
-	cam := Camera{yaw = 0.0, pitch = -0.3}
-	if pos, ok := world.spawn(&scene); ok {
-		cam.pos = pos
-	}
-
-	// Model inspector: walk up to a door for the "Go Through" prompt; left-click any
-	// model to inspect it. near_door tracks the nearest in-range load door (the F /
-	// button target), recomputed each frame after the camera moves.
+	// Left-click a model to inspect it (handy for confirming what streamed in).
 	insp: tools.Inspector
-	DOOR_RANGE :: f32(600) // activation radius (Skyrim units) around a load door
-	near_door_id: u32
-	near_ok: bool
 
-	log.info("Section E: Whiterun exterior. RMB look, WASD/QE fly, walk to a door + F to go through, Esc to quit.")
+	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
 	for platform.pump(&p) {
 		render.ui_new_frame(&r)
@@ -211,45 +239,24 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config) {
 				context.logger = logging.logger // re-install: persist_run added a sink
 			}
 		}
-		go_through := tools.inspector_panel(&insp)
+		st := world.stream_stats(&streamer)
+		tools.stream_panel(st.gx, st.gy, st.chunks, st.inflight, st.reqs, st.ready)
+		tools.inspector_panel(&insp)
 		tools.crosshair()
 
-		// Don't let the camera react while the UI has the mouse/keyboard.
 		mouse_cap, kb_cap := render.ui_capturing(&r)
-
-		// Door transition: the "Go Through" button or the F key, on the nearest
-		// in-range load door. Reloads the scene and drops the camera at the dest door.
-		if (go_through || (p.input.activate && !kb_cap)) && near_ok {
-			if pos, yaw, tok := enter_door(&scene, &db, &r, &v, near_door_id); tok {
-				cam.pos, cam.yaw, cam.pitch = pos, yaw, -0.1
-				insp = {}
-				near_ok = false
-			}
-		}
-
 		move, look := p.input.move, p.input.look
 		if kb_cap {move = {}}
 		if mouse_cap {look = {}}
 		camera_update(&cam, move, look, p.input.fast, p.dt)
 
-		// Refresh the proximity door prompt for the next frame's panel.
-		near_ok = false
-		insp.near_door = false
-		if nd, dist, ok := world.nearest_door(&scene, cam.pos); ok && dist < DOOR_RANGE {
-			near_ok = true
-			near_door_id = nd.tp_door
-			insp.near_door = true
-			insp.near_door_cell = ""
-			if dref, dok := gamedb.ref_by_formid(&db, nd.tp_door); dok {
-				if dc, cok := gamedb.cell_by_formid(&db, dref.cell_form_id); cok && dc.interior {
-					insp.near_door_cell = dc.editor_id
-				}
-			}
-		}
+		// Stream the window around the (now-moved) camera: re-windows on cell crossing,
+		// uploads decoded models under the per-frame budget. Never blocks the frame.
+		world.stream_update(&streamer, cam.pos)
 
 		// Left-click aims the crosshair (camera forward) and picks a model.
 		if p.input.select && !mouse_cap {
-			if inst, ok := world.pick(&scene, cam.pos, camera_forward(cam)); ok {
+			if inst, pok := world.pick(&scene, cam.pos, camera_forward(cam)); pok {
 				insp.has_sel = true
 				insp.sel_name = inst.model.path
 				insp.sel_base = inst.base
@@ -257,19 +264,19 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config) {
 				insp.sel_rot = inst.rot
 				insp.sel_has_door = inst.has_tp
 				insp.sel_door_cell = ""
-				if inst.has_tp {
-					if dref, dok := gamedb.ref_by_formid(&db, inst.tp_door); dok {
-						if dc, cok := gamedb.cell_by_formid(&db, dref.cell_form_id); cok && dc.interior {
-							insp.sel_door_cell = dc.editor_id
-						}
-					}
-				}
 			}
 		}
 
+		elapsed += p.dt
 		if render.begin_frame(&r, {0.10, 0.11, 0.13, 1.0}) {
 			vp := camera_view_proj(cam, render.aspect(&r))
+			world.draw_far_terrain(&scene, &r, vp) // whole-world coarse backdrop (drawn under detail)
 			world.draw(&scene, &r, vp)
+			world.draw_objects(&scene, &r, vp) // distant instanced statics (LOD rings)
+			if grass_dist > 0 {
+				world.draw_grass(&scene, &r, vp, cam.pos, grass_dist, wind, elapsed)
+			}
+			world.draw_effects(&scene, &r, vp) // ghosted FX, blended over opaque (last)
 			render.end_frame(&r)
 		}
 

@@ -7,6 +7,7 @@ package esm
 // Format". Validated against the real Skyrim.esm (tools/esmdump).
 
 import "core:encoding/endian"
+import "core:math"
 
 // CELL DATA flags (first byte). 0x01 = interior cell.
 CELL_INTERIOR :: 0x01
@@ -45,6 +46,24 @@ model_path :: proc(fields: []Field) -> string {
 	return ""
 }
 
+// object_bounds reads a base form's OBND (object bounds): 6 i16 = min(x,y,z) + max(x,y,z).
+// Returns a bounding RADIUS (half the box diagonal, in world units) — a cheap size proxy
+// for distance/LOD culling WITHOUT loading the mesh. ok=false if absent/short.
+object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
+	f, fok := find_field(fields, "OBND")
+	if !fok || len(f.data) < 12 {
+		return 0, false
+	}
+	x1 := f32(transmute(i16)rd16(f.data, 0))
+	y1 := f32(transmute(i16)rd16(f.data, 2))
+	z1 := f32(transmute(i16)rd16(f.data, 4))
+	x2 := f32(transmute(i16)rd16(f.data, 6))
+	y2 := f32(transmute(i16)rd16(f.data, 8))
+	z2 := f32(transmute(i16)rd16(f.data, 10))
+	dx, dy, dz := x2 - x1, y2 - y1, z2 - z1
+	return 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz), true
+}
+
 // cell_is_interior reports whether a CELL's DATA flags mark it interior.
 cell_is_interior :: proc(fields: []Field) -> bool {
 	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 1 {
@@ -76,6 +95,153 @@ decode_refr :: proc(fields: []Field) -> Placement {
 		p.scale = rf32(f.data, 0)
 	}
 	return p
+}
+
+// LAND_GRID is the side length of a cell's heightmap vertex grid (33×33 = 1089
+// vertices → 32×32 quads spanning the 4096-unit cell).
+LAND_GRID :: 33
+
+// land_heights decodes a LAND record's VHGT heightmap into a row-major LAND_GRID²
+// grid of CUMULATIVE height values (the gradient sum, NOT yet world-scaled — the
+// caller multiplies by its height scale). VHGT = base offset f32 + LAND_GRID²
+// signed-byte gradients (row-major) + 3 pad bytes. Each gradient is a delta: the
+// first column of each row is relative to the previous row's first column, and
+// every other cell is relative to the previous cell in its row. ok=false if there's
+// no VHGT or it's truncated. Ref: UESP "Skyrim Mod:Mod File Format/LAND".
+land_heights :: proc(fields: []Field, allocator := context.allocator) -> ([]f32, bool) {
+	f, ok := find_field(fields, "VHGT")
+	if !ok || len(f.data) < 4 + LAND_GRID * LAND_GRID {
+		return nil, false
+	}
+	offset := rf32(f.data, 0)
+	grad := f.data[4:]
+	out := make([]f32, LAND_GRID * LAND_GRID, allocator)
+	col0 := offset
+	for y in 0 ..< LAND_GRID {
+		col0 += f32(transmute(i8)grad[y * LAND_GRID]) // first column: delta from previous row
+		h := col0
+		out[y * LAND_GRID] = h
+		for x in 1 ..< LAND_GRID {
+			h += f32(transmute(i8)grad[y * LAND_GRID + x]) // delta from previous cell in row
+			out[y * LAND_GRID + x] = h
+		}
+	}
+	return out, true
+}
+
+// land_base_textures reads a LAND record's BTXT base-texture references — the bottom
+// landscape layer of each of the cell's 4 quadrants (0=SW, 1=SE, 2=NW, 3=NE). Each
+// BTXT is 8 bytes: LTEX formID (u32) + quadrant (u8) + unused (u8) + layer (i16).
+// Returns the LTEX formID per quadrant; 0 where a quadrant has no base. (Additional
+// ATXT/VTXT alpha layers are deferred to the blending step.)
+land_base_textures :: proc(fields: []Field) -> [4]u32 {
+	out: [4]u32
+	for f in fields {
+		if f.type == "BTXT" && len(f.data) >= 8 {
+			q := f.data[4]
+			if q < 4 {
+				out[q] = rd32(f.data, 0)
+			}
+		}
+	}
+	return out
+}
+
+// Land_Alpha is one painted opacity sample of an ATXT layer: which point in the 17×17
+// quadrant grid (0-288, row-major y·17+x) and how opaque the layer is there.
+Land_Alpha :: struct {
+	point:   u16,
+	opacity: f32,
+}
+
+// Land_Layer is one landscape texture layer of a LAND quadrant: the LTEX form and, for
+// additional (ATXT) layers, the per-point alpha that paints it over the layers below.
+// Base (BTXT) layers cover their whole quadrant (alpha empty). quadrant is 0=SW,1=SE,
+// 2=NW,3=NE.
+Land_Layer :: struct {
+	ltex:     u32,
+	quadrant: u8,
+	base:     bool,
+	alpha:    []Land_Alpha, // owned; empty for base layers
+}
+
+// land_layers decodes a LAND record's texture layers in file order: each BTXT (base,
+// 8 bytes: LTEX + quadrant + pad + layer) and each ATXT (additional layer, same 8 bytes)
+// paired with its following VTXT (the alpha array: per entry point u16 + pad u16 +
+// opacity f32). Layers are returned base-first per quadrant (BTXT precede ATXT). Free
+// with free_land_layers.
+land_layers :: proc(fields: []Field, allocator := context.allocator) -> ([]Land_Layer, bool) {
+	layers := make([dynamic]Land_Layer, 0, 16, allocator)
+	for f, i in fields {
+		switch f.type {
+		case "BTXT":
+			if len(f.data) >= 8 && f.data[4] < 4 {
+				append(&layers, Land_Layer{ltex = rd32(f.data, 0), quadrant = f.data[4], base = true})
+			}
+		case "ATXT":
+			if len(f.data) < 8 || f.data[4] >= 4 {
+				continue
+			}
+			layer := Land_Layer{ltex = rd32(f.data, 0), quadrant = f.data[4]}
+			// The alpha for this layer is the VTXT field that immediately follows.
+			if i + 1 < len(fields) && fields[i + 1].type == "VTXT" {
+				v := fields[i + 1].data
+				n := len(v) / 8
+				alpha := make([]Land_Alpha, n, allocator)
+				for k in 0 ..< n {
+					alpha[k] = {point = rd16(v, k * 8), opacity = rf32(v, k * 8 + 4)}
+				}
+				layer.alpha = alpha
+			}
+			append(&layers, layer)
+		}
+	}
+	return layers[:], true
+}
+
+free_land_layers :: proc(layers: []Land_Layer, allocator := context.allocator) {
+	for l in layers {
+		delete(l.alpha, allocator)
+	}
+	delete(layers, allocator)
+}
+
+// landscape_grass reads an LTEX record's GNAM — the formID of the GRAS grass type the
+// engine scatters over terrain painted with this texture. ok=false if absent (the
+// texture grows no grass).
+landscape_grass :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "GNAM"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// grass_density reads a GRAS record's DATA density — the first byte (clusters scattered
+// per unit area; the rest of DATA is slope/water/wave fields, deferred). ok=false if no
+// DATA. Pair with model_path (GRAS carries a MODL grass-cluster mesh).
+grass_density :: proc(fields: []Field) -> (u8, bool) {
+	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 1 {
+		return f.data[0], true
+	}
+	return 0, false
+}
+
+// landscape_txst reads an LTEX (Landscape Texture) record's TNAM — the formID of the
+// TXST texture set it draws its diffuse from. ok=false if absent.
+landscape_txst :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "TNAM"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// texture_set_diffuse reads a TXST (Texture Set) record's TX00 — the diffuse texture
+// path (e.g. "Landscape\\Dirt01.dds"), or "" if absent.
+texture_set_diffuse :: proc(fields: []Field) -> string {
+	if f, ok := find_field(fields, "TX00"); ok {
+		return cstr(f.data)
+	}
+	return ""
 }
 
 // refr_teleport reads a REFR's XTEL door teleport, if present. XTEL = destination

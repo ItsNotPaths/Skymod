@@ -99,6 +99,11 @@ upload_texture :: proc(r: ^Renderer, format: Tex_Format, srgb: bool, mips: []Tex
 	return {tex = tex}
 }
 
+// tex_valid reports whether a Texture holds a real GPU texture (vs the zero/fallback).
+tex_valid :: proc(t: Texture) -> bool {
+	return t.tex != nil
+}
+
 release_texture :: proc(r: ^Renderer, t: Texture) {
 	if t.tex != nil {
 		sdl.ReleaseGPUTexture(r.device, t.tex)

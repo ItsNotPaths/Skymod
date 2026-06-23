@@ -48,6 +48,25 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	return gamedb.build(data), true
 }
 
+// stream_spawn picks a camera start over an exterior grid cell: centred on the cell
+// in XY, raised above its statics' mean height. Used to drop the player into a
+// streamed worldspace (e.g. Riverwood in Tamriel) before terrain exists to stand on.
+stream_spawn :: proc(db: ^gamedb.DB, world_fid: u32, gx, gy: i32) -> (pos: smath.Vec3, ok: bool) {
+	cid, cok := gamedb.cell_at(db, world_fid, gx, gy)
+	if !cok {
+		return {}, false
+	}
+	sum_z, n := f32(0), 0
+	for r in gamedb.refs_of(db, cid) {
+		if !r.disabled {
+			sum_z += r.pos.z
+			n += 1
+		}
+	}
+	ground := sum_z / f32(max(n, 1))
+	return {(f32(gx) + 0.5) * 4096, (f32(gy) + 0.5) * 4096, ground + 900}, true
+}
+
 // enter_door performs an interior→interior cell transition (ROADMAP Iteration 1,
 // Milestone D): given a load door's XTEL destination door formID, reload the scene
 // with the destination cell and return the camera placement at that door (eye height

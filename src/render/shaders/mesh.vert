@@ -13,11 +13,12 @@ layout(location = 2) in vec2 a_uv;
 layout(set = 1, binding = 0) uniform UBO {
     mat4 mvp;
     mat4 model;
-    vec4 light_dir; // xyz = direction toward the light (world space)
+    vec4 light_dir; // xyz = direction toward the light (world space); w = alpha cutoff
 } ubo;
 
 layout(location = 0) out float v_shade;
 layout(location = 1) out vec2 v_uv;
+layout(location = 2) out float v_cutoff;
 
 void main() {
     gl_Position = ubo.mvp * vec4(a_pos, 1.0);
@@ -25,4 +26,5 @@ void main() {
     float ndl = max(dot(n, normalize(ubo.light_dir.xyz)), 0.0);
     v_shade = 0.3 + 0.7 * ndl; // ambient + diffuse
     v_uv = a_uv;
+    v_cutoff = ubo.light_dir.w;
 }

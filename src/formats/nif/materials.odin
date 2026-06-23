@@ -79,6 +79,55 @@ texture_set_ref :: proc(b: []u8) -> (ref: i32, ok: bool) {
 	return ref, true
 }
 
+// NiAlphaProperty flag bits (Skyrim): bit 0 = alpha-blend enable, bit 9 = alpha-test
+// enable. The Threshold byte (0-255) is the alpha-test reference value.
+NIALPHA_BLEND :: 0x0001
+NIALPHA_TEST :: 0x0200
+
+// resolve_alpha follows a shape's alpha-property ref to its NiAlphaProperty block and
+// returns the alpha-test cutoff in [0,1] — 0 means opaque (no test). NiAlphaProperty is
+// NiObjectNET (name ref, extra-data list, controller) then Flags (u16) + Threshold (u8).
+// Alpha-test foliage uses the stored threshold; blend-only materials degrade to a 0.5
+// cutout (we don't depth-sort, so translucency becomes alpha-test — fine for leaves/
+// grass, the vegetation case). Non-fatal: an absent/!alpha ref → 0 (opaque).
+@(private)
+resolve_alpha :: proc(data: []u8, h: ^Header, alpha_ref: i32) -> f32 {
+	ai := int(alpha_ref)
+	if ai < 0 || ai >= int(h.num_blocks) || block_type(h, ai) != "NiAlphaProperty" {
+		return 0
+	}
+	r := Reader{data = block_data(h, data, ai), ok = true}
+	_ = read_i32(&r) // Name (string ref)
+	n_extra := int(read_u32(&r)) // Num Extra Data List
+	if !r.ok || n_extra < 0 || n_extra > MAX_LIST {
+		return 0
+	}
+	for _ in 0 ..< n_extra {
+		_ = read_i32(&r) // Extra Data refs
+	}
+	_ = read_i32(&r) // Controller
+	flags := read_u16(&r)
+	threshold := read_u8(&r)
+	if !r.ok {
+		return 0
+	}
+	if flags & NIALPHA_TEST != 0 {
+		return f32(threshold) / 255
+	}
+	if flags & NIALPHA_BLEND != 0 {
+		return 0.5
+	}
+	return 0
+}
+
+// is_effect_shader reports whether a shape's shader is a BSEffectShaderProperty (fire/FX
+// — no lit diffuse). The renderer ghosts these instead of drawing them as opaque blocks.
+@(private)
+is_effect_shader :: proc(h: ^Header, shader_ref: i32) -> bool {
+	si := int(shader_ref)
+	return si >= 0 && si < int(h.num_blocks) && block_type(h, si) == "BSEffectShaderProperty"
+}
+
 // resolve_diffuse follows a shape's shader_ref → BSLightingShaderProperty → texture
 // set → slot 0, returning the diffuse path (cloned into the ambient allocator) or ""
 // if the chain is absent/effect-shader/empty. Non-fatal: a missing texture just

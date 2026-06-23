@@ -13,6 +13,7 @@ package settings
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 
 FILE_NAME :: "settings.txt"
@@ -30,6 +31,22 @@ Default :: struct {
 DEFAULTS := [?]Default {
 	{"source_game", ""},
 	{"persist_logs", "false"},
+	// Exterior render distance as the streaming window half-size in cells: the
+	// loaded square is (2·render_distance + 1)² cells around the player. Higher =
+	// see farther, more to stream/draw. LOD distance settings will join this when
+	// terrain/object LOD lands.
+	{"render_distance", "2"},
+	// Grass draw distance in world units (grass is dense/expensive, so much shorter
+	// than render_distance). Cells beyond this aren't drawn with grass. 0 disables grass.
+	{"grass_distance", "8192"},
+	// Distant terrain LOD radius in cells (≥ render_distance). Cells between
+	// render_distance and this load as terrain-only, downsampled coarser with distance,
+	// so the landscape recedes into the distance instead of ending at the window edge.
+	{"lod_distance", "24"},
+	// Distant-object LOD radius in cells (≤ lod_distance). Larger statics within this
+	// range render as instanced coarse meshes; beyond it the LOD rings are terrain-only.
+	// Each cell adds draws ≈ its distinct-model count, so raise this gradually.
+	{"object_lod_distance", "5"},
 }
 
 // Config is an ordered key/value store: `keys` preserves write order, `vals` maps
@@ -86,6 +103,16 @@ get :: proc(cfg: ^Config, key: string) -> string {
 get_bool :: proc(cfg: ^Config, key: string) -> bool {
 	v := get(cfg, key)
 	return strings.equal_fold(v, "true") || v == "1" || strings.equal_fold(v, "yes") || strings.equal_fold(v, "on")
+}
+
+// get_int interprets the value as a base-10 integer, returning `fallback` if the key
+// is absent or unparseable.
+get_int :: proc(cfg: ^Config, key: string, fallback: int) -> int {
+	v := get(cfg, key)
+	if n, ok := strconv.parse_int(v, 10); ok {
+		return n
+	}
+	return fallback
 }
 
 // set updates (or adds) a key. Persist with save().

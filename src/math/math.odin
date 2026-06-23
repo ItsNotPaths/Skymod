@@ -97,6 +97,60 @@ look_at_rh :: proc(eye, center, up: Vec3) -> Mat4 {
 	}
 }
 
+// --- frustum culling (Section F streaming) ---
+
+// Plane is (a,b,c,d): a point p is inside the half-space when a·px+b·py+c·pz+d >= 0.
+Plane :: [4]f32
+// Frustum is the 6 clip planes (left,right,bottom,top,near,far), inward-facing.
+Frustum :: [6]Plane
+
+// frustum_from_vp extracts the 6 world-space frustum planes from a view-projection
+// matrix (Gribb-Hartmann). `vp` maps world → clip with clip.z in [0,w] (the Vulkan/
+// SDL3_gpu range from perspective_rh_zo), so near = row2, far = row3-row2. Planes are
+// normalized so sphere distance tests are in world units. Inside = all planes >= 0.
+frustum_from_vp :: proc(m: Mat4) -> Frustum {
+	row :: proc(m: Mat4, i: int) -> Plane {return {m[i, 0], m[i, 1], m[i, 2], m[i, 3]}}
+	r0, r1, r2, r3 := row(m, 0), row(m, 1), row(m, 2), row(m, 3)
+	f := Frustum {
+		r3 + r0, // left   (clip.x >= -w)
+		r3 - r0, // right  (clip.x <=  w)
+		r3 + r1, // bottom (clip.y >= -w)
+		r3 - r1, // top    (clip.y <=  w)
+		r2,      // near   (clip.z >=  0)
+		r3 - r2, // far    (clip.z <=  w)
+	}
+	for &p in f {
+		inv := 1.0 / math.sqrt(p.x * p.x + p.y * p.y + p.z * p.z)
+		p *= inv
+	}
+	return f
+}
+
+// aabb_in_frustum reports whether an axis-aligned box [lo,hi] intersects the frustum.
+// Uses the positive-vertex test: if the box's farthest corner along a plane normal is
+// still behind that plane, the box is fully outside. Conservative (no false culls).
+aabb_in_frustum :: proc(f: Frustum, lo, hi: Vec3) -> bool {
+	for p in f {
+		px := hi.x if p.x >= 0 else lo.x
+		py := hi.y if p.y >= 0 else lo.y
+		pz := hi.z if p.z >= 0 else lo.z
+		if p.x * px + p.y * py + p.z * pz + p.w < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// sphere_in_frustum reports whether a world-space sphere intersects the frustum.
+sphere_in_frustum :: proc(f: Frustum, center: Vec3, radius: f32) -> bool {
+	for p in f {
+		if p.x * center.x + p.y * center.y + p.z * center.z + p.w < -radius {
+			return false
+		}
+	}
+	return true
+}
+
 // perspective_rh_zo: right-handed perspective, depth range [0,1] (Vulkan/D3D —
 // the NDC SDL3_gpu targets). fovy in radians.
 perspective_rh_zo :: proc(fovy, aspect, near, far: f32) -> Mat4 {

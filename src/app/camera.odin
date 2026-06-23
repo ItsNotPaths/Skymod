@@ -17,7 +17,10 @@ CAM_FOV_Y :: f32(1.22173) // 70°
 // Native Skyrim units (≈70/m): near/far span a whole interior, move speed is a few
 // metres/s. D32_FLOAT depth keeps this range precise.
 CAM_NEAR :: f32(5.0)
-CAM_FAR :: f32(20000.0)
+// Far reaches across the streamed/LOD world so distant terrain is visible (≈64 cells).
+// With near 5 this stretches D32 depth precision at extreme range, but distant terrain is
+// coarse LOD anyway; revisit (raise near, or reverse-Z) if far z-fighting shows up.
+CAM_FAR :: f32(262144.0)
 PITCH_LIMIT :: f32(1.55334) // ~89°
 LOOK_SENSITIVITY :: f32(0.0025)
 MOVE_SPEED :: f32(400.0)

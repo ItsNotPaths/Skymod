@@ -10,6 +10,7 @@ import sdl "vendor:sdl3"
 
 MESH_VERT_SPV :: #load("shaders/mesh.vert.spv")
 MESH_FRAG_SPV :: #load("shaders/mesh.frag.spv")
+EFFECT_FRAG_SPV :: #load("shaders/effect.frag.spv")
 
 // Mesh_Vertex is the general vertex: position + normal + diffuse UV.
 Mesh_Vertex :: struct {
@@ -19,11 +20,13 @@ Mesh_Vertex :: struct {
 }
 #assert(size_of(Mesh_Vertex) == 32)
 
-// Mesh_Uniforms mirrors the mesh.vert UBO (set 1, binding 0).
+// Mesh_Uniforms mirrors the mesh.vert UBO (set 1, binding 0). light_dir.w carries the
+// alpha-test cutoff (the light is a direction, so w was free) — avoids a separate
+// fragment uniform buffer (and the descriptor-count fiddliness that comes with it).
 Mesh_Uniforms :: struct {
 	mvp:       smath.Mat4,
 	model:     smath.Mat4,
-	light_dir: [4]f32,
+	light_dir: [4]f32, // xyz = direction toward light; w = alpha-test cutoff
 }
 
 // Mesh is an uploaded GPU mesh — opaque handle for the caller.
@@ -51,12 +54,24 @@ release_mesh :: proc(r: ^Renderer, m: Mesh) {
 // draw_mesh draws `m` with the given clip-space MVP and world `model` (used to
 // transform normals), lit by `light_dir` (world-space direction toward the light),
 // textured by `diffuse`. A zero Texture (no diffuse) falls back to a 1x1 white map,
-// so the mesh shows plain shading. Call between begin_frame and end_frame.
-draw_mesh :: proc(r: ^Renderer, m: Mesh, mvp, model: smath.Mat4, light_dir: smath.Vec3, diffuse: Texture) {
+// so the mesh shows plain shading. `alpha_cutoff` in [0,1] discards fragments below
+// that diffuse-alpha (0 = opaque) — foliage leaf cutouts. `first_index`/`index_count`
+// draw only a sub-range of the index buffer (count 0 = the whole mesh) — used to render
+// a BSLODTriShape LOD level's triangle partition. Call between begin/end_frame.
+draw_mesh :: proc(
+	r: ^Renderer,
+	m: Mesh,
+	mvp, model: smath.Mat4,
+	light_dir: smath.Vec3,
+	diffuse: Texture,
+	alpha_cutoff: f32 = 0,
+	first_index: u32 = 0,
+	index_count: u32 = 0,
+) {
 	u := Mesh_Uniforms {
 		mvp       = mvp,
 		model     = model,
-		light_dir = {light_dir.x, light_dir.y, light_dir.z, 0},
+		light_dir = {light_dir.x, light_dir.y, light_dir.z, alpha_cutoff},
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
@@ -68,7 +83,87 @@ draw_mesh :: proc(r: ^Renderer, m: Mesh, mvp, model: smath.Mat4, light_dir: smat
 	tex := diffuse.tex if diffuse.tex != nil else r.white_tex
 	tb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.mesh_sampler}
 	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &tb, 1)
+	count := index_count if index_count > 0 else m.index_count
+	sdl.DrawGPUIndexedPrimitives(r.frame_pass, count, 1, first_index, 0, 0)
+}
+
+// draw_effect draws `m` as a GHOSTED effect: the mesh path's shading, blended at ~40%
+// opacity (effect_pipeline: alpha blend, depth-tested but no depth write so ghosts don't
+// occlude). Draw AFTER opaque geometry. Call between begin_frame and end_frame.
+draw_effect :: proc(r: ^Renderer, m: Mesh, mvp, model: smath.Mat4, light_dir: smath.Vec3, diffuse: Texture) {
+	u := Mesh_Uniforms {
+		mvp       = mvp,
+		model     = model,
+		light_dir = {light_dir.x, light_dir.y, light_dir.z, 0},
+	}
+	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
+
+	sdl.BindGPUGraphicsPipeline(r.frame_pass, r.effect_pipeline)
+	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
+	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
+	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
+	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
+	tex := diffuse.tex if diffuse.tex != nil else r.white_tex
+	tb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.mesh_sampler}
+	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &tb, 1)
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, m.index_count, 1, 0, 0, 0)
+}
+
+// make_effect_pipeline mirrors the mesh pipeline but with alpha blending on + depth-write
+// off (effect.frag emits ~40% alpha) so ghosted effects blend over the opaque scene.
+@(private)
+make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+	vshader := create_shader(r.device, MESH_VERT_SPV, .VERTEX, 0, 1)
+	fshader := create_shader(r.device, EFFECT_FRAG_SPV, .FRAGMENT, 1, 0)
+	if vshader == nil || fshader == nil {
+		return nil
+	}
+	defer sdl.ReleaseGPUShader(r.device, vshader)
+	defer sdl.ReleaseGPUShader(r.device, fshader)
+
+	buffers := [1]sdl.GPUVertexBufferDescription {
+		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
+	}
+	attrs := [3]sdl.GPUVertexAttribute {
+		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
+		{location = 1, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, normal))},
+		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Mesh_Vertex, uv))},
+	}
+	color_target := sdl.GPUColorTargetDescription {
+		format = r.swapchain_format,
+		blend_state = {
+			enable_blend = true,
+			src_color_blendfactor = .SRC_ALPHA,
+			dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+			color_blend_op = .ADD,
+			src_alpha_blendfactor = .SRC_ALPHA,
+			dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
+			alpha_blend_op = .ADD,
+		},
+	}
+	info := sdl.GPUGraphicsPipelineCreateInfo {
+		vertex_shader = vshader,
+		fragment_shader = fshader,
+		primitive_type = .TRIANGLELIST,
+		vertex_input_state = {
+			vertex_buffer_descriptions = &buffers[0],
+			num_vertex_buffers = 1,
+			vertex_attributes = &attrs[0],
+			num_vertex_attributes = 3,
+		},
+		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		multisample_state = {sample_count = ._1},
+		// Depth-tested (occluded by solid geometry) but no depth WRITE (ghosts don't hide
+		// each other / what's behind them).
+		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = false},
+		target_info = {
+			color_target_descriptions = &color_target,
+			num_color_targets = 1,
+			depth_stencil_format = .D32_FLOAT,
+			has_depth_stencil_target = true,
+		},
+	}
+	return sdl.CreateGPUGraphicsPipeline(r.device, info)
 }
 
 @(private)

@@ -18,10 +18,17 @@ Transform :: struct {
 
 // PlacedShape is one renderable mesh with its world matrix and material. diffuse is
 // the archive-internal DDS path (e.g. `textures\...\.dds`) or "" if untextured.
+// alpha_cutoff is the alpha-test threshold in [0,1] (0 = opaque) — foliage leaf cutouts.
+// lod_tris is the BSLODTriShape per-level TRIANGLE count (level 0 = full … level 2 =
+// coarsest); {0,0,0} when the shape is a plain NiTriShape (no built-in LOD). Bethesda
+// sorts the triangle list so the first lod_tris[k]·3 indices form LOD level k.
 PlacedShape :: struct {
-	geometry: Geometry,
-	world:    matrix[4, 4]f32,
-	diffuse:  string,
+	geometry:     Geometry,
+	world:        matrix[4, 4]f32,
+	diffuse:      string,
+	alpha_cutoff: f32,
+	lod_tris:     [3]u32,
+	is_effect:    bool, // BSEffectShaderProperty (fire/FX) — rendered ghosted, not opaque
 }
 
 // parse_scene returns every NiTriShape in the file, world-placed. Caller frees with
@@ -60,6 +67,8 @@ Block_Info :: struct {
 	children:   []i32, // node children (temp)
 	data_ref:   i32,   // shape geometry data ref, or -1
 	shader_ref: i32,   // shape BSLightingShaderProperty ref, or -1
+	alpha_ref:  i32,   // shape NiAlphaProperty ref, or -1
+	lod_tris:   [3]u32, // BSLODTriShape per-level triangle counts ({0,0,0} if none)
 }
 
 @(private)
@@ -86,7 +95,18 @@ walk_node :: proc(
 		if dr >= 0 && dr < int(h.num_blocks) && block_type(h, dr) == "NiTriShapeData" {
 			if g, ok := parse_tri_shape_data(block_data(h, data, dr)); ok {
 				diffuse := resolve_diffuse(data, h, info.shader_ref)
-				append(out, PlacedShape{geometry = g, world = world, diffuse = diffuse})
+				cutoff := resolve_alpha(data, h, info.alpha_ref)
+				append(
+					out,
+					PlacedShape {
+						geometry = g,
+						world = world,
+						diffuse = diffuse,
+						alpha_cutoff = cutoff,
+						lod_tris = info.lod_tris,
+						is_effect = is_effect_shader(h, info.shader_ref),
+					},
+				)
 			}
 		}
 		return
@@ -124,6 +144,7 @@ is_node_type :: proc(t: string) -> bool {
 parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	bi.data_ref = -1
 	bi.shader_ref = -1
+	bi.alpha_ref = -1
 	t := block_type(h, i)
 	is_node := is_node_type(t)
 	// BSLODTriShape = NiTriShape + trailing LOD-level sizes; identical NiTriBasedGeom
@@ -156,6 +177,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 		dr := read_i32(&r) // Data ref
 		_ = read_i32(&r) // Skin Instance ref
 		shader_ref: i32 = -1
+		alpha_ref: i32 = -1
 		n_mat := int(read_u32(&r)) // Num Materials
 		if r.ok && n_mat >= 0 && n_mat <= MAX_LIST {
 			for _ in 0 ..< n_mat {
@@ -167,11 +189,21 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 			_ = read_i32(&r) // Active Material
 			_ = read_u8(&r) // Material Needs Update (bool)
 			shader_ref = read_i32(&r) // Shader Property ref
-			// Alpha Property ref follows; not needed.
+			alpha_ref = read_i32(&r) // Alpha Property ref (NiAlphaProperty)
+		}
+		// BSLODTriShape appends 3 per-level triangle counts after the NiTriBasedGeom
+		// fields. The referenced NiTriShapeData holds the full, LOD-sorted triangle list.
+		lod_tris: [3]u32
+		if t == "BSLODTriShape" {
+			lod_tris[0] = read_u32(&r)
+			lod_tris[1] = read_u32(&r)
+			lod_tris[2] = read_u32(&r)
 		}
 		if r.ok {
 			bi.data_ref = dr
 			bi.shader_ref = shader_ref
+			bi.alpha_ref = alpha_ref
+			bi.lod_tris = lod_tris
 			bi.is_shape = true
 		}
 	}

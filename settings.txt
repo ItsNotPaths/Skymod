@@ -4,3 +4,22 @@ source_game =
 # Keep every run's log in a timestamped logs/ folder instead of overwriting the
 # single skymod.log (same as passing --persist-logs).
 persist_logs = false
+
+# Exterior render distance: the streaming window half-size in cells. The loaded
+# square is (2*render_distance + 1)^2 cells around the player (2 = 5x5). Higher
+# sees farther but streams/draws more.
+render_distance = 2
+
+# Grass draw distance in world units (grass is dense, so much shorter than render
+# distance). Cells farther than this draw no grass. 0 disables grass entirely.
+grass_distance = 8192
+
+# Distant terrain LOD radius in cells (>= render_distance). Cells beyond the full-detail
+# render_distance load as terrain-only, downsampled coarser with distance, so the
+# landscape recedes into the distance instead of ending at the streaming window edge.
+lod_distance = 24
+
+# Distant-object LOD radius in cells (<= lod_distance). Larger statics within this range
+# render as instanced coarse meshes; beyond it the LOD rings show terrain only. Each cell
+# adds draw calls ~= its distinct-model count, so raise this gradually.
+object_lod_distance = 5
