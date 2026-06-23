@@ -1,0 +1,6 @@
+# SkyMod settings — "key = value" per line; '#' starts a comment.
+source_game =
+
+# Keep every run's log in a timestamped logs/ folder instead of overwriting the
+# single skymod.log (same as passing --persist-logs).
+persist_logs = false

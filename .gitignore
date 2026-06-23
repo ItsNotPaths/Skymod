@@ -1,0 +1,23 @@
+vendor/
+
+# compiled shaders
+src/render/shaders/*.spv
+
+# build outputs
+build/
+tools/
+nifdump
+
+# golden 
+tests/golden/**
+!tests/golden/.gitkeep
+!tests/golden/README.md
+
+ROADMAP.md
+README.md
+docs/
+
+*.log
+/logs/
+*.o
+
