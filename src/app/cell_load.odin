@@ -328,6 +328,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: u32) {
 		world.stream_collapse(t.st, t.st.full_radius) // keep only the inner full-detail window
 	}
 	t.interior = world.scene_init(t.r, t.v)
+	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
 	world.load_cell(&t.interior, t.db, cell_id)
 	gather_doors(t, {cell_id}, &t.int_doors)
 	t.mode = .Interior

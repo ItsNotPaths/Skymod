@@ -15,6 +15,7 @@ package nif
 Geometry :: struct {
 	vertices:  [][3]f32,
 	normals:   [][3]f32, // empty if absent
+	tangents:  [][4]f32, // authored tangent-space basis: xyz = tangent, w = bitangent handedness (±1); empty if absent
 	uvs:       [][2]f32, // first UV set, empty if absent
 	triangles: []u16,    // 3 indices per triangle, flattened
 	center:    [3]f32,
@@ -24,6 +25,7 @@ Geometry :: struct {
 destroy_geometry :: proc(g: ^Geometry) {
 	delete(g.vertices)
 	delete(g.normals)
+	delete(g.tangents)
 	delete(g.uvs)
 	delete(g.triangles)
 	g^ = {}
@@ -70,8 +72,25 @@ parse_tri_shape_data :: proc(b: []u8, allocator := context.allocator) -> (g: Geo
 			g.normals[i] = read_vec3(&r)
 		}
 		if has_tangents {
-			for _ in 0 ..< num_verts * 2 { // tangents + bitangents
-				_ = read_vec3(&r)
+			// Authored tangent + bitangent arrays (two separate runs). Keep the tangent and
+			// derive the bitangent HANDEDNESS (±1) by comparing cross(N,T) to the stored
+			// bitangent — so the shader reconstructs B = cross(N,T)·w (handles mirrored UVs).
+			g.tangents = make([][4]f32, num_verts)
+			tans := make([][3]f32, num_verts, context.temp_allocator)
+			for i in 0 ..< num_verts {
+				tans[i] = read_vec3(&r)
+			}
+			for i in 0 ..< num_verts {
+				bt := read_vec3(&r)
+				t := tans[i]
+				n := g.normals[i]
+				// cross(n, t)
+				c := [3]f32{n[1] * t[2] - n[2] * t[1], n[2] * t[0] - n[0] * t[2], n[0] * t[1] - n[1] * t[0]}
+				w: f32 = 1
+				if c[0] * bt[0] + c[1] * bt[1] + c[2] * bt[2] < 0 {
+					w = -1
+				}
+				g.tangents[i] = {t[0], t[1], t[2], w}
 			}
 		}
 	}

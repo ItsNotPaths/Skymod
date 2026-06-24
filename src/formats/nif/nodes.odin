@@ -29,6 +29,8 @@ PlacedShape :: struct {
 	geometry:     Geometry,
 	world:        matrix[4, 4]f32,
 	diffuse:      string,
+	normal:       string, // normal-map path (texture-set slot 1), owned; "" if none
+	material:     Material, // specular/glossiness/emissive scalars (DEFAULT_MATERIAL if none)
 	alpha_cutoff: f32,
 	lod_tris:     [3]u32,
 	is_effect:    bool, // BSEffectShaderProperty (fire/FX) — rendered additive, not opaque
@@ -63,6 +65,7 @@ destroy_shapes :: proc(shapes: []PlacedShape) {
 	for &s in shapes {
 		destroy_geometry(&s.geometry)
 		delete(s.diffuse)
+		delete(s.normal)
 		delete(s.name)
 	}
 	delete(shapes)
@@ -156,13 +159,14 @@ walk_node :: proc(
 				// field (not a texture set) + a controller-driven UV scroll; lit shapes resolve
 				// the usual lighting-shader diffuse. Both feed the same `diffuse` (VFS) pipe.
 				is_eff := is_effect_shader(h, info.shader_ref)
-				diffuse: string
+				diffuse, normal: string
+				material := DEFAULT_MATERIAL
 				scroll: [2]f32
 				if is_eff {
 					eff := resolve_effect(data, h, info.shader_ref)
 					diffuse, scroll = eff.source, eff.scroll
 				} else {
-					diffuse = resolve_diffuse(data, h, info.shader_ref)
+					diffuse, normal, material = resolve_lighting(data, h, info.shader_ref)
 				}
 				cutoff := resolve_alpha(data, h, info.alpha_ref)
 				name := block_name(h, info)
@@ -172,6 +176,8 @@ walk_node :: proc(
 						geometry = g,
 						world = world,
 						diffuse = diffuse,
+						normal = normal,
+						material = material,
 						alpha_cutoff = cutoff,
 						lod_tris = info.lod_tris,
 						is_effect = is_eff,

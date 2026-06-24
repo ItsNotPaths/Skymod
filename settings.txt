@@ -24,6 +24,11 @@ lod_distance = 24
 # adds draw calls ~= its distinct-model count, so raise this gradually.
 object_lod_distance = 5
 
+# Asset-decode worker threads (BSA + NIF + DDS). 0 = auto (logical cores - 1). The decode
+# path is thread-safe, so more threads fill the asset queue faster — mainly speeds the
+# initial load. GPU upload stays single-threaded, so returns taper past core count.
+load_threads = 0
+
 # EXPERIMENTAL: render interior cells THROUGH their load door with a stencil portal, so you
 # see into the room with no load screen ("Open Cities"-style, generalized to any interior).
 # The interior stays in its own coordinate space and is drawn from a virtual camera relayed

@@ -31,6 +31,9 @@ Default :: struct {
 DEFAULTS := [?]Default {
 	{"source_game", ""},
 	{"persist_logs", "false"},
+	// Pretty mode: hide the white, untextured editor-marker placeholders (effect placements,
+	// bird/patrol routes, X markers) that slip past the name-based filter. Also set with --pretty.
+	{"pretty", "false"},
 	// Exterior render distance as the streaming window half-size in cells: the
 	// loaded square is (2·render_distance + 1)² cells around the player. Higher =
 	// see farther, more to stream/draw. LOD distance settings will join this when
@@ -56,6 +59,13 @@ DEFAULTS := [?]Default {
 	// inlined (and how far before it unloads, plus a hysteresis margin). Only used when
 	// experimental_open_interiors is on.
 	{"interior_load_distance", "2048"},
+	// Active lighting profile at boot: a baked name ("vanilla"/"realistic") or a sidecar
+	// folder under profiles/. Edit + save live in the in-game Lighting panel.
+	{"lighting_profile", "vanilla"},
+	// Sun-shadow draw distance in world units (cascaded shadow maps cover [near, this]). 0
+	// disables shadows. Shorter = crisper near shadows (cascades pack closer); longer = shadows
+	// farther out but coarser. Strength/softness/bias are per lighting profile.
+	{"shadow_distance", "20000"},
 }
 
 // Config is an ordered key/value store: `keys` preserves write order, `vals` maps

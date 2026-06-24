@@ -260,6 +260,129 @@ effect_interp_speed :: proc(data: []u8, h: ^Header, interp_ref: i32) -> f32 {
 	return (vN - v0) / (tN - t0)
 }
 
+// Material is the per-shape lit material from a BSLightingShaderProperty (Skyrim
+// specular-glossiness model): specular color/strength, glossiness (Blinn-Phong-ish
+// exponent), and emissive color/multiple. The profile reinterprets these at runtime
+// (spec_scale, gloss remap, emissive_scale) for modern shading.
+Material :: struct {
+	spec_color:     [3]f32,
+	spec_strength:  f32,
+	glossiness:     f32,
+	emissive_color: [3]f32,
+	emissive_mult:  f32,
+}
+
+// DEFAULT_MATERIAL: no specular (strength 0), mild glossiness, no emissive — the safe
+// fallback when a shape has no lighting shader / the material scalars don't parse.
+DEFAULT_MATERIAL :: Material {
+	spec_color     = {1, 1, 1},
+	spec_strength  = 0,
+	glossiness     = 30,
+	emissive_color = {0, 0, 0},
+	emissive_mult  = 1,
+}
+
+// resolve_lighting decodes a BSLightingShaderProperty in one pass: the texture set's diffuse
+// (slot 0) + normal (slot 1) paths AND the material scalars. Layout (Skyrim LE 20.2.0.7), after
+// the Texture Set ref (see texture_set_ref for the head): Emissive Color (vec3), Emissive Multiple
+// (f32), Texture Clamp Mode (u32), Alpha (f32), Refraction Strength (f32), Glossiness (f32),
+// Specular Color (vec3), Specular Strength (f32). Validated against real NIFs via nifdump. Both
+// strings are cloned into the ambient allocator (caller frees). Material defaults if the scalars
+// run short; textures resolve independently of the scalar read.
+resolve_lighting :: proc(
+	data: []u8,
+	h: ^Header,
+	shader_ref: i32,
+	allocator := context.allocator,
+) -> (
+	diffuse, normal: string,
+	mat: Material,
+) {
+	context.allocator = allocator
+	mat = DEFAULT_MATERIAL
+	si := int(shader_ref)
+	if si < 0 || si >= int(h.num_blocks) || block_type(h, si) != "BSLightingShaderProperty" {
+		return "", "", mat
+	}
+	ts_ref, m, ok := parse_lighting_material(block_data(h, data, si))
+	if !ok {
+		return "", "", mat
+	}
+	mat = m
+	diffuse, normal = resolve_texset(data, h, ts_ref, allocator)
+	return
+}
+
+// parse_lighting_material decodes a BSLightingShaderProperty block body: the Texture Set ref
+// (head — see texture_set_ref) followed by the material scalars (Skyrim LE layout): Emissive
+// Color (vec3), Emissive Multiple (f32), Texture Clamp Mode (u32), Alpha (f32), Refraction
+// Strength (f32), Glossiness (f32), Specular Color (vec3), Specular Strength (f32). ok=false if
+// the head (through the texture-set ref) overruns; if only the scalars run short, mat keeps
+// DEFAULT_MATERIAL but ok stays true (the texture set is still usable). Operates on raw block
+// bytes (no Header) so it's unit-testable like texture_set_ref.
+parse_lighting_material :: proc(b: []u8) -> (ts_ref: i32, mat: Material, ok: bool) {
+	mat = DEFAULT_MATERIAL
+	r := Reader{data = b, ok = true}
+	_ = read_u32(&r) // Skyrim Shader Type
+	_ = read_i32(&r) // Name
+	n_extra := int(read_u32(&r))
+	if !r.ok || n_extra < 0 || n_extra > MAX_LIST {
+		return -1, mat, false
+	}
+	for _ in 0 ..< n_extra {
+		_ = read_i32(&r) // Extra Data refs
+	}
+	_ = read_i32(&r) // Controller
+	_ = read_u32(&r) // Shader Flags 1
+	_ = read_u32(&r) // Shader Flags 2
+	_ = read_vec2(&r) // UV Offset
+	_ = read_vec2(&r) // UV Scale
+	ts_ref = read_i32(&r) // Texture Set ref
+	if !r.ok {
+		return -1, mat, false
+	}
+	em := read_vec3(&r) // Emissive Color
+	em_mult := read_f32(&r) // Emissive Multiple
+	_ = read_u32(&r) // Texture Clamp Mode
+	_ = read_f32(&r) // Alpha
+	_ = read_f32(&r) // Refraction Strength
+	gloss := read_f32(&r) // Glossiness
+	sc := read_vec3(&r) // Specular Color
+	ss := read_f32(&r) // Specular Strength
+	if r.ok {
+		mat = Material {
+			spec_color     = sc,
+			spec_strength  = ss,
+			glossiness     = gloss,
+			emissive_color = em,
+			emissive_mult  = em_mult,
+		}
+	}
+	return ts_ref, mat, true
+}
+
+// resolve_texset reads the diffuse (slot 0) + normal (slot 1) paths from a BSShaderTextureSet
+// ref. Either may be "" (absent). Cloned into the ambient allocator.
+@(private)
+resolve_texset :: proc(data: []u8, h: ^Header, ts_ref: i32, allocator := context.allocator) -> (diffuse, normal: string) {
+	context.allocator = allocator
+	ti := int(ts_ref)
+	if ti < 0 || ti >= int(h.num_blocks) || block_type(h, ti) != "BSShaderTextureSet" {
+		return "", ""
+	}
+	paths, pok := parse_texture_set(block_data(h, data, ti), context.temp_allocator)
+	if !pok {
+		return "", ""
+	}
+	if len(paths) > TEX_DIFFUSE && paths[TEX_DIFFUSE] != "" {
+		diffuse = strings.clone(paths[TEX_DIFFUSE])
+	}
+	if len(paths) > TEX_NORMAL && paths[TEX_NORMAL] != "" {
+		normal = strings.clone(paths[TEX_NORMAL])
+	}
+	return
+}
+
 // resolve_diffuse follows a shape's shader_ref → BSLightingShaderProperty → texture
 // set → slot 0, returning the diffuse path (cloned into the ambient allocator) or ""
 // if the chain is absent/effect-shader/empty. Non-fatal: a missing texture just

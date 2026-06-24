@@ -53,6 +53,41 @@ test_nif_texture_set_ref :: proc(t: ^testing.T) {
 	testing.expect_value(t, ref, i32(42))
 }
 
+@(test)
+test_nif_lighting_material :: proc(t: ^testing.T) {
+	// BSLightingShaderProperty body: the texture_set_ref head, then the material scalars.
+	// Guards the offsets (Emissive Color/Mult, clamp, alpha, refraction, Glossiness, Specular
+	// Color/Strength). REAL validation is nifdump --all (0 garbage scalars game-wide).
+	b := make([dynamic]u8, 0, 96)
+	defer delete(b)
+	mput_u32(&b, 0) // Skyrim Shader Type
+	mput_u32(&b, transmute(u32)i32(-1)) // Name
+	mput_u32(&b, 0) // Num Extra Data List
+	mput_u32(&b, transmute(u32)i32(-1)) // Controller
+	mput_u32(&b, 0) // Shader Flags 1
+	mput_u32(&b, 0) // Shader Flags 2
+	mput_f32(&b, 0);mput_f32(&b, 0) // UV Offset
+	mput_f32(&b, 1);mput_f32(&b, 1) // UV Scale
+	mput_u32(&b, transmute(u32)i32(7)) // Texture Set ref
+	mput_f32(&b, 0.1);mput_f32(&b, 0.2);mput_f32(&b, 0.3) // Emissive Color
+	mput_f32(&b, 2.5) // Emissive Multiple
+	mput_u32(&b, 0) // Texture Clamp Mode
+	mput_f32(&b, 1) // Alpha
+	mput_f32(&b, 0) // Refraction Strength
+	mput_f32(&b, 80) // Glossiness
+	mput_f32(&b, 0.9);mput_f32(&b, 0.9);mput_f32(&b, 1.0) // Specular Color
+	mput_f32(&b, 3.0) // Specular Strength
+
+	ts_ref, mat, ok := nif.parse_lighting_material(b[:])
+	testing.expect(t, ok, "parse lighting material")
+	testing.expect_value(t, ts_ref, i32(7))
+	testing.expect_value(t, mat.emissive_mult, f32(2.5))
+	testing.expect_value(t, mat.glossiness, f32(80))
+	testing.expect_value(t, mat.spec_strength, f32(3.0))
+	testing.expect_value(t, mat.spec_color.z, f32(1.0))
+	testing.expect_value(t, mat.emissive_color.x, f32(0.1))
+}
+
 @(private = "file")
 mput_u32 :: proc(b: ^[dynamic]u8, v: u32) {
 	tmp: [4]u8

@@ -94,6 +94,42 @@ test_esm_xxxx_overflow :: proc(t: ^testing.T) {
 }
 
 @(test)
+// Synthetic IMGS: HNAM (HDR, 9 floats) + CNAM (cinematic, 3) + TNAM (tint, 4), the real
+// Skyrim subrecord split (validated against Skyrim.esm via esmdump --imgs). Guards the
+// HNAM white/sun/sky + CNAM saturation/brightness/contrast + TNAM amount/color offsets.
+test_esm_imagespace :: proc(t: ^testing.T) {
+	hnam := make([dynamic]u8, 0, 36);defer delete(hnam)
+	for v in ([?]f32{45, 7, 0.7, 3.25, 0.7, 0.95, 2.3, 0.315, 5}) {append(&hnam, ..f32_bytes(v))}
+	cnam := make([dynamic]u8, 0, 12);defer delete(cnam)
+	for v in ([?]f32{1.375, 1.1, 1.275}) {append(&cnam, ..f32_bytes(v))}
+	tnam := make([dynamic]u8, 0, 16);defer delete(tnam)
+	for v in ([?]f32{0.65, 0.81, 0.69, 0.64}) {append(&tnam, ..f32_bytes(v))}
+
+	body := make([dynamic]u8, 0, 80);defer delete(body)
+	field(&body, "EDID", []u8{'I', 'S', 0})
+	field(&body, "HNAM", hnam[:])
+	field(&body, "CNAM", cnam[:])
+	field(&body, "TNAM", tnam[:])
+
+	rec := esm.Record{type = "IMGS", data = body[:]}
+	fl, backing, ok := esm.fields(rec)
+	testing.expect(t, ok)
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	im, dok := esm.decode_imagespace(fl)
+	testing.expect(t, dok, "decode HNAM/CNAM/TNAM")
+	testing.expect_value(t, im.hdr_white, f32(0.95))
+	testing.expect_value(t, im.sunlight_scale, f32(2.3))
+	testing.expect_value(t, im.sky_scale, f32(0.315))
+	testing.expect_value(t, im.saturation, f32(1.375))
+	testing.expect_value(t, im.brightness, f32(1.1))
+	testing.expect_value(t, im.contrast, f32(1.275))
+	testing.expect_value(t, im.tint_amount, f32(0.65))
+	testing.expect_value(t, im.tint_color.y, f32(0.69))
+}
+
+@(test)
 test_esm_land_heights :: proc(t: ^testing.T) {
 	// VHGT = base offset f32 + 33×33 signed-byte gradients + 3 pad. Heights accumulate:
 	// the first column of each row is a delta from the previous row's first column, and

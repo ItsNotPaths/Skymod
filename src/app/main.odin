@@ -16,6 +16,7 @@ import "core:math"
 import "core:mem"
 import "core:os"
 import "core:slice"
+import "core:sys/info"
 
 import "../gamedb"
 import "../installer"
@@ -32,6 +33,9 @@ WINDOW_W :: 1280
 WINDOW_H :: 720
 
 main :: proc() {
+	// Dump a native backtrace to stderr/log on a fatal signal (flaky-crash diagnostic).
+	install_crash_handler()
+
 	// The raw heap allocator, captured BEFORE the debug tracking wrap below. The
 	// streamer's worker thread allocates CPU bundles that the main thread frees; using
 	// this (thread-safe, untracked) allocator for them keeps that cross-thread
@@ -98,7 +102,7 @@ main :: proc() {
 		relaunch()
 	}
 
-	run_game(&logging, &cfg, loader_alloc)
+	run_game(&logging, &cfg, loader_alloc, base)
 }
 
 // run_installer shows the first-boot installer window: a small ImGui screen that
@@ -170,7 +174,7 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 // free-fly debug camera (step 5) + Dear ImGui overlay (step 6) + logging (step 7).
 // Reached once content/ is installed. Logging is already up; cfg is borrowed for
 // any future window/gameplay settings.
-run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator) {
+run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator, base: string) {
 	p, ok := platform.init("SkyMod", WINDOW_W, WINDOW_H)
 	if !ok {
 		return
@@ -205,6 +209,15 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 
 	scene := world.scene_init(&r, &v)
 	defer world.scene_destroy(&scene) // runs AFTER stream_destroy (LIFO) — worker stopped first
+	// pretty: hide the white untextured editor-marker placeholders (effect placements,
+	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
+	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
+	// pushed onto whichever scene we draw each frame (so it also reaches the active interior).
+	pretty := slice.contains(os.args, "--pretty") || settings.get_bool(cfg, "pretty")
+	scene.pretty = pretty
+	if pretty {
+		log.info("--pretty: hiding untextured marker placeholders (toggle in Stats)")
+	}
 
 	RIVERWOOD_GX :: 5
 	RIVERWOOD_GY :: -11
@@ -215,11 +228,31 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	lod_radius := max(settings.get_int(cfg, "lod_distance", 24), full_radius)
 	obj_radius := settings.get_int(cfg, "object_lod_distance", 8)
 
+	// Decode pool size. load_threads = 0 → auto (logical cores − 1, leaving the main thread a
+	// core); an explicit value overrides. The heavy BSA+NIF+DDS decode is thread-safe, so more
+	// threads fill the asset queue faster — the win is biggest during the initial full load.
+	decode_threads := settings.get_int(cfg, "load_threads", 0)
+	if decode_threads <= 0 {
+		_, logical, cores_ok := info.cpu_core_count()
+		decode_threads = max(logical - 1, 1) if cores_ok else 4
+	}
+	log.infof("stream: %d decode threads", decode_threads)
+
 	// Grass draw distance (world units) + a basic, reusable wind (a future HDT-SMP-style
 	// sim would drive/replace the procedural sway). `elapsed` advances the wind phase.
 	grass_dist := f32(settings.get_int(cfg, "grass_distance", 8192))
+	shadow_dist := f32(settings.get_int(cfg, "shadow_distance", 20000))
 	wind := render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
 	elapsed: f32
+	diag_t: f32 // throttle for the periodic memory/cache diagnostic log
+
+	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): once, derive a data-faithful
+	// "skyrim" profile from the user's own Skyrim.esm imagespace (local, never shipped), then
+	// load the active profile (baked "vanilla"/"realistic", the derived "skyrim", or any sidecar
+	// under <base>/profiles/). Live-editable via the Lighting panel; pushed each frame below.
+	ensure_game_lighting_profile(base, settings.get(cfg, "source_game"))
+	lights := lighting_state_init(base, settings.get(cfg, "lighting_profile"))
+	defer lighting_state_destroy(&lights)
 
 	// EXPERIMENTAL (open-interiors foundation): when experimental_open_interiors is set, discover
 	// the worldspace's load-door → interior links (build_portals) so the door alignment data is
@@ -239,11 +272,11 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	interiors_on := false
 	if wfid, found := gamedb.find_world(&db, "Tamriel"); found {
 		world.build_far_terrain(&scene, &db, wfid) // whole-world coarse backdrop (visible from anywhere)
-		world.stream_init(&streamer, &scene, &db, wfid, lod_radius, full_radius, obj_radius, loader_alloc)
+		world.stream_init(&streamer, &scene, &db, wfid, lod_radius, full_radius, obj_radius, loader_alloc, decode_threads)
 		if pos, sok := stream_spawn(&db, wfid, RIVERWOOD_GX, RIVERWOOD_GY); sok {
 			cam.pos = pos
 		}
-		world.stream_update(&streamer, cam.pos) // prime the first window before frame 1
+		world.stream_begin_load(&streamer, cam.pos) // arm full-load: build the spawn bubble up front
 		if open_interiors {
 			world.interiors_init(&interiors, &scene, &db, &streamer, wfid, interior_dist)
 			interiors_on = true
@@ -262,6 +295,16 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// Left-click a model to inspect it (handy for confirming what streamed in).
 	insp: tools.Inspector
 
+	// Dev command console (fixed bottom-left panel): the seat for the command system to come —
+	// our own semantics plus CE aliases (tcl, player.additem, …). Today it only echoes.
+	console: tools.Console
+	tools.console_init(&console)
+	defer tools.console_destroy(&console)
+	tools.console_print(&console, "SkyMod console — type a command and press Enter. (command system not wired yet)")
+
+	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. On by default.
+	show_overlay := true
+
 	// Debug: when `entered`, we've loaded fully INTO the active portal's interior cell (camera +
 	// picker operate in interior-local space) instead of viewing it through the portal — for
 	// inspecting what's in the room (e.g. the door panel). INTERIOR_EYE = camera height above the
@@ -271,49 +314,105 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
+	// Full-load screen: pump the decode pool at full tilt and show a progress bar until the
+	// spawn bubble is fully resident, THEN drop into the gameplay loop — no empty-world-then-
+	// pop-in. Stays responsive (input pumps, ESC/close work) since each iteration presents.
+	for world.stream_loading(&streamer) && platform.pump(&p) {
+		render.ui_new_frame(&r)
+		done, total, _ := world.stream_pump_load(&streamer)
+		tools.loading_screen("Loading Tamriel…", done, total)
+		if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
+			render.end_frame(&r)
+		}
+		free_all(context.temp_allocator)
+	}
+
 	for platform.pump(&p) {
 		render.ui_new_frame(&r)
-		if tools.debug_overlay(p.dt, logging.persisting, logging.persist_path) {
-			if slog.persist_run(logging) {
-				context.logger = logging.logger // re-install: persist_run added a sink
-			}
+		if p.input.toggle_overlay {
+			show_overlay = !show_overlay
 		}
+
 		st := world.stream_stats(&streamer)
-		tools.stream_panel(st.gx, st.gy, st.chunks, st.inflight, st.reqs, st.ready)
-		if interiors_on {
-			is := world.interiors_stats(&interiors, cam.pos)
-			act := tools.interiors_panel(
-				is.portals,
-				is.load_dist,
-				is.nearest_dist,
-				&portal_push,
-				&portal_yaw_off,
-				interiors.active,
-				entered,
+		// Periodic memory/cache probe (run with --persist-logs to keep the trail across a crash):
+		// climbing RSS/cache = a leak; flat RSS at the crash points elsewhere (e.g. a GPU hazard).
+		// Runs regardless of overlay visibility (it's a background crash trail, not a panel).
+		diag_t += p.dt
+		if diag_t >= 3 {
+			diag_t = 0
+			mc, tc := world.cache_counts(&scene)
+			log.infof(
+				"diag: cell (%d,%d) chunks=%d cache models=%d tex=%d rss=%dMB",
+				st.gx, st.gy, st.chunks, mc, tc, proc_rss_mb(),
 			)
-			#partial switch act {
-			case .Enter:
-				if interiors.active {
-					pp := interiors.active_portal
-					into := world.into_room_dir(pp)
-					cam.pos = pp.tp_pos + smath.Vec3{0, 0, INTERIOR_EYE}
-					cam.yaw = math.atan2(into.y, into.x)
-					cam.pitch = 0
-					entered = true
-					log.infof("interiors: loaded INTO cell 0x%08X (debug walk-in)", pp.int_cell)
-				}
-			case .Exit:
-				pp := interiors.active_portal
-				cam.pos = pp.door_pos - smath.scale3(pp.ext_dir, 160) + smath.Vec3{0, 0, INTERIOR_EYE}
-				cam.yaw = math.atan2(pp.ext_dir.y, pp.ext_dir.x)
-				cam.pitch = -0.1
-				entered = false
-				log.info("interiors: exited to exterior")
-			}
 		}
-		insp_action := tools.inspector_panel(&insp)
-		if insp_action == .Cull_Tex && interiors_on {
-			world.interiors_add_cull_tex(&interiors, insp.sel_tex)
+
+		// The whole dev overlay (` toggles it). Hidden = no panels, so ImGui captures nothing
+		// and the camera/door keys drive the bare scene; the game-logic keys (F, etc.) are
+		// independent of the panels and keep working below.
+		insp_action: tools.Inspect_Action
+		if show_overlay {
+			if tools.debug_overlay(p.dt, logging.persisting, logging.persist_path, &pretty) {
+				if slog.persist_run(logging) {
+					context.logger = logging.logger // re-install: persist_run added a sink
+				}
+			}
+			tools.stream_panel(st.gx, st.gy, st.chunks, st.inflight, st.reqs, st.ready)
+			if interiors_on {
+				is := world.interiors_stats(&interiors, cam.pos)
+				act := tools.interiors_panel(
+					is.portals,
+					is.load_dist,
+					is.nearest_dist,
+					&portal_push,
+					&portal_yaw_off,
+					interiors.active,
+					entered,
+				)
+				#partial switch act {
+				case .Enter:
+					if interiors.active {
+						pp := interiors.active_portal
+						into := world.into_room_dir(pp)
+						cam.pos = pp.tp_pos + smath.Vec3{0, 0, INTERIOR_EYE}
+						cam.yaw = math.atan2(into.y, into.x)
+						cam.pitch = 0
+						entered = true
+						log.infof("interiors: loaded INTO cell 0x%08X (debug walk-in)", pp.int_cell)
+					}
+				case .Exit:
+					pp := interiors.active_portal
+					cam.pos = pp.door_pos - smath.scale3(pp.ext_dir, 160) + smath.Vec3{0, 0, INTERIOR_EYE}
+					cam.yaw = math.atan2(pp.ext_dir.y, pp.ext_dir.x)
+					cam.pitch = -0.1
+					entered = false
+					log.info("interiors: exited to exterior")
+				}
+			}
+			insp_action = tools.inspector_panel(&insp)
+			if insp_action == .Cull_Tex && interiors_on {
+				world.interiors_add_cull_tex(&interiors, insp.sel_tex)
+			}
+
+			// Lighting configurator: live-edit the active profile, switch profiles, or save.
+			light_act := tools.lighting_panel(&lights.active, lights.names[:], lights.current)
+			if light_act.select >= 0 && light_act.select != lights.current {
+				lighting_select(&lights, light_act.select)
+				settings.set(cfg, "lighting_profile", lights.names[lights.current])
+				_ = settings.save(cfg)
+			}
+			if light_act.save {
+				if lighting_save(&lights) {
+					log.infof("lighting: saved profile %q", lights.names[lights.current])
+				}
+			}
+
+			// Dev console: echo submitted commands for now (CE-alias dispatch is future work).
+			if cmd := tools.console_panel(&console); cmd != "" {
+				tools.console_printf(&console, "> %s", cmd)
+				tools.console_printf(&console, "unknown command (command system not wired yet)")
+				log.infof("console: %q", cmd)
+			}
 		}
 
 		mouse_cap, kb_cap := render.ui_capturing(&r)
@@ -338,6 +437,10 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			in_interior = trav.mode == .Interior
 			active_scene = traversal_scene(&trav)
 		}
+		// Live pretty toggle: apply to the exterior + whichever scene we draw this frame (draw
+		// reads scene.pretty each frame, so this takes effect immediately).
+		scene.pretty = pretty
+		active_scene.pretty = pretty
 
 		// Stream the exterior window around the (now-moved) camera — unless we're inside an
 		// interior (camera is in interior-local space; the streamer is paused). Re-windows on
@@ -401,7 +504,51 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 
 		elapsed += p.dt
 
-		if render.begin_frame(&r, {0.10, 0.11, 0.13, 1.0}) {
+		// Scene lighting + sun shadows. Build the env; if shadows are on (exterior only — interiors
+		// have no sun), compute the cascades + fold them in for sampling. The cascade caster passes
+		// run on the FRAME command buffer between frame_acquire and scene_begin, so the shadow-array
+		// write → sampler read is one command buffer and SDL3_gpu inserts the barrier (a separate
+		// shadow cmd buffer faulted the Intel Vulkan driver).
+		env := lighting_env(&lights.active, cam.pos)
+		shadows_on := shadow_dist > 0 && lights.active.shadow_strength > 0 && !in_interior
+		cascades: Cascades
+		vmode := world.Veg_Shadow_Mode.Proxy
+		if shadows_on {
+			cascades = compute_cascades(cam, render.aspect(&r), lights.active.sun_dir, shadow_dist)
+			for i in 0 ..< render.SHADOW_CASCADES {
+				env.csm_vp[i] = cascades.vp[i]
+				env.csm_splits[i] = cascades.splits[i]
+			}
+			texel := lights.active.shadow_softness / f32(render.SHADOW_RES)
+			env.shadow_params = {
+				lights.active.shadow_strength,
+				lights.active.shadow_bias,
+				texel,
+				f32(render.SHADOW_CASCADES),
+			}
+			// Vegetation shadow tier comes from the active lighting profile (per-preset, live).
+			switch lights.active.veg_shadows {
+			case .Off:
+				vmode = .Off
+			case .Full:
+				vmode = .Full
+			case .Proxy:
+				vmode = .Proxy
+			}
+		}
+		render.set_lighting(&r, env)
+		render.set_post(&r, lighting_post(&lights.active))
+		sky := lights.active.sky_color
+		if render.frame_acquire(&r) {
+			if shadows_on {
+				for c in 0 ..< render.SHADOW_CASCADES {
+					render.shadow_cascade(&r, c)
+					// Cap casters to the shadow region (+1 cell margin for tall off-slice casters).
+					world.draw_casters(&scene, &r, cascades.vp[c], cascades.frusta[c], cam.pos, shadow_dist + 4096, vmode)
+					render.shadow_cascade_end(&r)
+				}
+			}
+			render.scene_begin(&r, {sky.x, sky.y, sky.z, 1.0})
 			vp := camera_view_proj(cam, render.aspect(&r))
 			if in_interior {
 				// Inside a loaded interior cell (interior-local coords): draw it full-screen.
@@ -446,6 +593,26 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	}
 
 	log.info("SkyMod shutting down")
+}
+
+// proc_rss_mb reads this process's resident set size (MB) from /proc/self/statm (Linux) — the
+// 2nd field is resident pages × 4 KiB. Returns -1 if unavailable. A diagnostic probe for the
+// extended-flight segfault (is memory climbing?).
+proc_rss_mb :: proc() -> int {
+	data, err := os.read_entire_file("/proc/self/statm", context.temp_allocator)
+	if err != nil || len(data) == 0 {
+		return -1
+	}
+	s := string(data)
+	i := 0
+	for i < len(s) && s[i] != ' ' {i += 1} // skip field 0 (total program size)
+	for i < len(s) && s[i] == ' ' {i += 1}
+	n := 0
+	for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+		n = n * 10 + int(s[i] - '0')
+		i += 1
+	}
+	return n * 4096 / (1024 * 1024)
 }
 
 when ODIN_DEBUG {

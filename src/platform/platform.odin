@@ -26,6 +26,7 @@ Input :: struct {
 	activate:  bool,   // F pressed this pump (edge) — use the nearby door
 	hover:     bool,   // Ctrl held — inspect mode: highlight + pick the model under the cursor
 	mouse_ndc: [2]f32, // cursor in normalized device coords: x right [-1,1], y up [-1,1]
+	toggle_overlay: bool, // ` (backtick/tilde) pressed this pump (edge) — show/hide the dev overlay
 }
 
 // Event_Hook is called for every raw SDL event during pump(). Used to forward
@@ -89,6 +90,7 @@ pump :: proc(p: ^Platform) -> bool {
 	look: [2]f32
 	select := false
 	activate := false
+	toggle_overlay := false
 
 	ev: sdl.Event
 	for sdl.PollEvent(&ev) {
@@ -104,6 +106,9 @@ pump :: proc(p: ^Platform) -> bool {
 			}
 			if ev.key.scancode == .F && !ev.key.repeat {
 				activate = true
+			}
+			if ev.key.scancode == .GRAVE && !ev.key.repeat {
+				toggle_overlay = true
 			}
 		case .MOUSE_BUTTON_DOWN:
 			if ev.button.button == sdl.BUTTON_LEFT {
@@ -159,6 +164,7 @@ pump :: proc(p: ^Platform) -> bool {
 		activate  = activate,
 		hover     = hover,
 		mouse_ndc = mouse_ndc,
+		toggle_overlay = toggle_overlay,
 	}
 
 	now := sdl.GetTicks()

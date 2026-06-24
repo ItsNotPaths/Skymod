@@ -33,6 +33,8 @@ import "../vfs"
 Shape :: struct {
 	mesh:         render.Mesh,
 	tex:          render.Texture,
+	normal:       render.Texture, // normal map (cache-owned; flat-normal fallback at draw if zero)
+	material:     nif.Material, // specular/glossiness/emissive scalars (DEFAULT_MATERIAL if none)
 	diffuse_path: string, // owned diffuse texture path ("" = none) — for inspect + texture-based cull
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque); foliage cutouts
@@ -56,6 +58,12 @@ Model :: struct {
 	pick_idx: []u32, // triangle indices into pick_pos (3 per face), owned
 	pick_shape: []u32, // per-triangle shape index (len = len(pick_idx)/3) — maps a hit face to its Shape, owned
 	has_effect: bool, // any shape is a BSEffectShaderProperty FX — lets draw_effects skip non-FX models
+	untextured: bool, // EVERY shape resolved to the white-fallback texture (uploaded diffuse handle nil:
+	                  // no texture named, or named one that's missing/undecodable) — i.e. the model renders
+	                  // as a flat white placeholder. --pretty hides these; a real textured mesh (incl.
+	                  // effects: rapids/fire/mist) has at least one bound diffuse, so untextured=false.
+	shadow_proxy: render.Mesh, // low-poly canopy hull for cheap tree shadows (Phase D2); zero mesh if none
+	has_shadow_proxy: bool, // canopy substantial enough for a proxy (else cast full alpha)
 }
 
 // lod_index_count returns how many indices to draw for a shape at LOD `level` (0=full,
@@ -90,11 +98,20 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
 	}
 }
 
+// cache_counts reports how many unique models + textures are resident — a memory-growth probe
+// (the cache is monotonic during exploration; this climbing unbounded points at eviction).
+cache_counts :: proc(c: ^Cache) -> (models, textures: int) {
+	return len(c.models), len(c.textures)
+}
+
 cache_destroy :: proc(c: ^Cache) {
 	for key, m in c.models {
 		for sh in m.shapes {
 			render.release_mesh(c.r, sh.mesh)
 			delete(sh.diffuse_path)
+		}
+		if m.has_shadow_proxy {
+			render.release_mesh(c.r, m.shadow_proxy)
 		}
 		delete(m.shapes)
 		delete(m.path)
@@ -175,7 +192,7 @@ get_texture :: proc(c: ^Cache, path: string) -> (render.Texture, bool) {
 	if t, hit := c.textures[key]; hit {
 		return t, true
 	}
-	cpu := decode_texture(c.v, path, context.temp_allocator) // temp: freed at frame end
+	cpu := decode_texture(c.v, path, alloc = context.temp_allocator) // temp: freed at frame end
 	if !cpu.ok {
 		return {}, false
 	}
@@ -202,10 +219,13 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	batch := render.upload_begin(c.r)
 	shapes := make([]Shape, len(cpu.shapes))
 	has_effect := false
+	untextured := true // cleared by the first opaque shape that carries a diffuse texture
 	for cs, i in cpu.shapes {
 		shapes[i] = Shape {
 			mesh         = render.upload_mesh_into(&batch, cs.verts, cs.indices),
 			tex          = upload_or_cached_texture(c, &batch, cs.diffuse_path, cs.diffuse),
+			normal       = upload_or_cached_texture(c, &batch, cs.normal_path, cs.normal),
+			material     = cs.material,
 			diffuse_path = strings.clone(cs.diffuse_path),
 			local        = cs.local,
 			alpha_cutoff = cs.alpha_cutoff,
@@ -214,6 +234,19 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 			scroll       = cs.scroll,
 		}
 		has_effect ||= cs.is_effect
+		// "Blank white" is exactly the renderer's white-fallback condition: a shape draws
+		// r.white_tex when its uploaded diffuse handle is nil — which happens both when the NIF
+		// names no texture AND when it names one that's missing/undecodable. Keying on the
+		// resolved handle (not the path string) catches the declared-but-unresolvable case too.
+		if shapes[i].tex.tex != nil {
+			untextured = false
+		}
+	}
+	// Canopy-hull proxy uploads in the SAME batch (must be before upload_end, which submits +
+	// frees the batch — uploading after would record into a freed batch and crash).
+	proxy_mesh: render.Mesh
+	if cpu.has_proxy {
+		proxy_mesh = render.upload_mesh_into(&batch, cpu.proxy_verts, cpu.proxy_indices)
 	}
 	render.upload_end(&batch)
 
@@ -223,6 +256,11 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	m.center = cpu.center
 	m.radius = cpu.radius
 	m.has_effect = has_effect
+	m.untextured = untextured
+	if cpu.has_proxy {
+		m.shadow_proxy = proxy_mesh
+		m.has_shadow_proxy = true
+	}
 	build_pick_geometry(m, cpu)
 	c.models[strings.clone(key)] = m
 	return m, true
@@ -286,6 +324,9 @@ Cpu_Shape :: struct {
 	indices:      []u16, // owned
 	diffuse_path: string, // owned ("" if none)
 	diffuse:      Cpu_Tex,
+	normal_path:  string, // owned ("" if none) — normal-map texture path
+	normal:       Cpu_Tex, // decoded normal map (linear, NOT sRGB)
+	material:     nif.Material, // specular/glossiness/emissive scalars
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque)
 	lod_tris:     [3]u32, // BSLODTriShape per-level triangle partition ({0,0,0} = none)
@@ -296,11 +337,14 @@ Cpu_Shape :: struct {
 // Cpu_Model is decode_model's output: owned CPU buffers, all allocated in the
 // allocator passed to decode_model. Free with free_cpu_model (same allocator).
 Cpu_Model :: struct {
-	ok:     bool,
-	path:   string, // owned
-	shapes: []Cpu_Shape,
-	center: smath.Vec3,
-	radius: f32,
+	ok:            bool,
+	path:          string, // owned
+	shapes:        []Cpu_Shape,
+	center:        smath.Vec3,
+	radius:        f32,
+	proxy_verts:   []render.Mesh_Vertex, // canopy-hull shadow proxy (owned; empty if none)
+	proxy_indices: []u16, // owned
+	has_proxy:     bool,
 }
 
 // decode_model reads + parses a model into owned CPU buffers (in `alloc`). Pure CPU,
@@ -345,7 +389,16 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 			if i < len(ps.geometry.uvs) {
 				uv = ps.geometry.uvs[i]
 			}
-			verts[i] = {pos = ps.geometry.vertices[i], normal = n, uv = uv}
+			// Tangent: prefer the authored NIF basis (matches the baked normal map); else a
+			// stable perpendicular to the normal (only matters if a normal map exists w/o
+			// authored tangents — rare; usually no tangents ⇔ no normal map).
+			t := [4]f32{1, 0, 0, 1}
+			if i < len(ps.geometry.tangents) {
+				t = ps.geometry.tangents[i]
+			} else {
+				t = default_tangent(n)
+			}
+			verts[i] = {pos = ps.geometry.vertices[i], normal = n, uv = uv, tangent = t}
 		}
 		// Model-space bounds: the shape's bounding sphere placed by its NIF transform,
 		// expanded into the model AABB (for picking).
@@ -361,7 +414,18 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 			low := strings.to_lower(ps.diffuse, context.temp_allocator)
 			if !seen_tex[low] {
 				seen_tex[low] = true
-				tex = decode_texture(v, ps.diffuse, alloc) // first use → decode; dups stay un-ok
+				tex = decode_texture(v, ps.diffuse, alloc = alloc) // first use → decode; dups stay un-ok
+			}
+		}
+		// Normal map (texture-set slot 1) — decoded LINEAR (srgb=false); deduped like diffuse.
+		npath := ""
+		ntex: Cpu_Tex
+		if ps.normal != "" {
+			npath = strings.clone(ps.normal, alloc)
+			low := strings.to_lower(ps.normal, context.temp_allocator)
+			if !seen_tex[low] {
+				seen_tex[low] = true
+				ntex = decode_texture(v, ps.normal, srgb = false, alloc = alloc)
 			}
 		}
 		shapes[si] = Cpu_Shape {
@@ -369,6 +433,9 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 			indices      = slice.clone(ps.geometry.triangles, alloc),
 			diffuse_path = dpath,
 			diffuse      = tex,
+			normal_path  = npath,
+			normal       = ntex,
+			material     = ps.material,
 			local        = ps.world,
 			alpha_cutoff = ps.alpha_cutoff,
 			lod_tris     = ps.lod_tris,
@@ -377,12 +444,30 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		}
 	}
 
+	// Canopy-hull shadow proxy: gather the alpha-tested (leaf) shapes' vertices in MODEL space
+	// (apply each shape's local transform) and wrap them in a low-poly lathe hull. Built here on
+	// the worker (pure CPU); uploaded in upload_cpu_model. ok=false → cast full (blacklist path).
+	canopy := make([dynamic][3]f32, 0, 256, context.temp_allocator)
+	for ps in placed {
+		if ps.alpha_cutoff <= 0 || ps.is_effect {
+			continue
+		}
+		for vtx in ps.geometry.vertices {
+			wp := ps.world * [4]f32{vtx.x, vtx.y, vtx.z, 1}
+			append(&canopy, [3]f32{wp.x, wp.y, wp.z})
+		}
+	}
+	pv, pi, phas := build_canopy_proxy(canopy[:], alloc)
+
 	return Cpu_Model {
-		ok     = true,
-		path   = strings.clone(modl, alloc),
-		shapes = shapes,
-		center = smath.scale3(lo + hi, 0.5),
-		radius = 0.5 * smath.length3(hi - lo),
+		ok            = true,
+		path          = strings.clone(modl, alloc),
+		shapes        = shapes,
+		center        = smath.scale3(lo + hi, 0.5),
+		radius        = 0.5 * smath.length3(hi - lo),
+		proxy_verts   = pv,
+		proxy_indices = pi,
+		has_proxy     = phas,
 	}
 }
 
@@ -400,20 +485,43 @@ free_cpu_model :: proc(cpu: Cpu_Model, alloc := context.allocator) {
 			delete(cs.diffuse.pixels, alloc)
 			delete(cs.diffuse.mips, alloc)
 		}
+		if cs.normal_path != "" {
+			delete(cs.normal_path, alloc)
+		}
+		if cs.normal.ok {
+			delete(cs.normal.pixels, alloc)
+			delete(cs.normal.mips, alloc)
+		}
 	}
 	delete(cpu.shapes, alloc)
 	if cpu.path != "" {
 		delete(cpu.path, alloc)
 	}
+	delete(cpu.proxy_verts, alloc)
+	delete(cpu.proxy_indices, alloc)
 }
 
 // --- internals ---
 
-// decode_texture reads + parses a diffuse DDS into an owned Cpu_Tex (pixels copied
-// out of the temp-read file into `alloc`). Returns an un-ok Cpu_Tex on miss /
+// default_tangent derives a stable unit tangent perpendicular to `n` (handedness +1) — the
+// fallback when a shape has no authored NIF tangent. Picks the world axis least aligned with
+// the normal to avoid a degenerate cross product.
+@(private)
+default_tangent :: proc(n: smath.Vec3) -> [4]f32 {
+	axis := smath.Vec3{1, 0, 0}
+	if abs(n.x) > 0.9 {
+		axis = {0, 1, 0}
+	}
+	t := smath.normalize3(smath.cross3(axis, n))
+	return {t.x, t.y, t.z, 1}
+}
+
+// decode_texture reads + parses a DDS into an owned Cpu_Tex (pixels copied out of the
+// temp-read file into `alloc`). `srgb` tags the color space for upload — diffuse/glow are
+// sRGB (true), NORMAL maps are linear data (false). Returns an un-ok Cpu_Tex on miss /
 // unsupported format (→ white fallback at upload).
 @(private)
-decode_texture :: proc(v: ^vfs.VFS, path: string, alloc := context.allocator) -> Cpu_Tex {
+decode_texture :: proc(v: ^vfs.VFS, path: string, srgb := true, alloc := context.allocator) -> Cpu_Tex {
 	if path == "" {
 		return {}
 	}
@@ -445,7 +553,7 @@ decode_texture :: proc(v: ^vfs.VFS, path: string, alloc := context.allocator) ->
 		mips[i] = {width = mp.width, height = mp.height, data = blob[off:off + len(mp.data)]}
 		off += len(mp.data)
 	}
-	return Cpu_Tex{ok = true, format = rfmt, srgb = true, pixels = blob, mips = mips} // diffuse = sRGB
+	return Cpu_Tex{ok = true, format = rfmt, srgb = srgb, pixels = blob, mips = mips}
 }
 
 // upload_or_cached_texture returns the cache's GPU texture for `path`, uploading `cpu`

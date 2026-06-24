@@ -146,6 +146,43 @@ round_up4 :: proc(v: u32) -> u32 {
 	return (v + 3) & ~u32(3)
 }
 
+// make_flat_normal_texture builds the 1x1 {128,128,255,255} fallback — a tangent-space
+// normal of (0,0,1) (flat) + spec mask 1 in alpha — bound for shapes with no normal map, so
+// the lit shader's normal-map sample is a no-op there. Linear data (NOT sRGB).
+@(private)
+make_flat_normal_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
+	tex := sdl.CreateGPUTexture(
+		device,
+		{
+			type = .D2,
+			format = .R8G8B8A8_UNORM,
+			usage = {.SAMPLER},
+			width = 1,
+			height = 1,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = ._1,
+		},
+	)
+	px := [4]u8{128, 128, 255, 255}
+	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = 4})
+	dst := sdl.MapGPUTransferBuffer(device, tb, false)
+	mem.copy(dst, raw_data(px[:]), 4)
+	sdl.UnmapGPUTransferBuffer(device, tb)
+	cmd := sdl.AcquireGPUCommandBuffer(device)
+	cp := sdl.BeginGPUCopyPass(cmd)
+	sdl.UploadToGPUTexture(
+		cp,
+		{transfer_buffer = tb, offset = 0, pixels_per_row = 1, rows_per_layer = 1},
+		{texture = tex, w = 1, h = 1, d = 1},
+		false,
+	)
+	sdl.EndGPUCopyPass(cp)
+	_ = sdl.SubmitGPUCommandBuffer(cmd)
+	sdl.ReleaseGPUTransferBuffer(device, tb)
+	return tex
+}
+
 // make_white_texture builds the 1x1 opaque-white fallback bound for untextured
 // shapes (so the diffuse-sampling shader shows plain shading).
 @(private)

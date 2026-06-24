@@ -182,3 +182,15 @@ perspective_rh_zo :: proc(fovy, aspect, near, far: f32) -> Mat4 {
 		0, 0, -1, 0,
 	}
 }
+
+// ortho_rh_zo is a right-handed orthographic projection with a zero-to-one depth range
+// (Vulkan/SDL3_gpu), matching perspective_rh_zo's conventions. Used for the directional-light
+// shadow cascades: an axis-aligned box fitted around a camera frustum slice in light space.
+ortho_rh_zo :: proc(l, r, b, t, near, far: f32) -> Mat4 {
+	return Mat4 {
+		2 / (r - l), 0, 0, -(r + l) / (r - l),
+		0, 2 / (t - b), 0, -(t + b) / (t - b),
+		0, 0, -1 / (far - near), -near / (far - near),
+		0, 0, 0, 1,
+	}
+}

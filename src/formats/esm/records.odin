@@ -304,6 +304,67 @@ refr_teleport :: proc(fields: []Field) -> (Teleport, bool) {
 		true
 }
 
+// Imagespace (IMGS) tone/color parameters (Skyrim layout — validated vs real Skyrim.esm via
+// esmdump --imgs). Skyrim splits these across three subrecords, NOT one DNAM:
+//   HNAM (HDR, 36B/9 floats): eye-adapt speed, bloom blur, bloom threshold, bloom scale, receive
+//     bloom, WHITE point, SUNLIGHT scale, SKY scale, eye-adapt strength.
+//   CNAM (Cinematic, 12B): SATURATION, BRIGHTNESS, CONTRAST.
+//   TNAM (Tint, 16B): TINT AMOUNT, tint color RGB.
+//   (DNAM, 16B, is depth-of-field — not needed.)
+// These are Bethesda's authored per-look grade, fed to CE's hardcoded HDR shader. We read them
+// from the USER's OWN ESM at install time to derive a data-faithful lighting profile LOCALLY —
+// NEVER baked into the shipped binary (they're Bethesda content; see lighting-system-design).
+Imagespace :: struct {
+	eye_adapt_speed:      f32,
+	bloom_blur:           f32,
+	bloom_threshold:      f32,
+	bloom_scale:          f32,
+	recv_bloom_threshold: f32,
+	hdr_white:            f32,
+	sunlight_scale:       f32,
+	sky_scale:            f32,
+	eye_adapt_strength:   f32,
+	saturation:           f32,
+	brightness:           f32,
+	contrast:             f32,
+	tint_amount:          f32,
+	tint_color:           [3]f32,
+}
+
+// decode_imagespace reads an IMGS record's HNAM/CNAM/TNAM. ok=false if the HDR block (HNAM) is
+// absent/short; CNAM/TNAM default to neutral if missing.
+decode_imagespace :: proc(fields: []Field) -> (im: Imagespace, ok: bool) {
+	h, hok := find_field(fields, "HNAM")
+	if !hok || len(h.data) < 36 {
+		return {}, false
+	}
+	im = Imagespace {
+		eye_adapt_speed      = rf32(h.data, 0),
+		bloom_blur           = rf32(h.data, 4),
+		bloom_threshold      = rf32(h.data, 8),
+		bloom_scale          = rf32(h.data, 12),
+		recv_bloom_threshold = rf32(h.data, 16),
+		hdr_white            = rf32(h.data, 20),
+		sunlight_scale       = rf32(h.data, 24),
+		sky_scale            = rf32(h.data, 28),
+		eye_adapt_strength   = rf32(h.data, 32),
+		saturation           = 1,
+		brightness           = 1,
+		contrast             = 1,
+		tint_color           = {1, 1, 1},
+	}
+	if c, cok := find_field(fields, "CNAM"); cok && len(c.data) >= 12 {
+		im.saturation = rf32(c.data, 0)
+		im.brightness = rf32(c.data, 4)
+		im.contrast = rf32(c.data, 8)
+	}
+	if t, tok := find_field(fields, "TNAM"); tok && len(t.data) >= 16 {
+		im.tint_amount = rf32(t.data, 0)
+		im.tint_color = {rf32(t.data, 4), rf32(t.data, 8), rf32(t.data, 12)}
+	}
+	return im, true
+}
+
 @(private)
 rf32 :: proc(b: []u8, off: int) -> f32 {
 	v, _ := endian.get_u32(b[off:off + 4], .Little)
