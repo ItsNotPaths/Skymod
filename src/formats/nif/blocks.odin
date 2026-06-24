@@ -125,6 +125,118 @@ parse_tri_shape_data :: proc(b: []u8, allocator := context.allocator) -> (g: Geo
 	return g, true
 }
 
+// parse_skin_partition_tris extracts the triangle index list from a NiSkinPartition
+// block. Skyrim stores SKINNED geometry's triangles here, leaving the NiTriShapeData's
+// own triangle list empty (num_triangles 0) — the canopy of a tree, swaying branches,
+// banners, chains. We render these statically (bind pose), so we only want the
+// connectivity: positions/normals/UVs still come from the NiTriShapeData, and each
+// partition-local index is mapped back to a global vertex index through the partition's
+// Vertex Map. Returns a flat u16 triangle list (3 indices per triangle).
+//
+// Layout is Skyrim LE (BS 83). We read the full SkinPartition sub-block (including the
+// trailing bone-index + BS Unknown Short fields) so multi-partition blocks advance
+// correctly. `num_geom_verts` is the owning NiTriShapeData's vertex count, used to drop
+// any triangle that maps out of range (a self-check, like validate_geometry).
+parse_skin_partition_tris :: proc(
+	b: []u8,
+	num_geom_verts: int,
+	allocator := context.allocator,
+) -> (tris: []u16, ok: bool) {
+	context.allocator = allocator
+	r := Reader{data = b, ok = true}
+
+	num_part := int(read_u32(&r))
+	if !r.ok || num_part < 0 || num_part > MAX_LIST {
+		return nil, false
+	}
+
+	out := make([dynamic]u16, 0, 512)
+	emit :: proc(out: ^[dynamic]u16, vmap: []u16, num_geom_verts: int, a, b, c: u16) {
+		ga := vmap[int(a)] if len(vmap) > 0 && int(a) < len(vmap) else a
+		gb := vmap[int(b)] if len(vmap) > 0 && int(b) < len(vmap) else b
+		gc := vmap[int(c)] if len(vmap) > 0 && int(c) < len(vmap) else c
+		if int(ga) >= num_geom_verts || int(gb) >= num_geom_verts || int(gc) >= num_geom_verts {
+			return // out of range — drop (mapping/layout self-check)
+		}
+		append(out, ga, gb, gc)
+	}
+
+	for _ in 0 ..< num_part {
+		num_verts := int(read_u16(&r))
+		num_tris := int(read_u16(&r))
+		num_bones := int(read_u16(&r))
+		num_strips := int(read_u16(&r))
+		num_wpv := int(read_u16(&r))
+		if !r.ok ||
+		   num_verts < 0 || num_verts > MAX_LIST ||
+		   num_tris < 0 || num_tris > MAX_LIST ||
+		   num_strips < 0 || num_strips > MAX_LIST {
+			delete(out)
+			return nil, false
+		}
+		for _ in 0 ..< num_bones {_ = read_u16(&r)} // Bones (skeleton bone indices)
+
+		has_vmap := read_u8(&r) != 0
+		vmap: []u16
+		if has_vmap {
+			vmap = make([]u16, num_verts, context.temp_allocator)
+			for i in 0 ..< num_verts {vmap[i] = read_u16(&r)}
+		}
+
+		has_vweights := read_u8(&r) != 0
+		if has_vweights {
+			for _ in 0 ..< num_verts * num_wpv {_ = read_f32(&r)} // skin weights (unused — static)
+		}
+
+		strip_lengths := make([]int, num_strips, context.temp_allocator)
+		for i in 0 ..< num_strips {strip_lengths[i] = int(read_u16(&r))}
+
+		has_faces := read_u8(&r) != 0
+		if has_faces && num_strips != 0 {
+			for sl in strip_lengths {
+				strip := make([]u16, sl, context.temp_allocator)
+				for j in 0 ..< sl {strip[j] = read_u16(&r)}
+				if !r.ok {break}
+				// Destripe: alternate winding, skip degenerate triangles.
+				for i in 0 ..< sl - 2 {
+					a, bb, c := strip[i], strip[i + 1], strip[i + 2]
+					if a == bb || bb == c || a == c {
+						continue
+					}
+					if i % 2 == 0 {
+						emit(&out, vmap, num_geom_verts, a, bb, c)
+					} else {
+						emit(&out, vmap, num_geom_verts, bb, a, c)
+					}
+				}
+			}
+		} else if has_faces {
+			for _ in 0 ..< num_tris {
+				a := read_u16(&r)
+				bb := read_u16(&r)
+				c := read_u16(&r)
+				emit(&out, vmap, num_geom_verts, a, bb, c)
+			}
+		}
+
+		// Trailing skin fields — read past them so the next sub-block aligns.
+		has_bone_idx := read_u8(&r) != 0
+		if has_bone_idx {
+			for _ in 0 ..< num_verts * num_wpv {_ = read_u8(&r)} // bone indices
+		}
+		_ = read_u16(&r) // BS Unknown Short (LOD level), BS version > 34
+		if !r.ok {
+			break
+		}
+	}
+
+	if !r.ok && len(out) == 0 {
+		delete(out)
+		return nil, false
+	}
+	return out[:], len(out) > 0
+}
+
 // validate_geometry self-checks decoded geometry against the NIF's own bounding
 // sphere and index bounds — a strong signal the field layout is right.
 validate_geometry :: proc(g: ^Geometry) -> (ok: bool, reason: string) {

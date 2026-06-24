@@ -47,6 +47,15 @@ DEFAULTS := [?]Default {
 	// range render as instanced coarse meshes; beyond it the LOD rings are terrain-only.
 	// Each cell adds draws ≈ its distinct-model count, so raise this gradually.
 	{"object_lod_distance", "5"},
+	// EXPERIMENTAL: inline interior cells into the exterior worldspace so you can walk
+	// through a load door with no load screen ("Open Cities"-style, any interior). Interiors
+	// are placed by their door alignment and stream in/out by proximity. May clip/overlap —
+	// off by default; normal load-screen interior loading remains the supported path.
+	{"experimental_open_interiors", "false"},
+	// How close (world units) the player must get to a load door before its interior is
+	// inlined (and how far before it unloads, plus a hysteresis margin). Only used when
+	// experimental_open_interiors is on.
+	{"interior_load_distance", "2048"},
 }
 
 // Config is an ordered key/value store: `keys` preserves write order, `vals` maps

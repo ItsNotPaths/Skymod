@@ -47,6 +47,20 @@ camera_update :: proc(c: ^Camera, move: smath.Vec3, look: [2]f32, fast: bool, dt
 	c.pos += smath.scale3(up, move.z * step)
 }
 
+// camera_ray builds a world-space ray (origin at the eye) through a screen point given in
+// normalized device coords (`ndc`: x right, y up, both [-1,1]). Derived from the camera
+// basis + FOV so it matches perspective_rh_zo exactly — used to pick the model under the
+// mouse cursor (no matrix inverse needed).
+camera_ray :: proc(c: Camera, aspect: f32, ndc: [2]f32) -> (origin, dir: smath.Vec3) {
+	fwd := camera_forward(c)
+	right := smath.normalize3(smath.cross3(fwd, {0, 0, 1}))
+	up := smath.cross3(right, fwd) // camera up (matches look_at_rh's u)
+	ty := math.tan(CAM_FOV_Y * 0.5)
+	tx := ty * aspect
+	d := fwd + smath.scale3(right, ndc.x * tx) + smath.scale3(up, ndc.y * ty)
+	return c.pos, smath.normalize3(d)
+}
+
 camera_view_proj :: proc(c: Camera, aspect: f32) -> smath.Mat4 {
 	eye := c.pos
 	center := eye + camera_forward(c)

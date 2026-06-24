@@ -81,6 +81,50 @@ cell_grid :: proc(fields: []Field) -> (x: i32, y: i32, ok: bool) {
 	return 0, 0, false
 }
 
+// WATER_NONE is the XCLW "no override" sentinel (FLT_MAX): the cell defers to its
+// worldspace's default water height. Bit pattern 0x7F7FFFFF == max(f32).
+WATER_NONE :: max(f32)
+
+// WATER_MAX_PLAUSIBLE bounds a real water height. Besides WATER_NONE, Skyrim cells carry
+// other "no water" markers in XCLW (observed 0xCF000000 = −2³¹, and a positive ~4.3e9),
+// which are NOT sea levels — they'd float a plane in the sky. Any |XCLW| above this bound
+// is treated as "no water". Real Skyrim heights sit well under ±100k, so 1e6 is safe.
+WATER_MAX_PLAUSIBLE :: f32(1e6)
+
+// cell_water_height reads a CELL's XCLW (water height, f32). The returned value may be
+// the WATER_NONE sentinel (FLT_MAX) — meaning "use the worldspace default"; the caller
+// resolves that. ok=false when the cell has no XCLW at all (no water).
+cell_water_height :: proc(fields: []Field) -> (f32, bool) {
+	if f, ok := find_field(fields, "XCLW"); ok && len(f.data) >= 4 {
+		return rf32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// cell_water_type reads a CELL's XCWT — the formID of the WATR water type painted in
+// this cell (river/ocean/marsh; governs the eventual water appearance). ok=false if
+// absent (the cell either has no water or falls back to the worldspace default type).
+cell_water_type :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "XCWT"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// world_water_height reads a WRLD's default water height — the level a cell's XCLW
+// sentinel (WATER_NONE) resolves to (e.g. Tamriel's −14000 sea level). Prefers NAM4
+// (LOD water height, the authoritative sea level), else DNAM's second f32
+// ({defaultLandHeight, defaultWaterHeight}). ok=false if neither is present.
+world_water_height :: proc(fields: []Field) -> (f32, bool) {
+	if f, ok := find_field(fields, "NAM4"); ok && len(f.data) >= 4 {
+		return rf32(f.data, 0), true
+	}
+	if f, ok := find_field(fields, "DNAM"); ok && len(f.data) >= 8 {
+		return rf32(f.data, 4), true
+	}
+	return 0, false
+}
+
 // decode_refr reads a REFR's NAME (base), DATA (pos+rot) and optional XSCL (scale).
 decode_refr :: proc(fields: []Field) -> Placement {
 	p := Placement{scale = 1}

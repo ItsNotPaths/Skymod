@@ -12,13 +12,14 @@ package main
 import "base:runtime"
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:mem"
 import "core:os"
-import "core:path/filepath"
 import "core:slice"
 
 import "../gamedb"
 import "../installer"
+import smath "../math"
 import "../platform"
 import "../render"
 import slog "../log"
@@ -73,6 +74,13 @@ main :: proc() {
 	// source_game set; mounts the archives directly, no install/streaming).
 	if slice.contains(os.args, "--lodtest") {
 		run_lod_test(&cfg)
+		return
+	}
+
+	// Dev: `--doortest` opens the single-door sandbox for the open-interiors door rig
+	// (swing the hinge, find the open pose). Needs source_game; mounts archives directly.
+	if slice.contains(os.args, "--doortest") {
+		run_door_test(&cfg)
 		return
 	}
 
@@ -213,8 +221,22 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	wind := render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
 	elapsed: f32
 
+	// EXPERIMENTAL (open-interiors foundation): when experimental_open_interiors is set, discover
+	// the worldspace's load-door → interior links (build_portals) so the door alignment data is
+	// available + visible in the overlay. The renderer that consumes these is a future stencil-
+	// portal effort; the RTT prototype was removed. See the open-interiors-portal memory notes.
+	open_interiors := settings.get_bool(cfg, "experimental_open_interiors")
+	interior_dist := f32(settings.get_int(cfg, "interior_load_distance", 2048))
+	// Live portal-camera tuning (debug sliders): how far past the doorway plane to clamp the
+	// relay eye (clears the entrance wall) + a yaw offset on the relayed look direction.
+	portal_push: f32 = 32
+	portal_yaw_off: f32 = 0
+
 	cam := Camera{yaw = 2.3, pitch = -0.3}
 	streamer: world.Streamer
+	trav: Traversal // base door traversal (exterior ↔ interior); independent of open-interiors
+	interiors: world.Interiors
+	interiors_on := false
 	if wfid, found := gamedb.find_world(&db, "Tamriel"); found {
 		world.build_far_terrain(&scene, &db, wfid) // whole-world coarse backdrop (visible from anywhere)
 		world.stream_init(&streamer, &scene, &db, wfid, lod_radius, full_radius, obj_radius, loader_alloc)
@@ -222,13 +244,30 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			cam.pos = pos
 		}
 		world.stream_update(&streamer, cam.pos) // prime the first window before frame 1
+		if open_interiors {
+			world.interiors_init(&interiors, &scene, &db, &streamer, wfid, interior_dist)
+			interiors_on = true
+			log.infof("EXPERIMENTAL: open-interiors door discovery on (%d interiors linked)", len(interiors.portals))
+		}
 	} else {
 		log.error("worldspace Tamriel not found")
 	}
+	// Base door navigator: borrows the exterior scene + streamer (whatever their state) and
+	// indexes the worldspace's load doors. Safe even if no worldspace armed (no doors → inert).
+	traversal_init(&trav, &scene, &streamer, &db, &v, &r)
+	defer if interiors_on {world.interiors_destroy(&interiors)} // before scene_destroy (LIFO)
+	defer traversal_destroy(&trav) // frees any loaded interior + the door index
 	defer world.stream_destroy(&streamer)
 
 	// Left-click a model to inspect it (handy for confirming what streamed in).
 	insp: tools.Inspector
+
+	// Debug: when `entered`, we've loaded fully INTO the active portal's interior cell (camera +
+	// picker operate in interior-local space) instead of viewing it through the portal — for
+	// inspecting what's in the room (e.g. the door panel). INTERIOR_EYE = camera height above the
+	// arrival marker / exterior door when entering / exiting.
+	entered := false
+	INTERIOR_EYE :: f32(96)
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
@@ -241,8 +280,41 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		}
 		st := world.stream_stats(&streamer)
 		tools.stream_panel(st.gx, st.gy, st.chunks, st.inflight, st.reqs, st.ready)
-		tools.inspector_panel(&insp)
-		tools.crosshair()
+		if interiors_on {
+			is := world.interiors_stats(&interiors, cam.pos)
+			act := tools.interiors_panel(
+				is.portals,
+				is.load_dist,
+				is.nearest_dist,
+				&portal_push,
+				&portal_yaw_off,
+				interiors.active,
+				entered,
+			)
+			#partial switch act {
+			case .Enter:
+				if interiors.active {
+					pp := interiors.active_portal
+					into := world.into_room_dir(pp)
+					cam.pos = pp.tp_pos + smath.Vec3{0, 0, INTERIOR_EYE}
+					cam.yaw = math.atan2(into.y, into.x)
+					cam.pitch = 0
+					entered = true
+					log.infof("interiors: loaded INTO cell 0x%08X (debug walk-in)", pp.int_cell)
+				}
+			case .Exit:
+				pp := interiors.active_portal
+				cam.pos = pp.door_pos - smath.scale3(pp.ext_dir, 160) + smath.Vec3{0, 0, INTERIOR_EYE}
+				cam.yaw = math.atan2(pp.ext_dir.y, pp.ext_dir.x)
+				cam.pitch = -0.1
+				entered = false
+				log.info("interiors: exited to exterior")
+			}
+		}
+		insp_action := tools.inspector_panel(&insp)
+		if insp_action == .Cull_Tex && interiors_on {
+			world.interiors_add_cull_tex(&interiors, insp.sel_tex)
+		}
 
 		mouse_cap, kb_cap := render.ui_capturing(&r)
 		move, look := p.input.move, p.input.look
@@ -250,13 +322,71 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		if mouse_cap {look = {}}
 		camera_update(&cam, move, look, p.input.fast, p.dt)
 
-		// Stream the window around the (now-moved) camera: re-windows on cell crossing,
-		// uploads decoded models under the per-frame budget. Never blocks the frame.
-		world.stream_update(&streamer, cam.pos)
+		// Which scene the player inhabits this frame + whether it's a full-screen interior
+		// (the streamer is paused there). The experimental open-interiors path keeps its own
+		// debug walk-in (`entered`); the base path is driven by the Traversal door navigator.
+		in_interior: bool
+		active_scene: ^world.Scene
+		if interiors_on {
+			in_interior = entered
+			if entered {
+				active_scene = &interiors.interior_scene
+			} else {
+				active_scene = &scene
+			}
+		} else {
+			in_interior = trav.mode == .Interior
+			active_scene = traversal_scene(&trav)
+		}
 
-		// Left-click aims the crosshair (camera forward) and picks a model.
-		if p.input.select && !mouse_cap {
-			if inst, pok := world.pick(&scene, cam.pos, camera_forward(cam)); pok {
+		// Stream the exterior window around the (now-moved) camera — unless we're inside an
+		// interior (camera is in interior-local space; the streamer is paused). Re-windows on
+		// cell crossing, uploads decoded models under the per-frame budget. Never blocks.
+		if !in_interior {
+			world.stream_update(&streamer, cam.pos)
+			if interiors_on {
+				// Open interiors (EXPERIMENTAL): keep the nearest in-range portal's interior
+				// loaded (GPU work, so outside begin_frame). Rendered through the doorway below.
+				world.interiors_update(&interiors, cam.pos)
+			}
+		}
+
+		// Base door traversal: auto-load doors (cave/dungeon entrances) cross on PROXIMITY;
+		// manual doors (real meshes, incl. cross-worldspace city gates) arm a prompt and cross
+		// on F / the panel button. Covers interior, interior→interior, exterior return, and
+		// cross-worldspace gates.
+		if !interiors_on {
+			traversal_arrival_update(&trav, cam.pos) // re-arm auto-fire once clear of the last landing
+			hit := traversal_nearest_door(&trav, cam.pos)
+			crossed := false
+			// Auto-load: fire on proximity (no key), suppressed right after a transition.
+			if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !trav.has_arrival {
+				if np, nyaw, gok := go_through(&trav, hit); gok {
+					cam.pos, cam.yaw, cam.pitch = np, nyaw, 0
+					crossed = true
+				}
+			}
+			// Manual: prompt + F / button (skip for auto doors — they have no visible mesh).
+			insp.near_door = hit.ok && !hit.auto && !crossed
+			insp.near_door_cell = door_dest_label(&trav, hit.tp_door) if insp.near_door else ""
+			if insp.near_door && insp.near_door_cell != "" && (p.input.activate || insp_action == .Go_Through) {
+				if np, nyaw, gok := go_through(&trav, hit); gok {
+					cam.pos, cam.yaw, cam.pitch = np, nyaw, 0
+				}
+			}
+		}
+
+		// A portal interior is loaded and (when not entered) viewed through the doorway.
+		interior_active := interiors_on && interiors.active
+
+		// Inspect mode: hold Ctrl to highlight the model under the mouse cursor (a ray
+		// through the cursor, not the screen centre); left-click selects the highlighted
+		// one for the Inspector panel. Skip while ImGui owns the mouse.
+		world.clear_hover(active_scene)
+		if p.input.hover && !mouse_cap {
+			ro, rd := camera_ray(cam, render.aspect(&r), p.input.mouse_ndc)
+			if inst, shp, hok := world.hover_pick(active_scene, ro, rd); hok && p.input.select {
+				world.select_instance(active_scene)
 				insp.has_sel = true
 				insp.sel_name = inst.model.path
 				insp.sel_base = inst.base
@@ -264,19 +394,48 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				insp.sel_rot = inst.rot
 				insp.sel_has_door = inst.has_tp
 				insp.sel_door_cell = ""
+				insp.sel_tex = inst.model.shapes[shp].diffuse_path if shp >= 0 && shp < len(inst.model.shapes) else ""
+				insp.sel_is_door = gamedb.is_door(&db, inst.base)
 			}
 		}
 
 		elapsed += p.dt
+
 		if render.begin_frame(&r, {0.10, 0.11, 0.13, 1.0}) {
 			vp := camera_view_proj(cam, render.aspect(&r))
-			world.draw_far_terrain(&scene, &r, vp) // whole-world coarse backdrop (drawn under detail)
-			world.draw(&scene, &r, vp)
-			world.draw_objects(&scene, &r, vp) // distant instanced statics (LOD rings)
-			if grass_dist > 0 {
-				world.draw_grass(&scene, &r, vp, cam.pos, grass_dist, wind, elapsed)
+			if in_interior {
+				// Inside a loaded interior cell (interior-local coords): draw it full-screen.
+				world.draw(active_scene, &r, vp)
+				world.draw_effects(active_scene, &r, vp, elapsed)
+				world.draw_highlight(active_scene, &r, vp)
+			} else {
+				world.draw_far_terrain(&scene, &r, vp) // whole-world coarse backdrop (drawn under detail)
+				world.draw(&scene, &r, vp, wind, elapsed) // trees + foliage sway under the global wind
+				world.draw_objects(&scene, &r, vp, wind, elapsed) // distant instanced statics + their veg (LOD rings)
+				if grass_dist > 0 {
+					world.draw_grass(&scene, &r, vp, cam.pos, grass_dist, wind, elapsed)
+				}
+				// Stencil portal: render the nearest in-range interior THROUGH its doorway, from a
+				// virtual camera relayed into interior space. After exterior opaque geometry (so a
+				// wall in front of the door hides it), before the translucent effect pass.
+				if interior_active {
+					relay := world.relay_view_proj(
+						interiors.active_portal,
+						cam.pos,
+						camera_forward(cam),
+						render.aspect(&r),
+						CAM_FOV_Y,
+						CAM_NEAR,
+						CAM_FAR,
+						portal_push,
+						portal_yaw_off,
+					)
+					world.interiors_render(&interiors, &r, vp, relay)
+				}
+				world.draw_water(&scene, &r, vp, cam.pos, elapsed) // flat per-cell water planes (transparent, over opaque)
+				world.draw_effects(&scene, &r, vp, elapsed) // additive FX (flowing water/fire/beams), over opaque (last)
+				world.draw_highlight(&scene, &r, vp, wind, elapsed) // inspect-mode hover highlight
 			}
-			world.draw_effects(&scene, &r, vp) // ghosted FX, blended over opaque (last)
 			render.end_frame(&r)
 		}
 

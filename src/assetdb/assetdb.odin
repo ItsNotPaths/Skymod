@@ -33,19 +33,28 @@ import "../vfs"
 Shape :: struct {
 	mesh:         render.Mesh,
 	tex:          render.Texture,
+	diffuse_path: string, // owned diffuse texture path ("" = none) — for inspect + texture-based cull
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque); foliage cutouts
 	lod_tris:     [3]u32, // BSLODTriShape per-level triangle partition ({0,0,0} = none)
-	is_effect:    bool, // BSEffectShaderProperty — draw ghosted (translucent), not opaque
+	is_effect:    bool, // BSEffectShaderProperty — draw additive (translucent), not opaque
+	scroll:       [2]f32, // effect-shader UV scroll speed (tiles/sec); 0 unless animated
 }
 
-// Model is a loaded NIF: drawable shapes + a model-space bounding sphere (picking) +
-// the MODL path it came from.
+// Model is a loaded NIF: drawable shapes + a model-space bounding sphere (frustum cull) +
+// the MODL path it came from + CPU pick geometry (model-space triangle positions, all
+// shapes concatenated) for precise ray-vs-face mouse picking. The pick geometry is the
+// only CPU copy retained after upload (positions + indices, no normals/UVs) — bounded by
+// the loaded set, freed with the model.
 Model :: struct {
-	path:   string, // owned
-	shapes: []Shape,
-	center: smath.Vec3,
-	radius: f32,
+	path:     string, // owned
+	shapes:   []Shape,
+	center:   smath.Vec3,
+	radius:   f32,
+	lo, hi:   smath.Vec3, // tight model-space AABB (broad-phase pick cull)
+	pick_pos: [][3]f32, // model-space vertex positions (shapes' local transforms applied), owned
+	pick_idx: []u32, // triangle indices into pick_pos (3 per face), owned
+	pick_shape: []u32, // per-triangle shape index (len = len(pick_idx)/3) — maps a hit face to its Shape, owned
 }
 
 // lod_index_count returns how many indices to draw for a shape at LOD `level` (0=full,
@@ -77,9 +86,13 @@ cache_destroy :: proc(c: ^Cache) {
 	for key, m in c.models {
 		for sh in m.shapes {
 			render.release_mesh(c.r, sh.mesh)
+			delete(sh.diffuse_path)
 		}
 		delete(m.shapes)
 		delete(m.path)
+		delete(m.pick_pos)
+		delete(m.pick_idx)
+		delete(m.pick_shape)
 		free(m)
 		delete(key)
 	}
@@ -157,10 +170,12 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 		shapes[i] = Shape {
 			mesh         = render.upload_mesh(c.r, cs.verts, cs.indices),
 			tex          = upload_or_cached_texture(c, cs.diffuse_path, cs.diffuse),
+			diffuse_path = strings.clone(cs.diffuse_path),
 			local        = cs.local,
 			alpha_cutoff = cs.alpha_cutoff,
 			lod_tris     = cs.lod_tris,
 			is_effect    = cs.is_effect,
+			scroll       = cs.scroll,
 		}
 	}
 	m := new(Model)
@@ -168,8 +183,48 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	m.path = strings.clone(cpu.path)
 	m.center = cpu.center
 	m.radius = cpu.radius
+	build_pick_geometry(m, cpu)
 	c.models[strings.clone(key)] = m
 	return m, true
+}
+
+// build_pick_geometry fills the model's CPU pick mesh: every shape's vertex positions
+// placed by its NIF-internal transform (so they share one model space) + a concatenated
+// triangle index list, plus the tight model-space AABB. Used for precise ray-vs-face
+// mouse picking (broad-phased by the AABB). Positions only — no normals/UVs.
+@(private)
+build_pick_geometry :: proc(m: ^Model, cpu: Cpu_Model) {
+	nverts, nidx := 0, 0
+	for cs in cpu.shapes {
+		nverts += len(cs.verts)
+		nidx += len(cs.indices)
+	}
+	m.pick_pos = make([][3]f32, nverts)
+	m.pick_idx = make([]u32, nidx)
+	m.pick_shape = make([]u32, nidx / 3)
+	lo := smath.Vec3{max(f32), max(f32), max(f32)}
+	hi := smath.Vec3{min(f32), min(f32), min(f32)}
+	vbase, ibase := 0, 0
+	for cs, si in cpu.shapes {
+		for v, i in cs.verts {
+			wp := cs.local * [4]f32{v.pos.x, v.pos.y, v.pos.z, 1}
+			p := [3]f32{wp.x, wp.y, wp.z}
+			m.pick_pos[vbase + i] = p
+			lo = {min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)}
+			hi = {max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)}
+		}
+		for idx, i in cs.indices {
+			m.pick_idx[ibase + i] = u32(vbase) + u32(idx)
+		}
+		for t in 0 ..< len(cs.indices) / 3 {
+			m.pick_shape[ibase / 3 + t] = u32(si)
+		}
+		vbase += len(cs.verts)
+		ibase += len(cs.indices)
+	}
+	if nverts > 0 {
+		m.lo, m.hi = lo, hi
+	}
 }
 
 // --- CPU side (thread-safe; no GPU, no cache) ---
@@ -194,7 +249,8 @@ Cpu_Shape :: struct {
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque)
 	lod_tris:     [3]u32, // BSLODTriShape per-level triangle partition ({0,0,0} = none)
-	is_effect:    bool, // BSEffectShaderProperty — draw ghosted
+	is_effect:    bool, // BSEffectShaderProperty — draw additive
+	scroll:       [2]f32, // effect-shader UV scroll speed (tiles/sec)
 }
 
 // Cpu_Model is decode_model's output: owned CPU buffers, all allocated in the
@@ -266,6 +322,7 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 			alpha_cutoff = ps.alpha_cutoff,
 			lod_tris     = ps.lod_tris,
 			is_effect    = ps.is_effect,
+			scroll       = ps.scroll,
 		}
 	}
 

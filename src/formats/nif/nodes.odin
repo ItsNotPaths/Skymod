@@ -9,6 +9,9 @@ package nif
 // Layout is Skyrim LE (20.2.0.7), validated empirically against real NIFs (the
 // composed world transforms must land geometry in sane Skyrim coordinates).
 
+import "core:fmt"
+import "core:strings"
+
 // Transform is one node's local TRS (NiAVObject).
 Transform :: struct {
 	translation: [3]f32,
@@ -28,7 +31,10 @@ PlacedShape :: struct {
 	diffuse:      string,
 	alpha_cutoff: f32,
 	lod_tris:     [3]u32,
-	is_effect:    bool, // BSEffectShaderProperty (fire/FX) — rendered ghosted, not opaque
+	is_effect:    bool, // BSEffectShaderProperty (fire/FX) — rendered additive, not opaque
+	scroll:       [2]f32, // effect-shader UV scroll speed (tiles/sec); 0 unless an animated effect
+	name:         string, // this shape's NiTriShape name (e.g. "DoorBlack"), owned; "" if unnamed
+	under_hinge:  bool, // true if a "Door" hinge node is an ancestor (animated door panel)
 }
 
 // parse_scene returns every NiTriShape in the file, world-placed. Caller frees with
@@ -44,7 +50,7 @@ parse_scene :: proc(data: []u8, h: ^Header, allocator := context.allocator) -> [
 	roots := parse_footer(data, h)
 	shapes := make([dynamic]PlacedShape, 0, 8)
 	for root in roots {
-		walk_node(infos, data, h, int(root), 1, &shapes)
+		walk_node(infos, data, h, int(root), 1, false, &shapes, is_root = true)
 	}
 	return shapes[:]
 }
@@ -53,22 +59,30 @@ destroy_shapes :: proc(shapes: []PlacedShape) {
 	for &s in shapes {
 		destroy_geometry(&s.geometry)
 		delete(s.diffuse)
+		delete(s.name)
 	}
 	delete(shapes)
 }
+
+// HINGE_NODE is the node name whose subtree is the animated door panel (Bethesda convention).
+// Shapes under it are tagged under_hinge so the door harness / portal can swing them.
+HINGE_NODE :: "Door"
 
 // --- internals ---
 
 @(private)
 Block_Info :: struct {
-	is_node:    bool,
-	is_shape:   bool,
-	transform:  Transform,
-	children:   []i32, // node children (temp)
-	data_ref:   i32,   // shape geometry data ref, or -1
-	shader_ref: i32,   // shape BSLightingShaderProperty ref, or -1
-	alpha_ref:  i32,   // shape NiAlphaProperty ref, or -1
-	lod_tris:   [3]u32, // BSLODTriShape per-level triangle counts ({0,0,0} if none)
+	is_node:        bool,
+	is_shape:       bool,
+	transform:      Transform,
+	name_ref:       i32, // Name StringRef into h.strings, or -1
+	controller_ref: i32, // Controller ref (animation chain root), or -1
+	children:       []i32, // node children (temp)
+	data_ref:       i32,   // shape geometry data ref, or -1
+	skin_ref:       i32,   // shape NiSkinInstance ref, or -1 (skinned geometry holds tris in the skin partition)
+	shader_ref:     i32,   // shape BSLightingShaderProperty ref, or -1
+	alpha_ref:      i32,   // shape NiAlphaProperty ref, or -1
+	lod_tris:       [3]u32, // BSLODTriShape per-level triangle counts ({0,0,0} if none)
 }
 
 @(private)
@@ -78,7 +92,9 @@ walk_node :: proc(
 	h: ^Header,
 	idx: int,
 	parent_world: matrix[4, 4]f32,
+	under_hinge: bool,
 	out: ^[dynamic]PlacedShape,
+	is_root := false,
 ) {
 	if idx < 0 || idx >= len(infos) {
 		return
@@ -87,15 +103,60 @@ walk_node :: proc(
 	if !info.is_node && !info.is_shape {
 		return
 	}
-	world := parent_world * transform_to_mat4(info.transform)
+	// The ROOT node's own local transform is the object's base placement, which the REFR
+	// transform supersedes — so ignore it (start its children at the parent/identity frame).
+	// Nearly every mesh's root is identity, so this is a no-op there; it matters for the rare
+	// mesh that bakes a rotation onto the root (e.g. Clutter\CounterSet\CounterCornerIn01, root
+	// Rz+90 — applying it sent its corner the wrong way).
+	world := parent_world if is_root else parent_world * transform_to_mat4(info.transform)
+
+	if Debug_Nodes {
+		t := info.transform
+		r := t.rotation
+		dbg_printf(
+			"node[%d] %q type=%q shape=%v  t=(%.1f,%.1f,%.1f) scale=%.3f\n    R=[%.3f %.3f %.3f][%.3f %.3f %.3f][%.3f %.3f %.3f]\n    world_t=(%.1f,%.1f,%.1f)\n",
+			idx,
+			block_name(h, info),
+			block_type(h, idx),
+			info.is_shape,
+			t.translation.x, t.translation.y, t.translation.z, t.scale,
+			r[0, 0], r[0, 1], r[0, 2], r[1, 0], r[1, 1], r[1, 2], r[2, 0], r[2, 1], r[2, 2],
+			world[0, 3], world[1, 3], world[2, 3],
+		)
+	}
 
 	if info.is_shape {
 		dr := int(info.data_ref)
 		// Both NiTriShape and BSLODTriShape point at NiTriShapeData geometry.
 		if dr >= 0 && dr < int(h.num_blocks) && block_type(h, dr) == "NiTriShapeData" {
 			if g, ok := parse_tri_shape_data(block_data(h, data, dr)); ok {
-				diffuse := resolve_diffuse(data, h, info.shader_ref)
+				// Skinned geometry (trees' swaying canopy, banners) keeps its vertices in
+				// NiTriShapeData but its triangle list in the NiSkinPartition. Pull the tris
+				// from there so the mesh isn't empty — rendered in bind pose (no skinning).
+				if len(g.triangles) == 0 && info.skin_ref >= 0 {
+					if pidx := skin_partition_block(data, h, int(info.skin_ref)); pidx >= 0 {
+						if st, sok := parse_skin_partition_tris(
+							block_data(h, data, pidx),
+							len(g.vertices),
+						); sok {
+							g.triangles = st
+						}
+					}
+				}
+				// Effect shapes (BSEffectShaderProperty) carry their texture in a Source Texture
+				// field (not a texture set) + a controller-driven UV scroll; lit shapes resolve
+				// the usual lighting-shader diffuse. Both feed the same `diffuse` (VFS) pipe.
+				is_eff := is_effect_shader(h, info.shader_ref)
+				diffuse: string
+				scroll: [2]f32
+				if is_eff {
+					eff := resolve_effect(data, h, info.shader_ref)
+					diffuse, scroll = eff.source, eff.scroll
+				} else {
+					diffuse = resolve_diffuse(data, h, info.shader_ref)
+				}
 				cutoff := resolve_alpha(data, h, info.alpha_ref)
+				name := block_name(h, info)
 				append(
 					out,
 					PlacedShape {
@@ -104,15 +165,20 @@ walk_node :: proc(
 						diffuse = diffuse,
 						alpha_cutoff = cutoff,
 						lod_tris = info.lod_tris,
-						is_effect = is_effect_shader(h, info.shader_ref),
+						is_effect = is_eff,
+						scroll = scroll,
+						name = strings.clone(name),
+						under_hinge = under_hinge,
 					},
 				)
 			}
 		}
 		return
 	}
+	// A node named "Door" marks the animated hinge subtree: its descendant shapes swing.
+	child_hinge := under_hinge || block_name(h, info) == HINGE_NODE
 	for c in info.children {
-		walk_node(infos, data, h, int(c), world, out)
+		walk_node(infos, data, h, int(c), world, child_hinge, out)
 	}
 }
 
@@ -133,6 +199,7 @@ is_node_type :: proc(t: string) -> bool {
 	     "BSMultiBoundNode",
 	     "BSValueNode",
 	     "BSLeafAnimNode",
+	     "BSTreeNode",
 	     "BSBlastNode",
 	     "BSDamageStage":
 		return true
@@ -143,8 +210,11 @@ is_node_type :: proc(t: string) -> bool {
 @(private)
 parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	bi.data_ref = -1
+	bi.skin_ref = -1
 	bi.shader_ref = -1
 	bi.alpha_ref = -1
+	bi.name_ref = -1
+	bi.controller_ref = -1
 	t := block_type(h, i)
 	is_node := is_node_type(t)
 	// BSLODTriShape = NiTriShape + trailing LOD-level sizes; identical NiTriBasedGeom
@@ -157,7 +227,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	}
 
 	r := Reader{data = block_data(h, data, i), ok = true}
-	bi.transform = parse_avobject(&r)
+	bi.transform, bi.name_ref, bi.controller_ref = parse_avobject(&r)
 	if is_node {
 		n := int(read_u32(&r))
 		if !r.ok || n < 0 || n > MAX_LIST {
@@ -175,7 +245,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 		// NiGeometry (after NiAVObject): Data ref, Skin Instance ref, then the
 		// material data block (Skyrim LE) ending in the Shader Property ref.
 		dr := read_i32(&r) // Data ref
-		_ = read_i32(&r) // Skin Instance ref
+		skin := read_i32(&r) // Skin Instance ref
 		shader_ref: i32 = -1
 		alpha_ref: i32 = -1
 		n_mat := int(read_u32(&r)) // Num Materials
@@ -201,6 +271,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 		}
 		if r.ok {
 			bi.data_ref = dr
+			bi.skin_ref = skin
 			bi.shader_ref = shader_ref
 			bi.alpha_ref = alpha_ref
 			bi.lod_tris = lod_tris
@@ -218,25 +289,44 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 MAX_LIST :: 1 << 16
 
 @(private)
-parse_avobject :: proc(r: ^Reader) -> Transform {
-	_ = read_i32(r) // Name (StringRef)
+parse_avobject :: proc(r: ^Reader) -> (t: Transform, name_ref: i32, controller_ref: i32) {
+	name_ref = read_i32(r) // Name (StringRef into the header string table)
 	n_extra := int(read_u32(r)) // Num Extra Data List
 	if !r.ok || n_extra < 0 || n_extra > MAX_LIST {
 		r.ok = false
-		return {}
+		return {}, -1, -1
 	}
 	for _ in 0 ..< n_extra {
 		_ = read_i32(r) // Extra Data refs
 	}
-	_ = read_i32(r) // Controller
+	controller_ref = read_i32(r) // Controller (NiTimeController chain root)
 	_ = read_u32(r) // Flags
 
-	t: Transform
 	t.translation = read_vec3(r)
 	t.rotation = read_mat3(r)
 	t.scale = read_f32(r)
 	_ = read_i32(r) // Collision Object
-	return t
+	return t, name_ref, controller_ref
+}
+
+// block_name resolves a block's Name string (from parse_avobject's StringRef) via the header
+// string table, or "" if unnamed / out of range. Used to find the "Door" hinge node and the
+// "DoorBlack" aperture in door meshes.
+@(private)
+block_name :: proc(h: ^Header, bi: Block_Info) -> string {
+	if bi.name_ref >= 0 && int(bi.name_ref) < len(h.strings) {
+		return h.strings[bi.name_ref]
+	}
+	return ""
+}
+
+// Debug_Nodes (dev only): when set, walk_node prints each node's local transform + composed
+// world translation — for diagnosing transform conventions. nifdump sets it via --nodes.
+Debug_Nodes := false
+
+@(private)
+dbg_printf :: proc(format: string, args: ..any) {
+	fmt.printf(format, ..args)
 }
 
 @(private)
@@ -250,6 +340,27 @@ transform_to_mat4 :: proc(t: Transform) -> matrix[4, 4]f32 {
 		r[2, 0] * s, r[2, 1] * s, r[2, 2] * s, t.translation.z,
 		0, 0, 0, 1,
 	}
+}
+
+// skin_partition_block resolves a NiSkinInstance block ref to its NiSkinPartition
+// block index (-1 if absent/garbage). NiSkinInstance begins Data ref, then Skin
+// Partition ref — and BSDismemberSkinInstance inherits the same prefix, so reading the
+// second ref works for both.
+@(private)
+skin_partition_block :: proc(data: []u8, h: ^Header, skin_ref: int) -> int {
+	if skin_ref < 0 || skin_ref >= int(h.num_blocks) {
+		return -1
+	}
+	r := Reader{data = block_data(h, data, skin_ref), ok = true}
+	_ = read_i32(&r) // Data ref (NiSkinData)
+	part := int(read_i32(&r)) // Skin Partition ref (NiSkinPartition)
+	if !r.ok || part < 0 || part >= int(h.num_blocks) {
+		return -1
+	}
+	if block_type(h, part) != "NiSkinPartition" {
+		return -1
+	}
+	return part
 }
 
 // parse_footer reads the NiFooter (after the last block): root block refs.

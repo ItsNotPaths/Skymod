@@ -38,6 +38,8 @@ Cell :: struct {
 	world_form_id: u32, // owning WRLD (0 for interiors)
 	gx, gy:        i32, // exterior grid coordinates
 	has_grid:      bool, // false for interiors / the worldspace persistent cell
+	water_height:  f32, // flat water-plane Z (esm.WATER_NONE = no water; sentinel already resolved to the worldspace default at index time)
+	water_type:    u32, // XCWT water-type WATR formID (0 = none/default; reserved for appearance)
 }
 
 // DB is the in-memory record index. All strings / dynamic arrays are owned and freed
@@ -46,6 +48,7 @@ DB :: struct {
 	allocator:    runtime.Allocator,
 	base_models:   map[u32]string, // base formID -> mesh path (owned)
 	base_radius:   map[u32]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
+	doors:         map[u32]bool, // base formID -> true if it's a DOOR record (door-panel cull)
 	cells:         map[u32]Cell, // cell formID -> identity
 	cell_by_edid:  map[string]u32, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[u32][dynamic]Ref, // cell formID -> placements
@@ -53,6 +56,8 @@ DB :: struct {
 	worlds:        map[u32]string, // WRLD formID -> editor id (owned)
 	world_by_edid: map[string]u32, // lowercased worldspace editor id -> formID (key owned)
 	world_cells:   map[u32][dynamic]u32, // WRLD formID -> its exterior cell formIDs
+	world_persist: map[u32]u32, // WRLD formID -> its PERSISTENT cell formID (worldspace-wide refs)
+	world_water:   map[u32]f32, // WRLD formID -> default water height (a cell's XCLW sentinel resolves here)
 	cell_at_grid:  map[Grid_Key]u32, // (world, gx, gy) -> exterior cell formID (streaming)
 	cell_heights:  map[u32][]f32, // cell formID -> LAND_GRID² cumulative heightmap (owned)
 	cell_base_tex: map[u32][4]u32, // cell formID -> per-quadrant base LTEX formID (0=none)
@@ -95,6 +100,7 @@ build :: proc(data: []u8, allocator := context.allocator) -> DB {
 		allocator     = allocator,
 		base_models   = make(map[u32]string, 4096, allocator),
 		base_radius   = make(map[u32]f32, 4096, allocator),
+		doors         = make(map[u32]bool, 512, allocator),
 		cells         = make(map[u32]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]u32, 1024, allocator),
 		cell_refs     = make(map[u32][dynamic]Ref, 1024, allocator),
@@ -102,6 +108,8 @@ build :: proc(data: []u8, allocator := context.allocator) -> DB {
 		worlds        = make(map[u32]string, 64, allocator),
 		world_by_edid = make(map[string]u32, 64, allocator),
 		world_cells   = make(map[u32][dynamic]u32, 64, allocator),
+		world_persist = make(map[u32]u32, 64, allocator),
+		world_water   = make(map[u32]f32, 64, allocator),
 		cell_at_grid  = make(map[Grid_Key]u32, 16384, allocator),
 		cell_heights  = make(map[u32][]f32, 1024, allocator),
 		cell_base_tex = make(map[u32][4]u32, 1024, allocator),
@@ -122,6 +130,7 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.base_models)
 	delete(db.base_radius)
+	delete(db.doors)
 	for _, c in db.cells {
 		delete(c.editor_id)
 	}
@@ -147,6 +156,8 @@ destroy :: proc(db: ^DB) {
 		delete(cells)
 	}
 	delete(db.world_cells)
+	delete(db.world_persist)
+	delete(db.world_water)
 	delete(db.cell_at_grid)
 	for _, h in db.cell_heights {
 		delete(h)
@@ -185,6 +196,21 @@ find_world :: proc(db: ^DB, editor_id: string) -> (form_id: u32, ok: bool) {
 	key := strings.to_lower(editor_id, context.temp_allocator)
 	fid, found := db.world_by_edid[key]
 	return fid, found
+}
+
+// world_persistent_cell returns a worldspace's persistent cell formID — the cell holding its
+// worldspace-wide refs (load doors, bridges, city gates) at absolute coords. ok=false if none.
+world_persistent_cell :: proc(db: ^DB, world_form_id: u32) -> (cell_form_id: u32, ok: bool) {
+	c, found := db.world_persist[world_form_id]
+	return c, found
+}
+
+// world_editor_id returns a worldspace's editor id by formID ("" if unknown).
+world_editor_id :: proc(db: ^DB, world_form_id: u32) -> string {
+	if e, ok := db.worlds[world_form_id]; ok {
+		return e
+	}
+	return ""
 }
 
 // cells_of returns a worldspace's exterior cell formIDs (empty if none / unknown
@@ -237,6 +263,16 @@ ref_by_formid :: proc(db: ^DB, form_id: u32) -> (Ref, bool) {
 cell_terrain :: proc(db: ^DB, cell_form_id: u32) -> ([]f32, bool) {
 	h, ok := db.cell_heights[cell_form_id]
 	return h, ok
+}
+
+// cell_water returns a cell's resolved flat-water-plane height (sentinel + worldspace
+// default already folded in at index time). ok=false when the cell has no water.
+cell_water :: proc(db: ^DB, cell_form_id: u32) -> (height: f32, ok: bool) {
+	c, found := db.cells[cell_form_id]
+	if !found || c.water_height == esm.WATER_NONE {
+		return 0, false
+	}
+	return c.water_height, true
 }
 
 // cell_base_textures returns a cell's per-quadrant base landscape texture formIDs
@@ -302,6 +338,15 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		// world loader gathers exterior cells by worldspace, the interior loader by cell.
 		if _, ok := db.cells[ctx.cell_form_id]; ok {
 			index_ref(db, rec, ctx.cell_form_id)
+			// An exterior ref under a cell's PERSISTENT children GRUP (ctx.temporary=false)
+			// marks that cell as the worldspace's persistent cell — it holds worldspace-wide
+			// refs (load doors, bridges, gates) at absolute coords, NOT confined to a grid
+			// cell. Recorded once (the persistent cell precedes grid cells in world-children).
+			if ctx.world_form_id != 0 && !ctx.temporary {
+				if _, seen := db.world_persist[ctx.world_form_id]; !seen {
+					db.world_persist[ctx.world_form_id] = ctx.cell_form_id
+				}
+			}
 		}
 	case s == "LAND":
 		// Exterior terrain heightmap. LAND lives in its cell's children GRUP, so
@@ -336,6 +381,11 @@ index_world :: proc(db: ^DB, rec: esm.Record) {
 		key := strings.to_lower(edid, db.allocator)
 		db.world_by_edid[key] = rec.form_id
 	}
+	// Default water height — the level a child cell's XCLW sentinel resolves to. WRLD
+	// precedes its CELL children in the walk, so it's recorded before any cell reads it.
+	if wh, ok := esm.world_water_height(fl); ok && abs(wh) <= esm.WATER_MAX_PLAUSIBLE {
+		db.world_water[rec.form_id] = wh
+	}
 }
 
 @(private)
@@ -353,6 +403,23 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		editor_id     = strings.clone(edid, db.allocator),
 		interior      = esm.cell_is_interior(fl),
 		world_form_id = ctx.world_form_id,
+		water_height  = esm.WATER_NONE,
+	}
+	// Resolve the cell's water height once, here: a real XCLW wins; the WATER_NONE
+	// sentinel (FLT_MAX) falls back to the worldspace default (the ocean at sea level —
+	// most exterior cells use this); no XCLW at all (interiors, border cells) = no water.
+	if h, ok := esm.cell_water_height(fl); ok {
+		if h == esm.WATER_NONE {
+			if def, dok := db.world_water[ctx.world_form_id]; dok {
+				cell.water_height = def
+			}
+		} else if abs(h) <= esm.WATER_MAX_PLAUSIBLE {
+			cell.water_height = h
+		}
+		// else: a non-FLT_MAX "no water" marker (e.g. 0xCF000000) → leave WATER_NONE.
+	}
+	if wt, ok := esm.cell_water_type(fl); ok {
+		cell.water_type = wt
 	}
 	if gx, gy, gok := esm.cell_grid(fl); gok {
 		cell.gx, cell.gy, cell.has_grid = gx, gy, true
@@ -531,4 +598,14 @@ index_base :: proc(db: ^DB, rec: esm.Record) {
 	if radius, ok := esm.object_bounds(fl); ok {
 		db.base_radius[rec.form_id] = radius
 	}
+	if rec.type == "DOOR" {
+		db.doors[rec.form_id] = true // door-panel base (open-interiors portal cull)
+	}
+}
+
+// is_door reports whether a base formID is a DOOR record — the reliable door-panel signal
+// (record type), independent of whether the placement is a teleport/load door. Used by the
+// open-interiors portal cull to hide the door panel filling the doorway opening.
+is_door :: proc(db: ^DB, base: u32) -> bool {
+	return base in db.doors
 }

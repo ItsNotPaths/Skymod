@@ -60,6 +60,26 @@ rotate_z :: proc(a: f32) -> Mat4 {
 	return Mat4{c, -s, 0, 0, s, c, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}
 }
 
+// rotate_axis builds a rotation matrix about an arbitrary unit-ish axis by `angle` radians
+// (Rodrigues' formula). The axis is normalized internally; a zero axis yields identity. Used
+// to swing a door panel about its hinge axis.
+rotate_axis :: proc(axis: Vec3, angle: f32) -> Mat4 {
+	a := normalize3(axis)
+	if a == {0, 0, 0} {
+		return Mat4(1)
+	}
+	c, s := math.cos(angle), math.sin(angle)
+	t := 1 - c
+	x, y, z := a.x, a.y, a.z
+	// Row-major literal (Odin stores column-major in memory; matches the other builders here).
+	return Mat4 {
+		c + x * x * t,     x * y * t - z * s, x * z * t + y * s, 0,
+		y * x * t + z * s, c + y * y * t,     y * z * t - x * s, 0,
+		z * x * t - y * s, z * y * t + x * s, c + z * z * t,     0,
+		0,                 0,                 0,                 1,
+	}
+}
+
 @(private)
 transpose_m4 :: proc(m: Mat4) -> Mat4 {
 	r: Mat4

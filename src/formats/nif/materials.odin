@@ -128,6 +128,138 @@ is_effect_shader :: proc(h: ^Header, shader_ref: i32) -> bool {
 	return si >= 0 && si < int(h.num_blocks) && block_type(h, si) == "BSEffectShaderProperty"
 }
 
+// EffectShaderControlledVariable values (nif.xml) for the UV-scroll variables a
+// BSEffectShaderPropertyFloatController can animate. We only act on the two OFFSET ones —
+// that's the flowing-water / light-beam / fire scroll. Scale (7/9) is left static.
+EFFECT_VAR_U_OFFSET :: 6
+EFFECT_VAR_V_OFFSET :: 8
+
+// Effect_Shader is what the renderer needs from a BSEffectShaderProperty (fire/water/FX):
+// its source-texture path and the per-axis UV scroll speed (UV tiles/sec) derived from the
+// shader's float-controller chain. source is owned (cloned into the ambient allocator).
+Effect_Shader :: struct {
+	source: string,
+	scroll: [2]f32,
+}
+
+// resolve_effect decodes a BSEffectShaderProperty: the Source Texture path + the UV scroll
+// speed from its BSEffectShaderPropertyFloatController chain. Layout (Skyrim LE 20.2.0.7):
+// NiObjectNET (name, extra list, controller) then 2 shader-flag words, UV offset+scale, then
+// the Source Texture SizedString — BSShaderProperty/NiShadeProperty add nothing at this
+// version. Returns zero values if shader_ref isn't an effect shader. NON-FATAL throughout.
+@(private)
+resolve_effect :: proc(data: []u8, h: ^Header, shader_ref: i32, allocator := context.allocator) -> Effect_Shader {
+	context.allocator = allocator
+	si := int(shader_ref)
+	if si < 0 || si >= int(h.num_blocks) || block_type(h, si) != "BSEffectShaderProperty" {
+		return {}
+	}
+	r := Reader{data = block_data(h, data, si), ok = true}
+	_ = read_i32(&r) // Name (string ref)
+	n_extra := int(read_u32(&r)) // Num Extra Data List
+	if !r.ok || n_extra < 0 || n_extra > MAX_LIST {
+		return {}
+	}
+	for _ in 0 ..< n_extra {
+		_ = read_i32(&r) // Extra Data refs
+	}
+	ctrl_ref := read_i32(&r) // Controller (the float-controller chain root)
+	_ = read_u32(&r) // Shader Flags 1
+	_ = read_u32(&r) // Shader Flags 2
+	_ = read_vec2(&r) // UV Offset
+	_ = read_vec2(&r) // UV Scale
+	source := read_sized_string(&r) // Source Texture
+	if !r.ok {
+		return {}
+	}
+	return {source = source, scroll = effect_scroll(data, h, ctrl_ref)}
+}
+
+// effect_scroll walks a BSEffectShaderProperty's controller chain (via Next Controller) and
+// sums the U/V-offset scroll speeds (UV tiles/sec) from every
+// BSEffectShaderPropertyFloatController driving an OFFSET variable. Controller layout:
+// NiTimeController (Next, Flags u16, Frequency, Phase, Start, Stop, Target) + Interpolator
+// ref + Controlled Variable (u32). Bounded loop (guards against a malformed cycle).
+@(private)
+effect_scroll :: proc(data: []u8, h: ^Header, ctrl_ref: i32) -> (scroll: [2]f32) {
+	cur := int(ctrl_ref)
+	for guard := 0; cur >= 0 && cur < int(h.num_blocks) && guard < 16; guard += 1 {
+		is_float_ctrl := block_type(h, cur) == "BSEffectShaderPropertyFloatController"
+		r := Reader{data = block_data(h, data, cur), ok = true}
+		next := int(read_i32(&r)) // Next Controller
+		_ = read_u16(&r) // Flags
+		freq := read_f32(&r) // Frequency
+		_ = read_f32(&r) // Phase
+		_ = read_f32(&r) // Start Time
+		_ = read_f32(&r) // Stop Time
+		_ = read_i32(&r) // Target
+		if is_float_ctrl {
+			interp := read_i32(&r) // Interpolator ref
+			cvar := read_u32(&r) // Controlled Variable
+			if r.ok {
+				spd := effect_interp_speed(data, h, interp) * freq
+				switch cvar {
+				case EFFECT_VAR_U_OFFSET:
+					scroll.x += spd
+				case EFFECT_VAR_V_OFFSET:
+					scroll.y += spd
+				}
+			}
+		}
+		if !r.ok {
+			break
+		}
+		cur = next
+	}
+	return
+}
+
+// effect_interp_speed derives a constant scroll rate (value units / sec) from a
+// NiFloatInterpolator → NiFloatData linear key ramp: (lastValue−firstValue)/(lastTime−
+// firstTime). A 2-key 0→N ramp over T seconds (the flowing-water convention) gives N/T
+// tiles/sec; texture WRAP makes the loop seamless. Returns 0 if there's no animated data
+// (fewer than 2 keys / a constant pose value) or the chain is malformed.
+@(private)
+effect_interp_speed :: proc(data: []u8, h: ^Header, interp_ref: i32) -> f32 {
+	ii := int(interp_ref)
+	if ii < 0 || ii >= int(h.num_blocks) || block_type(h, ii) != "NiFloatInterpolator" {
+		return 0
+	}
+	r := Reader{data = block_data(h, data, ii), ok = true}
+	_ = read_f32(&r) // Value (constant pose, used only when Data is null)
+	data_ref := int(read_i32(&r)) // NiFloatData ref
+	if !r.ok || data_ref < 0 || data_ref >= int(h.num_blocks) || block_type(h, data_ref) != "NiFloatData" {
+		return 0
+	}
+	dr := Reader{data = block_data(h, data, data_ref), ok = true}
+	num := int(read_u32(&dr)) // Num Keys
+	if !dr.ok || num < 2 || num > MAX_LIST {
+		return 0
+	}
+	// KeyGroup: floats per key by interpolation type (LINEAR 2, QUADRATIC 4, TBC 5; else 2).
+	floats_per_key := 2
+	switch read_u32(&dr) {
+	case 2:
+		floats_per_key = 4
+	case 3:
+		floats_per_key = 5
+	}
+	t0 := read_f32(&dr)
+	v0 := read_f32(&dr)
+	for _ in 0 ..< floats_per_key - 2 {
+		_ = read_f32(&dr) // rest of key 0 (tangents / TBC)
+	}
+	for _ in 0 ..< (num - 2) * floats_per_key {
+		_ = read_f32(&dr) // skip to the last key
+	}
+	tN := read_f32(&dr)
+	vN := read_f32(&dr)
+	if !dr.ok || tN <= t0 {
+		return 0
+	}
+	return (vN - v0) / (tN - t0)
+}
+
 // resolve_diffuse follows a shape's shader_ref → BSLightingShaderProperty → texture
 // set → slot 0, returning the diffuse path (cloned into the ambient allocator) or ""
 // if the chain is absent/effect-shader/empty. Non-fatal: a missing texture just

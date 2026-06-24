@@ -19,11 +19,13 @@ Window :: ^sdl.Window
 
 // Input is the per-frame snapshot a camera/controller consumes — no SDL types.
 Input :: struct {
-	move:     [3]f32, // x=forward(+W/-S), y=right(+D/-A), z=up(+E/Space, -Q/Ctrl)
-	look:     [2]f32, // mouse delta px this pump, only while look is captured (hold RMB)
-	fast:     bool,   // shift held -> speed boost
-	select:   bool,   // left mouse pressed this pump (edge) — pick under the crosshair
-	activate: bool,   // F pressed this pump (edge) — use the nearby door
+	move:      [3]f32, // x=forward(+W/-S), y=right(+D/-A), z=up(+E/Space, -Q)
+	look:      [2]f32, // mouse delta px this pump, only while look is captured (hold RMB)
+	fast:      bool,   // shift held -> speed boost
+	select:    bool,   // left mouse pressed this pump (edge) — pick the hovered model
+	activate:  bool,   // F pressed this pump (edge) — use the nearby door
+	hover:     bool,   // Ctrl held — inspect mode: highlight + pick the model under the cursor
+	mouse_ndc: [2]f32, // cursor in normalized device coords: x right [-1,1], y up [-1,1]
 }
 
 // Event_Hook is called for every raw SDL event during pump(). Used to forward
@@ -134,15 +136,29 @@ pump :: proc(p: ^Platform) -> bool {
 	if held(keys, .D) {move.y += 1}
 	if held(keys, .A) {move.y -= 1}
 	if held(keys, .E) || held(keys, .SPACE) {move.z += 1}
-	if held(keys, .Q) || held(keys, .LCTRL) {move.z -= 1}
+	if held(keys, .Q) {move.z -= 1}
 	fast := held(keys, .LSHIFT) || held(keys, .RSHIFT)
+	hover := held(keys, .LCTRL) || held(keys, .RCTRL) // inspect-mode modifier
+
+	// Cursor → NDC (x right, y up), for picking the model under the mouse. Meaningless
+	// while look is captured (relative mouse mode), but hover-pick only runs when it isn't.
+	mx, my: f32
+	_ = sdl.GetMouseState(&mx, &my)
+	ww, wh: c.int
+	sdl.GetWindowSize(p.window, &ww, &wh)
+	mouse_ndc: [2]f32
+	if ww > 0 && wh > 0 {
+		mouse_ndc = {2 * mx / f32(ww) - 1, 1 - 2 * my / f32(wh)}
+	}
 
 	p.input = Input {
-		move     = move,
-		look     = look,
-		fast     = fast,
-		select   = select,
-		activate = activate,
+		move      = move,
+		look      = look,
+		fast      = fast,
+		select    = select,
+		activate  = activate,
+		hover     = hover,
+		mouse_ndc = mouse_ndc,
 	}
 
 	now := sdl.GetTicks()

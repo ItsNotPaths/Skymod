@@ -23,3 +23,15 @@ lod_distance = 24
 # render as instanced coarse meshes; beyond it the LOD rings show terrain only. Each cell
 # adds draw calls ~= its distinct-model count, so raise this gradually.
 object_lod_distance = 5
+
+# EXPERIMENTAL: render interior cells THROUGH their load door with a stencil portal, so you
+# see into the room with no load screen ("Open Cities"-style, generalized to any interior).
+# The interior stays in its own coordinate space and is drawn from a virtual camera relayed
+# through the doorway, masked to the opening by the stencil buffer. Off by default; the normal
+# load-screen path stays. (Walk-through teleport is the next round.)
+experimental_open_interiors = false
+
+# How close (world units) the player must be to a load door before its interior loads + renders
+# through the portal (and how far before it unloads). Only used when experimental_open_interiors is on.
+interior_load_distance = 2048
+

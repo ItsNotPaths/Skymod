@@ -37,7 +37,9 @@ Renderer :: struct {
 	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3)
 	grass_pipeline:   ^sdl.GPUGraphicsPipeline, // instanced grass clusters (F2 vegetation)
 	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD)
+	water_pipeline:   ^sdl.GPUGraphicsPipeline, // per-cell flat water planes (procedural, transparent)
 	effect_pipeline:  ^sdl.GPUGraphicsPipeline, // alpha-blended ghosted effect shapes
+	highlight_pipeline: ^sdl.GPUGraphicsPipeline, // inspect-mode hover highlight overdraw
 	cube_vbuf:        ^sdl.GPUBuffer,
 	cube_ibuf:        ^sdl.GPUBuffer,
 	cube_index_count: u32,
@@ -51,6 +53,14 @@ Renderer :: struct {
 
 	depth_tex:        ^sdl.GPUTexture,
 	depth_w, depth_h: u32,
+	depth_format:     sdl.GPUTextureFormat, // depth(+stencil) target format, chosen at init
+
+	// Open-interiors stencil portals (EXPERIMENTAL): mark the doorway opening into the
+	// stencil buffer, reset that region's depth to far, then draw the interior there
+	// behind a stencil test. See portal_draw.odin.
+	portal_mark_pipeline:  ^sdl.GPUGraphicsPipeline, // door quad → stencil = 1
+	portal_reset_pipeline: ^sdl.GPUGraphicsPipeline, // depth → far where stencil == 1
+	mesh_stencil_pipeline: ^sdl.GPUGraphicsPipeline, // mesh path, drawn only where stencil == 1
 
 	// Per-frame state, valid only between begin_frame and end_frame.
 	frame_cmd:        ^sdl.GPUCommandBuffer,
@@ -84,6 +94,11 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 	r.window = window
 	r.swapchain_format = sdl.GetGPUSwapchainTextureFormat(device, window)
 
+	// Depth target carries a STENCIL aspect (for the open-interiors portals). Prefer the
+	// widely-supported D24_S8; fall back to D32F_S8, then plain D32F if a driver somehow
+	// lacks a packed stencil format (portals then no-op, but the rest renders).
+	r.depth_format = pick_depth_format(device)
+
 	r.cube_pipeline = make_cube_pipeline(&r)
 	if r.cube_pipeline == nil {
 		log.errorf("render: cube pipeline failed: %s", sdl.GetError())
@@ -112,11 +127,40 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		return {}, false
 	}
 
+	r.water_pipeline = make_water_pipeline(&r)
+	if r.water_pipeline == nil {
+		log.errorf("render: water pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
 	r.effect_pipeline = make_effect_pipeline(&r)
 	if r.effect_pipeline == nil {
 		log.errorf("render: effect pipeline failed: %s", sdl.GetError())
 		shutdown(&r)
 		return {}, false
+	}
+
+	r.highlight_pipeline = make_highlight_pipeline(&r)
+	if r.highlight_pipeline == nil {
+		log.errorf("render: highlight pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
+	// Stencil-portal pipelines (open interiors). Only buildable when the depth target has a
+	// stencil aspect; on a stencil-less fallback they stay nil and the portal draws no-op.
+	if has_stencil(r.depth_format) {
+		r.portal_mark_pipeline = make_portal_mark_pipeline(&r)
+		r.portal_reset_pipeline = make_portal_reset_pipeline(&r)
+		r.mesh_stencil_pipeline = make_mesh_stencil_pipeline(&r)
+		if r.portal_mark_pipeline == nil ||
+		   r.portal_reset_pipeline == nil ||
+		   r.mesh_stencil_pipeline == nil {
+			log.errorf("render: portal pipeline failed: %s", sdl.GetError())
+			shutdown(&r)
+			return {}, false
+		}
 	}
 
 	verts, indices := build_cube(1.0)
@@ -164,7 +208,12 @@ shutdown :: proc(r: ^Renderer) {
 	if r.mesh_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)}
 	if r.grass_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.grass_pipeline)}
 	if r.obj_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.obj_pipeline)}
+	if r.water_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.water_pipeline)}
 	if r.effect_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.effect_pipeline)}
+	if r.highlight_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.highlight_pipeline)}
+	if r.portal_mark_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_mark_pipeline)}
+	if r.portal_reset_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_reset_pipeline)}
+	if r.mesh_stencil_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_stencil_pipeline)}
 	if r.device != nil && r.window != nil {sdl.ReleaseWindowFromGPUDevice(r.device, r.window)}
 	if r.device != nil {sdl.DestroyGPUDevice(r.device)}
 	r^ = {}
@@ -217,10 +266,15 @@ begin_frame :: proc(r: ^Renderer, clear: [4]f32) -> bool {
 		store_op    = .STORE,
 	}
 	depth := sdl.GPUDepthStencilTargetInfo {
-		texture     = r.depth_tex,
-		clear_depth = 1.0,
-		load_op     = .CLEAR,
-		store_op    = .DONT_CARE,
+		texture         = r.depth_tex,
+		clear_depth     = 1.0,
+		load_op         = .CLEAR,
+		store_op        = .DONT_CARE,
+		// Stencil starts at 0 every frame; the portal pass marks the doorway region to 1.
+		// Must STORE so the marks survive across the in-pass portal sub-draws.
+		stencil_load_op  = .CLEAR,
+		stencil_store_op = .STORE,
+		clear_stencil    = 0,
 	}
 	r.frame_cmd = cmd
 	r.frame_pass = sdl.BeginGPURenderPass(cmd, &color, 1, &depth)
@@ -330,7 +384,7 @@ ensure_depth :: proc(r: ^Renderer, w, h: u32) {
 		r.device,
 		{
 			type = .D2,
-			format = .D32_FLOAT,
+			format = r.depth_format,
 			usage = {.DEPTH_STENCIL_TARGET},
 			width = w,
 			height = h,
@@ -379,11 +433,30 @@ make_cube_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,
-			depth_stencil_format = .D32_FLOAT,
+			depth_stencil_format = r.depth_format,
 			has_depth_stencil_target = true,
 		},
 	}
 	return sdl.CreateGPUGraphicsPipeline(r.device, info)
+}
+
+// pick_depth_format chooses the depth(+stencil) target format. Stencil is needed for the
+// open-interiors portals; D24_UNORM_S8 is near-universal, D32F_S8 the wider-precision
+// alternative. Plain D32F is the last resort (no stencil → portals disabled).
+@(private)
+pick_depth_format :: proc(device: ^sdl.GPUDevice) -> sdl.GPUTextureFormat {
+	for f in ([?]sdl.GPUTextureFormat{.D24_UNORM_S8_UINT, .D32_FLOAT_S8_UINT}) {
+		if sdl.GPUTextureSupportsFormat(device, f, .D2, {.DEPTH_STENCIL_TARGET}) {
+			return f
+		}
+	}
+	return .D32_FLOAT
+}
+
+// has_stencil reports whether `f` carries a stencil aspect (so the portal pipelines can be built).
+@(private)
+has_stencil :: proc(f: sdl.GPUTextureFormat) -> bool {
+	return f == .D24_UNORM_S8_UINT || f == .D32_FLOAT_S8_UINT
 }
 
 @(private)
