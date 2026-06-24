@@ -251,7 +251,7 @@ base_size :: proc(db: ^DB, base_form_id: u32) -> f32 {
 }
 
 // ref_by_formid looks up a placed reference by its formID (e.g. an XTEL teleport's
-// destination door). Only interior-cell refs are indexed.
+// destination door). Every ref in an indexed cell (interior and exterior) is included.
 ref_by_formid :: proc(db: ^DB, form_id: u32) -> (Ref, bool) {
 	r, ok := db.ref_by_id[form_id]
 	return r, ok

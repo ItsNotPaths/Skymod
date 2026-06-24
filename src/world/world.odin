@@ -45,24 +45,41 @@ PLANT_SPEED :: f32(1.5) // …and quick flutter
 // maple) doesn't wave wildly — only short flora scale up to it. World units.
 PLANT_HEIGHT_CAP :: f32(45)
 
-// veg_wind classifies a model path as vegetation and returns its per-type wind (amplitude,
-// oscillation speed, height cap), preserving the global wind DIRECTION. strength 0 = not
-// vegetation → rigid. Trees live under `...\Trees\`, other foliage under `...\Plants\` /
-// `Plants\`. Everything else (architecture, rocks, clutter) is rigid.
-veg_wind :: proc(path: string, base: render.Wind) -> render.Wind {
+// Veg_Kind is a placement's vegetation class, classified ONCE from its model path at
+// build time (the string match is the expensive part) and cached on the Instance / batch.
+// veg_wind_for then derives the per-frame wind cheaply from it + the global wind.
+Veg_Kind :: enum u8 {
+	Rigid, // architecture, rocks, clutter — no sway
+	Tree,  // `...\Trees\` — heavy, small slow lean
+	Plant, // `...\Plants\` — light, large fast flutter
+}
+
+// veg_classify maps a model path to its vegetation class. The one string lowercase +
+// substring scan; call at build/load time, NOT per frame. Trees live under `...\Trees\`,
+// other foliage under `...\Plants\`; everything else is rigid.
+veg_classify :: proc(path: string) -> Veg_Kind {
 	p := strings.to_lower(path, context.temp_allocator)
 	switch {
 	case strings.contains(p, "trees\\"):
-		return {dir = base.dir, strength = TREE_WIND, speed = base.speed * TREE_SPEED}
+		return .Tree
 	case strings.contains(p, "plants\\"):
-		return {
-			dir = base.dir,
-			strength = PLANT_WIND,
-			speed = base.speed * PLANT_SPEED,
-			height_cap = PLANT_HEIGHT_CAP,
-		}
+		return .Plant
 	}
-	return {dir = base.dir, speed = base.speed} // rigid (strength 0)
+	return .Rigid
+}
+
+// veg_wind_for returns a class's per-type wind (amplitude, oscillation speed, height cap),
+// preserving the global wind DIRECTION. Cheap (a switch) — safe to call per frame.
+veg_wind_for :: proc(kind: Veg_Kind, base: render.Wind) -> render.Wind {
+	switch kind {
+	case .Tree:
+		return {dir = base.dir, strength = TREE_WIND, speed = base.speed * TREE_SPEED}
+	case .Plant:
+		return {dir = base.dir, strength = PLANT_WIND, speed = base.speed * PLANT_SPEED, height_cap = PLANT_HEIGHT_CAP}
+	case .Rigid:
+		return {dir = base.dir, speed = base.speed} // rigid (strength 0)
+	}
+	return {dir = base.dir, speed = base.speed}
 }
 
 // veg_phase derives a per-placement wind phase from world position so neighbouring plants
@@ -122,6 +139,8 @@ Instance :: struct {
 	tp_pos:     smath.Vec3, // XTEL landing position in the DEST cell (arrival placement)
 	tp_rot:     smath.Vec3, // XTEL landing rotation (arrival facing)
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
+	world:      smath.Mat4, // cached trs(pos,rot,scale) — placement is static, so computed once at build
+	veg:        Veg_Kind, // cached vegetation class (path match done once, not per frame)
 }
 
 // Chunk is one loaded cell's instances + a culling AABB. Exterior cells carry their
@@ -218,6 +237,8 @@ build_chunk :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
 				tp_door = r.teleport.door,
 				tp_pos = r.teleport.pos,
 				tp_rot = r.teleport.rot,
+				world = smath.trs(r.pos, r.rot, r.scale), // static placement — cached for the draw paths
+				veg = veg_classify(modl),
 			},
 		)
 		lo = {min(lo.x, r.pos.x), min(lo.y, r.pos.y), min(lo.z, r.pos.z)}
@@ -308,19 +329,18 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 					continue // not streamed in yet
 				}
 			}
-			world := smath.trs(inst.pos, inst.rot, inst.scale)
-			cw := world * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
+			cw := inst.world * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
 			if !smath.sphere_in_frustum(f, {cw.x, cw.y, cw.z}, inst.model.radius * inst.scale) {
 				continue
 			}
 			// One global wind direction; per-vegetation amplitude+speed+cap, per-placement phase.
-			iw := veg_wind(inst.model_path, wind)
+			iw := veg_wind_for(inst.veg, wind)
 			phase := veg_phase(inst.pos)
 			for sh in inst.model.shapes {
 				if sh.is_effect {
 					continue // ghosted in the translucent draw_effects pass
 				}
-				model := world * sh.local
+				model := inst.world * sh.local
 				render.draw_mesh(
 					r,
 					sh.mesh,
@@ -358,8 +378,10 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 					continue
 				}
 			}
-			world := smath.trs(inst.pos, inst.rot, inst.scale)
-			cw := world * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
+			if !inst.model.has_effect {
+				continue // no FX shapes — skip the sphere test + shape scan entirely
+			}
+			cw := inst.world * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
 			if !smath.sphere_in_frustum(f, {cw.x, cw.y, cw.z}, inst.model.radius * inst.scale) {
 				continue
 			}
@@ -367,7 +389,7 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 				if !sh.is_effect {
 					continue
 				}
-				model := world * sh.local
+				model := inst.world * sh.local
 				render.draw_effect(r, sh.mesh, vp, model, sh.tex, sh.scroll, time)
 			}
 		}
@@ -390,11 +412,10 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	if inst.model == nil {
 		return
 	}
-	world := smath.trs(inst.pos, inst.rot, inst.scale)
-	iw := veg_wind(inst.model_path, wind)
+	iw := veg_wind_for(inst.veg, wind)
 	phase := veg_phase(inst.pos)
 	for sh in inst.model.shapes {
-		model := world * sh.local
+		model := inst.world * sh.local
 		render.draw_highlight(r, sh.mesh, vp, model, LIGHT_DIR, sh.tex, sh.alpha_cutoff, iw, time, phase)
 	}
 }

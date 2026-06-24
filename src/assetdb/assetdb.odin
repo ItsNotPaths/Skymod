@@ -55,6 +55,7 @@ Model :: struct {
 	pick_pos: [][3]f32, // model-space vertex positions (shapes' local transforms applied), owned
 	pick_idx: []u32, // triangle indices into pick_pos (3 per face), owned
 	pick_shape: []u32, // per-triangle shape index (len = len(pick_idx)/3) — maps a hit face to its Shape, owned
+	has_effect: bool, // any shape is a BSEffectShaderProperty FX — lets draw_effects skip non-FX models
 }
 
 // lod_index_count returns how many indices to draw for a shape at LOD `level` (0=full,
@@ -76,10 +77,17 @@ Cache :: struct {
 	v:        ^vfs.VFS,
 	models:   map[string]^Model, // "meshes\..."-relative MODL path -> model (key owned)
 	textures: map[string]render.Texture, // "textures\..." path -> texture (key owned)
+	failed:   map[string]bool, // model paths that decoded to nothing (missing / no shapes) — don't retry (key owned)
 }
 
 cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
-	return Cache{r = r, v = v, models = make(map[string]^Model), textures = make(map[string]render.Texture)}
+	return Cache {
+		r        = r,
+		v        = v,
+		models   = make(map[string]^Model),
+		textures = make(map[string]render.Texture),
+		failed   = make(map[string]bool),
+	}
 }
 
 cache_destroy :: proc(c: ^Cache) {
@@ -102,6 +110,10 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(key)
 	}
 	delete(c.textures)
+	for key, _ in c.failed {
+		delete(key)
+	}
+	delete(c.failed)
 	c^ = {}
 }
 
@@ -111,6 +123,22 @@ has_model :: proc(c: ^Cache, modl: string) -> bool {
 	key := strings.to_lower(modl, context.temp_allocator)
 	_, hit := c.models[key]
 	return hit
+}
+
+// is_failed reports whether a model path previously decoded to nothing (missing file or
+// zero drawable shapes). The streamer skips re-enqueuing these — a missing mesh referenced
+// by many cells would otherwise re-decode on the worker every time its cell rewindows.
+is_failed :: proc(c: ^Cache, modl: string) -> bool {
+	key := strings.to_lower(modl, context.temp_allocator)
+	return c.failed[key]
+}
+
+// mark_failed records a model path as undecodable so it's never retried. Key is cloned.
+mark_failed :: proc(c: ^Cache, modl: string) {
+	key := strings.to_lower(modl, context.temp_allocator)
+	if key not_in c.failed {
+		c.failed[strings.clone(key)] = true
+	}
 }
 
 // model_ptr returns the cached model for a path, or nil if not yet uploaded.
@@ -129,6 +157,7 @@ get_model :: proc(c: ^Cache, modl: string) -> (^Model, bool) {
 	}
 	cpu := decode_model(c.v, modl, 0, context.temp_allocator) // temp: freed at frame end
 	if !cpu.ok {
+		mark_failed(c, modl)
 		return nil, false
 	}
 	return upload_cpu_model(c, cpu)
@@ -150,7 +179,10 @@ get_texture :: proc(c: ^Cache, path: string) -> (render.Texture, bool) {
 	if !cpu.ok {
 		return {}, false
 	}
-	return upload_or_cached_texture(c, path, cpu), true
+	b := render.upload_begin(c.r)
+	t := upload_or_cached_texture(c, &b, path, cpu)
+	render.upload_end(&b)
+	return t, true
 }
 
 // upload_cpu_model turns a decoded Cpu_Model into GPU resources and caches it by path.
@@ -165,11 +197,15 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 		return m, true // already uploaded (duplicate request) — reuse
 	}
 
+	// One batch for the whole model: every shape's mesh + diffuse uploads in a single
+	// command buffer + submit (vs one submit per buffer). Textures still dedup by path.
+	batch := render.upload_begin(c.r)
 	shapes := make([]Shape, len(cpu.shapes))
+	has_effect := false
 	for cs, i in cpu.shapes {
 		shapes[i] = Shape {
-			mesh         = render.upload_mesh(c.r, cs.verts, cs.indices),
-			tex          = upload_or_cached_texture(c, cs.diffuse_path, cs.diffuse),
+			mesh         = render.upload_mesh_into(&batch, cs.verts, cs.indices),
+			tex          = upload_or_cached_texture(c, &batch, cs.diffuse_path, cs.diffuse),
 			diffuse_path = strings.clone(cs.diffuse_path),
 			local        = cs.local,
 			alpha_cutoff = cs.alpha_cutoff,
@@ -177,12 +213,16 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 			is_effect    = cs.is_effect,
 			scroll       = cs.scroll,
 		}
+		has_effect ||= cs.is_effect
 	}
+	render.upload_end(&batch)
+
 	m := new(Model)
 	m.shapes = shapes
 	m.path = strings.clone(cpu.path)
 	m.center = cpu.center
 	m.radius = cpu.radius
+	m.has_effect = has_effect
 	build_pick_geometry(m, cpu)
 	c.models[strings.clone(key)] = m
 	return m, true
@@ -287,6 +327,11 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 	}
 
 	shapes := make([]Cpu_Shape, len(placed), alloc)
+	// Within-model diffuse dedup: many shapes of one mesh share a texture (a building's
+	// wall set, etc.). Decode each distinct path ONCE; later shapes carry the path with no
+	// pixels and pick up the cached GPU texture at upload. (Cross-model dedup still happens
+	// at upload — the worker has no cache access by design.)
+	seen_tex := make(map[string]bool, 8, context.temp_allocator)
 	lo := smath.Vec3{max(f32), max(f32), max(f32)}
 	hi := smath.Vec3{min(f32), min(f32), min(f32)}
 	for ps, si in placed {
@@ -310,14 +355,20 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		hi = {max(hi.x, wc.x + rad), max(hi.y, wc.y + rad), max(hi.z, wc.z + rad)}
 
 		dpath := ""
+		tex: Cpu_Tex
 		if ps.diffuse != "" {
 			dpath = strings.clone(ps.diffuse, alloc)
+			low := strings.to_lower(ps.diffuse, context.temp_allocator)
+			if !seen_tex[low] {
+				seen_tex[low] = true
+				tex = decode_texture(v, ps.diffuse, alloc) // first use → decode; dups stay un-ok
+			}
 		}
 		shapes[si] = Cpu_Shape {
 			verts        = verts,
 			indices      = slice.clone(ps.geometry.triangles, alloc),
 			diffuse_path = dpath,
-			diffuse      = decode_texture(v, ps.diffuse, alloc),
+			diffuse      = tex,
 			local        = ps.world,
 			alpha_cutoff = ps.alpha_cutoff,
 			lod_tris     = ps.lod_tris,
@@ -374,7 +425,7 @@ decode_texture :: proc(v: ^vfs.VFS, path: string, alloc := context.allocator) ->
 	if !pok {
 		return {}
 	}
-	rfmt, fok := to_render_format(img.format)
+	rfmt, fok := to_render_format(img.format, img.bgra)
 	if !fok {
 		return {}
 	}
@@ -397,24 +448,29 @@ decode_texture :: proc(v: ^vfs.VFS, path: string, alloc := context.allocator) ->
 	return Cpu_Tex{ok = true, format = rfmt, srgb = true, pixels = blob, mips = mips} // diffuse = sRGB
 }
 
-// upload_or_cached_texture uploads a decoded texture (deduped by path) or returns the
-// already-cached GPU texture. MAIN THREAD.
+// upload_or_cached_texture returns the cache's GPU texture for `path`, uploading `cpu`
+// into the open batch on a miss. The cache is checked BEFORE cpu.ok, so a shape that
+// carries a path but no decoded pixels (within-model dedup) still resolves to the
+// texture a prior shape uploaded. MAIN THREAD.
 @(private)
-upload_or_cached_texture :: proc(c: ^Cache, path: string, cpu: Cpu_Tex) -> render.Texture {
-	if path == "" || !cpu.ok {
+upload_or_cached_texture :: proc(c: ^Cache, b: ^render.Upload_Batch, path: string, cpu: Cpu_Tex) -> render.Texture {
+	if path == "" {
 		return {}
 	}
 	key := strings.to_lower(path, context.temp_allocator)
 	if t, hit := c.textures[key]; hit {
 		return t
 	}
-	t := render.upload_texture(c.r, cpu.format, cpu.srgb, cpu.mips)
-	c.textures[strings.clone(key)] = t // cache even a zero result (don't re-attempt)
+	if !cpu.ok {
+		return {} // no pixels to upload and nothing cached → white fallback
+	}
+	t := render.upload_texture_into(b, cpu.format, cpu.srgb, cpu.mips)
+	c.textures[strings.clone(key)] = t
 	return t
 }
 
 @(private)
-to_render_format :: proc(f: dds.Format) -> (render.Tex_Format, bool) {
+to_render_format :: proc(f: dds.Format, bgra: bool) -> (render.Tex_Format, bool) {
 	switch f {
 	case .BC1:
 		return .BC1, true
@@ -429,7 +485,7 @@ to_render_format :: proc(f: dds.Format) -> (render.Tex_Format, bool) {
 	case .BC7:
 		return .BC7, true
 	case .RGBA8:
-		return .RGBA8, true
+		return (.BGRA8 if bgra else .RGBA8), true
 	case .Unknown:
 		return {}, false
 	}

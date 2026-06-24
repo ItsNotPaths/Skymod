@@ -124,6 +124,7 @@ parse :: proc(file: []u8) -> (img: Image, ok: bool) {
 			if img.format == .Unknown {
 				return {}, false
 			}
+			img.bgra = dxgi == 87 || dxgi == 88 // B8G8R8A8_UNORM / _SRGB → channels swapped
 		case:
 			return {}, false // unsupported FourCC
 		}
@@ -193,7 +194,7 @@ dxgi_format :: proc(d: u32) -> Format {
 	case 28, 29:
 		return .RGBA8 // R8G8B8A8_UNORM / _SRGB
 	case 87, 88:
-		return .RGBA8 // B8G8R8A8 — caller treats bgra; DX10 path leaves bgra=false (rare)
+		return .RGBA8 // B8G8R8A8_UNORM / _SRGB — parse() flags img.bgra so upload picks BGRA
 	}
 	return .Unknown
 }

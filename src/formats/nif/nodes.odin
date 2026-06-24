@@ -48,9 +48,13 @@ parse_scene :: proc(data: []u8, h: ^Header, allocator := context.allocator) -> [
 	}
 
 	roots := parse_footer(data, h)
+	// Guard against shared children (DAG → duplicated geometry) and back-edges (cycle →
+	// stack overflow): each block is walked at most once. Game NIFs are trees, so this
+	// only ever fires on a malformed file.
+	visited := make([]bool, int(h.num_blocks), context.temp_allocator)
 	shapes := make([dynamic]PlacedShape, 0, 8)
 	for root in roots {
-		walk_node(infos, data, h, int(root), 1, false, &shapes, is_root = true)
+		walk_node(infos, data, h, visited, int(root), 1, false, &shapes, is_root = true)
 	}
 	return shapes[:]
 }
@@ -90,6 +94,7 @@ walk_node :: proc(
 	infos: []Block_Info,
 	data: []u8,
 	h: ^Header,
+	visited: []bool,
 	idx: int,
 	parent_world: matrix[4, 4]f32,
 	under_hinge: bool,
@@ -99,6 +104,10 @@ walk_node :: proc(
 	if idx < 0 || idx >= len(infos) {
 		return
 	}
+	if visited[idx] {
+		return // already emitted (shared child / cycle) — don't duplicate or loop
+	}
+	visited[idx] = true
 	info := infos[idx]
 	if !info.is_node && !info.is_shape {
 		return
@@ -178,7 +187,7 @@ walk_node :: proc(
 	// A node named "Door" marks the animated hinge subtree: its descendant shapes swing.
 	child_hinge := under_hinge || block_name(h, info) == HINGE_NODE
 	for c in info.children {
-		walk_node(infos, data, h, int(c), world, child_hinge, out)
+		walk_node(infos, data, h, visited, int(c), world, child_hinge, out)
 	}
 }
 

@@ -212,7 +212,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// radius, behind the render_distance / lod_distance settings. Cells between them
 	// stream as terrain-only, downsampled coarser with distance.
 	full_radius := settings.get_int(cfg, "render_distance", 2)
-	lod_radius := max(settings.get_int(cfg, "lod_distance", 12), full_radius)
+	lod_radius := max(settings.get_int(cfg, "lod_distance", 24), full_radius)
 	obj_radius := settings.get_int(cfg, "object_lod_distance", 8)
 
 	// Grass draw distance (world units) + a basic, reusable wind (a future HDT-SMP-style

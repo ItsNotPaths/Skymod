@@ -174,6 +174,12 @@ open :: proc(path: string, allocator := context.allocator) -> (arc: Archive, ok:
 		names := buf[cur:cur + int(total_file_name_len)]
 		ni := 0
 		for f2 in 0 ..< int(file_count) {
+			if ni >= len(names) {
+				// Name block ran short (truncated/malformed) — fall back to the folder name
+				// so the entry is still present rather than slicing out of range.
+				entries[f2].path = path_join(folder_for_file[f2], "")
+				continue
+			}
 			end := ni
 			for end < len(names) && names[end] != 0 {
 				end += 1

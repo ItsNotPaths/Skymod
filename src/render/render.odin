@@ -478,28 +478,61 @@ create_shader :: proc(
 	return sdl.CreateGPUShader(device, info)
 }
 
-// upload_buffer creates a GPU buffer of `usage` and fills it via a staging
-// transfer buffer + copy pass (the standard SDL3_gpu upload dance).
+// Upload_Batch coalesces many buffer/texture uploads into ONE command buffer +
+// copy pass + submit. SDL3_gpu charges real driver overhead per submit, so doing a
+// whole model's meshes + textures (or a frame's worth) in one batch beats the old
+// per-buffer acquire/submit dance. Open with upload_begin, record via the *_into
+// procs, close with upload_end (which submits once and frees every staging buffer —
+// safe after submit: SDL defers the actual free until the copy completes).
+Upload_Batch :: struct {
+	device:    ^sdl.GPUDevice,
+	cmd:       ^sdl.GPUCommandBuffer,
+	pass:      ^sdl.GPUCopyPass,
+	transfers: [dynamic]^sdl.GPUTransferBuffer,
+}
+
+upload_begin :: proc(r: ^Renderer) -> Upload_Batch {
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	return {device = r.device, cmd = cmd, pass = sdl.BeginGPUCopyPass(cmd)}
+}
+
+upload_end :: proc(b: ^Upload_Batch) {
+	sdl.EndGPUCopyPass(b.pass)
+	_ = sdl.SubmitGPUCommandBuffer(b.cmd)
+	for tb in b.transfers {
+		sdl.ReleaseGPUTransferBuffer(b.device, tb)
+	}
+	delete(b.transfers)
+	b^ = {}
+}
+
+// upload_buffer_into records one buffer upload into an open batch and returns the
+// (already-valid) GPU buffer handle. The staging buffer is retained by the batch and
+// freed at upload_end.
+upload_buffer_into :: proc(b: ^Upload_Batch, usage: sdl.GPUBufferUsageFlags, data: []byte) -> ^sdl.GPUBuffer {
+	size := u32(len(data))
+	buf := sdl.CreateGPUBuffer(b.device, {usage = usage, size = size})
+	tb := sdl.CreateGPUTransferBuffer(b.device, {usage = .UPLOAD, size = size})
+	ptr := sdl.MapGPUTransferBuffer(b.device, tb, false)
+	mem.copy(ptr, raw_data(data), int(size))
+	sdl.UnmapGPUTransferBuffer(b.device, tb)
+	sdl.UploadToGPUBuffer(b.pass, {transfer_buffer = tb, offset = 0}, {buffer = buf, offset = 0, size = size}, false)
+	append(&b.transfers, tb)
+	return buf
+}
+
+// upload_buffer is the one-shot convenience (its own command buffer + submit) for the
+// single-buffer callers — the cube, instance scatter buffers, etc.
 @(private)
 upload_buffer :: proc(
 	device: ^sdl.GPUDevice,
 	usage: sdl.GPUBufferUsageFlags,
 	data: []byte,
 ) -> ^sdl.GPUBuffer {
-	size := u32(len(data))
-	buf := sdl.CreateGPUBuffer(device, {usage = usage, size = size})
-
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = size})
-	ptr := sdl.MapGPUTransferBuffer(device, tb, false)
-	mem.copy(ptr, raw_data(data), int(size))
-	sdl.UnmapGPUTransferBuffer(device, tb)
-
-	cmd := sdl.AcquireGPUCommandBuffer(device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUBuffer(cp, {transfer_buffer = tb, offset = 0}, {buffer = buf, offset = 0, size = size}, false)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(device, tb)
+	b := Upload_Batch{device = device, cmd = sdl.AcquireGPUCommandBuffer(device)}
+	b.pass = sdl.BeginGPUCopyPass(b.cmd)
+	buf := upload_buffer_into(&b, usage, data)
+	upload_end(&b)
 	return buf
 }
 

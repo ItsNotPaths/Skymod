@@ -42,14 +42,24 @@ Mesh :: struct {
 	index_count: u32,
 }
 
-// upload_mesh uploads vertices + 16-bit indices to the GPU. Release with
-// release_mesh.
+// upload_mesh uploads vertices + 16-bit indices to the GPU in ONE copy pass + submit
+// (vs the old two). Release with release_mesh.
 upload_mesh :: proc(r: ^Renderer, verts: []Mesh_Vertex, indices: []u16) -> Mesh {
-	m: Mesh
-	m.vbuf = upload_buffer(r.device, {.VERTEX}, bytes_of(verts))
-	m.ibuf = upload_buffer(r.device, {.INDEX}, bytes_of(indices))
-	m.index_count = u32(len(indices))
+	b := upload_begin(r)
+	m := upload_mesh_into(&b, verts, indices)
+	upload_end(&b)
 	return m
+}
+
+// upload_mesh_into records a mesh's vertex + index uploads into an open Upload_Batch —
+// so a whole model's shapes (and their textures) land in a single submit. Both buffers
+// share the batch's copy pass.
+upload_mesh_into :: proc(b: ^Upload_Batch, verts: []Mesh_Vertex, indices: []u16) -> Mesh {
+	return {
+		vbuf        = upload_buffer_into(b, {.VERTEX}, bytes_of(verts)),
+		ibuf        = upload_buffer_into(b, {.INDEX}, bytes_of(indices)),
+		index_count = u32(len(indices)),
+	}
 }
 
 release_mesh :: proc(r: ^Renderer, m: Mesh) {

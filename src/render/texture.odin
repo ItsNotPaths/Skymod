@@ -25,6 +25,7 @@ Tex_Format :: enum {
 	BC5,
 	BC7,
 	RGBA8,
+	BGRA8, // uncompressed 32bpp with B/R swapped (Skyrim's D3D9-default uncompressed maps)
 }
 
 // Tex_Mip is one mip level: its dimensions and a slice of the (tightly-packed) source
@@ -35,15 +36,24 @@ Tex_Mip :: struct {
 	data:   []u8,
 }
 
-// upload_texture creates a sampled GPU texture from a mip chain and uploads every
-// level in one copy pass. mips[0] is the base level. Returns a zero Texture on bad
-// input. Release with release_texture.
+// upload_texture creates a sampled GPU texture from a mip chain in its own copy pass +
+// submit. mips[0] is the base level. Returns a zero Texture on bad input. Release with
+// release_texture.
 upload_texture :: proc(r: ^Renderer, format: Tex_Format, srgb: bool, mips: []Tex_Mip) -> Texture {
+	b := upload_begin(r)
+	t := upload_texture_into(&b, format, srgb, mips)
+	upload_end(&b)
+	return t
+}
+
+// upload_texture_into records a texture's full mip chain into an open Upload_Batch (every
+// level in the shared copy pass), so a whole model's meshes + textures land in one submit.
+upload_texture_into :: proc(b: ^Upload_Batch, format: Tex_Format, srgb: bool, mips: []Tex_Mip) -> Texture {
 	if len(mips) == 0 || mips[0].width == 0 || mips[0].height == 0 {
 		return {}
 	}
 	tex := sdl.CreateGPUTexture(
-		r.device,
+		b.device,
 		{
 			type = .D2,
 			format = to_sdl_format(format, srgb),
@@ -63,8 +73,8 @@ upload_texture :: proc(r: ^Renderer, format: Tex_Format, srgb: bool, mips: []Tex
 	for m in mips {
 		total += len(m.data)
 	}
-	tb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = u32(total)})
-	dst := sdl.MapGPUTransferBuffer(r.device, tb, false)
+	tb := sdl.CreateGPUTransferBuffer(b.device, {usage = .UPLOAD, size = u32(total)})
+	dst := sdl.MapGPUTransferBuffer(b.device, tb, false)
 	off := 0
 	offsets := make([]int, len(mips), context.temp_allocator)
 	for m, i in mips {
@@ -72,11 +82,9 @@ upload_texture :: proc(r: ^Renderer, format: Tex_Format, srgb: bool, mips: []Tex
 		mem.copy(rawptr(uintptr(dst) + uintptr(off)), raw_data(m.data), len(m.data))
 		off += len(m.data)
 	}
-	sdl.UnmapGPUTransferBuffer(r.device, tb)
+	sdl.UnmapGPUTransferBuffer(b.device, tb)
 
-	cmd := sdl.AcquireGPUCommandBuffer(r.device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	compressed := format != .RGBA8
+	compressed := format != .RGBA8 && format != .BGRA8
 	for m, i in mips {
 		// Vulkan requires the transfer row length to be a multiple of the block size
 		// for compressed formats; the DDS mip data is tightly packed at that stride.
@@ -87,15 +95,13 @@ upload_texture :: proc(r: ^Renderer, format: Tex_Format, srgb: bool, mips: []Tex
 			rpl = round_up4(m.height)
 		}
 		sdl.UploadToGPUTexture(
-			cp,
+			b.pass,
 			{transfer_buffer = tb, offset = u32(offsets[i]), pixels_per_row = ppr, rows_per_layer = rpl},
 			{texture = tex, mip_level = u32(i), w = m.width, h = m.height, d = 1},
 			false,
 		)
 	}
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(r.device, tb)
+	append(&b.transfers, tb)
 	return {tex = tex}
 }
 
@@ -129,6 +135,8 @@ to_sdl_format :: proc(f: Tex_Format, srgb: bool) -> sdl.GPUTextureFormat {
 		return .BC7_RGBA_UNORM_SRGB if srgb else .BC7_RGBA_UNORM
 	case .RGBA8:
 		return .R8G8B8A8_UNORM_SRGB if srgb else .R8G8B8A8_UNORM
+	case .BGRA8:
+		return .B8G8R8A8_UNORM_SRGB if srgb else .B8G8R8A8_UNORM
 	}
 	return .R8G8B8A8_UNORM
 }

@@ -54,9 +54,16 @@ mount_archive :: proc(v: ^VFS, path: string) -> bool {
 // read resolves `path` to its bytes — loose files first, then archives (later
 // mounts win). The result is freshly allocated in `allocator`; the caller owns it.
 read :: proc(v: ^VFS, path: string, allocator := context.allocator) -> (data: []u8, ok: bool) {
-	if full, found := loose_path(v, path); found {
-		d, err := os.read_entire_file(full, allocator)
-		return d, err == nil
+	// Loose files win. Try reading each root's candidate directly (one syscall) rather
+	// than stat-then-read; a miss falls through to the archives.
+	if len(v.loose_roots) > 0 {
+		rel, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+		for root in v.loose_roots {
+			candidate, _ := filepath.join({root, rel}, context.temp_allocator)
+			if d, err := os.read_entire_file(candidate, allocator); err == nil {
+				return d, true
+			}
+		}
 	}
 	key := normalize_path(path, context.temp_allocator)
 	if loc, found := v.index[key]; found {
@@ -116,7 +123,8 @@ loose_path :: proc(v: ^VFS, path: string) -> (full: string, ok: bool) {
 // are left intact — Bethesda lookups key on the literal (normalized) string.
 // The returned string is freshly allocated; the caller owns it.
 normalize_path :: proc(path: string, allocator := context.allocator) -> string {
-	b := strings.builder_make(allocator)
+	// Scratch the transform in temp; the single persistent allocation is the trimmed clone.
+	b := strings.builder_make(context.temp_allocator)
 	defer strings.builder_destroy(&b)
 	for r in path {
 		switch r {
