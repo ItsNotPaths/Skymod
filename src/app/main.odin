@@ -15,12 +15,15 @@ import "core:log"
 import "core:math"
 import "core:mem"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:sys/info"
+import "core:time"
 
 import "../gamedb"
 import "../installer"
 import smath "../math"
+import "../physics"
 import "../platform"
 import "../render"
 import slog "../log"
@@ -28,6 +31,7 @@ import "../settings"
 import "../tools"
 import "../vfs"
 import "../world"
+import "../worldstate"
 
 WINDOW_W :: 1280
 WINDOW_H :: 720
@@ -85,6 +89,27 @@ main :: proc() {
 	// (swing the hinge, find the open pose). Needs source_game; mounts archives directly.
 	if slice.contains(os.args, "--doortest") {
 		run_door_test(&cfg)
+		return
+	}
+
+	// Dev: `--phystest` runs the headless Jolt smoke (drop a sphere on a floor, log it
+	// settling) — proves the vendor/build/static-link/FFI chain. No window/assets.
+	if slice.contains(os.args, "--phystest") {
+		run_phys_test()
+		return
+	}
+
+	// Dev: `--celltest` loads a small static grid of cells around Riverwood with collision
+	// (no streaming/LOD/shadows) — a cheap scene to debug physics. G drops balls.
+	if slice.contains(os.args, "--celltest") {
+		run_cell_test(&cfg)
+		return
+	}
+
+	// Dev: `--terraintest` headlessly drops a sphere onto the Riverwood terrain trimesh and
+	// logs whether it rests or falls through — isolates the terrain collision path.
+	if slice.contains(os.args, "--terraintest") {
+		run_terrain_test(&cfg)
 		return
 	}
 
@@ -207,8 +232,15 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	}
 	defer gamedb.destroy(&db)
 
+	// Static collision (ROADMAP §2e physics): a Jolt world the streamer fills with bhk*
+	// bodies as cells load. Declared BEFORE the scene so its teardown runs AFTER
+	// scene_destroy (LIFO) — scene_destroy removes each chunk's bodies while the world lives.
+	phys, phys_ok := physics.world_create()
+	defer if phys_ok {physics.world_destroy(&phys);physics.shutdown()}
+
 	scene := world.scene_init(&r, &v)
 	defer world.scene_destroy(&scene) // runs AFTER stream_destroy (LIFO) — worker stopped first
+	if phys_ok {scene.phys = &phys}
 	// pretty: hide the white untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
 	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
@@ -221,12 +253,35 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 
 	RIVERWOOD_GX :: 5
 	RIVERWOOD_GY :: -11
-	// Full-detail radius (objects+grass+textured terrain) and the outer terrain-LOD
-	// radius, behind the render_distance / lod_distance settings. Cells between them
-	// stream as terrain-only, downsampled coarser with distance.
+	// LOD distances (cell radii): full-detail bubble (near terrain + grass + full objects), and how
+	// far Skyrim's prebaked object-LOD meshes reach. Terrain itself is whole-world CDLOD (no knob).
 	full_radius := settings.get_int(cfg, "render_distance", 2)
-	lod_radius := max(settings.get_int(cfg, "lod_distance", 24), full_radius)
-	obj_radius := settings.get_int(cfg, "object_lod_distance", 8)
+	obj_radius := settings.get_int(cfg, "object_lod_distance", 24)
+	// Tree billboards are the cheap far-far tier — their own reach (cells), defaulting to the object
+	// reach so an unset value never shrinks trees below the statics. Set it higher to fill the horizon.
+	tree_radius := settings.get_int(cfg, "tree_lod_distance", obj_radius)
+
+	// Optional LOD falloff tuning (commented out in settings.txt by default — compiled defaults
+	// here). terrain_lod_falloff = the quadtree coarsening factor (lower = finer distant terrain);
+	// object_lod_falloff scales the per-ring object size cull (>1 = fewer/larger-only distant objects).
+	world.terr_lod_k = settings.get_float(cfg, "terrain_lod_falloff", world.terr_lod_k)
+	world.OBJ_LOD_FALLOFF = settings.get_float(cfg, "object_lod_falloff", world.OBJ_LOD_FALLOFF)
+	world.TREE_LOD_FALLOFF = settings.get_float(cfg, "tree_lod_falloff", world.TREE_LOD_FALLOFF)
+	// Baked distant-object LOD (object_lod.odin): which MNAM LOD band every distant static uses, and
+	// the merge-quad size in cells (smaller = cleaner near transition + more draws). See settings.txt.
+	world.OBJECT_LOD_BAND = settings.get_int(cfg, "object_lod_band", world.OBJECT_LOD_BAND)
+	world.OBJECT_LOD_QUAD = i32(settings.get_int(cfg, "object_lod_quad", int(world.OBJECT_LOD_QUAD)))
+	// CDLOD geomorph tuning (smooth terrain LOD transitions): falloff = how early in each band the
+	// morph starts (lower = gentler), strength = morph amount (1 = crack-free, 0 = hard snaps).
+	world.terr_geomorph_falloff = settings.get_float(cfg, "terrain_geomorph_falloff", world.terr_geomorph_falloff)
+	world.terr_geomorph_strength = settings.get_float(cfg, "terrain_geomorph_strength", world.terr_geomorph_strength)
+	world.terr_geomorph_distance = settings.get_float(cfg, "terrain_geomorph_distance", world.terr_geomorph_distance)
+	// Fade the CDLOD height-drop out at the near-terrain edge: full drop under the lod-0 bubble
+	// (so the near mesh wins), zero beyond it (so distant terrain sits at true height under the
+	// distant water). full_radius cells of near terrain surround the player; ramp out over the
+	// next cell. Keyed to render_distance so the sink is never visible past the near terrain.
+	world.terr_drop_fade_start = f32(full_radius) * world.CELL_SIZE
+	world.terr_drop_fade_band = world.CELL_SIZE
 
 	// Decode pool size. load_threads = 0 → auto (logical cores − 1, leaving the main thread a
 	// core); an explicit value overrides. The heavy BSA+NIF+DDS decode is thread-safe, so more
@@ -245,6 +300,18 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	wind := render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
 	elapsed: f32
 	diag_t: f32 // throttle for the periodic memory/cache diagnostic log
+	// Per-phase frame-time profile (ms summed over the diag window, averaged on print). Finds
+	// "what's eating fps": which phase's average grows as the session runs. frames = denominator.
+	prof: struct {
+		frames:                      int,
+		stream, phys, render, frame: f64, // accumulated ms
+		// Per-pass CPU command-recording times (subset of render). `acquire` is the swapchain
+		// acquire — it BLOCKS when the GPU is behind, so a high acquire with low pass times means
+		// GPU-bound; high pass times mean CPU(draw-submission)-bound. Sum of passes + acquire vs
+		// render shows how much is unattributed (scene_begin/end_frame/present).
+		acquire, shadow, terrain, near, objdraw, grass, water, effects: f64,
+	}
+	prev_bodies: int // last window's body count — to flag a steady climb (leak)
 
 	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): once, derive a data-faithful
 	// "skyrim" profile from the user's own Skyrim.esm imagespace (local, never shipped), then
@@ -271,8 +338,8 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	interiors: world.Interiors
 	interiors_on := false
 	if wfid, found := gamedb.find_world(&db, "Tamriel"); found {
-		world.build_far_terrain(&scene, &db, wfid) // whole-world coarse backdrop (visible from anywhere)
-		world.stream_init(&streamer, &scene, &db, wfid, lod_radius, full_radius, obj_radius, loader_alloc, decode_threads)
+		world.build_terrain_field(&scene, &db, wfid) // CDLOD whole-world height-texture terrain (backdrop tier)
+		world.stream_init(&streamer, &scene, &db, wfid, full_radius, obj_radius, tree_radius, loader_alloc, decode_threads)
 		if pos, sok := stream_spawn(&db, wfid, RIVERWOOD_GX, RIVERWOOD_GY); sok {
 			cam.pos = pos
 		}
@@ -285,9 +352,23 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	} else {
 		log.error("worldspace Tamriel not found")
 	}
+	// World-state overlay (Phase 3c): the mutable delta layer between immutable gamedb and the
+	// transient scene. Moved clutter settles write here; cell loads patch from it (baseline ⊕
+	// overlay). Lives for the whole session — outlives every cell stream. Declared BEFORE trav so
+	// its teardown runs AFTER traversal_destroy (LIFO); the overlay is borrowed, never owned by trav.
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	// Quicksave file beside the binary (<base>/saves/), created on first save (§4.2).
+	saves_dir, _ := filepath.join({base, "saves"})
+	defer delete(saves_dir)
+	quicksave_path, _ := filepath.join({saves_dir, "quicksave.skysave"})
+	defer delete(quicksave_path)
+	save_no: u32
+
 	// Base door navigator: borrows the exterior scene + streamer (whatever their state) and
 	// indexes the worldspace's load doors. Safe even if no worldspace armed (no doors → inert).
-	traversal_init(&trav, &scene, &streamer, &db, &v, &r)
+	traversal_init(&trav, &scene, &streamer, &db, &v, &r, &ws)
 	defer if interiors_on {world.interiors_destroy(&interiors)} // before scene_destroy (LIFO)
 	defer traversal_destroy(&trav) // frees any loaded interior + the door index
 	defer world.stream_destroy(&streamer)
@@ -305,12 +386,69 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. On by default.
 	show_overlay := true
 
+	// Physics drop-test (B5): press G to spawn a falling ball at the camera; it's rendered
+	// as a small box marker at its live body position so you can watch it land on the
+	// streamed bhk* collision. Debug-only; markers persist until exit.
+	drop_marker := make_marker_mesh(&r, 24)
+	defer render.release_mesh(&r, drop_marker)
+	drops: [dynamic]physics.Body
+	defer delete(drops)
+
+	// Player character: walk the streamed exterior under gravity, colliding with terrain +
+	// objects. Spawns at the camera; V toggles no-clip free-fly (and inside interiors, which
+	// have no collision yet, locomotion falls back to free-fly automatically).
+	character: physics.Character
+	char_ok: bool
+	if phys_ok {
+		character, char_ok = physics.character_create(&phys, cam.pos, PLAYER_RADIUS, PLAYER_HALF_H)
+	}
+	defer if char_ok {physics.character_destroy(&character)}
+	noclip := !char_ok
+	// The physics world the `character` capsule currently lives in. The player walks the EXTERIOR
+	// `phys` until a load door swaps the active scene to an interior (its own world); on each swap
+	// the capsule is re-homed (destroy + recreate) into the new world. Seeded to the exterior so
+	// frame 1 doesn't re-home. nil when physics is off (free-fly).
+	cur_phys := scene.phys
+
 	// Debug: when `entered`, we've loaded fully INTO the active portal's interior cell (camera +
 	// picker operate in interior-local space) instead of viewing it through the portal — for
 	// inspecting what's in the room (e.g. the door panel). INTERIOR_EYE = camera height above the
 	// arrival marker / exterior door when entering / exiting.
 	entered := false
 	INTERIOR_EYE :: f32(96)
+
+	// Main menu (Phase 3d): Continue (load the quicksave into the overlay) / New Game (fresh) / Quit,
+	// shown over a cleared frame before the world streams in. Continue only pre-fills the overlay —
+	// the player still spawns at Riverwood (player-position persistence is a later overlay category),
+	// so saved interior clutter is in place the moment you step into a cell.
+	{
+		save_summary := ""
+		has_save := false
+		if man, ok := worldstate.read_manifest(quicksave_path); ok {
+			has_save = true
+			save_summary = fmt.tprintf("Save %d — %d change(s)", man.save_number, man.delta_count)
+		}
+		choice := tools.Menu_Action.None
+		for choice == .None && platform.pump(&p) {
+			render.ui_new_frame(&r)
+			choice = tools.main_menu_screen(has_save, save_summary)
+			if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
+				render.end_frame(&r)
+			}
+			free_all(context.temp_allocator)
+		}
+		#partial switch choice {
+		case .Continue:
+			if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
+				save_no = m.save_number
+				log.infof("menu: Continue — loaded %s (%d deltas)", quicksave_path, m.delta_count)
+			}
+		case .New:
+			log.info("menu: New Game")
+		case .None, .Quit:
+			return // window closed or Quit
+		}
+	}
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
@@ -320,14 +458,29 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	for world.stream_loading(&streamer) && platform.pump(&p) {
 		render.ui_new_frame(&r)
 		done, total, _ := world.stream_pump_load(&streamer)
+		// Cook collision for models that just uploaded, in step with the bubble fill — so the
+		// spawn world is solid the instant gameplay starts instead of collision trickling in at
+		// PHYS_BUDGET/frame for ~30s afterward. Generous budget (no gameplay frame to protect),
+		// and each iteration still presents so the progress bar + ESC stay live.
+		if phys_ok {
+			world.sync_physics(&scene, &scene.cache, budget = 128)
+		}
 		tools.loading_screen("Loading Tamriel…", done, total)
 		if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
 			render.end_frame(&r)
 		}
 		free_all(context.temp_allocator)
 	}
+	// Bubble resident: finish any collision the per-iteration budget didn't reach, then optimize
+	// the broadphase ONCE before the first step — Jolt's quad-tree must be rebuilt after a bulk
+	// static-body add or every step degrades. Mirrors the interior path (enter_interior).
+	if phys_ok {
+		for world.sync_physics(&scene, &scene.cache, budget = max(int)) > 0 {}
+		physics.optimize_broadphase(&phys)
+	}
 
 	for platform.pump(&p) {
+		frame_t0 := time.tick_now() // profile: whole-frame busy time (see `prof`)
 		render.ui_new_frame(&r)
 		if p.input.toggle_overlay {
 			show_overlay = !show_overlay
@@ -341,10 +494,38 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		if diag_t >= 3 {
 			diag_t = 0
 			mc, tc := world.cache_counts(&scene)
+			lob, lor := world.lod_object_stats(&scene)
+			ps := world.phys_stats(&scene) // the exterior — where the streaming-churn leak would be
 			log.infof(
-				"diag: cell (%d,%d) chunks=%d cache models=%d tex=%d rss=%dMB",
-				st.gx, st.gy, st.chunks, mc, tc, proc_rss_mb(),
+				"diag: cell (%d,%d) chunks=%d cache models=%d tex=%d lodobj=%d/%d rss=%dMB",
+				st.gx, st.gy, st.chunks, mc, tc, lor, lob, proc_rss_mb(),
 			)
+			// Frame-time profile (avg ms over the window) — the phase whose avg climbs is the
+			// fps eater. n = frames sampled. inv := 1/n.
+			if prof.frames > 0 {
+				inv := 1.0 / f64(prof.frames)
+				log.infof(
+					"prof: frame=%.2fms stream=%.2f phys=%.2f render=%.2f (avg/%d frames)",
+					prof.frame * inv, prof.stream * inv, prof.phys * inv, prof.render * inv, prof.frames,
+				)
+				// Render breakdown (ms): acquire = GPU-bound stall; the rest are CPU draw-submission
+				// per pass. If acquire ≫ passes, we're GPU-bound (fix = fewer/cheaper draws + verts);
+				// if passes dominate, CPU-bound (fix = fewer draw calls / less iteration).
+				log.infof(
+					"prof.render: acquire=%.2f shadow=%.2f terrain=%.2f near=%.2f objdraw=%.2f grass=%.2f water=%.2f effects=%.2f",
+					prof.acquire * inv, prof.shadow * inv, prof.terrain * inv, prof.near * inv,
+					prof.objdraw * inv, prof.grass * inv, prof.water * inv, prof.effects * inv,
+				)
+			}
+			prof = {}
+			// Leak probe: bodies/instances should be FLAT when the player stands still. dΔ is the
+			// change since the last window — a persistent + climb with no movement = a missing
+			// release path (chunks not freeing bodies, instances re-accumulating).
+			log.infof(
+				"leak: bodies=%d (Δ%+d) dyn=%d instances=%d built=%d chunks=%d",
+				ps.bodies, ps.bodies - prev_bodies, ps.dyn, ps.instances, ps.built, ps.chunks,
+			)
+			prev_bodies = ps.bodies
 		}
 
 		// The whole dev overlay (` toggles it). Hidden = no panels, so ImGui captures nothing
@@ -415,24 +596,15 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			}
 		}
 
-		mouse_cap, kb_cap := render.ui_capturing(&r)
-		move, look := p.input.move, p.input.look
-		if kb_cap {move = {}}
-		if mouse_cap {look = {}}
-		camera_update(&cam, move, look, p.input.fast, p.dt)
-
-		// Which scene the player inhabits this frame + whether it's a full-screen interior
-		// (the streamer is paused there). The experimental open-interiors path keeps its own
-		// debug walk-in (`entered`); the base path is driven by the Traversal door navigator.
+		// Which scene the player inhabits this frame + whether it's a full-screen interior (the
+		// streamer is paused there). The experimental open-interiors path keeps its own debug
+		// walk-in (`entered`); the base path is driven by the Traversal door navigator. Computed
+		// BEFORE locomotion so the capsule re-homes into the active world before it's moved.
 		in_interior: bool
 		active_scene: ^world.Scene
 		if interiors_on {
 			in_interior = entered
-			if entered {
-				active_scene = &interiors.interior_scene
-			} else {
-				active_scene = &scene
-			}
+			active_scene = &interiors.interior_scene if entered else &scene
 		} else {
 			in_interior = trav.mode == .Interior
 			active_scene = traversal_scene(&trav)
@@ -442,17 +614,121 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		scene.pretty = pretty
 		active_scene.pretty = pretty
 
+		// Re-home the player capsule into the active scene's physics world. On a door transition
+		// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old
+		// capsule and recreate it in the new world at the camera. A nil active world (physics off,
+		// or the experimental portal interior, which has none) → no capsule → free-fly.
+		want_phys := active_scene.phys
+		if want_phys != cur_phys {
+			if char_ok {physics.character_destroy(&character);char_ok = false}
+			if want_phys != nil {
+				character, char_ok = physics.character_create(want_phys, cam.pos, PLAYER_RADIUS, PLAYER_HALF_H)
+				if !char_ok {noclip = true}
+			}
+			cur_phys = want_phys
+		}
+
+		mouse_cap, kb_cap := render.ui_capturing(&r)
+		move, look := p.input.move, p.input.look
+		if kb_cap {move = {}}
+		if mouse_cap {look = {}}
+
+		if p.input.noclip {noclip = !noclip}
+		if char_ok && !noclip {
+			// Walk: mouse look + camera-relative WASD on the capsule, Shift sprint, Space jump —
+			// in whichever world the capsule is homed to (exterior terrain/objects or the interior).
+			cam.yaw -= look.x * LOOK_SENSITIVITY
+			cam.pitch = clamp(cam.pitch - look.y * LOOK_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
+			cy, sy := math.cos(cam.yaw), math.sin(cam.yaw)
+			dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
+			mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
+			speed := SPRINT_SPEED if p.input.fast else RUN_SPEED
+			hv: [2]f32
+			if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
+			physics.character_move(cur_phys, &character, hv, move.z > 0.5, min(p.dt, f32(1.0 / 30.0)))
+			cam.pos = physics.character_position(&character) + {0, 0, EYE_HEIGHT}
+		} else {
+			camera_update(&cam, move, look, p.input.fast, p.dt)
+			if char_ok {physics.character_set_position(&character, cam.pos)} // keep the body under the free camera
+		}
+
+		// Drop-test: G spawns a falling ball at the camera (physics verification). Exterior only —
+		// the markers below read positions from `phys`, so a ball dropped inside an interior (a
+		// different world) wouldn't track; gate it to the exterior to avoid the confusion.
+		if phys_ok && p.input.drop && !kb_cap && !in_interior {
+			b := physics.add_sphere(&phys, 24, cam.pos, is_dynamic = true)
+			if b != 0 {append(&drops, b)}
+			log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(drops), cam.pos.x, cam.pos.y, cam.pos.z)
+		}
+
+		// Shove-test (H): kick nearby movable clutter so it scatters and resettles — a visible check
+		// of the 3b dynamic-body path (interiors only, where clutter is dynamic).
+		if p.input.shove && !kb_cap {
+			if n := world.shove_clutter(active_scene, cam.pos, 400); n > 0 {
+				log.infof("shove: kicked %d clutter bodies", n)
+			}
+		}
+
+		// Quicksave (F5) / quickload (F9) — Phase 3d. Save writes the overlay to a .skysave; load
+		// reads it back and, when inside a base-traversal interior, reloads the cell so moved clutter
+		// snaps to the loaded positions immediately. Exterior loads apply on the next interior entry.
+		if p.input.quicksave && !kb_cap {
+			_ = os.make_directory(saves_dir) // idempotent (errors harmlessly if it exists)
+			cell := trav.cur_int_cell if (!interiors_on && trav.mode == .Interior) else u32(0)
+			man := worldstate.Save_Manifest {
+				save_number  = save_no + 1,
+				created_unix = time.to_unix_nanoseconds(time.now()),
+				game_cell    = cell,
+			}
+			if worldstate.save_to_file(&ws, quicksave_path, man) {
+				save_no += 1
+				log.infof("quicksave: wrote %s (%d deltas)", quicksave_path, worldstate.count(&ws))
+			} else {
+				log.errorf("quicksave: FAILED to write %s", quicksave_path)
+			}
+		}
+		if p.input.quickload && !kb_cap {
+			if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
+				log.infof("quickload: loaded %s (%d deltas)", quicksave_path, m.delta_count)
+				if !interiors_on {
+					traversal_reload(&trav) // re-apply the loaded overlay to the live interior
+				}
+			} else {
+				log.warnf("quickload: no valid save at %s", quicksave_path)
+			}
+		}
+
 		// Stream the exterior window around the (now-moved) camera — unless we're inside an
 		// interior (camera is in interior-local space; the streamer is paused). Re-windows on
 		// cell crossing, uploads decoded models under the per-frame budget. Never blocks.
+		t_stream := time.tick_now()
 		if !in_interior {
 			world.stream_update(&streamer, cam.pos)
+			world.update_terrain_field(&scene, cam.pos) // re-select CDLOD terrain LOD on move
 			if interiors_on {
 				// Open interiors (EXPERIMENTAL): keep the nearest in-range portal's interior
 				// loaded (GPU work, so outside begin_frame). Rendered through the doorway below.
 				world.interiors_update(&interiors, cam.pos)
 			}
 		}
+		prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
+		// Physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE
+		// world (streamed exterior, or the interior cell) then advance THAT world's sim. dt clamped
+		// so a hitch can't explode the step. Interiors prebuild their bodies on entry (enter_interior),
+		// so sync_physics here is a no-op for them; the exterior keeps building as cells stream in.
+		t_phys := time.tick_now()
+		if cur_phys != nil {
+			// New cells streaming in add static bodies; rebuild the broadphase the frames they
+			// do (made > 0) so the quad-tree stays balanced — without this the exterior tree
+			// degrades with every incremental add and the step time climbs steadily. Interiors
+			// build + optimize on entry, so sync_physics is a no-op there and this never fires.
+			if world.sync_physics(active_scene, &active_scene.cache) > 0 {
+				physics.optimize_broadphase(cur_phys)
+			}
+			physics.step(cur_phys, min(p.dt, f32(1.0 / 30.0)))
+			world.capture_settles(active_scene) // overlay: snapshot clutter that just came to rest (3c)
+		}
+		prof.phys += time.duration_milliseconds(time.tick_since(t_phys))
 
 		// Base door traversal: auto-load doors (cave/dungeon entrances) cross on PROXIMITY;
 		// manual doors (real meshes, incl. cross-worldspace city gates) arm a prompt and cross
@@ -509,6 +785,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		// run on the FRAME command buffer between frame_acquire and scene_begin, so the shadow-array
 		// write → sampler read is one command buffer and SDL3_gpu inserts the barrier (a separate
 		// shadow cmd buffer faulted the Intel Vulkan driver).
+		t_render := time.tick_now()
 		env := lighting_env(&lights.active, cam.pos)
 		shadows_on := shadow_dist > 0 && lights.active.shadow_strength > 0 && !in_interior
 		cascades: Cascades
@@ -539,7 +816,16 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		render.set_lighting(&r, env)
 		render.set_post(&r, lighting_post(&lights.active))
 		sky := lights.active.sky_color
-		if render.frame_acquire(&r) {
+		t_acq := time.tick_now()
+		acquired := render.frame_acquire(&r) // blocks here if the GPU is behind → GPU-bound shows up in `acquire`
+		prof.acquire += time.duration_milliseconds(time.tick_since(t_acq))
+		if acquired {
+			// Snapshot the drawn scene's chunks into its flat per-frame list once (Fix A): every
+			// draw/shadow pass below iterates that tight array instead of walking the chunk MAP and
+			// streaming its big inline Chunk values through cache ~9×/frame. The interior path draws
+			// active_scene; the shadow cascades + exterior passes draw &scene.
+			world.cull_begin(active_scene if in_interior else &scene)
+			t_shadow := time.tick_now()
 			if shadows_on {
 				for c in 0 ..< render.SHADOW_CASCADES {
 					render.shadow_cascade(&r, c)
@@ -548,6 +834,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 					render.shadow_cascade_end(&r)
 				}
 			}
+			prof.shadow += time.duration_milliseconds(time.tick_since(t_shadow))
 			render.scene_begin(&r, {sky.x, sky.y, sky.z, 1.0})
 			vp := camera_view_proj(cam, render.aspect(&r))
 			if in_interior {
@@ -556,12 +843,25 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				world.draw_effects(active_scene, &r, vp, elapsed)
 				world.draw_highlight(active_scene, &r, vp)
 			} else {
-				world.draw_far_terrain(&scene, &r, vp) // whole-world coarse backdrop (drawn under detail)
+				t_terrain := time.tick_now()
+				world.draw_terrain_field(&scene, &r, vp, cam.pos) // CDLOD whole-world terrain (drawn under streamed detail)
+				prof.terrain += time.duration_milliseconds(time.tick_since(t_terrain))
+				t_near := time.tick_now()
 				world.draw(&scene, &r, vp, wind, elapsed) // trees + foliage sway under the global wind
-				world.draw_objects(&scene, &r, vp, wind, elapsed) // distant instanced statics + their veg (LOD rings)
+				prof.near += time.duration_milliseconds(time.tick_since(t_near))
+				// Drop-test markers: a box at each falling ball's live physics position.
+				for b in drops {
+					bp := physics.body_position(&phys, b)
+					render.draw_mesh(&r, drop_marker, vp, smath.translate({bp.x, bp.y, bp.z}), {})
+				}
+				t_objdraw := time.tick_now()
+				world.draw_object_lod(&scene, &r, vp, cam.pos, full_radius, wind, elapsed) // baked per-quad distant objects
+				prof.objdraw += time.duration_milliseconds(time.tick_since(t_objdraw))
+				t_grass := time.tick_now()
 				if grass_dist > 0 {
 					world.draw_grass(&scene, &r, vp, cam.pos, grass_dist, wind, elapsed)
 				}
+				prof.grass += time.duration_milliseconds(time.tick_since(t_grass))
 				// Stencil portal: render the nearest in-range interior THROUGH its doorway, from a
 				// virtual camera relayed into interior space. After exterior opaque geometry (so a
 				// wall in front of the door hides it), before the translucent effect pass.
@@ -579,12 +879,20 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 					)
 					world.interiors_render(&interiors, &r, vp, relay)
 				}
-				world.draw_water(&scene, &r, vp, cam.pos, elapsed) // flat per-cell water planes (transparent, over opaque)
+				t_water := time.tick_now()
+				world.draw_water_lod(&scene, &r, vp, cam.pos, full_radius, elapsed) // baked distant water (per-quad, real heights)
+				world.draw_water(&scene, &r, vp, cam.pos, elapsed) // near animated per-cell water (bubble), over the distant
+				prof.water += time.duration_milliseconds(time.tick_since(t_water))
+				t_effects := time.tick_now()
 				world.draw_effects(&scene, &r, vp, elapsed) // additive FX (flowing water/fire/beams), over opaque (last)
+				prof.effects += time.duration_milliseconds(time.tick_since(t_effects))
 				world.draw_highlight(&scene, &r, vp, wind, elapsed) // inspect-mode hover highlight
 			}
 			render.end_frame(&r)
 		}
+		prof.render += time.duration_milliseconds(time.tick_since(t_render))
+		prof.frame += time.duration_milliseconds(time.tick_since(frame_t0))
+		prof.frames += 1
 
 		// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 		// exactly one frame — UI string formatting, draw lists, transient buffers.

@@ -18,11 +18,14 @@ package world
 import "core:log"
 import "core:strings"
 
+import "../physics"
+
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
 import "../render"
 import "../vfs"
+import "../worldstate"
 
 // Hardcoded marker base forms (invisible editor helpers): XMarker / XMarkerHeading.
 XMARKER :: 0x0000_003B
@@ -139,6 +142,18 @@ pretty_hidden :: proc(s: ^Scene, inst: ^Instance) -> bool {
 	return s.pretty && inst.model != nil && inst.model.untextured
 }
 
+// instance_world returns the instance's live render transform: its baked static placement, or —
+// for a movable-clutter instance carried by a dynamic body (Phase 3b) — that placement moved by
+// the body's pose. Derivation: a model vertex's world position is world·v; after the body moves
+// to (p, R) we want R·(world·v − pos) + p, which as a matrix is body_transform·translate(−pos)·world
+// (translate(−pos) re-bases the rotation on the REFR origin the hull verts were centred relative to).
+instance_world :: proc(s: ^Scene, inst: ^Instance) -> smath.Mat4 {
+	if inst.dyn_body == 0 || s.phys == nil {
+		return inst.world
+	}
+	return physics.body_transform(s.phys, inst.dyn_body) * smath.translate(-inst.pos) * inst.world
+}
+
 // CELL_SIZE is the side of one exterior cell in world units.
 CELL_SIZE :: f32(4096)
 
@@ -163,6 +178,7 @@ Instance :: struct {
 	model_path: string, // borrowed from gamedb (valid for the DB's lifetime)
 	model:      ^assetdb.Model, // nil until the asset is uploaded; resolved lazily
 	base:       u32,
+	form_id:    u32, // this REFR's formID (overlay key — worldstate deltas + settle capture, Phase 3)
 	pos:        smath.Vec3,
 	rot:        smath.Vec3, // XYZ euler radians (REFR DATA)
 	scale:      f32,
@@ -173,6 +189,9 @@ Instance :: struct {
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
 	world:      smath.Mat4, // cached trs(pos,rot,scale) — placement is static, so computed once at build
 	veg:        Veg_Kind, // cached vegetation class (path match done once, not per frame)
+	phys_built: bool, // collision bodies created for this instance (sync_physics, Phase 2e)
+	dyn_body:   physics.Body, // movable-clutter dynamic body (0 = none/static); render follows it (Phase 3b)
+	dyn_active: bool, // last frame's body-active state — settle (active→asleep) edge → overlay delta (Phase 3c)
 }
 
 // Chunk is one loaded cell's instances + a culling AABB. Exterior cells carry their
@@ -189,13 +208,37 @@ Chunk :: struct {
 	objects:      [dynamic]Obj_Batch, // distant instanced statics (lod ≥ 1; one batch per model)
 	water:        render.Mesh, // flat per-cell water plane (zero mesh = none); see water.odin
 	has_water:    bool,
+	bodies:       [dynamic]physics.Body, // static collision bodies for this chunk's instances (Phase 2e)
+	phys_done:    bool, // every instance's collision bodies are built (skip in sync_physics)
+	debug_mesh:   render.Mesh, // collision-hitbox wireframe geometry (world-space); built on demand
+	has_debug:    bool,
 	lo, hi:       smath.Vec3, // world-space culling bounds (incl. terrain footprint)
+}
+
+// Vis_Chunk is one entry in the per-frame flat draw list: the chunk's cull AABB INLINE (so the
+// frustum test reads a tight contiguous array, not the scattered big Chunk structs) plus a pointer
+// dereferenced only once the chunk passes the test. See cull_begin.
+Vis_Chunk :: struct {
+	lo, hi: smath.Vec3,
+	c:      ^Chunk,
 }
 
 // Scene is the loaded world: chunks keyed by cell formID + the asset cache.
 Scene :: struct {
 	cache:    assetdb.Cache,
 	chunks:   map[u32]Chunk,
+	// frame_chunks is a flat snapshot of the resident chunks (pointers + cull bounds), rebuilt
+	// once per frame by cull_begin and iterated by EVERY draw/shadow pass. Walking the chunk MAP
+	// directly streams its big inline Chunk values through cache on each of ~9 passes/frame; a
+	// flat array of 40-byte entries is the cache-friendly alternative. Pointers stay valid for the
+	// frame (no chunk insert/remove happens between cull_begin and end_frame).
+	frame_chunks: [dynamic]Vis_Chunk,
+	// Baked distant-object LOD: the whole worldspace's distant objects merged per quad into static
+	// buffers at load (object_lod.odin), drawn instead of per-cell — keyed by packed quad coord.
+	lod_quads: map[u64]Lod_Quad,
+	// Baked distant water: per-cell water planes (at their varying heights) merged per quad into one
+	// mesh at load (water_lod.odin), so distant lakes/rivers survive the streamer shrink cheaply.
+	water_quads: map[u64]Water_Quad,
 	lo, hi:   smath.Vec3, // overall AABB of placed refs (spawn framing)
 	sel_cell: u32, // selected instance's chunk (0 = none)
 	sel_inst: int,
@@ -204,16 +247,33 @@ Scene :: struct {
 	hover_inst: int,
 	has_hover:  bool,
 	last_land_tex: render.Texture, // most recently resolved ground texture (terrain fallback)
-	far:      [dynamic]Far_Block, // whole-world coarse terrain backdrop (always resident)
+	tfield:   Terrain_Field, // CDLOD whole-world height-texture terrain (terrain pivot)
+	tree_billboards: map[u32]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
+	phys:     ^physics.World, // borrowed static-collision world (Phase 2e); nil = physics off for this scene
+	dynamic_clutter: bool, // build movable clutter as DYNAMIC bodies (Phase 3b) — interiors only (single-precision-safe); exteriors keep clutter static
+	ws:       ^worldstate.World_State, // borrowed world-state overlay (Phase 3c); nil = no persistence layer for this scene
 }
 
 scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Scene {
 	return Scene {
 		cache = assetdb.cache_init(r, v),
 		chunks = make(map[u32]Chunk),
+		lod_quads = make(map[u64]Lod_Quad),
+		water_quads = make(map[u64]Water_Quad),
 		lo = {max(f32), max(f32), max(f32)},
 		hi = {min(f32), min(f32), min(f32)},
+	}
+}
+
+// cull_begin rebuilds the per-frame flat chunk list (s.frame_chunks) from the chunk map — one
+// map walk that every subsequent draw/shadow pass reuses instead of walking the map itself. Call
+// ONCE per frame for a scene, AFTER all streaming/loading mutations and BEFORE its first draw
+// pass; the captured ^Chunk pointers + AABBs stay valid until the next chunk insert/remove.
+cull_begin :: proc(s: ^Scene) {
+	clear(&s.frame_chunks)
+	for _, &chunk in s.chunks {
+		append(&s.frame_chunks, Vis_Chunk{lo = chunk.lo, hi = chunk.hi, c = &chunk})
 	}
 }
 
@@ -223,15 +283,21 @@ cache_counts :: proc(s: ^Scene) -> (models, textures: int) {
 }
 
 scene_destroy :: proc(s: ^Scene) {
-	release_far_terrain(s)
+	release_terrain_field(s)
 	for _, &chunk in s.chunks {
 		release_terrain(s, &chunk)
 		release_grass(s, &chunk)
 		release_objects(s, &chunk)
 		release_water(s, &chunk)
+		release_chunk_physics(s, &chunk)
 		delete(chunk.instances)
 	}
 	delete(s.chunks)
+	delete(s.frame_chunks)
+	clear_object_lod(s) // release the baked distant-object LOD buffers
+	delete(s.lod_quads)
+	clear_water_lod(s) // release the baked distant-water meshes
+	delete(s.water_quads)
 	assetdb.cache_destroy(&s.cache)
 	s^ = {}
 }
@@ -268,6 +334,7 @@ build_chunk :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
 			Instance {
 				model_path = modl,
 				base = r.base,
+				form_id = r.form_id,
 				pos = r.pos,
 				rot = r.rot,
 				scale = r.scale,
@@ -299,10 +366,12 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: u32) -> int {
 			inst.model = m
 		}
 	}
+	apply_overlay(s, &chunk) // baseline ⊕ overlay: patch moved refs before collision is built (3c)
 	expand_scene_bounds(s, chunk)
 	load_terrain(s, db, &chunk)
 	load_water(s, db, &chunk)
 	load_grass(s, db, &chunk)
+	build_chunk_physics(s, db, &chunk) // static collision (terrain; objects via sync_physics)
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	return n
@@ -348,14 +417,21 @@ spawn :: proc(s: ^Scene) -> (pos: smath.Vec3, ok: bool) {
 // `wind`/`time` drive the vegetation sway (trees + foliage); rigid statics pass strength 0.
 draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind = {}, time: f32 = 0) {
 	f := smath.frustum_from_vp(vp)
-	for _, &chunk in s.chunks {
-		if !smath.aabb_in_frustum(f, chunk.lo, chunk.hi) {
+	// Near terrain is textured through the SHARED blended ground (terrain.frag) — the same array +
+	// per-cell index + noise blend as the distant CDLOD tier — so it blends seamlessly instead of
+	// showing per-quadrant texture seams. Verts are already world-space (real Z + normals).
+	tuni := render.Terrain_Uniforms {
+		vp    = vp,
+		field = s.tfield.uni_field,
+		texel = s.tfield.uni_texel,
+	}
+	for vc in s.frame_chunks {
+		if !smath.aabb_in_frustum(f, vc.lo, vc.hi) {
 			continue
 		}
-		// Terrain: verts are already world-space, so model = identity (shader mvp = vp).
-		// Each quadrant patch carries its own base diffuse (white fallback if unresolved).
+		chunk := vc.c
 		for p in chunk.terrain {
-			render.draw_mesh(r, p.mesh, vp, smath.Mat4(1), p.tex)
+			render.draw_terrain_near(r, p.mesh, s.tfield.ground, s.tfield.index, tuni)
 		}
 		for &inst in chunk.instances {
 			if inst.vis != .Show {
@@ -377,6 +453,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 			// One global wind direction; per-vegetation amplitude+speed+cap, per-placement phase.
 			iw := veg_wind_for(inst.veg, wind)
 			phase := veg_phase(inst.pos)
+			iworld := instance_world(s, &inst) // live pose if a movable clutter body carries it (3b)
 			for sh in inst.model.shapes {
 				if sh.is_effect {
 					continue // ghosted in the translucent draw_effects pass
@@ -384,7 +461,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 				if s.pretty && sh.tex.tex == nil {
 					continue // --pretty: untextured CK debug shape (bounding ring/arrow baked into the mesh) — hidden
 				}
-				model := inst.world * sh.local
+				model := iworld * sh.local
 				render.draw_mesh(
 					r,
 					sh.mesh,
@@ -417,21 +494,22 @@ draw_casters :: proc(
 	max_dist: f32,
 	veg: Veg_Shadow_Mode,
 ) {
-	for _, &chunk in s.chunks {
+	for vc in s.frame_chunks {
 		// Hard distance bound (closest point of the chunk AABB to the camera) — keeps the caster
 		// set within the shadowed region regardless of the light-frustum cull, so a huge streamed
 		// window can't blow up the shadow draw/uniform count.
 		cp := smath.Vec3 {
-			clamp(cam_pos.x, chunk.lo.x, chunk.hi.x),
-			clamp(cam_pos.y, chunk.lo.y, chunk.hi.y),
-			clamp(cam_pos.z, chunk.lo.z, chunk.hi.z),
+			clamp(cam_pos.x, vc.lo.x, vc.hi.x),
+			clamp(cam_pos.y, vc.lo.y, vc.hi.y),
+			clamp(cam_pos.z, vc.lo.z, vc.hi.z),
 		}
 		if smath.length3(cp - cam_pos) > max_dist {
 			continue
 		}
-		if !smath.aabb_in_frustum(f, chunk.lo, chunk.hi) {
+		if !smath.aabb_in_frustum(f, vc.lo, vc.hi) {
 			continue
 		}
+		chunk := vc.c
 		for p in chunk.terrain {
 			render.draw_shadow(r, p.mesh, light_vp, smath.Mat4(1)) // terrain verts are world-space
 		}
@@ -453,8 +531,9 @@ draw_casters :: proc(
 			// (no proxy built) fall back to full alpha casting.
 			is_tree := inst.veg == .Tree
 			use_proxy := veg == .Proxy && is_tree && inst.model.has_shadow_proxy
+			iworld := instance_world(s, &inst) // live pose if a movable clutter body carries it (3b)
 			if use_proxy {
-				render.draw_shadow(r, inst.model.shadow_proxy, light_vp, inst.world)
+				render.draw_shadow(r, inst.model.shadow_proxy, light_vp, iworld)
 			}
 			for sh in inst.model.shapes {
 				if sh.is_effect {
@@ -464,7 +543,7 @@ draw_casters :: proc(
 					continue // --pretty: untextured CK debug shape is hidden, so it casts no shadow either
 				}
 				if sh.alpha_cutoff <= 0 {
-					render.draw_shadow(r, sh.mesh, light_vp, inst.world * sh.local) // opaque: statics, trunks, branches
+					render.draw_shadow(r, sh.mesh, light_vp, iworld * sh.local) // opaque: statics, trunks, branches
 					continue
 				}
 				// Alpha-tested foliage (leaves/plants).
@@ -473,7 +552,7 @@ draw_casters :: proc(
 				}
 				// Full mode → real cutout shadow; proxy mode + tree but no proxy = blacklisted → full.
 				if veg == .Full || (veg == .Proxy && is_tree) {
-					render.draw_shadow_alpha(r, sh.mesh, light_vp, inst.world * sh.local, sh.tex, sh.alpha_cutoff)
+					render.draw_shadow_alpha(r, sh.mesh, light_vp, iworld * sh.local, sh.tex, sh.alpha_cutoff)
 				}
 				// else (Off, or a plant in Proxy mode) → no foliage shadow
 			}
@@ -487,10 +566,11 @@ draw_casters :: proc(
 // skips). `time` drives each shape's controller-derived UV scroll (the flow/beam motion).
 draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 = 0) {
 	f := smath.frustum_from_vp(vp)
-	for _, &chunk in s.chunks {
-		if !smath.aabb_in_frustum(f, chunk.lo, chunk.hi) {
+	for vc in s.frame_chunks {
+		if !smath.aabb_in_frustum(f, vc.lo, vc.hi) {
 			continue
 		}
+		chunk := vc.c
 		for &inst in chunk.instances {
 			if inst.vis != .Show {
 				continue // hidden / shadow-only (open-interiors shell clip)
@@ -511,6 +591,7 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 			if !smath.sphere_in_frustum(f, {cw.x, cw.y, cw.z}, inst.model.radius * inst.scale) {
 				continue
 			}
+			iworld := instance_world(s, &inst) // live pose if a movable clutter body carries it (3b)
 			for sh in inst.model.shapes {
 				if !sh.is_effect {
 					continue
@@ -518,7 +599,7 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 				if s.pretty && sh.tex.tex == nil {
 					continue // --pretty: untextured CK debug effect shape (route/bounding box) — hidden; real FX (textured) stay
 				}
-				model := inst.world * sh.local
+				model := iworld * sh.local
 				render.draw_effect(r, sh.mesh, vp, model, sh.tex, sh.scroll, time)
 			}
 		}
@@ -546,11 +627,12 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	}
 	iw := veg_wind_for(inst.veg, wind)
 	phase := veg_phase(inst.pos)
+	iworld := instance_world(s, inst) // live pose if a movable clutter body carries it (3b)
 	for sh in inst.model.shapes {
 		if s.pretty && sh.tex.tex == nil {
 			continue // --pretty: untextured CK debug shape is hidden, so don't highlight it
 		}
-		model := inst.world * sh.local
+		model := iworld * sh.local
 		render.draw_highlight(r, sh.mesh, vp, model, sh.tex, sh.alpha_cutoff, iw, time, phase)
 	}
 }

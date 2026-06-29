@@ -89,6 +89,7 @@ Block_Info :: struct {
 	skin_ref:       i32,   // shape NiSkinInstance ref, or -1 (skinned geometry holds tris in the skin partition)
 	shader_ref:     i32,   // shape BSLightingShaderProperty ref, or -1
 	alpha_ref:      i32,   // shape NiAlphaProperty ref, or -1
+	collision_ref:  i32,   // NiAVObject Collision Object ref (bhkCollisionObject), or -1 — used by collision.odin
 	lod_tris:       [3]u32, // BSLODTriShape per-level triangle counts ({0,0,0} if none)
 }
 
@@ -228,6 +229,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	bi.skin_ref = -1
 	bi.shader_ref = -1
 	bi.alpha_ref = -1
+	bi.collision_ref = -1
 	bi.name_ref = -1
 	bi.controller_ref = -1
 	t := block_type(h, i)
@@ -242,7 +244,7 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	}
 
 	r := Reader{data = block_data(h, data, i), ok = true}
-	bi.transform, bi.name_ref, bi.controller_ref = parse_avobject(&r)
+	bi.transform, bi.name_ref, bi.controller_ref, bi.collision_ref = parse_avobject(&r)
 	if is_node {
 		n := int(read_u32(&r))
 		if !r.ok || n < 0 || n > MAX_LIST {
@@ -304,12 +306,19 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 MAX_LIST :: 1 << 16
 
 @(private)
-parse_avobject :: proc(r: ^Reader) -> (t: Transform, name_ref: i32, controller_ref: i32) {
+parse_avobject :: proc(
+	r: ^Reader,
+) -> (
+	t: Transform,
+	name_ref: i32,
+	controller_ref: i32,
+	collision_ref: i32,
+) {
 	name_ref = read_i32(r) // Name (StringRef into the header string table)
 	n_extra := int(read_u32(r)) // Num Extra Data List
 	if !r.ok || n_extra < 0 || n_extra > MAX_LIST {
 		r.ok = false
-		return {}, -1, -1
+		return {}, -1, -1, -1
 	}
 	for _ in 0 ..< n_extra {
 		_ = read_i32(r) // Extra Data refs
@@ -320,8 +329,8 @@ parse_avobject :: proc(r: ^Reader) -> (t: Transform, name_ref: i32, controller_r
 	t.translation = read_vec3(r)
 	t.rotation = read_mat3(r)
 	t.scale = read_f32(r)
-	_ = read_i32(r) // Collision Object
-	return t, name_ref, controller_ref
+	collision_ref = read_i32(r) // Collision Object (bhkCollisionObject), -1 if none
+	return t, name_ref, controller_ref, collision_ref
 }
 
 // block_name resolves a block's Name string (from parse_avobject's StringRef) via the header

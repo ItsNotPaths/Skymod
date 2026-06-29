@@ -27,6 +27,11 @@ Input :: struct {
 	hover:     bool,   // Ctrl held — inspect mode: highlight + pick the model under the cursor
 	mouse_ndc: [2]f32, // cursor in normalized device coords: x right [-1,1], y up [-1,1]
 	toggle_overlay: bool, // ` (backtick/tilde) pressed this pump (edge) — show/hide the dev overlay
+	drop:      bool,   // G pressed this pump (edge) — physics drop-test: spawn a ball at the camera
+	shove:     bool,   // H pressed this pump (edge) — physics: shove nearby movable clutter (3b verify)
+	quicksave: bool,   // F5 pressed this pump (edge) — write the world-state overlay to quicksave.skysave
+	quickload: bool,   // F9 pressed this pump (edge) — load quicksave.skysave back into the overlay
+	noclip:    bool,   // V pressed this pump (edge) — toggle walk vs free-fly (no-clip) camera
 }
 
 // Event_Hook is called for every raw SDL event during pump(). Used to forward
@@ -91,6 +96,11 @@ pump :: proc(p: ^Platform) -> bool {
 	select := false
 	activate := false
 	toggle_overlay := false
+	drop := false
+	shove := false
+	quicksave := false
+	quickload := false
+	noclip := false
 
 	ev: sdl.Event
 	for sdl.PollEvent(&ev) {
@@ -109,6 +119,21 @@ pump :: proc(p: ^Platform) -> bool {
 			}
 			if ev.key.scancode == .GRAVE && !ev.key.repeat {
 				toggle_overlay = true
+			}
+			if ev.key.scancode == .G && !ev.key.repeat {
+				drop = true
+			}
+			if ev.key.scancode == .H && !ev.key.repeat {
+				shove = true
+			}
+			if ev.key.scancode == .F5 && !ev.key.repeat {
+				quicksave = true
+			}
+			if ev.key.scancode == .F9 && !ev.key.repeat {
+				quickload = true
+			}
+			if ev.key.scancode == .V && !ev.key.repeat {
+				noclip = true
 			}
 		case .MOUSE_BUTTON_DOWN:
 			if ev.button.button == sdl.BUTTON_LEFT {
@@ -165,6 +190,11 @@ pump :: proc(p: ^Platform) -> bool {
 		hover     = hover,
 		mouse_ndc = mouse_ndc,
 		toggle_overlay = toggle_overlay,
+		drop      = drop,
+		shove     = shove,
+		quicksave = quicksave,
+		quickload = quickload,
+		noclip    = noclip,
 	}
 
 	now := sdl.GetTicks()

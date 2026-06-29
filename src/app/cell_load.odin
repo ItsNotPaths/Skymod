@@ -10,9 +10,11 @@ import "core:path/filepath"
 
 import "../gamedb"
 import smath "../math"
+import "../physics"
 import "../render"
 import "../vfs"
 import "../world"
+import "../worldstate"
 
 // Archives that carry the static-world assets an interior needs (meshes + diffuse
 // textures). Mounted in load order; loose Data/ (added first) overrides all.
@@ -132,11 +134,15 @@ Traversal :: struct {
 	db:          ^gamedb.DB,
 	v:           ^vfs.VFS,
 	r:           ^render.Renderer,
+	ws:          ^worldstate.World_State, // world-state overlay (borrowed); applied to interiors (Phase 3c)
 	interior:    world.Scene, // valid only while mode == .Interior
+	int_phys:    physics.World, // the active interior's collision world (reused across interiors)
+	int_phys_ok: bool, // false if Jolt failed to make the interior world (interiors then have no collision)
 	ext_doors:   [dynamic]Door_Ref, // current exterior worldspace's load doors (rebuilt on retarget)
 	int_doors:   [dynamic]Door_Ref, // current interior cell's load doors (rebuilt on entry)
 	arrival_pos: smath.Vec3, // where the last transition landed (auto-fire suppression anchor)
 	has_arrival: bool, // suppress auto-firing until the player walks AUTO_REARM from arrival_pos
+	cur_int_cell: u32, // the interior cell currently loaded (mode == .Interior) — for in-place reload
 }
 
 traversal_init :: proc(
@@ -146,6 +152,7 @@ traversal_init :: proc(
 	db: ^gamedb.DB,
 	v: ^vfs.VFS,
 	r: ^render.Renderer,
+	ws: ^worldstate.World_State,
 ) {
 	t^ = Traversal {
 		mode      = .Exterior,
@@ -154,15 +161,26 @@ traversal_init :: proc(
 		db        = db,
 		v         = v,
 		r         = r,
+		ws        = ws,
 		ext_doors = make([dynamic]Door_Ref),
 		int_doors = make([dynamic]Door_Ref),
+	}
+	// One reusable interior collision world: each interior's bodies are built into it on entry and
+	// removed (scene_destroy) on exit, so we don't leak a Jolt filter-table set per door (see
+	// physics.world_destroy). nil-safe — a creation failure just leaves interiors collision-free.
+	t.int_phys, t.int_phys_ok = physics.world_create()
+	if !t.int_phys_ok {
+		log.warn("traversal: interior physics world creation failed — interiors will have no collision")
 	}
 	rebuild_ext_doors(t)
 }
 
 traversal_destroy :: proc(t: ^Traversal) {
 	if t.mode == .Interior {
-		world.scene_destroy(&t.interior)
+		world.scene_destroy(&t.interior) // removes the interior's bodies from int_phys first
+	}
+	if t.int_phys_ok {
+		physics.world_destroy(&t.int_phys)
 	}
 	delete(t.ext_doors)
 	delete(t.int_doors)
@@ -329,9 +347,36 @@ enter_interior :: proc(t: ^Traversal, cell_id: u32) {
 	}
 	t.interior = world.scene_init(t.r, t.v)
 	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
+	if t.int_phys_ok {
+		t.interior.phys = &t.int_phys // the interior's bhk* collision builds into the reusable world
+		t.interior.dynamic_clutter = true // movable clutter → dynamic bodies (Phase 3b); interiors only
+	}
+	t.interior.ws = t.ws // baseline ⊕ overlay: moved clutter reappears where it settled (Phase 3c)
 	world.load_cell(&t.interior, t.db, cell_id)
+	// Build all of the interior's static collision NOW (load_cell resolved every model
+	// synchronously, so sync_physics can cook them immediately): the player lands on a solid
+	// floor on arrival instead of falling through for the first few budgeted frames.
+	if t.int_phys_ok {
+		for world.sync_physics(&t.interior, &t.interior.cache) > 0 {}
+		physics.optimize_broadphase(&t.int_phys)
+		nbodies := 0
+		for _, &chunk in t.interior.chunks {
+			nbodies += len(chunk.bodies)
+		}
+		log.infof("traversal: interior 0x%08X collision built — %d static bodies", cell_id, nbodies)
+	}
 	gather_doors(t, {cell_id}, &t.int_doors)
+	t.cur_int_cell = cell_id
 	t.mode = .Interior
+}
+
+// traversal_reload rebuilds the current interior cell in place (an interior→interior swap to the
+// SAME cell) so a just-loaded overlay (F9 quickload) is re-applied: moved clutter snaps to the
+// loaded save's positions and its dynamic bodies rebuild there. No-op outside an interior.
+traversal_reload :: proc(t: ^Traversal) {
+	if t.mode == .Interior {
+		enter_interior(t, t.cur_int_cell)
+	}
 }
 
 // exit_to_exterior tears down the interior and resumes the exterior streamer, re-windowing
@@ -360,8 +405,8 @@ retarget_exterior :: proc(t: ^Traversal, world_fid: u32, pos: smath.Vec3) {
 		t.interior = {}
 	}
 	world.stream_retarget(t.st, world_fid)
-	world.release_far_terrain(t.ext_scene)
-	world.build_far_terrain(t.ext_scene, t.db, world_fid)
+	world.release_terrain_field(t.ext_scene)
+	world.build_terrain_field(t.ext_scene, t.db, world_fid)
 	rebuild_ext_doors(t)
 	world.stream_update(t.st, pos) // prime the new worldspace's window at the arrival cell
 	t.mode = .Exterior

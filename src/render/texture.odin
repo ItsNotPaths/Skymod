@@ -9,10 +9,12 @@ package render
 import "core:mem"
 import sdl "vendor:sdl3"
 
-// Texture is an uploaded GPU texture — opaque handle. A zero value (tex==nil) means
-// "no texture"; draw_mesh treats that as the white fallback.
+// Texture is an uploaded GPU texture — opaque handle + its base dimensions (0 on the zero
+// value). A zero value (tex==nil) means "no texture"; draw_mesh treats that as the white
+// fallback. The dims let a later pass (e.g. the terrain texture-array blit) size a copy.
 Texture :: struct {
-	tex: ^sdl.GPUTexture,
+	tex:  ^sdl.GPUTexture,
+	w, h: u32,
 }
 
 // Tex_Format is render's neutral pixel format (mirrors the BCn / RGBA8 set the DDS
@@ -102,7 +104,140 @@ upload_texture_into :: proc(b: ^Upload_Batch, format: Tex_Format, srgb: bool, mi
 		)
 	}
 	append(&b.transfers, tb)
-	return {tex = tex}
+	return {tex = tex, w = mips[0].width, h = mips[0].height}
+}
+
+// upload_height_texture creates a single-channel float (R32_FLOAT) texture from a row-major
+// heightfield — the CDLOD terrain's source geometry, sampled in the vertex shader. `heights`
+// holds world-Z per texel (width*height of them). Linear-filtered, clamped at the edges.
+// Release with release_texture. Returns a zero Texture on bad input.
+upload_height_texture :: proc(r: ^Renderer, width, height: u32, heights: []f32) -> Texture {
+	if width == 0 || height == 0 || len(heights) < int(width * height) {
+		return {}
+	}
+	tex := sdl.CreateGPUTexture(
+		r.device,
+		{
+			type = .D2,
+			format = .R32_FLOAT,
+			usage = {.SAMPLER},
+			width = width,
+			height = height,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = ._1,
+		},
+	)
+	if tex == nil {
+		return {}
+	}
+	size := u32(width * height * size_of(f32))
+	tb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = size})
+	dst := sdl.MapGPUTransferBuffer(r.device, tb, false)
+	mem.copy(dst, raw_data(heights), int(size))
+	sdl.UnmapGPUTransferBuffer(r.device, tb)
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	cp := sdl.BeginGPUCopyPass(cmd)
+	sdl.UploadToGPUTexture(
+		cp,
+		{transfer_buffer = tb, offset = 0, pixels_per_row = width, rows_per_layer = height},
+		{texture = tex, w = width, h = height, d = 1},
+		false,
+	)
+	sdl.EndGPUCopyPass(cp)
+	_ = sdl.SubmitGPUCommandBuffer(cmd)
+	sdl.ReleaseGPUTransferBuffer(r.device, tb)
+	return {tex = tex, w = width, h = height}
+}
+
+// upload_index_texture creates an R8_UNORM map (one byte per texel) — the CDLOD terrain's per-cell
+// layer index into the ground texture array, sampled NEAREST (no interpolation between cell ids).
+// Release with release_texture.
+upload_index_texture :: proc(r: ^Renderer, width, height: u32, ids: []u8) -> Texture {
+	if width == 0 || height == 0 || len(ids) < int(width * height) {
+		return {}
+	}
+	tex := sdl.CreateGPUTexture(
+		r.device,
+		{
+			type = .D2,
+			format = .R8_UNORM,
+			usage = {.SAMPLER},
+			width = width,
+			height = height,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = ._1,
+		},
+	)
+	if tex == nil {
+		return {}
+	}
+	tb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = width * height})
+	dst := sdl.MapGPUTransferBuffer(r.device, tb, false)
+	mem.copy(dst, raw_data(ids), int(width * height))
+	sdl.UnmapGPUTransferBuffer(r.device, tb)
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	cp := sdl.BeginGPUCopyPass(cmd)
+	sdl.UploadToGPUTexture(
+		cp,
+		{transfer_buffer = tb, offset = 0, pixels_per_row = width, rows_per_layer = height},
+		{texture = tex, w = width, h = height, d = 1},
+		false,
+	)
+	sdl.EndGPUCopyPass(cp)
+	_ = sdl.SubmitGPUCommandBuffer(cmd)
+	sdl.ReleaseGPUTransferBuffer(r.device, tb)
+	return {tex = tex, w = width, h = height}
+}
+
+// build_terrain_array packs `sources` (the unique ground diffuse textures, any BCn/size) into one
+// `size`×`size` sRGB RGBA8 2D ARRAY — one layer per source — by GPU-BLITTING each into its layer
+// (the blit decodes BCn → RGBA and downscales for free; no CPU decoder), then generating mips so
+// the terrain shader gets automatic distance downscaling. A nil source leaves its layer cleared.
+build_terrain_array :: proc(r: ^Renderer, sources: []Texture, size: u32) -> Texture {
+	n := u32(len(sources))
+	if n == 0 || size == 0 {
+		return {}
+	}
+	levels := u32(1)
+	for s := size; s > 1; s >>= 1 {
+		levels += 1
+	}
+	arr := sdl.CreateGPUTexture(
+		r.device,
+		{
+			type = .D2_ARRAY,
+			format = .R8G8B8A8_UNORM_SRGB,
+			usage = {.SAMPLER, .COLOR_TARGET}, // COLOR_TARGET: blit destination + mip generation
+			width = size,
+			height = size,
+			layer_count_or_depth = n,
+			num_levels = levels,
+			sample_count = ._1,
+		},
+	)
+	if arr == nil {
+		return {}
+	}
+	cmd := sdl.AcquireGPUCommandBuffer(r.device)
+	for src, i in sources {
+		if src.tex == nil || src.w == 0 || src.h == 0 {
+			continue
+		}
+		sdl.BlitGPUTexture(
+			cmd,
+			{
+				source = {texture = src.tex, mip_level = 0, layer_or_depth_plane = 0, w = src.w, h = src.h},
+				destination = {texture = arr, mip_level = 0, layer_or_depth_plane = u32(i), w = size, h = size},
+				load_op = .DONT_CARE,
+				filter = .LINEAR,
+			},
+		)
+	}
+	sdl.GenerateMipmapsForGPUTexture(cmd, arr)
+	_ = sdl.SubmitGPUCommandBuffer(cmd)
+	return {tex = arr, w = size, h = size}
 }
 
 // tex_valid reports whether a Texture holds a real GPU texture (vs the zero/fallback).

@@ -64,6 +64,7 @@ Model :: struct {
 	                  // effects: rapids/fire/mist) has at least one bound diffuse, so untextured=false.
 	shadow_proxy: render.Mesh, // low-poly canopy hull for cheap tree shadows (Phase D2); zero mesh if none
 	has_shadow_proxy: bool, // canopy substantial enough for a proxy (else cast full alpha)
+	collision:    nif.Collision, // bhk* collision shapes (NIF-root space, Skyrim units), cache-owned (Phase 2e physics)
 }
 
 // lod_index_count returns how many indices to draw for a shape at LOD `level` (0=full,
@@ -118,6 +119,7 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(m.pick_pos)
 		delete(m.pick_idx)
 		delete(m.pick_shape)
+		nif.destroy_collision(&m.collision) // cache-heap allocated (clone_collision)
 		free(m)
 		delete(key)
 	}
@@ -261,9 +263,32 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 		m.shadow_proxy = proxy_mesh
 		m.has_shadow_proxy = true
 	}
+	// Collision is CPU data (no GPU): deep-copy it into the cache's allocator so it survives
+	// free_cpu_model (which frees the decode's loader/temp copy). Freed in cache_destroy.
+	m.collision = clone_collision(cpu.collision)
 	build_pick_geometry(m, cpu)
 	c.models[strings.clone(key)] = m
 	return m, true
+}
+
+// clone_collision deep-copies a parsed Collision into `alloc` (the cache heap) — the cached
+// Model owns its own copy, independent of the transient Cpu_Model's buffers.
+@(private)
+clone_collision :: proc(src: nif.Collision, alloc := context.allocator) -> nif.Collision {
+	if len(src.shapes) == 0 {
+		return {}
+	}
+	dst := nif.Collision {
+		unhandled = src.unhandled,
+		shapes    = make([]nif.Collision_Shape, len(src.shapes), alloc),
+	}
+	for s, i in src.shapes {
+		d := s // scalars + transform
+		if len(s.vertices) > 0 {d.vertices = slice.clone(s.vertices, alloc)}
+		if len(s.indices) > 0 {d.indices = slice.clone(s.indices, alloc)}
+		dst.shapes[i] = d
+	}
+	return dst
 }
 
 // build_pick_geometry fills the model's CPU pick mesh: every shape's vertex positions
@@ -345,6 +370,7 @@ Cpu_Model :: struct {
 	proxy_verts:   []render.Mesh_Vertex, // canopy-hull shadow proxy (owned; empty if none)
 	proxy_indices: []u16, // owned
 	has_proxy:     bool,
+	collision:     nif.Collision, // bhk* collision shapes (owned in `alloc`; physics, Phase 2e)
 }
 
 // decode_model reads + parses a model into owned CPU buffers (in `alloc`). Pure CPU,
@@ -459,6 +485,11 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 	}
 	pv, pi, phas := build_canopy_proxy(canopy[:], alloc)
 
+	// bhk* collision (Phase 2e physics): pure CPU, worker-safe (reads + allocs in `alloc`,
+	// scratch in temp) — the body geometry the streamer feeds to Jolt. Cheap vs the render
+	// decode; piggybacks the NIF load we already did.
+	col := nif.parse_collision(data, &h, alloc)
+
 	return Cpu_Model {
 		ok            = true,
 		path          = strings.clone(modl, alloc),
@@ -468,6 +499,7 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		proxy_verts   = pv,
 		proxy_indices = pi,
 		has_proxy     = phas,
+		collision     = col,
 	}
 }
 
@@ -499,6 +531,13 @@ free_cpu_model :: proc(cpu: Cpu_Model, alloc := context.allocator) {
 	}
 	delete(cpu.proxy_verts, alloc)
 	delete(cpu.proxy_indices, alloc)
+	// Collision was allocated in `alloc` by parse_collision; free with the same allocator
+	// (nif.destroy_collision uses the ambient allocator, which may differ — free explicitly).
+	for s in cpu.collision.shapes {
+		delete(s.vertices, alloc)
+		delete(s.indices, alloc)
+	}
+	delete(cpu.collision.shapes, alloc)
 }
 
 // --- internals ---

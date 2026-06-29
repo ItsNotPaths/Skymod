@@ -14,15 +14,43 @@ render_distance = 2
 # distance). Cells farther than this draw no grass. 0 disables grass entirely.
 grass_distance = 8192
 
-# Distant terrain LOD radius in cells (>= render_distance). Cells beyond the full-detail
-# render_distance load as terrain-only, downsampled coarser with distance, so the
-# landscape recedes into the distance instead of ending at the streaming window edge.
-lod_distance = 24
+# Distant-object LOD radius in cells: how far Skyrim's prebaked LOD meshes (rocks, buildings,
+# mountains) render. Terrain itself is whole-world CDLOD with no distance knob, so this is the
+# main "how far can I see stuff" dial. Beyond the full-detail render_distance these cells load
+# OBJECTS ONLY (CDLOD draws their terrain), so a large radius is cheap. Objects without a prebaked
+# LOD mesh (clutter) drop past render_distance.
+object_lod_distance = 24
 
-# Distant-object LOD radius in cells (<= lod_distance). Larger statics within this range
-# render as instanced coarse meshes; beyond it the LOD rings show terrain only. Each cell
-# adds draw calls ~= its distinct-model count, so raise this gradually.
-object_lod_distance = 5
+# Distant-tree-billboard radius in cells: how far Skyrim's prebaked tree LOD billboards (flat
+# _lod_flat impostors, one shared per-worldspace atlas) render. Trees are the cheapest far tier, so
+# this can reach past object_lod_distance to fill the horizon with tree silhouettes. Defaults to
+# object_lod_distance when unset (no change). Cells between object_lod_distance and here load trees
+# ONLY (no statics). Larger = more resident cells, so bump it deliberately.
+# tree_lod_distance = 48
+
+# --- Optional LOD falloff tuning (uncomment to override the built-in defaults) ---
+# How aggressively distant terrain coarsens: the quadtree emits a patch once the camera is past
+# this multiple of the patch's size. Lower = finer distant terrain (more detail, more patches),
+# higher = coarser/faster. Default 2.5.
+# terrain_lod_falloff = 2.5
+#
+# CDLOD geomorph (smooth terrain LOD transitions — distant shape slides into fidelity as you
+# approach instead of popping). falloff = where in each LOD band the morph begins (0 = whole band,
+# 1 = only at the switch); lower is gentler, keep >0.5 for crack-free. strength = morph amount
+# 0..1 (1 = crack-free, <1 reintroduces minor pops, 0 = hard LOD snaps). distance = morph-zone
+# scale: 1 = morph completes at the LOD switch (crack-free), >1 = starts from farther out (gentler,
+# slight pop at the switch), <1 = finishes before the switch (snappier). Defaults 0.65 / 1.0 / 1.0.
+# terrain_geomorph_falloff = 0.65
+# terrain_geomorph_strength = 1.0
+# terrain_geomorph_distance = 1.0
+#
+# Scales the distance-based object size cull: >1 drops more (fewer, larger-only distant objects =
+# faster), <1 keeps more small objects out far. Default 1.0.
+# object_lod_falloff = 1.0
+#
+# Same, for tree billboards (their own size cull, more generous than statics so distant hills aren't
+# bare): >1 = fewer/larger-only distant trees, <1 = keep more small trees out far. Default 1.0.
+# tree_lod_falloff = 1.0
 
 # Asset-decode worker threads (BSA + NIF + DDS). 0 = auto (logical cores - 1). The decode
 # path is thread-safe, so more threads fill the asset queue faster — mainly speeds the

@@ -22,6 +22,9 @@ SDL3_VERSION="3.4.10"
 # it. The two must stay in lockstep (see build/build-imgui.sh).
 IMGUI_TAG="v1.92.8-docking"
 ODIN_IMGUI_COMMIT="daa7298c62995440fd1b484c0d2f05afde055b33"
+# joltc-odin bindings (amerkoleci/joltc via its committed Odin bindings); its own
+# joltc submodule (which vendors JoltPhysics) is pinned by this commit's gitlink.
+JOLTC_ODIN_COMMIT="84ab78c32314a4bb9f9a2f897a4fcce320db825a"
 
 # Build SDL3 as a static lib and INSTALL it into the vendor/sdl3 prefix. We
 # install (rather than just copying libSDL3.a) so the generated sdl3.pc lands in
@@ -142,6 +145,37 @@ fetch_imgui() {
     bash "$ROOT/build/build-imgui.sh"
 }
 
+# Fetch the joltc-odin bindings (+ its joltc/JoltPhysics submodule) and build the
+# STATIC libs into vendor/joltc-odin/lib (build/build-jolt.sh). Unlike the tarball
+# deps this needs git (joltc pulls JoltPhysics as a submodule). The bindings static-
+# link the .a's directly (no patch). Physics (ROADMAP §2e).
+fetch_jolt() {
+    local dest="$VENDOR/joltc-odin"
+    if [ -f "$dest/lib/libjoltc.a" ] && [ -f "$dest/lib/libJolt.a" ]; then
+        echo "  already present: vendor/joltc-odin (static libs)"
+        return
+    fi
+    command -v git >/dev/null || { echo "error: git is required to fetch joltc" >&2; exit 1; }
+    if [ ! -d "$dest/.git" ]; then
+        echo "  cloning joltc-odin ($JOLTC_ODIN_COMMIT)..."
+        rm -rf "$dest"
+        git clone --quiet https://github.com/jrdurandt/joltc-odin.git "$dest"
+        git -C "$dest" checkout --quiet "$JOLTC_ODIN_COMMIT"
+    fi
+    # DOUBLE PRECISION (decided for Tamriel-scale worlds): build joltc with double AND
+    # patch the committed single-precision bindings to the double ABI. Only two types
+    # change under JPH_DOUBLE_PRECISION — JPH_RVec3 (positions → f64) and JPH_RMat4
+    # ({Vec4 column[3]; RVec3 column3}); the double-only RMat4_* helper API is unused.
+    # A full odin-c-bindgen regen (libclang) would be the heavyweight alternative; this
+    # targeted patch is exact for the ABI we touch. Idempotent (matches single-only lines).
+    sed -i 's/^RVec3 :: Vec3$/RVec3 :: [3]f64/' "$dest/joltc.odin"
+    sed -i 's/^RMat4 :: Mat4$/RMat4 :: struct {column: [3]Vec4, column3: RVec3}/' "$dest/joltc.odin"
+    # Drop the upstream test file: it passes [3]f32 literals to ^RVec3 params, which no
+    # longer type-checks once RVec3 is f64 (it's their test, not part of our binding use).
+    rm -f "$dest/joltc-test.odin"
+    JOLT_DOUBLE=ON bash "$ROOT/build/build-jolt.sh"
+}
+
 echo "Fetching dependencies into vendor/ ..."
 
 echo "==> sdl3 ($SDL3_VERSION)"
@@ -152,6 +186,9 @@ fetch_glslang
 
 echo "==> imgui ($IMGUI_TAG)"
 fetch_imgui
+
+echo "==> jolt ($JOLTC_ODIN_COMMIT)"
+fetch_jolt
 
 echo ""
 echo "All deps ready."

@@ -9,6 +9,7 @@ package gamedb
 // across masters is single-file for now (Skyrim.esm has no masters); §note below.
 
 import "base:runtime"
+import "core:log"
 import "core:strings"
 import "../formats/esm"
 
@@ -47,8 +48,10 @@ Cell :: struct {
 DB :: struct {
 	allocator:    runtime.Allocator,
 	base_models:   map[u32]string, // base formID -> mesh path (owned)
+	base_lod:      map[u32][esm.LOD_MODELS]string, // base formID -> MNAM distant-LOD meshes (owned; "" = absent)
 	base_radius:   map[u32]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
 	doors:         map[u32]bool, // base formID -> true if it's a DOOR record (door-panel cull)
+	trees:         map[u32]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	cells:         map[u32]Cell, // cell formID -> identity
 	cell_by_edid:  map[string]u32, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[u32][dynamic]Ref, // cell formID -> placements
@@ -99,8 +102,10 @@ build :: proc(data: []u8, allocator := context.allocator) -> DB {
 	db := DB {
 		allocator     = allocator,
 		base_models   = make(map[u32]string, 4096, allocator),
+		base_lod      = make(map[u32][esm.LOD_MODELS]string, 2048, allocator),
 		base_radius   = make(map[u32]f32, 4096, allocator),
 		doors         = make(map[u32]bool, 512, allocator),
+		trees         = make(map[u32]bool, 512, allocator),
 		cells         = make(map[u32]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]u32, 1024, allocator),
 		cell_refs     = make(map[u32][dynamic]Ref, 1024, allocator),
@@ -120,17 +125,41 @@ build :: proc(data: []u8, allocator := context.allocator) -> DB {
 		grasses       = make(map[u32]Grass, 64, allocator),
 	}
 	esm.walk(data, visit, &db)
+	log.infof(
+		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
+		len(db.base_models),
+		len(db.base_lod),
+		100 * f32(len(db.base_lod)) / f32(max(len(db.base_models), 1)),
+	)
+	// Sample a few LOD-mesh paths so we can eyeball the format (verify they resolve like MODL).
+	shown := 0
+	for fid, arr in db.base_lod {
+		log.infof("  LOD sample 0x%08X: [0]=%q [3]=%q", fid, arr[0], arr[3])
+		shown += 1
+		if shown >= 4 {
+			break
+		}
+	}
 	return db
 }
 
 destroy :: proc(db: ^DB) {
 	context.allocator = db.allocator
+	for _, arr in db.base_lod {
+		for s in arr {
+			if s != "" {
+				delete(s, db.allocator)
+			}
+		}
+	}
+	delete(db.base_lod)
 	for _, m in db.base_models {
 		delete(m)
 	}
 	delete(db.base_models)
 	delete(db.base_radius)
 	delete(db.doors)
+	delete(db.trees)
 	for _, c in db.cells {
 		delete(c.editor_id)
 	}
@@ -242,6 +271,30 @@ refs_of :: proc(db: ^DB, cell_form_id: u32) -> []Ref {
 model_of :: proc(db: ^DB, base_form_id: u32) -> (string, bool) {
 	m, ok := db.base_models[base_form_id]
 	return m, ok
+}
+
+// lod_model_of resolves a base form's prebaked distant-LOD mesh for detail slot `idx` (0 = highest
+// detail/LOD4 … 3 = lowest/LOD32). Clamps to the populated range — a request beyond the last filled
+// slot returns the coarsest available, so an object always has *some* LOD mesh once it has any.
+// ok=false when the form carries no MNAM LOD models at all (e.g. small clutter — drop at distance).
+lod_model_of :: proc(db: ^DB, base_form_id: u32, idx: int) -> (string, bool) {
+	arr, ok := db.base_lod[base_form_id]
+	if !ok {
+		return "", false
+	}
+	i := clamp(idx, 0, esm.LOD_MODELS - 1)
+	for i >= 0 && arr[i] == "" {
+		i -= 1
+	}
+	if i < 0 {
+		return "", false
+	}
+	return arr[i], true
+}
+
+// has_lod_models reports whether a base form carries any prebaked distant-LOD meshes.
+has_lod_models :: proc(db: ^DB, base_form_id: u32) -> bool {
+	return base_form_id in db.base_lod
 }
 
 // base_size returns a base form's OBND bounding radius (world units), or 0 if unknown —
@@ -595,12 +648,33 @@ index_base :: proc(db: ^DB, rec: esm.Record) {
 	if model != "" {
 		db.base_models[rec.form_id] = strings.clone(model, db.allocator)
 	}
+	// Prebaked distant-LOD meshes (STAT MNAM): clone the populated slots so the LOD rings load
+	// Skyrim's own low-poly meshes instead of decimating at runtime.
+	if lods, n := esm.lod_model_paths(fl); n > 0 {
+		arr: [esm.LOD_MODELS]string
+		for i in 0 ..< esm.LOD_MODELS {
+			if lods[i] != "" {
+				arr[i] = strings.clone(lods[i], db.allocator)
+			}
+		}
+		db.base_lod[rec.form_id] = arr
+	}
 	if radius, ok := esm.object_bounds(fl); ok {
 		db.base_radius[rec.form_id] = radius
 	}
 	if rec.type == "DOOR" {
 		db.doors[rec.form_id] = true // door-panel base (open-interiors portal cull)
 	}
+	if rec.type == "TREE" {
+		db.trees[rec.form_id] = true // tree base → distant billboard (the _lod_flat.nif beside the mesh)
+	}
+}
+
+// is_tree reports whether a base formID is a TREE record. TREEs carry no MNAM, so the distant-LOD
+// path falls back to Skyrim's prebaked billboard (the _lod_flat.nif beside the full mesh) — see
+// world.tree_billboard_for.
+is_tree :: proc(db: ^DB, base_form_id: u32) -> bool {
+	return base_form_id in db.trees
 }
 
 // is_door reports whether a base formID is a DOOR record — the reliable door-panel signal

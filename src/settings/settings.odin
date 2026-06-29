@@ -50,6 +50,15 @@ DEFAULTS := [?]Default {
 	// range render as instanced coarse meshes; beyond it the LOD rings are terrain-only.
 	// Each cell adds draws ≈ its distinct-model count, so raise this gradually.
 	{"object_lod_distance", "5"},
+	// Baked distant-object LOD band: which of Skyrim's 4 MNAM LOD meshes every distant static
+	// uses. 0 = LOD4 (sharpest, most verts/RAM), 1 = LOD8, 2 = LOD16, 3 = LOD32 (coarsest,
+	// leanest). The whole worldspace's distant objects are merged per quad once at load.
+	{"object_lod_band", "1"},
+	// Baked-object merge-quad size in cells. Distant objects merge per quad into one buffer, so
+	// SMALLER = cleaner near transition (a quad fully inside the full-detail bubble is suppressed,
+	// avoiding double-draw — needs quad ≲ render_distance to engage) but MORE draw calls; LARGER =
+	// fewer draws but the near transition double-draws until you raise render_distance.
+	{"object_lod_quad", "8"},
 	// EXPERIMENTAL: inline interior cells into the exterior worldspace so you can walk
 	// through a load door with no load screen ("Open Cities"-style, any interior). Interiors
 	// are placed by their door alignment and stream in/out by proximity. May clip/overlap —
@@ -129,6 +138,16 @@ get_bool :: proc(cfg: ^Config, key: string) -> bool {
 get_int :: proc(cfg: ^Config, key: string, fallback: int) -> int {
 	v := get(cfg, key)
 	if n, ok := strconv.parse_int(v, 10); ok {
+		return n
+	}
+	return fallback
+}
+
+// get_float returns a key parsed as f32, or `fallback` if absent/unparseable. Used for the
+// optional (commented-out by default) LOD falloff-tuning keys.
+get_float :: proc(cfg: ^Config, key: string, fallback: f32) -> f32 {
+	v := get(cfg, key)
+	if n, ok := strconv.parse_f32(v); ok {
 		return n
 	}
 	return fallback

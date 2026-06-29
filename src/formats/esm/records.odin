@@ -46,6 +46,29 @@ model_path :: proc(fields: []Field) -> string {
 	return ""
 }
 
+// LOD_MODELS is how many distant-LOD model slots a STAT's MNAM holds.
+LOD_MODELS :: 4
+
+// lod_model_paths reads a STAT's MNAM "Distant LOD" — 4 × char[260] nul-terminated model paths
+// (junk after each nul), index 0 = HighDetail (LOD4, nearest) … 3 = LowDetail (LOD32, farthest),
+// filled from the front (first empty ⇒ the rest are empty). Paths are MODL-relative (Meshes\…).
+// Returns the slots (empties as "") and how many are populated. Strings alias the field data.
+lod_model_paths :: proc(fields: []Field) -> (models: [LOD_MODELS]string, count: int) {
+	f, ok := find_field(fields, "MNAM")
+	if !ok || len(f.data) < LOD_MODELS * 260 {
+		return
+	}
+	for i in 0 ..< LOD_MODELS {
+		s := cstr(f.data[i * 260:i * 260 + 260])
+		if s == "" {
+			break // first empty slot ends the chain
+		}
+		models[i] = s
+		count = i + 1
+	}
+	return
+}
+
 // object_bounds reads a base form's OBND (object bounds): 6 i16 = min(x,y,z) + max(x,y,z).
 // Returns a bounding RADIUS (half the box diagonal, in world units) — a cheap size proxy
 // for distance/LOD culling WITHOUT loading the mesh. ok=false if absent/short.

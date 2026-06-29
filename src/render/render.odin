@@ -134,9 +134,12 @@ Renderer :: struct {
 	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3)
 	grass_pipeline:   ^sdl.GPUGraphicsPipeline, // instanced grass clusters (F2 vegetation)
 	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD)
+	terrain_pipeline: ^sdl.GPUGraphicsPipeline, // CDLOD terrain: height-texture-sampled instanced grid patches
+	terrain_near_pipeline: ^sdl.GPUGraphicsPipeline, // streamed per-cell terrain meshes, textured via the shared terrain.frag
 	water_pipeline:   ^sdl.GPUGraphicsPipeline, // per-cell flat water planes (procedural, transparent)
 	effect_pipeline:  ^sdl.GPUGraphicsPipeline, // alpha-blended ghosted effect shapes
 	highlight_pipeline: ^sdl.GPUGraphicsPipeline, // inspect-mode hover highlight overdraw
+	wire_pipeline:    ^sdl.GPUGraphicsPipeline, // debug collision-hitbox wireframe overlay (--celltest)
 	cube_vbuf:        ^sdl.GPUBuffer,
 	cube_ibuf:        ^sdl.GPUBuffer,
 	cube_index_count: u32,
@@ -146,6 +149,7 @@ Renderer :: struct {
 	// Mesh texturing (B4): a trilinear/repeat sampler for diffuse maps and a 1x1
 	// white fallback for shapes without a diffuse texture.
 	mesh_sampler:     ^sdl.GPUSampler,
+	terrain_sampler:  ^sdl.GPUSampler, // trilinear + anisotropic/repeat for the CDLOD ground array (grazing-angle distance)
 	white_tex:        ^sdl.GPUTexture,
 	flat_normal_tex:  ^sdl.GPUTexture, // 1x1 {128,128,255} tangent-space "up" — fallback for shapes with no normal map
 
@@ -234,6 +238,20 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		return {}, false
 	}
 
+	r.terrain_pipeline = make_terrain_pipeline(&r)
+	if r.terrain_pipeline == nil {
+		log.errorf("render: terrain pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
+	r.terrain_near_pipeline = make_terrain_near_pipeline(&r)
+	if r.terrain_near_pipeline == nil {
+		log.errorf("render: terrain-near pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
+
 	r.water_pipeline = make_water_pipeline(&r)
 	if r.water_pipeline == nil {
 		log.errorf("render: water pipeline failed: %s", sdl.GetError())
@@ -249,6 +267,7 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 	}
 
 	r.highlight_pipeline = make_highlight_pipeline(&r)
+	r.wire_pipeline = make_wire_pipeline(&r)
 	if r.highlight_pipeline == nil {
 		log.errorf("render: highlight pipeline failed: %s", sdl.GetError())
 		shutdown(&r)
@@ -296,6 +315,21 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 			mipmap_mode = .LINEAR,
 			address_mode_u = .REPEAT,
 			address_mode_v = .REPEAT,
+			max_lod = 1000,
+		},
+	)
+	// Terrain ground array: trilinear + anisotropic so distant terrain stays sharp at grazing
+	// angles instead of smearing/aliasing (the diffuse mesh_sampler is trilinear but isotropic).
+	r.terrain_sampler = sdl.CreateGPUSampler(
+		device,
+		{
+			min_filter = .LINEAR,
+			mag_filter = .LINEAR,
+			mipmap_mode = .LINEAR,
+			address_mode_u = .REPEAT,
+			address_mode_v = .REPEAT,
+			enable_anisotropy = true,
+			max_anisotropy = 8,
 			max_lod = 1000,
 		},
 	)
@@ -355,6 +389,7 @@ shutdown :: proc(r: ^Renderer) {
 	if r.sampler != nil {sdl.ReleaseGPUSampler(r.device, r.sampler)}
 	if r.texture != nil {sdl.ReleaseGPUTexture(r.device, r.texture)}
 	if r.mesh_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.mesh_sampler)}
+	if r.terrain_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.terrain_sampler)}
 	if r.white_tex != nil {sdl.ReleaseGPUTexture(r.device, r.white_tex)}
 	if r.flat_normal_tex != nil {sdl.ReleaseGPUTexture(r.device, r.flat_normal_tex)}
 	if r.hdr_tex != nil {sdl.ReleaseGPUTexture(r.device, r.hdr_tex)}
@@ -371,9 +406,12 @@ shutdown :: proc(r: ^Renderer) {
 	if r.mesh_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)}
 	if r.grass_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.grass_pipeline)}
 	if r.obj_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.obj_pipeline)}
+	if r.terrain_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.terrain_pipeline)}
+	if r.terrain_near_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.terrain_near_pipeline)}
 	if r.water_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.water_pipeline)}
 	if r.effect_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.effect_pipeline)}
 	if r.highlight_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.highlight_pipeline)}
+	if r.wire_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)}
 	if r.portal_mark_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_mark_pipeline)}
 	if r.portal_reset_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_reset_pipeline)}
 	if r.mesh_stencil_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_stencil_pipeline)}
