@@ -131,22 +131,7 @@ upload_height_texture :: proc(r: ^Renderer, width, height: u32, heights: []f32) 
 	if tex == nil {
 		return {}
 	}
-	size := u32(width * height * size_of(f32))
-	tb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = size})
-	dst := sdl.MapGPUTransferBuffer(r.device, tb, false)
-	mem.copy(dst, raw_data(heights), int(size))
-	sdl.UnmapGPUTransferBuffer(r.device, tb)
-	cmd := sdl.AcquireGPUCommandBuffer(r.device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		cp,
-		{transfer_buffer = tb, offset = 0, pixels_per_row = width, rows_per_layer = height},
-		{texture = tex, w = width, h = height, d = 1},
-		false,
-	)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(r.device, tb)
+	upload_texture_pixels(r.device, tex, bytes_of(heights), width, height)
 	return {tex = tex, w = width, h = height}
 }
 
@@ -173,21 +158,7 @@ upload_index_texture :: proc(r: ^Renderer, width, height: u32, ids: []u8) -> Tex
 	if tex == nil {
 		return {}
 	}
-	tb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = width * height})
-	dst := sdl.MapGPUTransferBuffer(r.device, tb, false)
-	mem.copy(dst, raw_data(ids), int(width * height))
-	sdl.UnmapGPUTransferBuffer(r.device, tb)
-	cmd := sdl.AcquireGPUCommandBuffer(r.device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		cp,
-		{transfer_buffer = tb, offset = 0, pixels_per_row = width, rows_per_layer = height},
-		{texture = tex, w = width, h = height, d = 1},
-		false,
-	)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(r.device, tb)
+	upload_texture_pixels(r.device, tex, ids, width, height)
 	return {tex = tex, w = width, h = height}
 }
 
@@ -253,6 +224,31 @@ release_texture :: proc(r: ^Renderer, t: Texture) {
 
 // --- internals ---
 
+// upload_texture_pixels uploads `data` into mip 0 / layer 0 of `tex` (dimensions w×h) in its own
+// one-shot command buffer + copy pass + submit. The shared body of every single-level, init-time
+// texture upload (the 1×1 fallbacks, the checker, the terrain height/index maps) — pixels_per_row =
+// w, rows_per_layer = h (tight-packed). NOT for compressed/mip-chain uploads (those go through
+// upload_texture_into's batch). SDL defers the transfer-buffer free until the copy completes.
+@(private)
+upload_texture_pixels :: proc(device: ^sdl.GPUDevice, tex: ^sdl.GPUTexture, data: []u8, w, h: u32) {
+	size := u32(len(data))
+	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = size})
+	dst := sdl.MapGPUTransferBuffer(device, tb, false)
+	mem.copy(dst, raw_data(data), int(size))
+	sdl.UnmapGPUTransferBuffer(device, tb)
+	cmd := sdl.AcquireGPUCommandBuffer(device)
+	cp := sdl.BeginGPUCopyPass(cmd)
+	sdl.UploadToGPUTexture(
+		cp,
+		{transfer_buffer = tb, offset = 0, pixels_per_row = w, rows_per_layer = h},
+		{texture = tex, w = w, h = h, d = 1},
+		false,
+	)
+	sdl.EndGPUCopyPass(cp)
+	_ = sdl.SubmitGPUCommandBuffer(cmd)
+	sdl.ReleaseGPUTransferBuffer(device, tb)
+}
+
 @(private)
 to_sdl_format :: proc(f: Tex_Format, srgb: bool) -> sdl.GPUTextureFormat {
 	switch f {
@@ -300,21 +296,7 @@ make_flat_normal_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
 		},
 	)
 	px := [4]u8{128, 128, 255, 255}
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = 4})
-	dst := sdl.MapGPUTransferBuffer(device, tb, false)
-	mem.copy(dst, raw_data(px[:]), 4)
-	sdl.UnmapGPUTransferBuffer(device, tb)
-	cmd := sdl.AcquireGPUCommandBuffer(device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		cp,
-		{transfer_buffer = tb, offset = 0, pixels_per_row = 1, rows_per_layer = 1},
-		{texture = tex, w = 1, h = 1, d = 1},
-		false,
-	)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(device, tb)
+	upload_texture_pixels(device, tex, px[:], 1, 1)
 	return tex
 }
 
@@ -336,20 +318,6 @@ make_white_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
 		},
 	)
 	px := [4]u8{255, 255, 255, 255}
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = 4})
-	dst := sdl.MapGPUTransferBuffer(device, tb, false)
-	mem.copy(dst, raw_data(px[:]), 4)
-	sdl.UnmapGPUTransferBuffer(device, tb)
-	cmd := sdl.AcquireGPUCommandBuffer(device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		cp,
-		{transfer_buffer = tb, offset = 0, pixels_per_row = 1, rows_per_layer = 1},
-		{texture = tex, w = 1, h = 1, d = 1},
-		false,
-	)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(device, tb)
+	upload_texture_pixels(device, tex, px[:], 1, 1)
 	return tex
 }

@@ -17,12 +17,16 @@ import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:strings"
+import "core:sync"
 import "core:sys/info"
+import "core:thread"
 import "core:time"
 
 import "../gamedb"
 import "../installer"
 import smath "../math"
+import "../mods"
 import "../physics"
 import "../platform"
 import "../render"
@@ -92,6 +96,13 @@ main :: proc() {
 		return
 	}
 
+	// Dev: `--logotest` renders the menu logo (logo.nif) ALONE with a free-fly camera — isolates the
+	// mesh from the menu UI integration. Needs source_game; mounts archives directly.
+	if slice.contains(os.args, "--logotest") {
+		run_logo_test(&cfg)
+		return
+	}
+
 	// Dev: `--phystest` runs the headless Jolt smoke (drop a sphere on a floor, log it
 	// settling) — proves the vendor/build/static-link/FFI chain. No window/assets.
 	if slice.contains(os.args, "--phystest") {
@@ -110,6 +121,21 @@ main :: proc() {
 	// logs whether it rests or falls through — isolates the terrain collision path.
 	if slice.contains(os.args, "--terraintest") {
 		run_terrain_test(&cfg)
+		return
+	}
+
+	// Dev: `--clutterprobe` headlessly builds the Riverwood bubble's collision (terrain + movable
+	// clutter dynamic hulls) and times the physics step at rest vs after a shove — diagnoses the
+	// "H freezes" cost (body count vs wake cascade vs per-step pathology). No window.
+	if slice.contains(os.args, "--clutterprobe") {
+		run_clutter_probe(&cfg)
+		return
+	}
+
+	// Dev: `--uitest` renders the UI-substrate render-path smoke test (a hardcoded retained tree via
+	// the imgui-DrawList backend) — no world, no Lua. The first bone of the player-facing UI.
+	if slice.contains(os.args, "--uitest") {
+		run_ui_test()
 		return
 	}
 
@@ -222,10 +248,107 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// player, decoding meshes on a worker thread (no hitches) and uploading them under
 	// a per-frame budget. Fly out of the window and watch cells stream in/out.
 	src := settings.get(cfg, "source_game")
-	v := mount_game(src)
+
+	// Mod profile (docs/mods.md layer 4): the MO2-style mod list, persisted beside the exe as
+	// modlist.txt. Loaded, reconciled against the mod folders under <base>/mods (new folders enabled
+	// by default), and used to build the VFS overlay + the derived plugin load order. The mod-manager
+	// screen edits it; Apply persists it. (World init still precedes the menu, so edits apply on next
+	// launch — the relocation that makes Apply seamless is task #8.)
+	// Active profile (settings "active_profile", default "Default"). Each profile is
+	// <base>/profiles/<name>/modlist.txt; the mods/ folder is shared across all profiles. The
+	// mod-manager picker can switch/create profiles; the world below builds from whichever is active.
+	active_profile := settings.get(cfg, "active_profile")
+	if active_profile == "" {
+		active_profile = DEFAULT_PROFILE
+	}
+	ensure_profile_dir(base, active_profile)
+	mprofile: mods.Profile
+	mods.profile_init(&mprofile)
+	defer mods.profile_destroy(&mprofile)
+	_ = mods.profile_load(&mprofile, modlist_path_for(base, active_profile))
+	mods.profile_reconcile(&mprofile, discover_mod_folders(base, context.temp_allocator))
+	mods.profile_set_system(&mprofile, system_mod_names(src, base)) // locked rows: Skyrim + DLCs + UI baseline
+
+	// Quicksave path (needs only `base`) — read by the boot menu's save summary + the frame loop.
+	saves_dir, _ := filepath.join({base, "saves"})
+	defer delete(saves_dir)
+	quicksave_path, _ := filepath.join({saves_dir, "quicksave.skysave"})
+	defer delete(quicksave_path)
+
+	// PRE-WORLD boot screens (the menu "sockets"): Main Menu ⇆ Mod Manager, shown BEFORE the world
+	// builds. The mod manager edits the profile here, so mount/load below build from the FINAL
+	// profile — enabling a mod and entering the world is seamless (no relaunch). The menu also
+	// appears instantly on launch instead of after the stream. Records the player's choice; the
+	// Continue save-apply runs after the world exists (further below).
+	Boot_Choice :: enum {
+		Quit,
+		New,
+		Continue,
+	}
+	boot_choice := Boot_Choice.Quit
+	if slice.contains(os.args, "--skipmenu") {
+		boot_choice = .New // dev: jump straight to a new game, skipping the boot menu
+	} else {
+		save_summary := ""
+		has_save := false
+		if man, ok := worldstate.read_manifest(quicksave_path); ok {
+			has_save = true
+			save_summary = fmt.tprintf("Save %d — %d change(s)", man.save_number, man.delta_count)
+		}
+		boot: for {
+			switch run_main_menu(&p, &r, base, src, &mprofile, has_save, save_summary) {
+			case .Mods:
+				if !run_mod_manager(&p, &r, &mprofile, src, base, cfg) {
+					return // window closed inside the mod manager
+				}
+				continue boot // Back → show the main menu again
+			case .Continue:
+				boot_choice = .Continue
+				break boot
+			case .New:
+				boot_choice = .New
+				break boot
+			case .None, .Quit:
+				return // window closed or Quit
+			}
+		}
+	}
+
+	// VFS is cheap (BSA headers) — build it on the main thread.
+	v := mount_game_mods(src, base, &mprofile)
 	defer vfs.destroy(&v)
 
-	db, db_ok := load_gamedb(src)
+	// The gamedb build parses ~250 MB of masters (~20s of pure CPU). Run it on a worker thread while
+	// the main thread animates a loading screen, so the post-menu build doesn't look frozen. The DB
+	// is built in loader_alloc (thread-safe, like the streamer's cross-thread CPU bundles) and handed
+	// back to the main thread, which owns + frees it.
+	load_job := Game_Load_Job {
+		src          = src,
+		base         = base,
+		profile      = &mprofile,
+		loader_alloc = loader_alloc,
+	}
+	load_thread := thread.create(game_load_worker)
+	load_thread.data = &load_job
+	thread.start(load_thread)
+	load_anim: f32
+	for !sync.atomic_load(&load_job.done) {
+		if !platform.pump(&p) {break} // window closed mid-load
+		load_anim += p.dt
+		done := sync.atomic_load(&load_job.progress.done)
+		total := sync.atomic_load(&load_job.progress.total)
+		frac := f32(-1) // -1 → indeterminate sweep until the total is known
+		if total > 0 {frac = f32(done) / f32(total)}
+		render.ui_new_frame(&r)
+		tools.loading_screen_busy("Loading game data…", load_anim, frac)
+		if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
+			render.end_frame(&r)
+		}
+		free_all(context.temp_allocator)
+	}
+	thread.join(load_thread)
+	thread.destroy(load_thread)
+	db, db_ok := load_job.db, load_job.ok
 	if !db_ok {
 		log.error("could not load Skyrim.esm; nothing to show")
 		return
@@ -241,6 +364,10 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	scene := world.scene_init(&r, &v)
 	defer world.scene_destroy(&scene) // runs AFTER stream_destroy (LIFO) — worker stopped first
 	if phys_ok {scene.phys = &phys}
+	// Movable clutter (cups/plates/etc.) as DYNAMIC bodies in the exterior too — now that Jolt runs
+	// double precision, far-from-origin dynamic bodies are safe (interiors already did this). Static
+	// world geometry is unaffected (only CLUTTER/PROPS-layer, mass>0 shapes go dynamic).
+	scene.dynamic_clutter = phys_ok
 	// pretty: hide the white untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
 	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
@@ -312,14 +439,24 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		acquire, shadow, terrain, near, objdraw, grass, water, effects: f64,
 	}
 	prev_bodies: int // last window's body count — to flag a steady climb (leak)
+	// Slow-frame detector (diagnostic): snapshot of the accumulated phase timers at the previous
+	// frame end, so a >THRESHOLD frame can be attributed to its phase (which is eating the hitch).
+	slowsnap: struct {
+		stream, phys, render, acquire: f64,
+	}
+	SLOW_FRAME_MS :: f64(80)
 
 	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): once, derive a data-faithful
 	// "skyrim" profile from the user's own Skyrim.esm imagespace (local, never shipped), then
 	// load the active profile (baked "vanilla"/"realistic", the derived "skyrim", or any sidecar
 	// under <base>/profiles/). Live-editable via the Lighting panel; pushed each frame below.
 	ensure_game_lighting_profile(base, settings.get(cfg, "source_game"))
-	lights := lighting_state_init(base, settings.get(cfg, "lighting_profile"))
+	lights := lighting_state_init(base, settings.get(cfg, "lighting_profile"), &mprofile)
 	defer lighting_state_destroy(&lights)
+	// "Save As lighting mod" inputs for the configurator panel.
+	light_save_name: [64]u8
+	light_all_profiles := false
+	light_delta := false
 
 	// EXPERIMENTAL (open-interiors foundation): when experimental_open_interiors is set, discover
 	// the worldspace's load-door → interior links (build_portals) so the door alignment data is
@@ -358,12 +495,10 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// its teardown runs AFTER traversal_destroy (LIFO); the overlay is borrowed, never owned by trav.
 	ws: worldstate.World_State
 	worldstate.init(&ws)
+	scene.ws = &ws // overlay on the exterior scene too (interiors get it via traversal_init below)
 	defer worldstate.destroy(&ws)
-	// Quicksave file beside the binary (<base>/saves/), created on first save (§4.2).
-	saves_dir, _ := filepath.join({base, "saves"})
-	defer delete(saves_dir)
-	quicksave_path, _ := filepath.join({saves_dir, "quicksave.skysave"})
-	defer delete(quicksave_path)
+	// Quicksave file beside the binary (<base>/saves/), created on first save (§4.2). The path is
+	// computed before the boot loop above (the menu reads its save summary).
 	save_no: u32
 
 	// Base door navigator: borrows the exterior scene + streamer (whatever their state) and
@@ -385,6 +520,11 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 
 	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. On by default.
 	show_overlay := true
+
+	// Collision-hitbox wireframe overlay — toggled by K. Green wireframe of EXACTLY the shapes fed to
+	// Jolt: static geometry (cached) + dynamic clutter at its live body pose (so a shoved box's hitbox
+	// follows it). Off by default; the diagnostic for "does the physics box match the visual mesh".
+	show_hitboxes := false
 
 	// Physics drop-test (B5): press G to spawn a falling ball at the camera; it's rendered
 	// as a small box marker at its live body position so you can watch it land on the
@@ -417,67 +557,34 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	entered := false
 	INTERIOR_EYE :: f32(96)
 
-	// Main menu (Phase 3d): Continue (load the quicksave into the overlay) / New Game (fresh) / Quit,
-	// shown over a cleared frame before the world streams in. Continue only pre-fills the overlay —
-	// the player still spawns at Riverwood (player-position persistence is a later overlay category),
-	// so saved interior clutter is in place the moment you step into a cell.
-	{
-		save_summary := ""
-		has_save := false
-		if man, ok := worldstate.read_manifest(quicksave_path); ok {
-			has_save = true
-			save_summary = fmt.tprintf("Save %d — %d change(s)", man.save_number, man.delta_count)
-		}
-		choice := tools.Menu_Action.None
-		for choice == .None && platform.pump(&p) {
-			render.ui_new_frame(&r)
-			choice = tools.main_menu_screen(has_save, save_summary)
-			if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
-				render.end_frame(&r)
+	// POST-WORLD: apply the Continue save now that the overlay + scene + streamer + character exist
+	// (New Game = nothing to do; the overlay starts empty). The choice was made before world init,
+	// so any mod the manager enabled already took effect in the build above — seamless, no relaunch.
+	if boot_choice == .Continue {
+		if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
+			save_no = m.save_number
+			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
+			// grid cells stream in afterward and pick it up on build.
+			world.reapply_overlay_resident(&scene, &db)
+			// Player singleton: return to where they saved (exterior only for now — interior restore
+			// needs a traversal entry). Re-arm the spawn bubble at the restored position so the
+			// full-load screen below builds the right cells (it was armed at the default spawn).
+			if pl, has := worldstate.get_player(&ws); has && pl.cell == 0 {
+				cam.pos, cam.yaw, cam.pitch = pl.pos, pl.yaw, pl.pitch
+				if char_ok {physics.character_set_position(&character, cam.pos)}
+				world.stream_begin_load(&streamer, cam.pos)
 			}
-			free_all(context.temp_allocator)
+			log.infof("menu: Continue — loaded %s (%d deltas)", quicksave_path, m.delta_count)
 		}
-		#partial switch choice {
-		case .Continue:
-			if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
-				save_no = m.save_number
-				log.infof("menu: Continue — loaded %s (%d deltas)", quicksave_path, m.delta_count)
-			}
-		case .New:
-			log.info("menu: New Game")
-		case .None, .Quit:
-			return // window closed or Quit
-		}
+	} else {
+		log.info("menu: New Game")
 	}
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
-	// Full-load screen: pump the decode pool at full tilt and show a progress bar until the
-	// spawn bubble is fully resident, THEN drop into the gameplay loop — no empty-world-then-
-	// pop-in. Stays responsive (input pumps, ESC/close work) since each iteration presents.
-	for world.stream_loading(&streamer) && platform.pump(&p) {
-		render.ui_new_frame(&r)
-		done, total, _ := world.stream_pump_load(&streamer)
-		// Cook collision for models that just uploaded, in step with the bubble fill — so the
-		// spawn world is solid the instant gameplay starts instead of collision trickling in at
-		// PHYS_BUDGET/frame for ~30s afterward. Generous budget (no gameplay frame to protect),
-		// and each iteration still presents so the progress bar + ESC stay live.
-		if phys_ok {
-			world.sync_physics(&scene, &scene.cache, budget = 128)
-		}
-		tools.loading_screen("Loading Tamriel…", done, total)
-		if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(&r)
-		}
-		free_all(context.temp_allocator)
-	}
-	// Bubble resident: finish any collision the per-iteration budget didn't reach, then optimize
-	// the broadphase ONCE before the first step — Jolt's quad-tree must be rebuilt after a bulk
-	// static-body add or every step degrades. Mirrors the interior path (enter_interior).
-	if phys_ok {
-		for world.sync_physics(&scene, &scene.cache, budget = max(int)) > 0 {}
-		physics.optimize_broadphase(&phys)
-	}
+	// Full-load screen: pump the decode pool + cook collision behind the loading screen until the
+	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in.
+	run_load_screen(&p, &r, &streamer, &scene, &phys, phys_ok, "Loading Tamriel…")
 
 	for platform.pump(&p) {
 		frame_t0 := time.tick_now() // profile: whole-frame busy time (see `prof`)
@@ -526,6 +633,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				ps.bodies, ps.bodies - prev_bodies, ps.dyn, ps.instances, ps.built, ps.chunks,
 			)
 			prev_bodies = ps.bodies
+			slowsnap = {} // prof was just reset above — zero the snapshot so this frame's delta is clean
 		}
 
 		// The whole dev overlay (` toggles it). Hidden = no panels, so ImGui captures nothing
@@ -575,16 +683,30 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				world.interiors_add_cull_tex(&interiors, insp.sel_tex)
 			}
 
-			// Lighting configurator: live-edit the active profile, switch profiles, or save.
-			light_act := tools.lighting_panel(&lights.active, lights.names[:], lights.current)
+			// Lighting configurator: live-edit, switch the base profile, or save the look as a mod.
+			light_act := tools.lighting_panel(
+				&lights.active,
+				lights.names[:],
+				lights.current,
+				light_save_name[:],
+				&light_all_profiles,
+				&light_delta,
+			)
 			if light_act.select >= 0 && light_act.select != lights.current {
 				lighting_select(&lights, light_act.select)
 				settings.set(cfg, "lighting_profile", lights.names[lights.current])
 				_ = settings.save(cfg)
 			}
-			if light_act.save {
-				if lighting_save(&lights) {
-					log.infof("lighting: saved profile %q", lights.names[lights.current])
+			if light_act.save_as {
+				name := strings.clone(
+					strings.trim_space(string(cstring(raw_data(light_save_name[:])))),
+					context.temp_allocator,
+				)
+				if name != "" && lighting_write_mod(&lights, name, light_delta) {
+					enable_lighting_mod(&mprofile, base, cfg, name, light_all_profiles)
+					lighting_select(&lights, lights.current) // re-resolve with the new mod layered in
+					log.infof("lighting: saved mod %q (delta=%v, all=%v)", name, light_delta, light_all_profiles)
+					light_save_name = {}
 				}
 			}
 
@@ -661,12 +783,21 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(drops), cam.pos.x, cam.pos.y, cam.pos.z)
 		}
 
+		// Collision-hitbox overlay toggle (K): show the green wireframe of what Jolt actually collides.
+		if p.input.hitbox && !kb_cap {
+			show_hitboxes = !show_hitboxes
+			world.clear_collision_debug(&scene) // rebuild fresh each enable (picks up late-loaded models)
+			if interiors_on {world.clear_collision_debug(&interiors.interior_scene)}
+			log.infof("collision hitboxes: %v", show_hitboxes)
+		}
+
 		// Shove-test (H): kick nearby movable clutter so it scatters and resettles — a visible check
 		// of the 3b dynamic-body path (interiors only, where clutter is dynamic).
 		if p.input.shove && !kb_cap {
-			if n := world.shove_clutter(active_scene, cam.pos, 400); n > 0 {
-				log.infof("shove: kicked %d clutter bodies", n)
-			}
+			t_shove := time.tick_now()
+			n := world.shove_clutter(active_scene, cam.pos, 400)
+			act := physics.num_active(active_scene.phys) if active_scene.phys != nil else 0
+			log.infof("shove: kicked %d clutter bodies in %.1fms (active now %d)", n, time.duration_milliseconds(time.tick_since(t_shove)), act)
 		}
 
 		// Quicksave (F5) / quickload (F9) — Phase 3d. Save writes the overlay to a .skysave; load
@@ -674,7 +805,8 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		// snaps to the loaded positions immediately. Exterior loads apply on the next interior entry.
 		if p.input.quicksave && !kb_cap {
 			_ = os.make_directory(saves_dir) // idempotent (errors harmlessly if it exists)
-			cell := trav.cur_int_cell if (!interiors_on && trav.mode == .Interior) else u32(0)
+			cell := trav.cur_int_cell if (!interiors_on && trav.mode == .Interior) else Form_ID(0)
+			worldstate.set_player(&ws, cell, cam.pos, cam.yaw, cam.pitch) // player singleton: where to return on load
 			man := worldstate.Save_Manifest {
 				save_number  = save_no + 1,
 				created_unix = time.to_unix_nanoseconds(time.now()),
@@ -693,6 +825,19 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				if !interiors_on {
 					traversal_reload(&trav) // re-apply the loaded overlay to the live interior
 				}
+				// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
+				// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
+				// The rebuild flags object collision for re-cook; run it behind the dedicated load
+				// screen (reused from boot) so the world is solid before gameplay resumes.
+				world.reapply_overlay_resident(&scene, &db)
+				// Player singleton: snap back to the saved position (exterior only). Re-arm the stream
+				// at the restored spot, then the load screen builds + solidifies that bubble.
+				if pl, has := worldstate.get_player(&ws); has && pl.cell == 0 && !in_interior {
+					cam.pos, cam.yaw, cam.pitch = pl.pos, pl.yaw, pl.pitch
+					if char_ok {physics.character_set_position(&character, cam.pos)}
+					world.stream_begin_load(&streamer, cam.pos)
+				}
+				run_load_screen(&p, &r, &streamer, &scene, &phys, phys_ok, "Loading save…")
 			} else {
 				log.warnf("quickload: no valid save at %s", quicksave_path)
 			}
@@ -722,11 +867,29 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			// do (made > 0) so the quad-tree stays balanced — without this the exterior tree
 			// degrades with every incremental add and the step time climbs steadily. Interiors
 			// build + optimize on entry, so sync_physics is a no-op there and this never fires.
-			if world.sync_physics(active_scene, &active_scene.cache) > 0 {
+			// Sub-timers (diagnostic): split the phys phase so a hitch names the culprit op.
+			ts := time.tick_now()
+			built_n := world.sync_physics(active_scene, &active_scene.cache)
+			ms_sync := time.duration_milliseconds(time.tick_since(ts))
+			ms_opt: f64
+			if built_n > 0 {
+				ts = time.tick_now()
 				physics.optimize_broadphase(cur_phys)
+				ms_opt = time.duration_milliseconds(time.tick_since(ts))
 			}
+			ts = time.tick_now()
 			physics.step(cur_phys, min(p.dt, f32(1.0 / 30.0)))
+			ms_step := time.duration_milliseconds(time.tick_since(ts))
+			ts = time.tick_now()
 			world.capture_settles(active_scene) // overlay: snapshot clutter that just came to rest (3c)
+			ms_settle := time.duration_milliseconds(time.tick_since(ts))
+			if ms_sync + ms_opt + ms_step + ms_settle > SLOW_FRAME_MS {
+				log.warnf(
+					"SLOW PHYS — sync=%.1f(built %d) optimize=%.1f step=%.1f settle=%.1f | active=%d/%d bodies",
+					ms_sync, built_n, ms_opt, ms_step, ms_settle,
+					physics.num_active(cur_phys), physics.num_bodies(cur_phys),
+				)
+			}
 		}
 		prof.phys += time.duration_milliseconds(time.tick_since(t_phys))
 
@@ -775,6 +938,37 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				insp.sel_door_cell = ""
 				insp.sel_tex = inst.model.shapes[shp].diffuse_path if shp >= 0 && shp < len(inst.model.shapes) else ""
 				insp.sel_is_door = gamedb.is_door(&db, inst.base)
+			}
+		}
+
+		// Disable-test (Ctrl-hover + X): record a Disabled delta for the hovered ref and hide it live —
+		// the Layer-1 mutation verb end-to-end (overlay delta + live-apply; persists via apply_overlay
+		// on cell reload). Spread target: Alvor's house (exterior) + Sleeping Giant fireplaces (interior).
+		if p.input.disable && !kb_cap && active_scene.has_hover {
+			if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
+			   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
+				inst := &chunk.instances[active_scene.hover_inst]
+				if world.disable_ref(active_scene, inst.form_id, active_scene.hover_cell, true) {
+					log.infof("disable: ref 0x%08X (%s) hidden", inst.form_id, inst.model_path)
+				} else {
+					log.warnf("disable: scene has no overlay — ref 0x%08X not recorded", inst.form_id)
+				}
+			}
+		}
+
+		// Spawn-test (Ctrl-hover + B): mint a runtime created ref (0xFF space) — a copy of the hovered
+		// ref's base form — at the camera, in the hovered ref's cell. Exercises the created-ref store +
+		// additive overlay + live spawn; it persists (F5) and respawns on cell reload.
+		if p.input.spawn && !kb_cap && active_scene.has_hover {
+			if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
+			   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
+				base := chunk.instances[active_scene.hover_inst].base
+				id := world.create_ref(active_scene, &db, base, active_scene.hover_cell, cam.pos, {0, 0, 0}, 1)
+				if id != 0 {
+					log.infof("spawn: created ref 0x%08X (base 0x%08X) at camera", id, base)
+				} else {
+					log.warnf("spawn: no overlay / base 0x%08X has no model — nothing created", base)
+				}
 			}
 		}
 
@@ -888,11 +1082,30 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				prof.effects += time.duration_milliseconds(time.tick_since(t_effects))
 				world.draw_highlight(&scene, &r, vp, wind, elapsed) // inspect-mode hover highlight
 			}
+			// Collision-hitbox wireframe (K): green outlines of EXACTLY what Jolt collides — static
+			// geometry (cached) + dynamic clutter at its live body pose. Over the lit scene, before end.
+			if show_hitboxes {
+				dbg_scene := active_scene if in_interior else &scene
+				world.build_collision_debug(dbg_scene, &db)
+				world.draw_collision_debug(dbg_scene, &r, vp)
+			}
 			render.end_frame(&r)
 		}
 		prof.render += time.duration_milliseconds(time.tick_since(t_render))
 		prof.frame += time.duration_milliseconds(time.tick_since(frame_t0))
 		prof.frames += 1
+
+		// Slow-frame detector: attribute any hitch to its phase (which one's delta dominates points
+		// at the cause — physics, render/GPU-stall, or streaming). Fires on the H-shove freeze.
+		if fms := time.duration_milliseconds(time.tick_since(frame_t0)); fms > SLOW_FRAME_MS {
+			log.warnf(
+				"SLOW FRAME %.0fms — stream=%.1f phys=%.1f render=%.1f (acquire=%.1f)",
+				fms,
+				prof.stream - slowsnap.stream, prof.phys - slowsnap.phys,
+				prof.render - slowsnap.render, prof.acquire - slowsnap.acquire,
+			)
+		}
+		slowsnap = {prof.stream, prof.phys, prof.render, prof.acquire}
 
 		// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 		// exactly one frame — UI string formatting, draw lists, transient buffers.
@@ -901,6 +1114,256 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	}
 
 	log.info("SkyMod shutting down")
+}
+
+// run_load_screen pumps the decode pool + cooks collision behind the dedicated loading screen until
+// the resident set is fully decoded and solid, then optimizes the broadphase once. Reused for the boot
+// full-load AND after an F9 quickload's overlay rebuild (which flags resident chunks for object-
+// collision re-cook) — so a mid-game reload masks its hitch exactly like boot, and gameplay resumes on
+// a solid world. Stays responsive: each iteration pumps input + presents (ESC/close work).
+@(private = "file")
+run_load_screen :: proc(
+	p: ^platform.Platform,
+	r: ^render.Renderer,
+	streamer: ^world.Streamer,
+	scene: ^world.Scene,
+	phys: ^physics.World,
+	phys_ok: bool,
+	label: string,
+) {
+	for world.stream_loading(streamer) && platform.pump(p) {
+		render.ui_new_frame(r)
+		done, total, _ := world.stream_pump_load(streamer)
+		if phys_ok {
+			world.sync_physics(scene, &scene.cache, budget = 128)
+		}
+		tools.loading_screen(label, done, total)
+		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
+			render.end_frame(r)
+		}
+		free_all(context.temp_allocator)
+	}
+	// Finish any collision the per-iteration budget didn't reach, then rebuild Jolt's broadphase once
+	// (degrades if stepped after a bulk static-body add/remove).
+	if phys_ok {
+		for world.sync_physics(scene, &scene.cache, budget = max(int)) > 0 {}
+		physics.optimize_broadphase(phys)
+	}
+}
+
+// Game_Load_Job carries the threaded gamedb build (run while the loading screen animates). The DB
+// is built in loader_alloc — a thread-safe heap — so it's safe to hand back to the main thread,
+// which owns and frees it. `done` is the atomically-published completion flag.
+@(private = "file")
+Game_Load_Job :: struct {
+	src, base:    string,
+	profile:      ^mods.Profile,
+	loader_alloc: runtime.Allocator,
+	db:           gamedb.DB,
+	ok:           bool,
+	done:         bool,
+	progress:     Load_Progress, // byte progress, published by the build for the loading bar
+}
+
+// game_load_worker runs load_gamedb_mods on a worker thread (all allocations in loader_alloc, off
+// the main thread's tracking allocator), then publishes `done`.
+@(private = "file")
+game_load_worker :: proc(t: ^thread.Thread) {
+	job := (^Game_Load_Job)(t.data)
+	context.allocator = job.loader_alloc
+	job.db, job.ok = load_gamedb_mods(job.src, job.base, job.profile, &job.progress)
+	sync.atomic_store(&job.done, true)
+}
+
+// run_main_menu pumps the boot main menu until the player picks an action — or the window closes,
+// reported as .None (the caller treats None/Quit alike: exit). It first tries the synthesized
+// built-in Lua menu (real Skyrim font via the SDL3_gpu UI path, run_lua_main_menu); if that can't
+// initialize (no font in the install / load error), it falls back to the imgui boot menu so the
+// engine never bricks. A pre-world modal screen: clears the frame behind the UI, no world/streaming.
+@(private = "file")
+run_main_menu :: proc(
+	p: ^platform.Platform,
+	r: ^render.Renderer,
+	base, src: string,
+	profile: ^mods.Profile,
+	has_save: bool,
+	save_summary: string,
+) -> tools.Menu_Action {
+	if action, ok := run_lua_main_menu(p, r, base, src, profile); ok {
+		return action
+	}
+	log.warn("menu: built-in Lua UI unavailable; using the imgui boot menu")
+	choice := tools.Menu_Action.None
+	for choice == .None && platform.pump(p) {
+		render.ui_new_frame(r)
+		choice = tools.main_menu_screen(has_save, save_summary)
+		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
+			render.end_frame(r)
+		}
+		free_all(context.temp_allocator)
+	}
+	return choice
+}
+
+// run_mod_manager pumps the mod-manager screen until Back (→ true, return to the main menu)
+// or the window closes (→ false, quit). The menu "socket" for the mod system: today a stub
+// panel; the load-order / enable-disable backend + the world-init relocation land next.
+@(private = "file")
+run_mod_manager :: proc(
+	p: ^platform.Platform,
+	r: ^render.Renderer,
+	profile: ^mods.Profile,
+	src, base: string,
+	cfg: ^settings.Config,
+) -> bool {
+	new_seq := 0
+	dirty := true // recompute the derived plugin order whenever the mod list changes
+	derived: []Derived_Plugin
+
+	for platform.pump(p) {
+		render.ui_new_frame(r)
+
+		active := settings.get(cfg, "active_profile")
+		if active == "" {
+			active = DEFAULT_PROFILE
+		}
+		if dirty {
+			free_derived(derived)
+			derived = derive_plugin_order(src, base, profile)
+			dirty = false
+		}
+
+		// Per-frame plain-data views for the imgui-core panel (temp; names borrowed).
+		mods_view := make([]tools.Mod_Entry_View, len(profile.mods), context.temp_allocator)
+		for m, i in profile.mods {
+			mods_view[i] = {
+				name      = m.name,
+				enabled   = m.enabled,
+				locked    = m.locked,
+				separator = m.kind == .Separator,
+			}
+		}
+		plugins_view := make([]tools.Plugin_Row_View, len(derived), context.temp_allocator)
+		for d, i in derived {
+			plugins_view[i] = {name = d.name, source = d.source, master = d.master}
+		}
+		profiles := discover_profiles(base, context.temp_allocator)
+
+		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view)
+
+		if res.toggled >= 0 {mods.profile_toggle(profile, res.toggled);dirty = true}
+		if res.move_from >= 0 && res.move_to >= 0 {
+			mods.profile_move_to(profile, res.move_from, res.move_to)
+			dirty = true
+		}
+		if res.add_separator {
+			new_seq += 1
+			mods.profile_add_separator(profile, fmt.tprintf("New Separator %d", new_seq))
+			dirty = true
+		}
+		if res.add_empty {
+			new_seq += 1
+			name := fmt.tprintf("New Mod %d", new_seq)
+			// Create the folder under <base>/mods so the empty mod persists + is discoverable.
+			_ = os.make_directory(mods_root(base))
+			dir, _ := filepath.join({mods_root(base), name}, context.temp_allocator)
+			_ = os.make_directory(dir)
+			mods.profile_add(profile, name)
+			dirty = true
+		}
+
+		// Profile switch: persist the current list, then load the target's (mods/ stays shared).
+		if res.switch_profile >= 0 && res.switch_profile < len(profiles) {
+			target := profiles[res.switch_profile]
+			if !strings.equal_fold(target, active) {
+				_ = mods.profile_save(profile, modlist_path_for(base, active))
+				settings.set(cfg, "active_profile", target)
+				_ = settings.save(cfg)
+				switch_profile(profile, src, base, target)
+				dirty = true
+			}
+		}
+		// New profile: a fresh list (all mods enabled by default), made active.
+		if res.create_profile {
+			name := fmt.tprintf("Profile %d", len(profiles))
+			ensure_profile_dir(base, name)
+			_ = mods.profile_save(profile, modlist_path_for(base, active))
+			settings.set(cfg, "active_profile", name)
+			_ = settings.save(cfg)
+			switch_profile(profile, src, base, name)
+			dirty = true
+		}
+
+		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
+			render.end_frame(r)
+		}
+		free_all(context.temp_allocator)
+
+		if res.action == .Exit {
+			if mods.profile_save(profile, modlist_path_for(base, active)) {
+				log.infof("mods: saved profile %q — %d item(s)", active, len(profile.mods))
+			}
+			_ = settings.save(cfg)
+			free_derived(derived)
+			return true
+		}
+	}
+	free_derived(derived)
+	return false // window closed
+}
+
+// switch_profile reloads `profile` in place from <base>/modprofiles/<name>/modlist.txt, reconciled
+// against the (shared) installed mod folders, then re-syncs the locked system rows (needs `src` for
+// DLC detection).
+@(private = "file")
+switch_profile :: proc(profile: ^mods.Profile, src, base, name: string) {
+	mods.profile_destroy(profile)
+	mods.profile_init(profile)
+	_ = mods.profile_load(profile, modlist_path_for(base, name))
+	mods.profile_reconcile(profile, discover_mod_folders(base, context.temp_allocator))
+	mods.profile_set_system(profile, system_mod_names(src, base))
+}
+
+// enable_lighting_mod adds a just-written lighting mod to the active profile (and, if requested,
+// every other profile), persisting each modlist. The mod is lighting-only, so no world rebuild.
+@(private = "file")
+enable_lighting_mod :: proc(
+	active: ^mods.Profile,
+	base: string,
+	cfg: ^settings.Config,
+	name: string,
+	all_profiles: bool,
+) {
+	mods.profile_add(active, name)
+	cur := settings.get(cfg, "active_profile")
+	if cur == "" {
+		cur = DEFAULT_PROFILE
+	}
+	_ = mods.profile_save(active, modlist_path_for(base, cur))
+	if !all_profiles {
+		return
+	}
+	for pname in discover_profiles(base, context.temp_allocator) {
+		if strings.equal_fold(pname, cur) {
+			continue
+		}
+		other: mods.Profile
+		mods.profile_init(&other)
+		_ = mods.profile_load(&other, modlist_path_for(base, pname))
+		mods.profile_add(&other, name)
+		_ = mods.profile_save(&other, modlist_path_for(base, pname))
+		mods.profile_destroy(&other)
+	}
+}
+
+// free_derived releases a derived-plugin slice (the names/sources are heap-owned).
+@(private = "file")
+free_derived :: proc(d: []Derived_Plugin) {
+	for e in d {
+		delete(e.name)
+		delete(e.source)
+	}
+	delete(d)
 }
 
 // proc_rss_mb reads this process's resident set size (MB) from /proc/self/statm (Linux) — the

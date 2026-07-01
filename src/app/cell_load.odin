@@ -7,18 +7,36 @@ package main
 import "core:log"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
+import "core:strings"
+import "core:sync"
 
+import "../formats/esm"
 import "../gamedb"
 import smath "../math"
+import "../mods"
 import "../physics"
 import "../render"
 import "../vfs"
 import "../world"
 import "../worldstate"
 
-// Archives that carry the static-world assets an interior needs (meshes + diffuse
-// textures). Mounted in load order; loose Data/ (added first) overrides all.
-GAME_ARCHIVES := []string{"Skyrim - Meshes.bsa", "Skyrim - Textures.bsa"}
+// Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
+Form_ID :: gamedb.Form_ID
+
+// sort_names sorts file/dir names case-insensitively, in place — the one comparator every
+// discover_*/files_with_suffix helper below shares (Bethesda listings are case-insensitive).
+@(private = "file")
+sort_names :: proc(names: []string) {
+	slice.sort_by(names, proc(a, b: string) -> bool {
+		return strings.compare(strings.to_lower(a, context.temp_allocator), strings.to_lower(b, context.temp_allocator)) < 0
+	})
+}
+
+// Archives we mount into the VFS: the static-world assets an interior needs (meshes +
+// diffuse textures) PLUS Interface (the menu's fonts/credits/SWFs + UI textures). Mounted
+// in load order; loose Data/ (added first) overrides all, then mods override these.
+GAME_ARCHIVES := []string{"Skyrim - Meshes.bsa", "Skyrim - Textures.bsa", "Skyrim - Interface.bsa"}
 
 // mount_game builds a VFS over <src>/Data: the loose folder (highest precedence) plus
 // the static-asset archives. Caller frees with vfs.destroy.
@@ -35,24 +53,398 @@ mount_game :: proc(src: string) -> vfs.VFS {
 	return v
 }
 
-// load_gamedb reads <src>/Data/Skyrim.esm and builds the in-memory record DB. The
-// file bytes are freed after the build (the DB clones everything it keeps).
-load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
-	esm_path, _ := filepath.join({src, "Data", "Skyrim.esm"}, context.temp_allocator)
-	data, rerr := os.read_entire_file(esm_path, context.allocator)
-	if rerr != nil {
-		log.errorf("could not read %s", esm_path)
+// discover_plugins lists the plugin files (.esm/.esp) present in <src>/Data, sorted
+// case-insensitively. The mod Profile reconciles against this set (enable/disable). Returns the
+// names allocated in `allocator` (caller frees the slice + each name).
+discover_plugins :: proc(src: string, allocator := context.allocator) -> ([]string, bool) {
+	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
+	infos, derr := os.read_all_directory_by_path(data_dir, context.temp_allocator)
+	if derr != nil {
+		log.errorf("could not read %s", data_dir)
 		return {}, false
 	}
-	defer delete(data)
-	log.infof("loading gamedb from %s (%d bytes)…", esm_path, len(data))
-	return gamedb.build(data), true
+	out := make([dynamic]string, 0, 16, allocator)
+	for fi in infos {
+		lower := strings.to_lower(fi.name, context.temp_allocator)
+		if strings.has_suffix(lower, ".esm") || strings.has_suffix(lower, ".esp") {
+			append(&out, strings.clone(fi.name, allocator))
+		}
+	}
+	sort_names(out[:])
+	return out[:], true
+}
+
+// load_gamedb reads every plugin in <src>/Data, resolves the load order, and builds one DB with
+// FormIDs remapped into global load-order space (later plugins override earlier). Used by the dev
+// tools; the full game uses load_gamedb_mods with the active profile. Plugin bytes are freed after
+// the build — the DB clones what it keeps.
+load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
+	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
+	names, ok := discover_plugins(src, context.temp_allocator)
+	if !ok || len(names) == 0 {
+		log.errorf("no plugins (.esm/.esp) found in %s", data_dir)
+		return {}, false
+	}
+	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
+	defer {
+		for inp in inputs {delete(inp.name);delete(inp.data)}
+		delete(inputs)
+	}
+	for name in names {read_plugin_into(&inputs, data_dir, name)}
+	if len(inputs) == 0 {
+		return {}, false
+	}
+	order := gamedb.resolve_load_order(inputs[:], context.allocator)
+	defer delete(order, context.allocator)
+	log.infof("loading gamedb from %d plugin(s)…", len(order))
+	return gamedb.build_plugins(order, context.allocator), true
+}
+
+// MODS_DIRNAME is the folder under the exe dir (base) that holds installed mod folders (MO2-style).
+MODS_DIRNAME :: "mods"
+
+// mods_root is <base>/mods (temp-allocated by default).
+mods_root :: proc(base: string, allocator := context.temp_allocator) -> string {
+	r, _ := filepath.join({base, MODS_DIRNAME}, allocator)
+	return r
+}
+
+// PROFILES_DIRNAME holds the per-profile mod lists (the mods/ folder itself is shared across all
+// profiles, MO2-style). Distinct from the lighting system's "profiles/" dir. DEFAULT_PROFILE is the
+// always-present profile.
+PROFILES_DIRNAME :: "modprofiles"
+DEFAULT_PROFILE :: "Default"
+
+// modlist_path_for returns <base>/profiles/<name>/modlist.txt (temp-allocated by default).
+modlist_path_for :: proc(base, name: string, allocator := context.temp_allocator) -> string {
+	r, _ := filepath.join({base, PROFILES_DIRNAME, name, "modlist.txt"}, allocator)
+	return r
+}
+
+// ensure_profile_dir creates <base>/profiles/<name>/ (idempotent).
+ensure_profile_dir :: proc(base, name: string) {
+	_ = os.make_directory(profiles_root(base))
+	dir, _ := filepath.join({base, PROFILES_DIRNAME, name}, context.temp_allocator)
+	_ = os.make_directory(dir)
+}
+
+// profiles_root is <base>/profiles (temp-allocated by default).
+profiles_root :: proc(base: string, allocator := context.temp_allocator) -> string {
+	r, _ := filepath.join({base, PROFILES_DIRNAME}, allocator)
+	return r
+}
+
+// discover_profiles lists the profile names (subdirs of <base>/profiles), always including the
+// Default profile, sorted case-insensitively. Allocated in `allocator`.
+discover_profiles :: proc(base: string, allocator := context.allocator) -> []string {
+	out := make([dynamic]string, 0, 8, allocator)
+	append(&out, strings.clone(DEFAULT_PROFILE, allocator))
+	if infos, derr := os.read_all_directory_by_path(profiles_root(base), context.temp_allocator); derr == nil {
+		for fi in infos {
+			if fi.type == .Directory && !strings.equal_fold(fi.name, DEFAULT_PROFILE) {
+				append(&out, strings.clone(fi.name, allocator))
+			}
+		}
+	}
+	sort_names(out[:])
+	return out[:]
+}
+
+// discover_mod_folders lists the immediate subdirectories of <base>/mods (each = one installed
+// mod), sorted case-insensitively. A missing mods/ dir is not an error (returns empty).
+discover_mod_folders :: proc(base: string, allocator := context.allocator) -> []string {
+	infos, derr := os.read_all_directory_by_path(mods_root(base), context.temp_allocator)
+	if derr != nil {
+		return {}
+	}
+	out := make([dynamic]string, 0, 8, allocator)
+	for fi in infos {
+		if fi.type == .Directory {append(&out, strings.clone(fi.name, allocator))}
+	}
+	sort_names(out[:])
+	return out[:]
+}
+
+// system_mod_names returns the locked "system" rows the mod manager shows above user mods, in load-
+// priority order: the vanilla base ("Skyrim"), each official DLC actually present in <src>/Data, then
+// the forced UI baseline ("SkyMod UI") if content/baseui is installed. These are provided by the
+// loader outside the mods/ folder mechanism (vanilla/DLC from Data, UI from content/), so they're
+// display + ordering only — `mods.profile_set_system` marks them locked and `profile_enabled_mods`
+// skips them. Call after profile_reconcile. Temp-allocated by default (set_system clones what it keeps).
+system_mod_names :: proc(src, base: string, allocator := context.temp_allocator) -> []string {
+	out := make([dynamic]string, 0, 8, allocator)
+	append(&out, strings.clone(mods.BASE_MOD, allocator)) // "Skyrim" (the vanilla base)
+	// Official DLC masters, shown in official order, only if present in Data.
+	DLCS := [?][2]string {
+		{"update.esm", "Update"},
+		{"dawnguard.esm", "Dawnguard"},
+		{"hearthfires.esm", "Hearthfires"},
+		{"dragonborn.esm", "Dragonborn"},
+	}
+	if names, ok := discover_plugins(src, context.temp_allocator); ok {
+		for dlc in DLCS {
+			for n in names {
+				if strings.equal_fold(n, dlc[0]) {
+					append(&out, strings.clone(dlc[1], allocator))
+					break
+				}
+			}
+		}
+	}
+	// The forced UI baseline (content/baseui), our reimplementation of Skyrim's UI.
+	baseui_dir, _ := filepath.join({base, "content", "baseui"}, context.temp_allocator)
+	if os.is_dir(baseui_dir) {
+		append(&out, strings.clone("SkyMod UI", allocator))
+	}
+	return out[:]
+}
+
+// load_gamedb_mods builds the DB from the active mod profile: vanilla Data plugins (the base) plus
+// each ENABLED mod folder's plugins, gathered in mod-list order so resolve_load_order's input-rank
+// makes the derived load order follow the mod order. `base` is the exe dir (mods/ lives there).
+// Load_Progress is the byte counter the threaded gamedb build publishes for the loading bar:
+// `done` bytes parsed (updated continuously during the build), out of `total` (set once up front).
+Load_Progress :: struct {
+	done:  int,
+	total: int,
+}
+
+load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^Load_Progress = nil) -> (gamedb.DB, bool) {
+	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
+	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
+	defer {
+		for inp in inputs {delete(inp.name);delete(inp.data)}
+		delete(inputs)
+	}
+
+	// Base: vanilla Data plugins.
+	if names, ok := discover_plugins(src, context.temp_allocator); ok {
+		for name in names {read_plugin_into(&inputs, data_dir, name)}
+	}
+	// Enabled user mods, in mod-list order (drives the derived plugin order via the input rank).
+	root := mods_root(base)
+	enabled := mods.profile_enabled_mods(profile, context.temp_allocator)
+	nmods := 0
+	for mod in enabled {
+		if mod == mods.BASE_MOD {continue}
+		nmods += 1
+		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
+		for pl in files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator) {
+			read_plugin_into(&inputs, mdir, pl)
+		}
+	}
+	if len(inputs) == 0 {
+		log.errorf("no plugins to load")
+		return {}, false
+	}
+
+	// Publish the total byte count up front so the loading bar has a denominator.
+	if progress != nil {
+		total := 0
+		for inp in inputs {total += len(inp.data)}
+		sync.atomic_store(&progress.total, total)
+	}
+
+	order := gamedb.resolve_load_order(inputs[:], context.allocator)
+	defer delete(order, context.allocator)
+	log.infof("gamedb: %d plugin(s) (vanilla base + %d enabled mod[s])", len(order), nmods)
+	done: ^int = &progress.done if progress != nil else nil
+	db := gamedb.build_plugins(order, context.allocator, done)
+	if progress != nil {sync.atomic_store(&progress.done, sync.atomic_load(&progress.total))} // 100%
+	return db, true
+}
+
+// mount_game_mods builds the VFS for the active profile: enabled mod folders (loose) over vanilla
+// Data + the base archives, plus any BSAs shipped inside mod folders. read() returns the first
+// loose root that has the file, so the highest-priority source mounts first — MO2 convention is
+// lower-in-the-list wins, so mods mount bottom→top, then vanilla Data last. `base` is the exe dir.
+mount_game_mods :: proc(src, base: string, profile: ^mods.Profile) -> vfs.VFS {
+	v: vfs.VFS
+	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
+	root := mods_root(base)
+	enabled := mods.profile_enabled_mods(profile, context.temp_allocator)
+	// Forced "content mods": <base>/content/* are packaged exactly like a mods/ mod but enabled across
+	// ALL profiles as the BASELINE — above vanilla, below every user mod (so user mods override them,
+	// uniform pipeline). E.g. content/bethassets = UI assets converted from the user's install. Pull a
+	// content mod into mods/ and it behaves identically; it lives in content/ only to be forced.
+	cmods := content_mod_dirs(base, context.temp_allocator)
+
+	// Loose precedence (first mounted wins): user mods bottom→top, then the content baseline, then vanilla.
+	#reverse for mod in enabled {
+		if mod == mods.BASE_MOD {continue}
+		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
+		vfs.mount_loose(&v, mdir)
+	}
+	for cm in cmods {
+		vfs.mount_loose(&v, cm)
+	}
+	vfs.mount_loose(&v, data_dir)
+
+	// Archives (later mount wins): vanilla base, then content-baseline .bsa, then user-mod .bsa.
+	for name in GAME_ARCHIVES {
+		p, _ := filepath.join({data_dir, name}, context.temp_allocator)
+		if !vfs.mount_archive(&v, p) {log.warnf("could not mount %s", p)}
+	}
+	for cm in cmods {
+		for b in files_with_suffix(cm, {".bsa"}, context.temp_allocator) {
+			bp, _ := filepath.join({cm, b}, context.temp_allocator)
+			_ = vfs.mount_archive(&v, bp)
+		}
+	}
+	for mod in enabled {
+		if mod == mods.BASE_MOD {continue}
+		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
+		for b in files_with_suffix(mdir, {".bsa"}, context.temp_allocator) {
+			bp, _ := filepath.join({mdir, b}, context.temp_allocator)
+			_ = vfs.mount_archive(&v, bp)
+		}
+	}
+	return v
+}
+
+// content_mod_dirs lists the VFS-asset root of each <base>/content/<mod> content mod — its
+// `bethassets/` subfolder, which holds assets at Bethesda-relative paths (the mod's `lua/` etc. stay
+// out of the VFS namespace). Each is mounted as the forced baseline (see mount_game_mods). Paths
+// temp-allocated; only existing bethassets/ dirs are returned.
+content_mod_dirs :: proc(base: string, alloc := context.temp_allocator) -> []string {
+	content, _ := filepath.join({base, "content"}, alloc)
+	infos, err := os.read_all_directory_by_path(content, alloc)
+	if err != nil {
+		return {}
+	}
+	out := make([dynamic]string, 0, len(infos), alloc)
+	for fi in infos {
+		assets, _ := filepath.join({content, fi.name, "bethassets"}, alloc)
+		if os.is_dir(assets) {
+			append(&out, assets)
+		}
+	}
+	return out[:]
+}
+
+// Derived_Plugin is one row of the derived plugin load order for the mod-manager's right panel: the
+// plugin filename, the mod that provides it, and whether it's a master (esm/esl). Read-only — the
+// order follows the mod list (resolve with the mod-list rank).
+Derived_Plugin :: struct {
+	name:   string,
+	source: string, // providing mod (mods.BASE_MOD for vanilla Data)
+	master: bool,
+}
+
+// derive_plugin_order resolves the active profile's plugin load order WITHOUT building the DB — it
+// reads only each plugin's header bytes (for masters) and runs esm.load_order with the mod-list
+// rank. For the mod-manager display; recomputed when the mod list changes. Allocated in `allocator`.
+derive_plugin_order :: proc(src, base: string, profile: ^mods.Profile, allocator := context.allocator) -> []Derived_Plugin {
+	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
+	root := mods_root(base)
+
+	names := make([dynamic]string, 0, 16, context.temp_allocator)
+	mod_of := make([dynamic]string, 0, 16, context.temp_allocator)
+	masters := make([dynamic][]string, 0, 16, context.temp_allocator)
+
+	if disc, ok := discover_plugins(src, context.temp_allocator); ok {
+		for n in disc {gather_plugin_header(&names, &mod_of, &masters, data_dir, n, mods.BASE_MOD)}
+	}
+	for mod in mods.profile_enabled_mods(profile, context.temp_allocator) {
+		if mod == mods.BASE_MOD {continue}
+		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
+		for pl in files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator) {
+			gather_plugin_header(&names, &mod_of, &masters, mdir, pl, mod)
+		}
+	}
+	if len(names) == 0 {
+		return {}
+	}
+
+	rank := make(map[string]int, len(names), context.temp_allocator)
+	for nm, i in names {rank[strings.to_lower(nm, context.temp_allocator)] = i}
+	perm := esm.load_order(names[:], masters[:], context.temp_allocator, rank)
+
+	out := make([]Derived_Plugin, len(perm), allocator)
+	for pidx, i in perm {
+		lower := strings.to_lower(names[pidx], context.temp_allocator)
+		out[i] = Derived_Plugin {
+			name   = strings.clone(names[pidx], allocator),
+			source = strings.clone(mod_of[pidx], allocator),
+			master = strings.has_suffix(lower, ".esm") || strings.has_suffix(lower, ".esl"),
+		}
+	}
+	return out
+}
+
+// gather_plugin_header reads <dir>/<fname>'s header and appends its name, providing mod, and master
+// list to the parallel slices. Silently skips files that don't open or whose header won't parse.
+@(private = "file")
+gather_plugin_header :: proc(names, mod_of: ^[dynamic]string, masters: ^[dynamic][]string, dir, fname, mod: string) {
+	p, _ := filepath.join({dir, fname}, context.temp_allocator)
+	hdr := read_header_chunk(p)
+	if hdr == nil {
+		return
+	}
+	h, ok := esm.parse_header(hdr, context.temp_allocator)
+	if !ok {
+		return
+	}
+	append(names, fname)
+	append(mod_of, mod)
+	append(masters, h.masters)
+}
+
+// read_header_chunk reads the first 256 KiB of `path` — far more than any plugin's TES4 header
+// needs, and avoids loading a 250 MB master just to learn its masters. Temp-allocated; nil on error.
+@(private = "file")
+read_header_chunk :: proc(path: string) -> []u8 {
+	h, err := os.open(path)
+	if err != nil {
+		return nil
+	}
+	defer os.close(h)
+	buf := make([]u8, 256 * 1024, context.temp_allocator)
+	n, rerr := os.read(h, buf)
+	if rerr != nil || n <= 0 {
+		return nil
+	}
+	return buf[:n]
+}
+
+// read_plugin_into reads <dir>/<fname> and appends it as a Plugin_Input (bytes owned by the
+// caller's allocator; freed after build). A read failure is logged and skipped.
+@(private = "file")
+read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, dir, fname: string) {
+	p, _ := filepath.join({dir, fname}, context.temp_allocator)
+	bytes, rerr := os.read_entire_file(p, context.allocator)
+	if rerr != nil {
+		log.warnf("could not read plugin %s — skipping", p)
+		return
+	}
+	append(inputs, gamedb.Plugin_Input{name = strings.clone(fname), data = bytes})
+}
+
+// files_with_suffix lists files in `dir` whose lower-cased name ends with any of `suffixes`. Names
+// are allocated in `allocator`. A missing/unreadable dir → empty.
+@(private = "file")
+files_with_suffix :: proc(dir: string, suffixes: []string, allocator := context.allocator) -> []string {
+	infos, derr := os.read_all_directory_by_path(dir, context.temp_allocator)
+	if derr != nil {
+		return {}
+	}
+	out := make([dynamic]string, 0, 4, allocator)
+	for fi in infos {
+		lower := strings.to_lower(fi.name, context.temp_allocator)
+		for s in suffixes {
+			if strings.has_suffix(lower, s) {
+				append(&out, strings.clone(fi.name, allocator))
+				break
+			}
+		}
+	}
+	return out[:]
 }
 
 // stream_spawn picks a camera start over an exterior grid cell: centred on the cell
 // in XY, raised above its statics' mean height. Used to drop the player into a
 // streamed worldspace (e.g. Riverwood in Tamriel) before terrain exists to stand on.
-stream_spawn :: proc(db: ^gamedb.DB, world_fid: u32, gx, gy: i32) -> (pos: smath.Vec3, ok: bool) {
+stream_spawn :: proc(db: ^gamedb.DB, world_fid: Form_ID, gx, gy: i32) -> (pos: smath.Vec3, ok: bool) {
 	cid, cok := gamedb.cell_at(db, world_fid, gx, gy)
 	if !cok {
 		return {}, false
@@ -103,9 +495,9 @@ Traversal_Mode :: enum {
 // door's world position (proximity prompt + range); the rest is its XTEL (destination door +
 // the arrival marker on the far side). `auto` = an auto-load (proximity-entered) door.
 Door_Ref :: struct {
-	self:    u32, // this door's own formID (arrival re-trigger guard)
+	self:    Form_ID, // this door's own formID (arrival re-trigger guard)
 	pos:     smath.Vec3,
-	tp_door: u32,
+	tp_door: Form_ID,
 	tp_pos:  smath.Vec3,
 	tp_rot:  smath.Vec3,
 	auto:    bool,
@@ -115,7 +507,7 @@ Door_Ref :: struct {
 // is within DOOR_RANGE.
 Door_Hit :: struct {
 	door_pos: smath.Vec3, // for the prompt + range test
-	tp_door:  u32,
+	tp_door:  Form_ID,
 	tp_pos:   smath.Vec3,
 	tp_rot:   smath.Vec3,
 	auto:     bool,
@@ -142,7 +534,7 @@ Traversal :: struct {
 	int_doors:   [dynamic]Door_Ref, // current interior cell's load doors (rebuilt on entry)
 	arrival_pos: smath.Vec3, // where the last transition landed (auto-fire suppression anchor)
 	has_arrival: bool, // suppress auto-firing until the player walks AUTO_REARM from arrival_pos
-	cur_int_cell: u32, // the interior cell currently loaded (mode == .Interior) — for in-place reload
+	cur_int_cell: Form_ID, // the interior cell currently loaded (mode == .Interior) — for in-place reload
 }
 
 traversal_init :: proc(
@@ -191,7 +583,7 @@ traversal_destroy :: proc(t: ^Traversal) {
 // single interior cell). Built straight from gamedb refs — so invisible AutoLoadMarker doors
 // (which build_chunk drops as markers) are included. auto = the door's mesh is a marker.
 @(private = "file")
-gather_doors :: proc(t: ^Traversal, cells: []u32, out: ^[dynamic]Door_Ref) {
+gather_doors :: proc(t: ^Traversal, cells: []Form_ID, out: ^[dynamic]Door_Ref) {
 	clear(out)
 	for cid in cells {
 		for r in gamedb.refs_of(t.db, cid) {
@@ -268,7 +660,7 @@ traversal_nearest_door :: proc(t: ^Traversal, pos: smath.Vec3) -> Door_Hit {
 
 // door_dest_label resolves a load door's destination into a short prompt label, or "" when it
 // can't be resolved. Cross-worldspace exteriors now show the destination worldspace's name.
-door_dest_label :: proc(t: ^Traversal, tp_door: u32) -> string {
+door_dest_label :: proc(t: ^Traversal, tp_door: Form_ID) -> string {
 	dref, ok := gamedb.ref_by_formid(t.db, tp_door)
 	if !ok {
 		return ""
@@ -338,7 +730,7 @@ go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, ok
 // immediate surroundings stay warm for an instant return while the far LOD/terrain rings —
 // the costly resident set — are freed. The new cell's own doors are indexed for proximity.
 @(private = "file")
-enter_interior :: proc(t: ^Traversal, cell_id: u32) {
+enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	if t.mode == .Interior {
 		world.scene_destroy(&t.interior) // interior → interior swap
 	} else {
@@ -399,7 +791,7 @@ exit_to_exterior :: proc(t: ^Traversal, pos: smath.Vec3) {
 // one, and the per-worldspace far-terrain backdrop + door index are rebuilt. Models stay
 // cached (shared meshes carry over). pos is the arrival spot in the new world's coords.
 @(private = "file")
-retarget_exterior :: proc(t: ^Traversal, world_fid: u32, pos: smath.Vec3) {
+retarget_exterior :: proc(t: ^Traversal, world_fid: Form_ID, pos: smath.Vec3) {
 	if t.mode == .Interior {
 		world.scene_destroy(&t.interior)
 		t.interior = {}

@@ -32,6 +32,9 @@ Input :: struct {
 	quicksave: bool,   // F5 pressed this pump (edge) — write the world-state overlay to quicksave.skysave
 	quickload: bool,   // F9 pressed this pump (edge) — load quicksave.skysave back into the overlay
 	noclip:    bool,   // V pressed this pump (edge) — toggle walk vs free-fly (no-clip) camera
+	disable:   bool,   // X pressed this pump (edge) — disable the Ctrl-hovered ref (mutation-layer verify)
+	spawn:     bool,   // B pressed this pump (edge) — spawn a copy of the Ctrl-hovered ref at the camera (created-ref verify)
+	hitbox:    bool,   // K pressed this pump (edge) — toggle the collision-hitbox wireframe overlay (static + dynamic)
 }
 
 // Event_Hook is called for every raw SDL event during pump(). Used to forward
@@ -101,6 +104,9 @@ pump :: proc(p: ^Platform) -> bool {
 	quicksave := false
 	quickload := false
 	noclip := false
+	disable := false
+	spawn := false
+	hitbox := false
 
 	ev: sdl.Event
 	for sdl.PollEvent(&ev) {
@@ -134,6 +140,15 @@ pump :: proc(p: ^Platform) -> bool {
 			}
 			if ev.key.scancode == .V && !ev.key.repeat {
 				noclip = true
+			}
+			if ev.key.scancode == .X && !ev.key.repeat {
+				disable = true
+			}
+			if ev.key.scancode == .B && !ev.key.repeat {
+				spawn = true
+			}
+			if ev.key.scancode == .K && !ev.key.repeat {
+				hitbox = true
 			}
 		case .MOUSE_BUTTON_DOWN:
 			if ev.button.button == sdl.BUTTON_LEFT {
@@ -195,6 +210,9 @@ pump :: proc(p: ^Platform) -> bool {
 		quicksave = quicksave,
 		quickload = quickload,
 		noclip    = noclip,
+		disable   = disable,
+		spawn     = spawn,
+		hitbox    = hitbox,
 	}
 
 	now := sdl.GetTicks()

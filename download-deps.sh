@@ -61,6 +61,7 @@ build_sdl3() {
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$dest" \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_C_FLAGS="-ffunction-sections -fdata-sections" \
         -DSDL_SHARED=OFF \
         -DSDL_STATIC=ON \
         -DSDL_TEST_LIBRARY=OFF \

@@ -24,7 +24,7 @@ Placement :: struct {
 // Teleport is a door REFR's XTEL: the destination door (in some cell) and the marker
 // transform the player is placed at on the far side.
 Teleport :: struct {
-	door: u32,
+	door: Form_ID, // raw (local) until gamedb remaps it into global space
 	pos:  [3]f32,
 	rot:  [3]f32,
 }
@@ -320,7 +320,7 @@ refr_teleport :: proc(fields: []Field) -> (Teleport, bool) {
 		return {}, false
 	}
 	return Teleport {
-			door = rd32(f.data, 0),
+			door = Form_ID(rd32(f.data, 0)),
 			pos = {rf32(f.data, 4), rf32(f.data, 8), rf32(f.data, 12)},
 			rot = {rf32(f.data, 16), rf32(f.data, 20), rf32(f.data, 24)},
 		},

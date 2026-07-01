@@ -48,6 +48,14 @@ Cube_Uniforms :: struct {
 // math (app/shadows.odin) references this so the two never diverge.
 SHADOW_CASCADES :: 3
 
+// MESH_CULL_FRONT_FACE is the winding the opaque culled pipelines (mesh_pipeline_culled /
+// obj_pipeline_culled) treat as front-facing. Skyrim NIF triangle lists have consistent winding,
+// so backface culling is a straight win on solid geometry — but the winding after our REFR euler
+// (transpose) + coordinate convention is empirical: if opaque statics render INSIDE-OUT or vanish
+// wholesale after enabling culling, flip this to .CLOCKWISE (single-line, no other change). Two-
+// sided draws (foliage/grass/water) ignore it — they use cull NONE.
+MESH_CULL_FRONT_FACE :: sdl.GPUFrontFace.COUNTER_CLOCKWISE
+
 // Light_Env is the per-frame scene-lighting block (ROADMAP full-scene-lighting Phase A) —
 // the GPU-facing mirror of the `Light` UBO in mesh.frag (set 3, binding 0, the SDL3_gpu
 // Vulkan slot for fragment uniform buffers). All-vec4 so std140 layout is padding-free.
@@ -131,9 +139,11 @@ Renderer :: struct {
 	shadow_pass:      ^sdl.GPURenderPass, // cascade depth pass (on frame_cmd, before the scene pass)
 
 	cube_pipeline:    ^sdl.GPUGraphicsPipeline,
-	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3)
+	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3); two-sided (foliage cutouts)
+	mesh_pipeline_culled: ^sdl.GPUGraphicsPipeline, // OPAQUE variant of mesh_pipeline with backface culling — draw_mesh routes alpha_cutoff==0 draws here (solid architecture/statics), halving rasterized back faces; foliage (cutoff>0) stays two-sided on mesh_pipeline
 	grass_pipeline:   ^sdl.GPUGraphicsPipeline, // instanced grass clusters (F2 vegetation)
-	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD)
+	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD); two-sided (tree cutouts)
+	obj_pipeline_culled: ^sdl.GPUGraphicsPipeline, // OPAQUE instanced variant: backface culling for cutoff==0 batches (rocks/walls)
 	terrain_pipeline: ^sdl.GPUGraphicsPipeline, // CDLOD terrain: height-texture-sampled instanced grid patches
 	terrain_near_pipeline: ^sdl.GPUGraphicsPipeline, // streamed per-cell terrain meshes, textured via the shared terrain.frag
 	water_pipeline:   ^sdl.GPUGraphicsPipeline, // per-cell flat water planes (procedural, transparent)
@@ -169,6 +179,12 @@ Renderer :: struct {
 	// Initialized to DEFAULT_LIGHT_ENV so harnesses that never set it still render lit.
 	lighting:         Light_Env,
 
+	// Redundant-bind elimination: the pipeline currently bound in the active pass. Draw procs bind
+	// through bind_pipeline, which skips the SDL call when the requested pipeline is already current
+	// — the near mesh path re-selected the SAME pipeline on every shape. Reset to nil at each pass
+	// begin (a new BeginGPURenderPass invalidates bound state), so a cross-pass reuse never skips.
+	bound_pipeline:   ^sdl.GPUGraphicsPipeline,
+
 	// Per-frame state, valid only between begin_frame and end_frame.
 	frame_cmd:        ^sdl.GPUCommandBuffer,
 	frame_pass:       ^sdl.GPURenderPass,
@@ -181,6 +197,21 @@ Renderer :: struct {
 	// imgui core API, which carries no SDL/GPU dependency.
 	ui_enabled:       bool,
 	ui_draw_data:     ^imgui.DrawData,
+
+	// Player-facing UI (backend v2): an own SDL3_gpu 2D pipeline that draws the `ui` package's
+	// textured/coloured quads (solid rects over white_tex, glyphs over the font atlas, art images)
+	// into the swapchain (post) pass — replacing imgui's DrawList for the skinned UI. The vertex /
+	// index data is rebuilt each frame (set_ui_drawlist) and uploaded + drawn in end_frame.
+	ui2_pipeline:     ^sdl.GPUGraphicsPipeline,
+	ui2_sampler:      ^sdl.GPUSampler, // linear/clamp for the atlas + images
+	ui2_vbuf:         ^sdl.GPUBuffer,
+	ui2_ibuf:         ^sdl.GPUBuffer,
+	ui2_vcap:         int, // current GPU vertex-buffer capacity (vertices)
+	ui2_icap:         int, // current GPU index-buffer capacity (indices)
+	ui2_verts:        [dynamic]UI_Vertex,
+	ui2_indices:      [dynamic]u32,
+	ui2_batches:      [dynamic]UI_Batch,
+	ui2_screen:       [2]f32, // px space the UI was laid out in (the vertex shader's pixel→NDC divisor)
 }
 
 // init claims `window` (from the platform layer) for a new SDL3_gpu device and
@@ -217,8 +248,9 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		return {}, false
 	}
 
-	r.mesh_pipeline = make_mesh_pipeline(&r)
-	if r.mesh_pipeline == nil {
+	r.mesh_pipeline = make_mesh_pipeline(&r, .NONE)
+	r.mesh_pipeline_culled = make_mesh_pipeline(&r, .BACK)
+	if r.mesh_pipeline == nil || r.mesh_pipeline_culled == nil {
 		log.errorf("render: mesh pipeline failed: %s", sdl.GetError())
 		shutdown(&r)
 		return {}, false
@@ -231,8 +263,9 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		return {}, false
 	}
 
-	r.obj_pipeline = make_obj_pipeline(&r)
-	if r.obj_pipeline == nil {
+	r.obj_pipeline = make_obj_pipeline(&r, .NONE)
+	r.obj_pipeline_culled = make_obj_pipeline(&r, .BACK)
+	if r.obj_pipeline == nil || r.obj_pipeline_culled == nil {
 		log.errorf("render: obj pipeline failed: %s", sdl.GetError())
 		shutdown(&r)
 		return {}, false
@@ -382,6 +415,27 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		shutdown(&r)
 		return {}, false
 	}
+
+	// Player UI (v2): LINEAR/clamp sampler, NO mips. Glyphs bake at their display size (font's live
+	// atlas), so text samples ~1:1 — no minified mip chain (that's what made small text wobble). Plus
+	// the 2D quad pipeline.
+	r.ui2_sampler = sdl.CreateGPUSampler(
+		device,
+		{
+			min_filter = .LINEAR,
+			mag_filter = .LINEAR,
+			mipmap_mode = .NEAREST,
+			address_mode_u = .CLAMP_TO_EDGE,
+			address_mode_v = .CLAMP_TO_EDGE,
+			max_lod = 0,
+		},
+	)
+	r.ui2_pipeline = make_ui_pipeline(&r)
+	if r.ui2_pipeline == nil {
+		log.errorf("render: ui pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
 	return r, true
 }
 
@@ -395,6 +449,13 @@ shutdown :: proc(r: ^Renderer) {
 	if r.hdr_tex != nil {sdl.ReleaseGPUTexture(r.device, r.hdr_tex)}
 	if r.hdr_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.hdr_sampler)}
 	if r.post_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.post_pipeline)}
+	if r.ui2_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.ui2_pipeline)}
+	if r.ui2_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.ui2_sampler)}
+	if r.ui2_vbuf != nil {sdl.ReleaseGPUBuffer(r.device, r.ui2_vbuf)}
+	if r.ui2_ibuf != nil {sdl.ReleaseGPUBuffer(r.device, r.ui2_ibuf)}
+	delete(r.ui2_verts)
+	delete(r.ui2_indices)
+	delete(r.ui2_batches)
 	if r.shadow_tex != nil {sdl.ReleaseGPUTexture(r.device, r.shadow_tex)}
 	if r.shadow_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.shadow_sampler)}
 	if r.shadow_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.shadow_pipeline)}
@@ -404,8 +465,10 @@ shutdown :: proc(r: ^Renderer) {
 	if r.cube_ibuf != nil {sdl.ReleaseGPUBuffer(r.device, r.cube_ibuf)}
 	if r.cube_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.cube_pipeline)}
 	if r.mesh_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline)}
+	if r.mesh_pipeline_culled != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_pipeline_culled)}
 	if r.grass_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.grass_pipeline)}
 	if r.obj_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.obj_pipeline)}
+	if r.obj_pipeline_culled != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.obj_pipeline_culled)}
 	if r.terrain_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.terrain_pipeline)}
 	if r.terrain_near_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.terrain_near_pipeline)}
 	if r.water_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.water_pipeline)}
@@ -486,6 +549,7 @@ scene_begin :: proc(r: ^Renderer, clear: [4]f32) {
 		clear_stencil    = 0,
 	}
 	r.frame_pass = sdl.BeginGPURenderPass(r.frame_cmd, &color, 1, &depth)
+	r.bound_pipeline = nil // new pass — bound pipeline state is invalidated
 
 	// Per-frame lighting UBO (set 3, binding 0); persists across pipeline binds for the whole
 	// command buffer. NOTE: water.frag reuses fragment slot 0 — water draws after lit geometry.
@@ -522,6 +586,10 @@ end_frame :: proc(r: ^Renderer) {
 	// tonemapped/graded.
 	sdl.EndGPURenderPass(r.frame_pass)
 
+	// Upload this frame's player-UI quads (recorded into THIS command buffer's own copy pass,
+	// between the scene pass and the post pass, so SDL3_gpu orders the write before the draw).
+	ui_xfer := ui2_upload(r)
+
 	swap := sdl.GPUColorTargetInfo {
 		texture  = r.frame_swap_tex,
 		load_op  = .DONT_CARE, // the fullscreen post triangle covers every pixel
@@ -535,11 +603,15 @@ end_frame :: proc(r: ^Renderer) {
 	sdl.PushGPUFragmentUniformData(r.frame_cmd, 0, &pp, u32(size_of(pp)))
 	sdl.DrawGPUPrimitives(post_pass, 3, 1, 0, 0) // fullscreen triangle (no vertex buffer)
 
+	// Player UI (v2) draws over the resolved scene, before imgui (dev overlays stay on top).
+	ui2_draw(r, post_pass)
+
 	if r.ui_enabled && r.ui_draw_data != nil {
 		imgui_sdlgpu3.RenderDrawData(r.ui_draw_data, r.frame_cmd, post_pass, nil)
 	}
 	sdl.EndGPURenderPass(post_pass)
 	_ = sdl.SubmitGPUCommandBuffer(r.frame_cmd)
+	ui2_release_transfers(r, ui_xfer)
 	r.frame_pass = nil
 	r.frame_cmd = nil
 	r.frame_swap_tex = nil
@@ -613,7 +685,7 @@ draw_cube :: proc(r: ^Renderer, view_proj: smath.Mat4) {
 	u := Cube_Uniforms{mvp = view_proj}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
-	sdl.BindGPUGraphicsPipeline(r.frame_pass, r.cube_pipeline)
+	bind_pipeline(r, r.frame_pass, r.cube_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = r.cube_vbuf}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = r.cube_ibuf}
@@ -775,6 +847,19 @@ has_stencil :: proc(f: sdl.GPUTextureFormat) -> bool {
 	return f == .D24_UNORM_S8_UINT || f == .D32_FLOAT_S8_UINT
 }
 
+// bind_pipeline binds `pl` on `pass`, skipping the SDL call when it is already the current pipeline
+// (redundant-bind elimination — see Renderer.bound_pipeline). Callers MUST reset r.bound_pipeline to
+// nil at the start of every render pass (scene_begin / shadow_cascade) so a freed-then-reused pass
+// pointer can never make a needed rebind be skipped.
+@(private)
+bind_pipeline :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pl: ^sdl.GPUGraphicsPipeline) {
+	if r.bound_pipeline == pl {
+		return
+	}
+	sdl.BindGPUGraphicsPipeline(pass, pl)
+	r.bound_pipeline = pl
+}
+
 @(private)
 create_shader :: proc(
 	device: ^sdl.GPUDevice,
@@ -885,23 +970,7 @@ make_checker_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
 		},
 	)
 
-	size := u32(len(pixels))
-	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = size})
-	ptr := sdl.MapGPUTransferBuffer(device, tb, false)
-	mem.copy(ptr, raw_data(pixels[:]), int(size))
-	sdl.UnmapGPUTransferBuffer(device, tb)
-
-	cmd := sdl.AcquireGPUCommandBuffer(device)
-	cp := sdl.BeginGPUCopyPass(cmd)
-	sdl.UploadToGPUTexture(
-		cp,
-		{transfer_buffer = tb, offset = 0, pixels_per_row = SIZE, rows_per_layer = SIZE},
-		{texture = tex, w = SIZE, h = SIZE, d = 1},
-		false,
-	)
-	sdl.EndGPUCopyPass(cp)
-	_ = sdl.SubmitGPUCommandBuffer(cmd)
-	sdl.ReleaseGPUTransferBuffer(device, tb)
+	upload_texture_pixels(device, tex, pixels[:], SIZE, SIZE)
 	return tex
 }
 

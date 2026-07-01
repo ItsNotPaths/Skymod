@@ -34,8 +34,16 @@ echo "==> build: $PROJECT_NAME -> $RELEASE_DIR"
 # want the runtime logs (skymod.log / the persistent logs/ folder the app writes
 # beside the executable) to survive a recompile. Only the files we emit are replaced.
 mkdir -p "$RELEASE_DIR"
+# --gc-sections drops every unreferenced function/datum (the vendored libs are built with
+# -ffunction-sections/-fdata-sections to make this granular) — most of the win is the large slice
+# of Jolt we never call + imgui's demo window. Safe: used symbols are kept transitively.
 odin build "$PROJECT_DIR/src/app" -out:"$RELEASE_DIR/$PROJECT_NAME" -o:speed \
-    -extra-linker-flags:"$SDL_LINK"
+    -extra-linker-flags:"$SDL_LINK -Wl,--gc-sections"
+
+# Optional ~1 MB more by stripping the symbol table — but that's what crash.odin's runtime backtrace
+# uses to name frames in skymod.log, so we keep symbols for now (readable tester crash logs > 1 MB).
+# For an end-user ship, uncomment: keep an unstripped copy for offline addr2line, strip the shipped one.
+#   cp "$RELEASE_DIR/$PROJECT_NAME" "$RELEASE_DIR/$PROJECT_NAME.debug" && strip "$RELEASE_DIR/$PROJECT_NAME"
 
 # Ship as few files as possible: just the executable + settings.txt. README and
 # LICENSE get baked into the binary (drawn in-app) later, so they're not copied

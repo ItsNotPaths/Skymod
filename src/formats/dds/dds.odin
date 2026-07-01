@@ -54,6 +54,36 @@ DDPF_ALPHAPIXELS :: 0x1
 DDPF_FOURCC :: 0x4
 DDPF_RGB :: 0x40
 
+// write_rgba encodes straight (NON-premultiplied) RGBA pixels as an uncompressed 32bpp DDS — the
+// inverse of parse() for the RGBA8/DDPF_RGB case, so a modder can open/edit the file in any DDS tool
+// and our reader loads it unchanged. Used by the install-time SWF asset extraction. `allocator`-owned.
+write_rgba :: proc(rgba: []u8, w, h: u32, allocator := context.allocator) -> []u8 {
+	if len(rgba) != int(w) * int(h) * 4 {
+		return nil
+	}
+	out := make([]u8, 128 + len(rgba), allocator) // 4 magic + 124 header, then pixels
+	put :: proc(b: []u8, off: int, v: u32) {
+		b[off] = u8(v);b[off + 1] = u8(v >> 8);b[off + 2] = u8(v >> 16);b[off + 3] = u8(v >> 24)
+	}
+	put(out, 0, DDS_MAGIC)
+	put(out, 4, HEADER_SIZE)
+	put(out, 8, 0x0000_100F) // CAPS|HEIGHT|WIDTH|PIXELFORMAT|PITCH
+	put(out, 12, h)
+	put(out, 16, w)
+	put(out, 20, w * 4) // pitch (bytes/row)
+	// header offsets 28..71 (reserved) stay zero
+	put(out, 76, 32) // ddspf.dwSize
+	put(out, 80, DDPF_RGB | DDPF_ALPHAPIXELS)
+	put(out, 88, 32) // bit count
+	put(out, 92, 0x0000_00ff) // R mask (low byte → reader flags this RGBA, not BGRA)
+	put(out, 96, 0x0000_ff00) // G
+	put(out, 100, 0x00ff_0000) // B
+	put(out, 104, 0xff00_0000) // A
+	put(out, 108, 0x1000) // DDSCAPS_TEXTURE
+	copy(out[128:], rgba)
+	return out
+}
+
 // block_bytes is the byte size of one 4x4 block for a compressed format, or 0 for
 // uncompressed (use bytes_per_pixel instead).
 block_bytes :: proc(f: Format) -> int {

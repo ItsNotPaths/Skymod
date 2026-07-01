@@ -4,7 +4,7 @@ vendor/
 src/render/shaders/*.spv
 
 # build outputs
-build/
+build/out
 tools/
 nifdump
 

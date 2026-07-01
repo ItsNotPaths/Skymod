@@ -102,7 +102,9 @@ draw_mesh :: proc(
 	mp := mat
 	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp))) // set 3 binding 1 (material)
 
-	sdl.BindGPUGraphicsPipeline(r.frame_pass, r.mesh_pipeline)
+	// Opaque geometry (no alpha test) → the backface-culled pipeline; foliage cutouts stay two-sided.
+	pl := r.mesh_pipeline_culled if alpha_cutoff == 0 else r.mesh_pipeline
+	bind_pipeline(r, r.frame_pass, pl)
 	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
@@ -149,7 +151,7 @@ draw_effect :: proc(r: ^Renderer, m: Mesh, vp, model: smath.Mat4, diffuse: Textu
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
-	sdl.BindGPUGraphicsPipeline(r.frame_pass, r.effect_pipeline)
+	bind_pipeline(r, r.frame_pass, r.effect_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
@@ -183,7 +185,7 @@ draw_highlight :: proc(
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
-	sdl.BindGPUGraphicsPipeline(r.frame_pass, r.highlight_pipeline)
+	bind_pipeline(r, r.frame_pass, r.highlight_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
@@ -307,8 +309,12 @@ mesh_vertex_attrs :: proc() -> [4]sdl.GPUVertexAttribute {
 	}
 }
 
+// make_mesh_pipeline builds the general lit-mesh pipeline with the given cull mode. `cull` = .NONE
+// for the two-sided variant (foliage cutouts, and the default first-look path); .BACK for the
+// opaque-only variant (mesh_pipeline_culled) that draw_mesh routes solid geometry through. Both
+// share mesh.vert/mesh.frag and every other state, so they render identically bar culling.
 @(private)
-make_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+make_mesh_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraphicsPipeline {
 	// mesh.vert: 1 uniform buffer (set 1). mesh.frag: 2 samplers (set 2: diffuse + normal) + 2
 	// uniform buffers (set 3: b0 lighting [per-frame], b1 material [per-draw]). Counts MUST
 	// match the SPIR-V or SDL3_gpu mis-binds / the driver can crash at draw.
@@ -335,9 +341,9 @@ make_mesh_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_attributes = &attrs[0],
 			num_vertex_attributes = 4,
 		},
-		// No back-face culling: NIF winding varies, and for a first look we'd rather
-		// see every triangle than risk an inside-out mesh vanishing.
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		// cull .NONE = two-sided (foliage cutout planes seen from both sides); .BACK = opaque-only
+		// (front_face = MESH_CULL_FRONT_FACE — flip it there if solid geometry renders inside-out).
+		rasterizer_state = {fill_mode = .FILL, cull_mode = cull, front_face = MESH_CULL_FRONT_FACE},
 		multisample_state = {sample_count = ._1},
 		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
 		target_info = {

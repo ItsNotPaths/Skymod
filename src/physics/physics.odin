@@ -7,11 +7,16 @@ package physics
 // shapes (see src/formats/nif/collision.odin) — reusing Havok's shape DATA, not its
 // runtime.
 //
-// PRECISION: the vendored bindings are currently SINGLE precision (joltc.RVec3 == Vec3
-// == [3]f32). DOUBLE precision (the decided target for Tamriel-scale worlds) is the
-// planned follow-up — rebuild joltc with JOLT_DOUBLE=ON + regenerate bindings. All
-// position handling is funnelled through to_rvec/from_rvec so that switch is contained.
+// PRECISION: DOUBLE is ACTIVE (the Tamriel-scale target). The vendored Jolt is built with
+// DOUBLE_PRECISION=ON (build/build-jolt.sh) and the bindings match: joltc.RVec3 == [3]f64 (world
+// POSITIONS), while Vec3 stays [3]f32 (directions/extents/velocities). Body positions are therefore
+// f64 — no far-from-origin jitter/tunneling across the whole world. Engine positions are f32; the
+// widening/narrowing is funnelled through to_rvec/from_rvec (below), the single conversion point.
+// NOTE: Jolt SHAPE geometry is always f32 regardless — a far-from-origin body must keep its verts
+// LOCAL (small magnitude) and carry the world placement in the (double) body position; the static
+// mesh/hull builders and add_dynamic_body do exactly that.
 
+import "core:math"
 import "core:math/linalg"
 
 import jolt "../../vendor/joltc-odin"
@@ -23,6 +28,56 @@ IDENTITY_QUAT :: jolt.Quat(quaternion(w = 1, x = 0, y = 0, z = 0))
 // units (≈69.99/m, the Havok→Skyrim scale), so real gravity (9.81 m/s²) becomes
 // 9.81 × 69.99 ≈ 686.6 units/s² along −Z — not Jolt's metric −Y default.
 GRAVITY :: [3]f32{0, 0, -9.81 * 69.99124}
+
+// WORLD_FRICTION is the friction set on EVERY collision body (static world + dynamic clutter).
+// Jolt's default (0.2) is ice — shoved clutter slid forever and never came to rest (so it never
+// slept, so the settle-capture edge never fired). ~0.7 grips like real surfaces; friction combines
+// across the contact pair, so both the floor and the object need it. Tune to feel.
+WORLD_FRICTION :: f32(0.7)
+
+// MAX_CLUTTER_VEL caps a dynamic body's linear speed (units/s). Placed clutter can spawn slightly
+// inside static collision; Jolt's penetration recovery would otherwise eject it at 1000s of u/s (the
+// z≈13000 "sky clutter" blow-up). ~2500 u/s (~36 m/s) is faster than any legitimate throw yet stops
+// a bad contact from launching a body out of the world.
+MAX_CLUTTER_VEL :: f32(2500)
+
+// MAX_CLUTTER_ANG_VEL caps a dynamic body's angular speed (rad/s). A hinge-linked body yanked hard can
+// spin up unbounded through the chain → inf → NaN (the Trader sign). ~15 rad/s (≈2.4 rev/s) is faster
+// than any real swing yet stops a transient from diverging.
+MAX_CLUTTER_ANG_VEL :: f32(15)
+
+// convex_radius: the rounding radius (units) for convex shapes (hulls + boxes). Kept at Jolt's small
+// default. An earlier theory raised it to ~3.5 u (0.05 m × 69.99) to give GJK a shrink margin against
+// the convex-vs-mesh EPA storm — but the profiler+probe proved that storm was actually FLAT convex
+// clutter hulls (the ingots — 8-vert bhkConvexVerticesShape) coplanar with the floor trimesh driving
+// Jolt's hull support function into a degenerate/NaN EPA normal. The real fix is representing flat
+// dynamic shapes as analytic BoxShapes (world/collision.odin shape_is_flat / dyn_boxify), which makes
+// convex_radius irrelevant to the hitch. So it stays at 0.05 (avoids the ~5 cm hover a big radius
+// caused). Overridable via --clutterprobe for tuning.
+convex_radius := f32(0.05)
+
+// mesh_active_edge_cos: diagnostic override for a MeshShape's active-edge cosine threshold. Our
+// bhk collision destripes to ALTERNATING winding, which can make Jolt treat every internal triangle
+// edge as "active" (a resting body catches on each one → pathological contacts). -1 = no edge is
+// active (test if that's the cost); >1 (e.g. 2) = leave Jolt's default. Set via the probe.
+mesh_active_edge_cos := f32(2)
+
+// dyn_boxify (diagnostic): represent dynamic convex/mesh sub-shapes as their oriented bounding BOX
+// (a Jolt BoxShape, analytic support function) instead of a ConvexHullShape. Flat clutter hulls (the
+// ingots = 8-vert bhkConvexVerticesShape) coplanar with the floor trimesh drive Jolt's convex-hull
+// support function into a degenerate EPA normal → NaN blow-up (~50ms/step). A BoxShape is
+// well-conditioned. Set via `--clutterprobe boxify` to A/B; if it kills the NaN, box-like hulls
+// become boxes for real (accurate — the ingot IS a box).
+dyn_boxify := false
+
+// clutter_ccd: give dynamic clutter continuous collision (LinearCast) so a shoved item can't TUNNEL
+// through the single-sided floor/wall trimesh in one discrete step (a fast body moves ~10 u/step and
+// passes clean through a one-sided mesh → falls forever, "as if the floor isn't there"). ON by
+// default: LinearCast only runs its swept test when a body moves far relative to its size, so resting
+// clutter (the common case) pays nothing, and box-ify (world/collision.odin) removed the EPA storm
+// that made CCD unaffordable before. Probe (stress-fling all clutter): fall-through 14→0, worst
+// 0.6→0.9ms. (`--clutterprobe ccd` also forces it on for A/B; edit here to test it OFF.)
+clutter_ccd := true
 
 // Two object layers: static world geometry (never moves) and moving (dynamic bodies +
 // the character). The broadphase mirrors them. Collision is enabled moving↔moving and
@@ -99,6 +154,27 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 	w.bodies = jolt.PhysicsSystem_GetBodyInterface(w.system)
 	g := jolt.Vec3(GRAVITY)
 	jolt.PhysicsSystem_SetGravity(w.system, &g)
+
+	// UNIT-SCALE the solver tuning. Jolt's default PhysicsSettings are lengths/velocities in METERS,
+	// but we feed it SKYRIM UNITS (~69.99/m). Left unscaled, e.g. penetrationSlop 0.02 means Jolt
+	// tries to resolve contacts to 0.02 units (~0.3 mm) — absurdly precise for our scale, so it flickers
+	// contacts and over-corrects penetration (the clutter blow-up, and general micro-jitter). Scale the
+	// distance fields by S and the squared-distance / velocity fields accordingly so the tuning matches
+	// our world. Fetch-modify-set so we scale the real defaults, not hardcoded ones.
+	{
+		S :: f32(69.99124)
+		ps: jolt.PhysicsSettings
+		jolt.PhysicsSystem_GetPhysicsSettings(w.system, &ps)
+		ps.speculativeContactDistance *= S
+		ps.penetrationSlop *= S
+		ps.manifoldTolerance *= S
+		ps.maxPenetrationDistance *= S
+		ps.bodyPairCacheMaxDeltaPositionSq *= S * S
+		ps.contactPointPreserveLambdaMaxDistSq *= S * S
+		ps.minVelocityForRestitution *= S
+		ps.pointVelocitySleepThreshold *= S
+		jolt.PhysicsSystem_SetPhysicsSettings(w.system, &ps)
+	}
 	return w, true
 }
 
@@ -116,6 +192,63 @@ step :: proc(w: ^World, dt: f32, collision_steps := 1) {
 	jolt.PhysicsSystem_Update(w.system, dt, i32(collision_steps), w.jobs)
 }
 
+// profile_next_frame / profile_dump drive Jolt's built-in hierarchical profiler (the lib must be
+// built with JPH_PROFILE_ENABLED). Call profile_next_frame each step; profile_dump writes a
+// profile_<tag>.html with the per-phase call tree + timings to the CWD.
+profile_next_frame :: proc() {jolt.ProfileNextFrame()}
+profile_dump :: proc(tag: cstring) {jolt.ProfileDump(tag)}
+
+// num_active / num_bodies report the awake rigid-body count and the total — a cheap per-step cost
+// proxy (step time scales with active bodies + their contacts, not the total).
+num_active :: proc(w: ^World) -> int {
+	return int(jolt.PhysicsSystem_GetNumActiveBodies(w.system, .Rigid))
+}
+num_bodies :: proc(w: ^World) -> int {
+	return int(jolt.PhysicsSystem_GetNumBodies(w.system))
+}
+
+// set_sleep overrides the sleep thresholds: a body sleeps once its points move slower than
+// `point_velocity` (units/s) for `time_before` seconds. Higher velocity / shorter time = clutter
+// parks aggressively (so jittering-in-penetration bodies still sleep instead of costing every step).
+set_sleep :: proc(w: ^World, point_velocity, time_before: f32) {
+	ps: jolt.PhysicsSettings
+	jolt.PhysicsSystem_GetPhysicsSettings(w.system, &ps)
+	ps.pointVelocitySleepThreshold = point_velocity
+	ps.timeBeforeSleep = time_before
+	jolt.PhysicsSystem_SetPhysicsSettings(w.system, &ps)
+}
+
+// set_penetration_slop overrides how much overlap Jolt tolerates before correcting (units). Larger =
+// a slightly-embedded body rests instead of being fought out (which manifests as endless jitter that
+// never sleeps). Diagnostic knob.
+set_penetration_slop :: proc(w: ^World, slop: f32) {
+	ps: jolt.PhysicsSettings
+	jolt.PhysicsSystem_GetPhysicsSettings(w.system, &ps)
+	ps.penetrationSlop = slop
+	jolt.PhysicsSystem_SetPhysicsSettings(w.system, &ps)
+}
+
+// set_speculative overrides the speculative-contact distance (units) — how far ahead Jolt creates
+// contact points for not-yet-touching surfaces. Large values near a dense mesh create a contact per
+// nearby triangle → a huge, expensive manifold. Diagnostic knob.
+set_speculative :: proc(w: ^World, dist: f32) {
+	ps: jolt.PhysicsSettings
+	jolt.PhysicsSystem_GetPhysicsSettings(w.system, &ps)
+	ps.speculativeContactDistance = dist
+	jolt.PhysicsSystem_SetPhysicsSettings(w.system, &ps)
+}
+
+// set_solver_iterations overrides Jolt's velocity/position solver step counts (defaults 10/2).
+// Fewer = cheaper but softer contacts — a diagnostic knob to test whether a step hitch is
+// solver-iteration-bound (penetration depth) vs contact-count-bound (manifold creation).
+set_solver_iterations :: proc(w: ^World, velocity, position: u32) {
+	ps: jolt.PhysicsSettings
+	jolt.PhysicsSystem_GetPhysicsSettings(w.system, &ps)
+	ps.numVelocitySteps = velocity
+	ps.numPositionSteps = position
+	jolt.PhysicsSystem_SetPhysicsSettings(w.system, &ps)
+}
+
 // optimize_broadphase rebuilds the broadphase tree — call once after bulk-adding static
 // bodies (e.g. a freshly loaded cell) before stepping.
 optimize_broadphase :: proc(w: ^World) {
@@ -126,13 +259,14 @@ optimize_broadphase :: proc(w: ^World) {
 // moving layer + activates it; otherwise it's static world geometry. Returns its Body.
 add_box :: proc(w: ^World, half_extents: [3]f32, pos: [3]f32, is_dynamic := false) -> Body {
 	he := half_extents
-	shape := jolt.BoxShape_Create(&he, jolt.DEFAULT_CONVEX_RADIUS)
-	return make_body(w, cast(^jolt.Shape)shape, pos, IDENTITY_QUAT, is_dynamic)
+	shape := jolt.BoxShape_Create(&he, convex_radius)
+	// Dynamic primitives are the drop-test bodies (fall from camera height, fast) → keep CCD.
+	return make_body(w, cast(^jolt.Shape)shape, pos, IDENTITY_QUAT, is_dynamic, ccd = is_dynamic)
 }
 
 add_sphere :: proc(w: ^World, radius: f32, pos: [3]f32, is_dynamic := false) -> Body {
 	shape := jolt.SphereShape_Create(radius)
-	return make_body(w, cast(^jolt.Shape)shape, pos, IDENTITY_QUAT, is_dynamic)
+	return make_body(w, cast(^jolt.Shape)shape, pos, IDENTITY_QUAT, is_dynamic, ccd = is_dynamic)
 }
 
 // --- static collision shapes (from NIF bhk* data; src/formats/nif/collision.odin) ---
@@ -166,48 +300,187 @@ add_static_mesh :: proc(w: ^World, verts: [][3]f32, indices: []u32, origin: [3]f
 		}
 	}
 	settings := jolt.MeshShapeSettings_Create2(&vs[0], u32(len(vs)), &tris[0], u32(nt * mul))
+	jolt.MeshShapeSettings_SetBuildQuality(settings, .FavorRuntimePerformance)
+	jolt.MeshShapeSettings_Sanitize(settings) // drop degenerate/duplicate triangles → clean active-edge detection
+	if mesh_active_edge_cos <= 1 {jolt.MeshShapeSettings_SetActiveEdgeCosThresholdAngle(settings, mesh_active_edge_cos)}
 	shape := jolt.MeshShapeSettings_CreateShape(settings)
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
 	if shape == nil {return 0}
 	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, false)
 }
 
-// add_static_hull builds a convex-hull body from world-space points (QuickHull cook). Used
-// for bhkConvexVerticesShape and boxes (passed as their 8 transformed corners — exact).
-add_static_hull :: proc(w: ^World, points: [][3]f32) -> Body {
+// add_static_hull builds a convex-hull body from points relative to `origin` (pass local points + the
+// world origin so the shape stays small-magnitude and the body's f64 position carries the world
+// placement — the far-from-origin precision pattern). `margin` is the shape's Havok CONVEX MARGIN (the
+// bhkConvexVerticesShape radius): Skyrim authors hull verts INSET and the margin brings the collision
+// surface out to the visual, so it must be honored per-shape (a global would over/under-inflate). 0 →
+// a small default so GJK still has a shrink margin.
+add_static_hull :: proc(w: ^World, points: [][3]f32, origin: [3]f32 = {0, 0, 0}, margin: f32 = 0) -> Body {
 	if len(points) < 4 {return 0}
 	ps := make([]jolt.Vec3, len(points), context.temp_allocator)
 	for p, i in points {ps[i] = {p.x, p.y, p.z}}
-	settings := jolt.ConvexHullShapeSettings_Create(&ps[0], u32(len(ps)), jolt.DEFAULT_CONVEX_RADIUS)
+	cr := margin if margin > convex_radius else convex_radius
+	settings := jolt.ConvexHullShapeSettings_Create(&ps[0], u32(len(ps)), cr)
 	shape := jolt.ConvexHullShapeSettings_CreateShape(settings)
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
 	if shape == nil {return 0}
-	return make_body(w, cast(^jolt.Shape)shape, {0, 0, 0}, IDENTITY_QUAT, false)
+	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, false)
 }
 
-// add_dynamic_hull builds a DYNAMIC convex-hull body from world-space `points`, with the body
-// frame placed at `origin` and the hull verts stored relative to it (Phase 3b movable clutter).
-// `origin` is the instance's REFR placement position: verts stay small-magnitude (clutter is small
-// and near its origin) so single precision holds even at far world coords, and — crucially — the
-// renderer's follow math (world.instance_world = body_transform · translate(−origin) · world)
-// assumes exactly this body frame, so origin MUST equal the inst.pos passed there. Mass is
-// auto-derived from the hull volume (the NIF Havok mass only CLASSIFIES movable-ness — the unit
-// systems differ and mass cancels for resting/free-falling clutter). Returns 0 if degenerate.
-add_dynamic_hull :: proc(w: ^World, points: [][3]f32, origin: [3]f32) -> Body {
-	if len(points) < 4 {return 0}
-	ps := make([]jolt.Vec3, len(points), context.temp_allocator)
-	for p, i in points {ps[i] = {p.x - origin.x, p.y - origin.y, p.z - origin.z}}
-	settings := jolt.ConvexHullShapeSettings_Create(&ps[0], u32(len(ps)), jolt.DEFAULT_CONVEX_RADIUS)
-	shape := jolt.ConvexHullShapeSettings_CreateShape(settings)
+// --- dynamic articulated clutter (Phase A: one Jolt body per bhkRigidBody) ---
+//
+// Dyn_Kind / Dyn_Shape describe ONE sub-shape of a dynamic body in BODY-LOCAL space (relative to
+// the body `origin`, world-aligned at rest). The world layer fills a slice of these from a rigid
+// body's bhk* shapes and calls add_dynamic_body. Using EXACT primitives (Box/Sphere/Capsule) rather
+// than convex-hull approximations gives Jolt an ANALYTIC narrow phase — the fix for the coplanar
+// flat-box-on-flat-mesh EPA degeneracy (the old merged-hull path hit GJK/EPA runaway on the ingot
+// stack). A Mesh sub-shape has no dynamic-concave equivalent, so the caller passes it as a Hull.
+Dyn_Kind :: enum u8 {
+	Box,
+	Sphere,
+	Capsule,
+	Hull,
+}
+
+Dyn_Shape :: struct {
+	kind:   Dyn_Kind,
+	pos:    [3]f32, // local center (relative to the body origin)
+	rot:    quaternion128, // local orientation (Box/Capsule)
+	half:   [3]f32, // Box: half extents
+	radius: f32, // Sphere / Capsule radius
+	half_h: f32, // Capsule: half cylinder height (local +Y)
+	points: [][3]f32, // Hull: points relative to the body origin
+	margin: f32, // Hull: the shape's Havok convex margin (bhkConvexVerticesShape radius; brings inset verts out to the visual surface)
+}
+
+// add_dynamic_body builds ONE dynamic body from a rigid body's sub-shapes as a StaticCompoundShape,
+// placed at `origin` (the instance REFR position, so the render-follow math in world.instance_world
+// lines up: verts/offsets are stored relative to origin and the body's f64 position carries the
+// world placement). Spawns ASLEEP (placed clutter is inert until kicked/interacted — same as the old
+// the old per-instance hull). Mass is auto-derived from the compound volume (the Havok mass only CLASSIFIES).
+// Returns 0 if no sub-shape built.
+add_dynamic_body :: proc(w: ^World, subs: []Dyn_Shape, origin: [3]f32) -> Body {
+	if len(subs) == 0 {return 0}
+	settings := jolt.StaticCompoundShapeSettings_Create()
+	children := make([dynamic]^jolt.Shape, 0, len(subs), context.temp_allocator)
+	for sub in subs {
+		sh := build_sub_shape(sub)
+		if sh == nil {continue}
+		pos := jolt.Vec3(sub.pos)
+		rot := jolt.Quat(sub.rot)
+		jolt.CompoundShapeSettings_AddShape2(cast(^jolt.CompoundShapeSettings)settings, &pos, &rot, sh, 0)
+		append(&children, sh)
+	}
+	if len(children) == 0 {
+		jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
+		return 0
+	}
+	shape := jolt.StaticCompoundShape_Create(settings)
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
+	for c in children {jolt.Shape_Destroy(c)} // compound holds its own refs now; drop ours
 	if shape == nil {return 0}
-	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true)
+	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true, ccd = clutter_ccd, activate = false)
+}
+
+// build_sub_shape creates one Jolt leaf shape for a compound sub-shape. Caller owns the returned
+// ref (destroys it after the compound is built). Returns nil on a degenerate sub-shape.
+@(private)
+build_sub_shape :: proc(sub: Dyn_Shape) -> ^jolt.Shape {
+	switch sub.kind {
+	case .Box:
+		he := jolt.Vec3(sub.half)
+		// Jolt requires convexRadius ≤ the smallest half extent; thin clutter (ingots) can be
+		// thinner than the world-scaled radius, so clamp to half the smallest extent.
+		mn := min(sub.half.x, min(sub.half.y, sub.half.z))
+		if mn <= 0 {return nil}
+		return cast(^jolt.Shape)jolt.BoxShape_Create(&he, min(convex_radius, mn * 0.5))
+	case .Sphere:
+		if sub.radius <= 0 {return nil}
+		return cast(^jolt.Shape)jolt.SphereShape_Create(sub.radius)
+	case .Capsule:
+		if sub.radius <= 0 {return nil}
+		if sub.half_h <= 0 {return cast(^jolt.Shape)jolt.SphereShape_Create(sub.radius)}
+		return cast(^jolt.Shape)jolt.CapsuleShape_Create(sub.half_h, sub.radius)
+	case .Hull:
+		if len(sub.points) < 4 {return nil}
+		ps := make([]jolt.Vec3, len(sub.points), context.temp_allocator)
+		for p, i in sub.points {ps[i] = {p.x, p.y, p.z}}
+		// Honor the shape's per-shape Havok convex margin (inset verts → visual surface); fall back to
+		// the small global so GJK always has a shrink margin.
+		cr := sub.margin if sub.margin > convex_radius else convex_radius
+		st := jolt.ConvexHullShapeSettings_Create(&ps[0], u32(len(ps)), cr)
+		sh := jolt.ConvexHullShapeSettings_CreateShape(st)
+		jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)st)
+		if sh == nil {return nil}
+		return cast(^jolt.Shape)sh
+	}
+	return nil
+}
+
+// --- constraints (Phase B: hinges) ---
+//
+// Constraint is an opaque handle to a Jolt two-body constraint. HINGE_FRICTION_SCALE converts the
+// Havok maxFriction (a small unitless-ish torque) into our ~70-unit world; 0 friction still settles
+// because dynamic bodies carry angular damping. Tunable.
+Constraint :: ^jolt.Constraint
+HINGE_FRICTION_SCALE := f32(1)
+// Per-hinge solver iteration overrides (Jolt defaults 10/2). Deep chains need more to stay rigid under
+// a hard shove; scoped to the constraint so ordinary bodies keep the cheap global count.
+HINGE_VEL_STEPS := u32(24)
+HINGE_POS_STEPS := u32(16)
+
+// add_hinge links bodies `a` and `b` with a Jolt HingeConstraint about `axis` through world-space
+// `pivot`, with `perp` (⊥ axis) as the zero-angle reference. `limited` clamps the swing to
+// [min_angle, max_angle] (bhkLimitedHingeConstraint — signs/animals); otherwise it's free rotation
+// (bhkHingeConstraint — cart wheels). Bodies are resolved from their IDs via GetBodyPtr (valid once
+// they're added, which they are by the time the world layer builds constraints). Returns the handle
+// (nil on failure) — remove_constraint frees it before the bodies are removed.
+add_hinge :: proc(w: ^World, a, b: Body, pivot, axis, perp: [3]f32, min_angle, max_angle, friction: f32, limited: bool) -> Constraint {
+	ba := jolt.PhysicsSystem_GetBodyPtr(w.system, a)
+	bb := jolt.PhysicsSystem_GetBodyPtr(w.system, b)
+	if ba == nil || bb == nil {return nil}
+	s: jolt.HingeConstraintSettings
+	jolt.HingeConstraintSettings_Init(&s)
+	s.space = .WorldSpace
+	p := to_rvec(pivot)
+	s.point1 = p
+	s.point2 = p
+	s.hingeAxis1 = axis
+	s.hingeAxis2 = axis
+	s.normalAxis1 = perp
+	s.normalAxis2 = perp
+	if limited && max_angle > min_angle {
+		s.limitsMin = min_angle
+		s.limitsMax = max_angle
+	} else {
+		s.limitsMin = -math.PI // free hinge: full range (Jolt treats [-π,π] as unlimited)
+		s.limitsMax = math.PI
+	}
+	s.maxFrictionTorque = friction * HINGE_FRICTION_SCALE
+	// Stiffer solve for the constraint: a deep/branching hinge chain (the Trader sign — 8 bodies, 7
+	// hinges) diverges to NaN under a hard shove with Jolt's default 2 position steps. More steps per
+	// constraint (not global) keep the chain rigid without a world-wide cost.
+	s.base.numVelocityStepsOverride = HINGE_VEL_STEPS
+	s.base.numPositionStepsOverride = HINGE_POS_STEPS
+	c := jolt.HingeConstraint_Create(&s, ba, bb)
+	if c == nil {return nil}
+	jolt.PhysicsSystem_AddConstraint(w.system, cast(^jolt.Constraint)c)
+	return cast(^jolt.Constraint)c
+}
+
+// remove_constraint detaches a constraint from the system and frees it. MUST be called before either
+// constrained body is removed (Jolt asserts on a body still referenced by a live constraint).
+remove_constraint :: proc(w: ^World, c: Constraint) {
+	if c == nil {return}
+	jolt.PhysicsSystem_RemoveConstraint(w.system, c)
+	jolt.Constraint_Destroy(c)
 }
 
 // kick wakes a body and sets its linear velocity outright (mass-independent, so the motion is
 // always visible regardless of the hull's auto-computed mass). Used by the debug "shove" that
 // scatters resting clutter to verify the dynamic-body + settle path.
 kick :: proc(w: ^World, b: Body, vel: [3]f32) {
+	if jolt.BodyInterface_GetMotionType(w.bodies, b) != .Dynamic {return} // static anchors (mount) can't be kicked
 	jolt.BodyInterface_ActivateBody(w.bodies, b)
 	v := vel
 	jolt.BodyInterface_SetLinearVelocity(w.bodies, b, &v)
@@ -240,18 +513,37 @@ add_static_capsule :: proc(w: ^World, a: [3]f32, b: [3]f32, radius: f32) -> Body
 // the body holds its own ref, so remove_body frees the shape). Jolt shapes are ref-counted;
 // without this the streaming churn would leak C++ shapes (invisible to the Odin [mem] report).
 @(private)
-make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool) -> Body {
+make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool, ccd := false, activate := true) -> Body {
 	p := to_rvec(pos)
 	r := rot
 	motion := jolt.MotionType.Dynamic if is_dynamic else jolt.MotionType.Static
 	layer := jolt.ObjectLayer(LAYER_MOVING if is_dynamic else LAYER_STATIC)
 	bcs := jolt.BodyCreationSettings_Create3(shape, &p, &r, motion, layer)
-	// Dynamic bodies use continuous collision (LinearCast): at Skyrim-scale gravity a falling
-	// body moves far per step and would tunnel through thin trimesh terrain / walls otherwise.
+	jolt.BodyCreationSettings_SetFriction(bcs, WORLD_FRICTION) // default 0.2 = ice; grip so clutter settles
 	if is_dynamic {
-		jolt.BodyCreationSettings_SetMotionQuality(bcs, .LinearCast)
+		// Continuous collision (LinearCast) is OPT-IN (ccd): it does a swept test per active body
+		// per step against the WHOLE terrain trimesh + static set — fine for a body that falls far/
+		// fast (the drop-test primitives) but very expensive at exterior scale when a shove wakes a
+		// cluster. Clutter is small + slow (≤~23 u/step even falling ≪ a 128 u terrain tri), so it
+		// keeps the default DISCRETE quality and never gets the CCD cost.
+		if ccd {
+			jolt.BodyCreationSettings_SetMotionQuality(bcs, .LinearCast)
+		}
+		jolt.BodyCreationSettings_SetAngularDamping(bcs, 0.3) // bleed spin so tumbling clutter comes to rest
+		// Clamp max linear velocity: placed clutter can spawn slightly interpenetrating static
+		// geometry, and Jolt's penetration recovery would otherwise fling it at 1000s of u/s to
+		// z≈13000 (the "sky clutter" blow-up). Capping keeps a bad contact from launching a body into
+		// orbit; a real throw stays well under this.
+		jolt.BodyCreationSettings_SetMaxLinearVelocity(bcs, MAX_CLUTTER_VEL)
+		// Cap angular speed too: a hinge-constrained body yanked by a hard shove can spin up unbounded
+		// through the chain toward inf → NaN (the Trader sign blow-up). Jolt's default is ~47 rad/s;
+		// clamp to a sane spin so a transient can't diverge.
+		jolt.BodyCreationSettings_SetMaxAngularVelocity(bcs, MAX_CLUTTER_ANG_VEL)
 	}
-	act := jolt.Activation.Activate if is_dynamic else jolt.Activation.DontActivate
+	// activate=false spawns the body ASLEEP: placed clutter stays inert (Skyrim keyframes it until
+	// touched) so it neither simulates a mass-settle at load — the blow-up that froze the frame and
+	// polluted the overlay — nor costs anything per frame; kick()/interaction wakes it on demand.
+	act := jolt.Activation.Activate if (is_dynamic && activate) else jolt.Activation.DontActivate
 	id := jolt.BodyInterface_CreateAndAddBody(w.bodies, bcs, act)
 	jolt.BodyCreationSettings_Destroy(bcs)
 	jolt.Shape_Destroy(shape) // release our creation ref; the body keeps the shape alive
@@ -276,6 +568,20 @@ body_position :: proc(w: ^World, b: Body) -> [3]f32 {
 
 body_active :: proc(w: ^World, b: Body) -> bool {
 	return jolt.BodyInterface_IsActive(w.bodies, b)
+}
+
+// body_speed returns a body's linear speed (units/s).
+body_speed :: proc(w: ^World, b: Body) -> f32 {
+	v: jolt.Vec3
+	jolt.BodyInterface_GetLinearVelocity(w.bodies, b, &v)
+	return linalg.length([3]f32{v[0], v[1], v[2]})
+}
+
+// deactivate forces a body to sleep. Used by the settle-timeout: clutter that has been active a
+// while but is barely moving is stuck jittering in penetration (it would never sleep on its own and
+// so accumulates, growing every step); parking it caps the active set. A real contact re-wakes it.
+deactivate :: proc(w: ^World, b: Body) {
+	jolt.BodyInterface_DeactivateBody(w.bodies, b)
 }
 
 // body_transform returns a body's world transform (position + orientation, no scale) as a
@@ -308,6 +614,17 @@ Character :: struct {
 
 // JUMP_SPEED: initial upward velocity on a hop (tune; ~Skyrim-ish at our gravity/scale).
 JUMP_SPEED :: f32(440)
+
+// Character stick-to-floor + walk-stairs tuning (Jolt CharacterVirtual_ExtendedUpdate). Values are
+// ≈ Jolt's metric defaults × the Skyrim unit scale (~69.99/m). STICK_DOWN re-snaps the capsule to
+// the floor after a move so it follows down slopes/small drops instead of launching (which, with the
+// old plain Update, read as endless micro-sliding); STEP_UP lets it climb small ledges/stairs. Tune
+// to feel.
+STICK_DOWN :: f32(35) // ~0.5 m: max downward floor snap after a move
+STEP_UP :: f32(40) // step-up height (Skyrim steps are chunky)
+STEP_FWD_MIN :: f32(2)
+STEP_FWD_TEST :: f32(12)
+STEP_FWD_COS :: f32(0.26) // ≈ cos(75°); unitless
 
 // character_create builds a Z-up capsule character with its origin at `feet`. radius +
 // cylinder half-height → total height 2·(half_h + radius).
@@ -348,13 +665,25 @@ character_destroy :: proc(c: ^Character) {
 // tunneling), so call it once per frame with the frame dt.
 character_move :: proc(w: ^World, c: ^Character, horiz: [2]f32, jump: bool, dt: f32) {
 	grounded := jolt.CharacterBase_GetGroundState(cast(^jolt.CharacterBase)c.cv) == .OnGround
-	if grounded && c.vel_z <= 0 {
+	if grounded {
+		// Grounded: DON'T accumulate gravity. The old code left vel_z at -gravity·dt every grounded
+		// frame; on any slight terrain slope the slide solver turned that downward velocity into a
+		// tangential creep, so the capsule never stood still. Zero it (hop on jump); stick-to-floor
+		// below keeps contact walking downhill so idling stays put but slopes/steps still follow.
 		c.vel_z = JUMP_SPEED if jump else 0
+	} else {
+		c.vel_z += GRAVITY.z * dt // airborne: integrate gravity (fall / jump arc)
 	}
-	c.vel_z += GRAVITY.z * dt
 	v := jolt.Vec3{horiz.x, horiz.y, c.vel_z}
 	jolt.CharacterVirtual_SetLinearVelocity(c.cv, &v)
-	jolt.CharacterVirtual_Update(c.cv, dt, LAYER_MOVING, w.system, nil, nil)
+	us := jolt.ExtendedUpdateSettings {
+		stickToFloorStepDown             = {0, 0, -STICK_DOWN},
+		walkStairsStepUp                 = {0, 0, STEP_UP},
+		walkStairsMinStepForward         = STEP_FWD_MIN,
+		walkStairsStepForwardTest        = STEP_FWD_TEST,
+		walkStairsCosAngleForwardContact = STEP_FWD_COS,
+	}
+	jolt.CharacterVirtual_ExtendedUpdate(c.cv, dt, &us, LAYER_MOVING, w.system, nil, nil)
 }
 
 character_position :: proc(c: ^Character) -> [3]f32 {
@@ -373,9 +702,9 @@ character_on_ground :: proc(c: ^Character) -> bool {
 	return jolt.CharacterBase_GetGroundState(cast(^jolt.CharacterBase)c.cv) == .OnGround
 }
 
-// to_rvec / from_rvec convert between the engine's f32 positions and Jolt's RVec3. With
-// single-precision bindings RVec3 is [3]f32 so these are identity; they are the single
-// place to add the f32↔f64 narrowing/widening when we switch to double precision.
+// to_rvec / from_rvec convert between the engine's f32 positions and Jolt's RVec3 ([3]f64 under the
+// active double-precision build): to_rvec widens f32→f64 on the way in, from_rvec narrows f64→f32 on
+// the way out. The single conversion point between engine space (f32) and Jolt world positions (f64).
 @(private)
 to_rvec :: proc(v: [3]f32) -> jolt.RVec3 {
 	return {auto_cast v.x, auto_cast v.y, auto_cast v.z}

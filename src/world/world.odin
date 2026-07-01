@@ -154,6 +154,21 @@ instance_world :: proc(s: ^Scene, inst: ^Instance) -> smath.Mat4 {
 	return physics.body_transform(s.phys, inst.dyn_body) * smath.translate(-inst.pos) * inst.world
 }
 
+// instance_shape_world returns the render transform for ONE shape (index `si`) of an instance. For an
+// ARTICULATED item (Phase C) whose shape maps to a movable body, it poses that shape by the body's live
+// transform (the board swings, the wheel rolls) using the same follow math as a single dynamic body but
+// per-shape. Everything else — ordinary instances, and the static parts of an articulated one — falls
+// back to `iworld * sh_local` (the whole-instance pose), so this is a no-op for the common case.
+instance_shape_world :: proc(s: ^Scene, inst: ^Instance, iworld, sh_local: smath.Mat4, si: int) -> smath.Mat4 {
+	m := inst.model
+	if inst.dyn_bodies != nil && m.shape_body != nil && si < len(m.shape_body) && m.shape_body[si] >= 0 {
+		if b := inst.dyn_bodies[m.shape_body[si]]; b != 0 {
+			return physics.body_transform(s.phys, b) * smath.translate(-inst.pos) * inst.world * sh_local
+		}
+	}
+	return iworld * sh_local
+}
+
 // CELL_SIZE is the side of one exterior cell in world units.
 CELL_SIZE :: f32(4096)
 
@@ -172,18 +187,21 @@ Instance_Vis :: enum u8 {
 	Hidden,
 }
 
+// Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
+Form_ID :: gamedb.Form_ID
+
 // Instance is one placed reference: its model (shared, nil until uploaded) referenced
 // by path, the raw REFR placement, and a door teleport if this is a load door.
 Instance :: struct {
 	model_path: string, // borrowed from gamedb (valid for the DB's lifetime)
 	model:      ^assetdb.Model, // nil until the asset is uploaded; resolved lazily
-	base:       u32,
-	form_id:    u32, // this REFR's formID (overlay key — worldstate deltas + settle capture, Phase 3)
+	base:       Form_ID,
+	form_id:    Form_ID, // this REFR's formID (overlay key — worldstate deltas + settle capture, Phase 3)
 	pos:        smath.Vec3,
 	rot:        smath.Vec3, // XYZ euler radians (REFR DATA)
 	scale:      f32,
 	has_tp:     bool,
-	tp_door:    u32, // destination door formID (XTEL)
+	tp_door:    Form_ID, // destination door formID (XTEL)
 	tp_pos:     smath.Vec3, // XTEL landing position in the DEST cell (arrival placement)
 	tp_rot:     smath.Vec3, // XTEL landing rotation (arrival facing)
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
@@ -192,16 +210,28 @@ Instance :: struct {
 	phys_built: bool, // collision bodies created for this instance (sync_physics, Phase 2e)
 	dyn_body:   physics.Body, // movable-clutter dynamic body (0 = none/static); render follows it (Phase 3b)
 	dyn_active: bool, // last frame's body-active state — settle (active→asleep) edge → overlay delta (Phase 3c)
+	disabled:   bool, // overlay Disabled/Deleted: hidden + no collision (set by apply_overlay / disable_ref)
+	// This instance's collision bodies occupy chunk.bodies[body_first : body_first+body_count] and its
+	// hinge constraints chunk.constraints[con_first : con_first+con_count] — contiguous slices recorded
+	// at build. Lets disable_ref remove just this ref's bodies/constraints live without a per-instance
+	// allocation. (Constraints must be removed before the bodies they link — Jolt asserts otherwise.)
+	body_first: int,
+	body_count: int,
+	con_first:  int,
+	con_count:  int,
+	// dyn_bodies maps a Collision_Body index → its Jolt body, for ARTICULATED instances (>1 movable body
+	// linked by hinges — Phase B). nil for the common single-body item (which uses dyn_body). Owned;
+	// freed on unload. The debug/collision view reads it to draw each linked body at its live pose.
+	dyn_bodies: []physics.Body,
 }
 
 // Chunk is one loaded cell's instances + a culling AABB. Exterior cells carry their
 // grid coordinate and detail level (lod 0 = full; higher reserved for Section-F LOD).
 Chunk :: struct {
-	cell_form_id: u32,
+	cell_form_id: Form_ID,
 	gx, gy:       i32,
 	has_grid:     bool,
 	lod:          int,
-	pinned:       bool, // always-resident (the worldspace persistent cell); never unloaded/re-lod'd by the streamer
 	instances:    [dynamic]Instance,
 	terrain:      [dynamic]Terrain_Patch, // exterior LAND heightmap patches (one per quadrant)
 	grass:        [dynamic]Grass_Batch, // scattered grass (one batch per grass type)
@@ -209,6 +239,7 @@ Chunk :: struct {
 	water:        render.Mesh, // flat per-cell water plane (zero mesh = none); see water.odin
 	has_water:    bool,
 	bodies:       [dynamic]physics.Body, // static collision bodies for this chunk's instances (Phase 2e)
+	constraints:  [dynamic]physics.Constraint, // hinge joints linking this chunk's articulated bodies (Phase B)
 	phys_done:    bool, // every instance's collision bodies are built (skip in sync_physics)
 	debug_mesh:   render.Mesh, // collision-hitbox wireframe geometry (world-space); built on demand
 	has_debug:    bool,
@@ -226,7 +257,13 @@ Vis_Chunk :: struct {
 // Scene is the loaded world: chunks keyed by cell formID + the asset cache.
 Scene :: struct {
 	cache:    assetdb.Cache,
-	chunks:   map[u32]Chunk,
+	chunks:   map[Form_ID]Chunk,
+	// Exterior PERSISTENT-cell refs (load doors, bridges, gates, quest set-dressing) bucketed by the
+	// grid cell each one's world position falls in. The ESM groups them logically in one persistent
+	// cell at scattered coords, so we spatially re-bucket them once at worldspace load and merge each
+	// bucket into its grid chunk as it streams (merge_persistent) — they then load/unload/collide with
+	// the grid exactly like normal cell refs, instead of being one always-resident, fully-cooked chunk.
+	persistent_by_grid: map[[2]i32][dynamic]gamedb.Ref,
 	// frame_chunks is a flat snapshot of the resident chunks (pointers + cull bounds), rebuilt
 	// once per frame by cull_begin and iterated by EVERY draw/shadow pass. Walking the chunk MAP
 	// directly streams its big inline Chunk values through cache on each of ~9 passes/frame; a
@@ -240,27 +277,43 @@ Scene :: struct {
 	// mesh at load (water_lod.odin), so distant lakes/rivers survive the streamer shrink cheaply.
 	water_quads: map[u64]Water_Quad,
 	lo, hi:   smath.Vec3, // overall AABB of placed refs (spawn framing)
-	sel_cell: u32, // selected instance's chunk (0 = none)
+	sel_cell: Form_ID, // selected instance's chunk (0 = none)
 	sel_inst: int,
 	has_sel:  bool,
-	hover_cell: u32, // instance under the cursor this frame (inspect mode)
+	hover_cell: Form_ID, // instance under the cursor this frame (inspect mode)
 	hover_inst: int,
 	has_hover:  bool,
 	last_land_tex: render.Texture, // most recently resolved ground texture (terrain fallback)
 	tfield:   Terrain_Field, // CDLOD whole-world height-texture terrain (terrain pivot)
-	tree_billboards: map[u32]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
+	tree_billboards: map[Form_ID]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
 	phys:     ^physics.World, // borrowed static-collision world (Phase 2e); nil = physics off for this scene
-	dynamic_clutter: bool, // build movable clutter as DYNAMIC bodies (Phase 3b) — interiors only (single-precision-safe); exteriors keep clutter static
+	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
+	has_dyn_debug: bool,
+	dynamic_clutter: bool, // build movable clutter (CLUTTER/PROPS layer + mass>0) as DYNAMIC bodies (Phase 3b/A). Now ON for exteriors too: double precision (RVec3 == f64) makes far-from-origin dynamic bodies safe, and add_dynamic_body keeps each body's shapes LOCAL with the world placement in the f64 body position. Architecture/rocks (static layers) stay static regardless.
 	ws:       ^worldstate.World_State, // borrowed world-state overlay (Phase 3c); nil = no persistence layer for this scene
+	// resident maps a ref's formID -> where its live Instance currently sits, so a runtime mutation
+	// (a Layer-1 verb) can find a loaded ref without scanning every chunk. It's a SELF-HEALING CACHE:
+	// find_resident validates each hit against the chunk map and falls back to a scan on a stale/missing
+	// entry, so correctness never depends on perfect upkeep at the (duplicated) chunk load/unload sites.
+	resident: map[Form_ID]Resident_Ref,
+}
+
+// Resident_Ref locates a resident instance: its owning cell + index into that chunk's `instances`.
+// Resolved (and validated) to a ^Instance on demand — never stored as a pointer, so a chunk map
+// rehash or instances-array churn can't dangle it.
+Resident_Ref :: struct {
+	cell: Form_ID,
+	idx:  int,
 }
 
 scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Scene {
 	return Scene {
 		cache = assetdb.cache_init(r, v),
-		chunks = make(map[u32]Chunk),
+		chunks = make(map[Form_ID]Chunk),
 		lod_quads = make(map[u64]Lod_Quad),
 		water_quads = make(map[u64]Water_Quad),
+		resident = make(map[Form_ID]Resident_Ref),
 		lo = {max(f32), max(f32), max(f32)},
 		hi = {min(f32), min(f32), min(f32)},
 	}
@@ -293,18 +346,22 @@ scene_destroy :: proc(s: ^Scene) {
 		delete(chunk.instances)
 	}
 	delete(s.chunks)
+	if s.has_dyn_debug {render.release_mesh(s.cache.r, s.dyn_debug)}
+	free_persistent_grid(s)
+	delete(s.persistent_by_grid)
 	delete(s.frame_chunks)
 	clear_object_lod(s) // release the baked distant-object LOD buffers
 	delete(s.lod_quads)
 	clear_water_lod(s) // release the baked distant-water meshes
 	delete(s.water_quads)
+	delete(s.resident)
 	assetdb.cache_destroy(&s.cache)
 	s^ = {}
 }
 
 // chunk_meta makes an empty chunk carrying just a cell's identity + grid (no instances,
 // no terrain). Used directly for distant terrain-only LOD chunks; the base of build_chunk.
-chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
+chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	chunk := Chunk {
 		cell_form_id = cell_form_id,
 	}
@@ -317,11 +374,25 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
 // build_chunk gathers a cell's placeable refs into a chunk (instances + culling
 // bounds), WITHOUT resolving/uploading models (model stays nil). Cheap, main-thread:
 // no IO, no GPU. Shared by the sync loaders and the streamer.
-build_chunk :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
+build_chunk :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	chunk := chunk_meta(db, cell_form_id)
-	lo := smath.Vec3{max(f32), max(f32), max(f32)}
-	hi := smath.Vec3{min(f32), min(f32), min(f32)}
-	for r in gamedb.refs_of(db, cell_form_id) {
+	append_refs(&chunk, db, gamedb.refs_of(db, cell_form_id))
+	return chunk
+}
+
+// append_refs turns a slice of ESM refs into renderable/collidable Instances on `chunk`, skipping
+// disabled refs, marker base forms, and marker/sky/water meshes, and expanding the chunk's cull
+// bounds (CHUNK_MARGIN folded in per-ref so repeated calls accumulate correctly). Shared by
+// build_chunk (a cell's own refs) and merge_persistent (the persistent bucket for that grid cell).
+append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
+	m := smath.Vec3{CHUNK_MARGIN, CHUNK_MARGIN, CHUNK_MARGIN}
+	lo, hi := chunk.lo, chunk.hi
+	if len(chunk.instances) == 0 {
+		lo = {max(f32), max(f32), max(f32)}
+		hi = {min(f32), min(f32), min(f32)}
+	}
+	n0 := len(chunk.instances)
+	for r in refs {
 		if r.disabled || r.base == XMARKER || r.base == XMARKER_HEADING {
 			continue
 		}
@@ -346,21 +417,41 @@ build_chunk :: proc(db: ^gamedb.DB, cell_form_id: u32) -> Chunk {
 				veg = veg_classify(modl),
 			},
 		)
-		lo = {min(lo.x, r.pos.x), min(lo.y, r.pos.y), min(lo.z, r.pos.z)}
-		hi = {max(hi.x, r.pos.x), max(hi.y, r.pos.y), max(hi.z, r.pos.z)}
+		lo = {min(lo.x, r.pos.x - m.x), min(lo.y, r.pos.y - m.y), min(lo.z, r.pos.z - m.z)}
+		hi = {max(hi.x, r.pos.x + m.x), max(hi.y, r.pos.y + m.y), max(hi.z, r.pos.z + m.z)}
 	}
-	if len(chunk.instances) > 0 {
-		m := smath.Vec3{CHUNK_MARGIN, CHUNK_MARGIN, CHUNK_MARGIN}
-		chunk.lo, chunk.hi = lo - m, hi + m
+	if len(chunk.instances) > n0 {
+		chunk.lo, chunk.hi = lo, hi
 	}
-	return chunk
+}
+
+// merge_persistent appends the persistent-cell refs that spatially belong to this grid chunk (see
+// Scene.persistent_by_grid) as normal Instances — so persistent bridges/gates/quest set-dressing
+// load, collide, and unload with the grid cell instead of living in one always-resident chunk.
+// No-op for interior/non-grid chunks and grids with no persistent refs.
+merge_persistent :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
+	if !chunk.has_grid {
+		return
+	}
+	if bucket, ok := s.persistent_by_grid[{chunk.gx, chunk.gy}]; ok {
+		append_refs(chunk, db, bucket[:])
+	}
+}
+
+// free_persistent_grid releases the per-grid persistent-ref buckets (each a dynamic array) and the
+// map. Called on worldspace retarget (before re-indexing) and at scene teardown.
+free_persistent_grid :: proc(s: ^Scene) {
+	for _, &bucket in s.persistent_by_grid {
+		delete(bucket)
+	}
+	clear(&s.persistent_by_grid)
 }
 
 // load_cell loads one cell synchronously (build + resolve every model via get_model)
 // and inserts it as a chunk. Returns the instance count. Used for interiors and the
 // bounded Whiterun load — NOT the streamer (which decodes off-thread).
-load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: u32) -> int {
-	chunk := build_chunk(db, cell_form_id)
+load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID) -> int {
+	chunk := build_overlaid_chunk(s, db, cell_form_id) // ESM baseline ⊕ created refs
 	for &inst in chunk.instances {
 		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
 			inst.model = m
@@ -374,12 +465,13 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: u32) -> int {
 	build_chunk_physics(s, db, &chunk) // static collision (terrain; objects via sync_physics)
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
+	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
 	return n
 }
 
 // load_worldspace loads every cell of a bounded exterior worldspace (e.g.
 // WhiterunWorld) synchronously, as chunks. Returns the total instance count.
-load_worldspace :: proc(s: ^Scene, db: ^gamedb.DB, world_form_id: u32) -> int {
+load_worldspace :: proc(s: ^Scene, db: ^gamedb.DB, world_form_id: Form_ID) -> int {
 	cells := gamedb.cells_of(db, world_form_id)
 	total := 0
 	for cid in cells {
@@ -446,22 +538,36 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 			if pretty_hidden(s, &inst) {
 				continue // --pretty: blank-white untextured placeholder — hidden
 			}
-			cw := inst.world * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
-			if !smath.sphere_in_frustum(f, {cw.x, cw.y, cw.z}, inst.model.radius * inst.scale) {
+			// Live render transform (a movable clutter body's pose, or the static placement).
+			// Frustum-cull at the LIVE centre so a settled/shoved body is tested where it actually is —
+			// culling at the baked origin popped moved clutter out while it was still on screen.
+			iworld := instance_world(s, &inst)
+			cw := iworld * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
+			ccenter := [3]f32{cw.x, cw.y, cw.z}
+			crad := inst.model.radius * inst.scale
+			// Articulated item (dyn_body=0): its parts move with their own bodies, so the baked centre is
+			// stale (a rolling cart drove off it, vanishing). Track a live body + widen the sphere to
+			// cover the swing/roll.
+			if inst.dyn_bodies != nil {
+				for b in inst.dyn_bodies {
+					if b != 0 {ccenter = physics.body_position(s.phys, b);break}
+				}
+				crad *= 2
+			}
+			if !smath.sphere_in_frustum(f, ccenter, crad) {
 				continue
 			}
 			// One global wind direction; per-vegetation amplitude+speed+cap, per-placement phase.
 			iw := veg_wind_for(inst.veg, wind)
 			phase := veg_phase(inst.pos)
-			iworld := instance_world(s, &inst) // live pose if a movable clutter body carries it (3b)
-			for sh in inst.model.shapes {
+			for sh, si in inst.model.shapes {
 				if sh.is_effect {
 					continue // ghosted in the translucent draw_effects pass
 				}
 				if s.pretty && sh.tex.tex == nil {
 					continue // --pretty: untextured CK debug shape (bounding ring/arrow baked into the mesh) — hidden
 				}
-				model := iworld * sh.local
+				model := instance_shape_world(s, &inst, iworld, sh.local, si) // Phase C: articulated parts follow their body
 				render.draw_mesh(
 					r,
 					sh.mesh,
@@ -535,7 +641,7 @@ draw_casters :: proc(
 			if use_proxy {
 				render.draw_shadow(r, inst.model.shadow_proxy, light_vp, iworld)
 			}
-			for sh in inst.model.shapes {
+			for sh, si in inst.model.shapes {
 				if sh.is_effect {
 					continue
 				}
@@ -543,7 +649,7 @@ draw_casters :: proc(
 					continue // --pretty: untextured CK debug shape is hidden, so it casts no shadow either
 				}
 				if sh.alpha_cutoff <= 0 {
-					render.draw_shadow(r, sh.mesh, light_vp, iworld * sh.local) // opaque: statics, trunks, branches
+					render.draw_shadow(r, sh.mesh, light_vp, instance_shape_world(s, &inst, iworld, sh.local, si)) // opaque: statics, trunks, branches
 					continue
 				}
 				// Alpha-tested foliage (leaves/plants).
@@ -552,7 +658,7 @@ draw_casters :: proc(
 				}
 				// Full mode → real cutout shadow; proxy mode + tree but no proxy = blacklisted → full.
 				if veg == .Full || (veg == .Proxy && is_tree) {
-					render.draw_shadow_alpha(r, sh.mesh, light_vp, iworld * sh.local, sh.tex, sh.alpha_cutoff)
+					render.draw_shadow_alpha(r, sh.mesh, light_vp, instance_shape_world(s, &inst, iworld, sh.local, si), sh.tex, sh.alpha_cutoff)
 				}
 				// else (Off, or a plant in Proxy mode) → no foliage shadow
 			}
@@ -645,8 +751,8 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 // Möller-Trumbore over the model's triangles. `t` is world distance throughout (the
 // local ray is scaled so it stays comparable). Pure query — mutates nothing.
 @(private)
-pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: u32, idx: int, shape: int, ok: bool) {
-	best_cell: u32
+pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx: int, shape: int, ok: bool) {
+	best_cell: Form_ID
 	best_inst := -1
 	best_shape := -1
 	best_t := max(f32)

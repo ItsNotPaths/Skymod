@@ -65,6 +65,10 @@ Model :: struct {
 	shadow_proxy: render.Mesh, // low-poly canopy hull for cheap tree shadows (Phase D2); zero mesh if none
 	has_shadow_proxy: bool, // canopy substantial enough for a proxy (else cast full alpha)
 	collision:    nif.Collision, // bhk* collision shapes (NIF-root space, Skyrim units), cache-owned (Phase 2e physics)
+	// shape_body maps each render Shape → the movable Collision_Body (index) that drives it, for
+	// ARTICULATED models only (hinged signs/carts — Phase C); -1 = static. nil for ordinary models.
+	// The world layer poses a mapped shape by its live body transform so the visible mesh swings/rolls.
+	shape_body:   []int,
 }
 
 // lod_index_count returns how many indices to draw for a shape at LOD `level` (0=full,
@@ -119,6 +123,7 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(m.pick_pos)
 		delete(m.pick_idx)
 		delete(m.pick_shape)
+		delete(m.shape_body)
 		nif.destroy_collision(&m.collision) // cache-heap allocated (clone_collision)
 		free(m)
 		delete(key)
@@ -199,7 +204,7 @@ get_texture :: proc(c: ^Cache, path: string) -> (render.Texture, bool) {
 		return {}, false
 	}
 	b := render.upload_begin(c.r)
-	t := upload_or_cached_texture(c, &b, path, cpu)
+	t := upload_or_cached_texture(c, &b, path, cpu, true) // get_texture is the diffuse (sRGB) path (terrain ground)
 	render.upload_end(&b)
 	return t, true
 }
@@ -225,8 +230,8 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	for cs, i in cpu.shapes {
 		shapes[i] = Shape {
 			mesh         = render.upload_mesh_into(&batch, cs.verts, cs.indices),
-			tex          = upload_or_cached_texture(c, &batch, cs.diffuse_path, cs.diffuse),
-			normal       = upload_or_cached_texture(c, &batch, cs.normal_path, cs.normal),
+			tex          = upload_or_cached_texture(c, &batch, cs.diffuse_path, cs.diffuse, true), // diffuse = sRGB
+			normal       = upload_or_cached_texture(c, &batch, cs.normal_path, cs.normal, false), // normal = linear
 			material     = cs.material,
 			diffuse_path = strings.clone(cs.diffuse_path),
 			local        = cs.local,
@@ -267,8 +272,100 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	// free_cpu_model (which frees the decode's loader/temp copy). Freed in cache_destroy.
 	m.collision = clone_collision(cpu.collision)
 	build_pick_geometry(m, cpu)
+	map_articulated_shapes(m, cpu)
 	c.models[strings.clone(key)] = m
 	return m, true
+}
+
+// map_articulated_shapes builds Model.shape_body for ARTICULATED models (hinged: constraints or >1
+// movable body — signs, carts). Each render Shape is matched to the movable Collision_Body it's
+// CO-LOCATED with, by CENTROID: a shape whose mesh sits inside a movable body's collision AABB is that
+// body's visual, so it's posed by the body's live transform at draw (Phase C — the board swings, the
+// wheel rolls). Centroid (not node origin) is required because some NIFs — carts — put every part under
+// the root node, offset only in vertices. Static parts (a sign post) match no movable body → -1. No-op
+// for ordinary models.
+@(private)
+map_articulated_shapes :: proc(m: ^Model, cpu: Cpu_Model) {
+	nmov := 0
+	for b in m.collision.bodies {
+		if b.movable {nmov += 1}
+	}
+	if len(m.collision.constraints) == 0 && nmov <= 1 {return}
+
+	// Per body: its collision AABB (NIF-root) → centre + radius, for the co-location test.
+	Box :: struct {
+		lo, hi:  [3]f32,
+		movable: bool,
+	}
+	boxes := make([]Box, len(m.collision.bodies), context.temp_allocator)
+	for &bx, i in boxes {bx = {lo = {max(f32), max(f32), max(f32)}, hi = {min(f32), min(f32), min(f32)}, movable = m.collision.bodies[i].movable}}
+	for sh in m.collision.shapes {
+		if sh.body >= 0 && sh.body < len(boxes) {expand_collision_aabb(&boxes[sh.body].lo, &boxes[sh.body].hi, sh)}
+	}
+
+	sb := make([]int, len(m.shapes))
+	any := false
+	MARGIN :: f32(5) // collision is authored inset from the visual; let the centroid sit just outside
+	for cs, i in cpu.shapes {
+		sb[i] = -1
+		rlo := [3]f32{max(f32), max(f32), max(f32)}
+		rhi := [3]f32{min(f32), min(f32), min(f32)}
+		for vtx in cs.verts {
+			w := cs.local * [4]f32{vtx.pos.x, vtx.pos.y, vtx.pos.z, 1}
+			rlo = {min(rlo.x, w.x), min(rlo.y, w.y), min(rlo.z, w.z)}
+			rhi = {max(rhi.x, w.x), max(rhi.y, w.y), max(rhi.z, w.z)}
+		}
+		if rhi.x < rlo.x {continue} // empty shape
+		rc := (rlo + rhi) * 0.5
+		// The shape belongs to the movable body whose collision box CONTAINS its centroid; when several
+		// nested boxes contain it (a wheel sits inside the cart's overall box) the SMALLEST is the true
+		// owner. Distance-to-centre fails for large/offset bodies, so use point-in-box. Size = sum of
+		// extents (not volume — a flat board has ~0 volume and would spuriously win every overlap).
+		best_size := max(f32)
+		for bx, k in boxes {
+			if !bx.movable || bx.hi.x < bx.lo.x {continue}
+			if rc.x < bx.lo.x - MARGIN || rc.x > bx.hi.x + MARGIN {continue}
+			if rc.y < bx.lo.y - MARGIN || rc.y > bx.hi.y + MARGIN {continue}
+			if rc.z < bx.lo.z - MARGIN || rc.z > bx.hi.z + MARGIN {continue}
+			e := bx.hi - bx.lo
+			if size := e.x + e.y + e.z; size < best_size {best_size = size;sb[i] = k;any = true}
+		}
+	}
+	if any {m.shape_body = sb} else {delete(sb)}
+}
+
+// expand_collision_aabb grows [lo,hi] to cover one collision shape's NIF-root footprint (transform
+// applied). Primitive shapes use their extents; mesh/convex use their vertices.
+@(private)
+expand_collision_aabb :: proc(lo, hi: ^[3]f32, sh: nif.Collision_Shape) {
+	add :: proc(lo, hi: ^[3]f32, p: [3]f32) {
+		lo^ = {min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)}
+		hi^ = {max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)}
+	}
+	xf :: proc(m: smath.Mat4, p: [3]f32) -> [3]f32 {
+		v := m * [4]f32{p.x, p.y, p.z, 1}
+		return {v.x, v.y, v.z}
+	}
+	switch sh.kind {
+	case .Mesh, .Convex:
+		for v in sh.vertices {add(lo, hi, xf(sh.transform, v))}
+	case .Box:
+		for sx in ([2]f32{-1, 1}) {
+			for sy in ([2]f32{-1, 1}) {
+				for sz in ([2]f32{-1, 1}) {
+					add(lo, hi, xf(sh.transform, {sh.half_extents.x * sx, sh.half_extents.y * sy, sh.half_extents.z * sz}))
+				}
+			}
+		}
+	case .Sphere:
+		c := xf(sh.transform, {0, 0, 0})
+		add(lo, hi, c - sh.radius);add(lo, hi, c + sh.radius)
+	case .Capsule:
+		for p in ([2][3]f32{sh.point_a, sh.point_b}) {
+			c := xf(sh.transform, p)
+			add(lo, hi, c - sh.radius);add(lo, hi, c + sh.radius)
+		}
+	}
 }
 
 // clone_collision deep-copies a parsed Collision into `alloc` (the cache heap) — the cached
@@ -283,11 +380,14 @@ clone_collision :: proc(src: nif.Collision, alloc := context.allocator) -> nif.C
 		shapes    = make([]nif.Collision_Shape, len(src.shapes), alloc),
 	}
 	for s, i in src.shapes {
-		d := s // scalars + transform
+		d := s // scalars + transform + body index
 		if len(s.vertices) > 0 {d.vertices = slice.clone(s.vertices, alloc)}
 		if len(s.indices) > 0 {d.indices = slice.clone(s.indices, alloc)}
 		dst.shapes[i] = d
 	}
+	// bodies + constraints are POD (no owned pointers) — a flat clone suffices.
+	if len(src.bodies) > 0 {dst.bodies = slice.clone(src.bodies, alloc)}
+	if len(src.constraints) > 0 {dst.constraints = slice.clone(src.constraints, alloc)}
 	return dst
 }
 
@@ -437,7 +537,7 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		tex: Cpu_Tex
 		if ps.diffuse != "" {
 			dpath = strings.clone(ps.diffuse, alloc)
-			low := strings.to_lower(ps.diffuse, context.temp_allocator)
+			low := tex_key(ps.diffuse, true) // color-space-tagged: same path as diffuse+normal decodes both
 			if !seen_tex[low] {
 				seen_tex[low] = true
 				tex = decode_texture(v, ps.diffuse, alloc = alloc) // first use → decode; dups stay un-ok
@@ -448,7 +548,7 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		ntex: Cpu_Tex
 		if ps.normal != "" {
 			npath = strings.clone(ps.normal, alloc)
-			low := strings.to_lower(ps.normal, context.temp_allocator)
+			low := tex_key(ps.normal, false) // linear-tagged (see the diffuse note); distinct from an sRGB use of the same file
 			if !seen_tex[low] {
 				seen_tex[low] = true
 				ntex = decode_texture(v, ps.normal, srgb = false, alloc = alloc)
@@ -595,16 +695,17 @@ decode_texture :: proc(v: ^vfs.VFS, path: string, srgb := true, alloc := context
 	return Cpu_Tex{ok = true, format = rfmt, srgb = srgb, pixels = blob, mips = mips}
 }
 
-// upload_or_cached_texture returns the cache's GPU texture for `path`, uploading `cpu`
-// into the open batch on a miss. The cache is checked BEFORE cpu.ok, so a shape that
-// carries a path but no decoded pixels (within-model dedup) still resolves to the
-// texture a prior shape uploaded. MAIN THREAD.
+// upload_or_cached_texture returns the cache's GPU texture for (`path`, `srgb`), uploading `cpu`
+// into the open batch on a miss. The cache is checked BEFORE cpu.ok, so a shape that carries a path
+// but no decoded pixels (within-model dedup) still resolves to the texture a prior shape uploaded.
+// `srgb` is the SLOT's color space (diffuse = true, normal = false) — passed explicitly (not read
+// from cpu) so the dedup lookup keys correctly even when cpu is the un-ok placeholder. MAIN THREAD.
 @(private)
-upload_or_cached_texture :: proc(c: ^Cache, b: ^render.Upload_Batch, path: string, cpu: Cpu_Tex) -> render.Texture {
+upload_or_cached_texture :: proc(c: ^Cache, b: ^render.Upload_Batch, path: string, cpu: Cpu_Tex, srgb: bool) -> render.Texture {
 	if path == "" {
 		return {}
 	}
-	key := strings.to_lower(path, context.temp_allocator)
+	key := tex_key(path, srgb)
 	if t, hit := c.textures[key]; hit {
 		return t
 	}
@@ -614,6 +715,16 @@ upload_or_cached_texture :: proc(c: ^Cache, b: ^render.Upload_Batch, path: strin
 	t := render.upload_texture_into(b, cpu.format, cpu.srgb, cpu.mips)
 	c.textures[strings.clone(key)] = t
 	return t
+}
+
+// tex_key is the texture cache / within-model dedup key: the lowercased path PLUS a color-space
+// tag. The same DDS used as an sRGB diffuse in one shape and a LINEAR normal map in another must
+// cache as TWO distinct GPU textures (each uploaded in the right color space) — keying on path
+// alone let whichever uploaded first win, silently mis-coloring the other use. Cheap (one temp
+// concat) and off the per-frame path (texture resolution happens at upload). Temp-allocated.
+@(private)
+tex_key :: proc(path: string, srgb: bool) -> string {
+	return strings.concatenate({strings.to_lower(path, context.temp_allocator), "|s" if srgb else "|l"}, context.temp_allocator)
 }
 
 @(private)
