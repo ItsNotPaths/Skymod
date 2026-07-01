@@ -5,19 +5,27 @@ src/render/shaders/*.spv
 
 # build outputs
 build/out
-tools/
-nifdump
 
-# golden 
+# dev-tool sources stay local; their binaries land in the repo root
+tools/
+/nifdump
+/esmdump
+/pexdump
+/swfdump
+
+# profiling / editor artifacts
+/profile_*.html
+imgui.ini
+
+# golden tests: local-install data only
 tests/golden/**
 !tests/golden/.gitkeep
-!tests/golden/README.md
 
-ROADMAP.md
-README.md
+# design docs are local-only — only the root README is tracked
+*.md
+!/README.md
 docs/
 
 *.log
 /logs/
 *.o
-
