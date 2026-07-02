@@ -24,9 +24,8 @@ rect = kind "rect"
 text = kind "text"
 image = kind "image"
 effect = kind "effect"
-line = kind "line"
-circle = kind "circle"
-arc = kind "arc"
+-- (shape kinds — line/circle/arc — arrive with the declarative-shapes substrate work; the Odin
+-- loader has no mapping for them yet, so they aren't declared here until it does.)
 
 -- bind("path") marks a property as a live binding (engine-evaluated). A screen written as a function
 -- of state (ui.screen(function() ... end)) can also read engine state directly each frame, which is

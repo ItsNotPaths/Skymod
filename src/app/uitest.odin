@@ -25,13 +25,16 @@ run_ui_test :: proc() {
 	defer render.ui_shutdown(&r)
 	p.on_event = render.ui_process_event
 
-	// dir = "" → the #load-embedded framework + screen (no install needed for the smoke test).
-	vm: UI_VM
-	if !ui_vm_open(&vm, "", nil, "", "main_menu.lua") {
+	// dir = "" → the #load-embedded framework + screen (no install needed for the smoke test). The
+	// host is empty (no base/VFS): engine.* still exists, it just reports no saves/credits.
+	host: UI_Host
+	defer ui_host_destroy(&host)
+	vm: ui.VM
+	if !ui.open(&vm, "", "main_menu.lua", &host, install_engine_api) {
 		log.error("ui: failed to open the UI VM")
 		return
 	}
-	defer ui_vm_destroy(&vm)
+	defer ui.close(&vm)
 
 	cmds: [dynamic]ui.Draw_Cmd
 	defer delete(cmds)
@@ -40,7 +43,7 @@ run_ui_test :: proc() {
 	for platform.pump(&p) {
 		render.ui_new_frame(&r)
 		w, h := ui_screen_size()
-		tree, tok := ui_vm_frame(&vm)
+		tree, tok := ui.frame(&vm)
 		if !tok {
 			break
 		}

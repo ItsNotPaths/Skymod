@@ -13,10 +13,13 @@ package main
 
 import "core:math"
 
+import lua "vendor:lua/5.4"
+
 import "../assetdb"
 import "../formats/nif"
 import smath "../math"
 import "../render"
+import "../ui"
 import "../vfs"
 
 LOGO_NIF :: "meshes\\interface\\logo\\logo.nif"
@@ -48,6 +51,40 @@ menu_logo_cfg_default :: proc() -> Menu_Logo_Cfg {
 		light_dir = {0.2, -1, 0.5},
 		ambient = 8.0,
 	}
+}
+
+// menu_logo_read_lua reads the Lua-owned `ui.menu_logo` table (the menu's 3D logo control surface)
+// into cfg: `enabled` (draw or skip), `pos` ({x,y} NDC screen offset), `scale`, `bright` (flat-
+// fullbright ambient → cfg.ambient), and `lift`. Returns present=false when the screen declares no
+// table (mod with no logo concept) — the caller keeps its baked Menu_Logo_Cfg defaults. Each field
+// is optional; absent fields leave the current value.
+menu_logo_read_lua :: proc(vm: ^ui.VM, cfg: ^Menu_Logo_Cfg) -> (present: bool) {
+	L := vm.L
+	lua.getglobal(L, "ui") // [ui]
+	defer lua.settop(L, -2) // pop ui
+	if lua.type(L, -1) != .TABLE {
+		return false
+	}
+	lua.getfield(L, -1, "menu_logo") // [ui, menu_logo]
+	defer lua.settop(L, -2) // pop menu_logo
+	if lua.type(L, -1) != .TABLE {
+		return false
+	}
+	lua.getfield(L, -1, "enabled")
+	if t := lua.type(L, -1); t != .NIL && t != .NONE {
+		cfg.enabled = bool(lua.toboolean(L, -1))
+	}
+	lua.settop(L, -2)
+	ui.read_num_field(L, "scale", &cfg.scale)
+	ui.read_num_field(L, "bright", &cfg.ambient)
+	ui.read_num_field(L, "lift", &cfg.lift)
+	lua.getfield(L, -1, "pos") // pos = {x, y}
+	if lua.type(L, -1) == .TABLE {
+		ui.read_num_index(L, 1, &cfg.pos[0])
+		ui.read_num_index(L, 2, &cfg.pos[1])
+	}
+	lua.settop(L, -2)
+	return true
 }
 
 Menu_Logo :: struct {

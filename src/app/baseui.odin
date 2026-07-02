@@ -18,6 +18,7 @@ import "core:path/filepath"
 import "../font"
 import "../formats/dds"
 import "../formats/swf"
+import "../ui"
 import "../vfs"
 
 // UI_REF_EM is the reference em (px) the UI's `scale == 1` maps to — the normalization screens author
@@ -25,10 +26,10 @@ import "../vfs"
 // NOT a single bake size that everything minifies from; it's just the authoring unit.
 UI_REF_EM :: f32(64)
 
-// ui_lua_root returns <base>/content/baseui/lua — the driver code of the "baseui" content mod (our UI
-// reimplementation). Its sibling content/baseui/bethassets holds assets converted from the install
-// (mounted into the VFS as the baseline; see mount_game_mods / content_mod_dirs).
-ui_lua_root :: proc(base: string, allocator := context.allocator) -> string {
+// baseui_lua_root returns <base>/content/baseui/lua — the driver code of the "baseui" content mod
+// (our UI reimplementation). Its sibling content/baseui/bethassets holds assets converted from the
+// install (mounted into the VFS as the baseline; see mount_game_mods / content_mod_dirs).
+baseui_lua_root :: proc(base: string, allocator := context.allocator) -> string {
 	p, _ := filepath.join({base, "content", "baseui", "lua"}, allocator)
 	return p
 }
@@ -40,15 +41,15 @@ baseui_assets_dir :: proc(base: string, allocator := context.allocator) -> strin
 	return p
 }
 
-// ensure_ui_content makes sure content/baseui is populated: the Lua framework + screens (engine-owned
+// baseui_ensure makes sure content/baseui is populated: the Lua framework + screens (engine-owned
 // defaults) are rewritten from the embedded copies every boot so a build update can't leave a stale
 // screen behind (user customization layers on top via mods/, not by editing content/). The font is no
-// longer cached to disk — the menu builds a live atlas from the install's fonts (ui_content_build_atlas).
-ensure_ui_content :: proc(base: string) -> bool {
-	lua_root := ui_lua_root(base, context.temp_allocator)
-	for rel in UI_FRAMEWORK_AND_SCREENS {
+// longer cached to disk — the menu builds a live atlas from the install's fonts (baseui_build_atlas).
+baseui_ensure :: proc(base: string) -> bool {
+	lua_root := baseui_lua_root(base, context.temp_allocator)
+	for rel in ui.EMBEDDED_FILES {
 		path, _ := filepath.join({lua_root, rel}, context.temp_allocator)
-		embedded, ok := ui_embedded(rel)
+		embedded, ok := ui.embedded(rel)
 		if !ok {
 			continue
 		}
@@ -63,11 +64,11 @@ ensure_ui_content :: proc(base: string) -> bool {
 	return true
 }
 
-// ui_content_build_atlas builds a LIVE glyph atlas from the UI font read THROUGH THE VFS (so a font
+// baseui_build_atlas builds a LIVE glyph atlas from the UI font read THROUGH THE VFS (so a font
 // mod overrides interface/fonts_en.swf like any other asset — uniform resolution, no source-BSA
 // scan). The SWF outlines stay resident so glyphs bake lazily at display size. Caller owns the atlas
 // (font.destroy). ok=false (→ imgui fallback menu) if the font doesn't resolve / has no usable face.
-ui_content_build_atlas :: proc(v: ^vfs.VFS) -> (font.Atlas, bool) {
+baseui_build_atlas :: proc(v: ^vfs.VFS) -> (font.Atlas, bool) {
 	if v == nil {
 		return {}, false
 	}
@@ -95,16 +96,7 @@ ui_content_build_atlas :: proc(v: ^vfs.VFS) -> (font.Atlas, bool) {
 	return font.make_atlas(fonts[idx], UI_REF_EM, 1024), true
 }
 
-// UI_FRAMEWORK_AND_SCREENS lists every built-in UI lua file synthesized into content/baseui/lua.
-@(private = "file")
-UI_FRAMEWORK_AND_SCREENS := [?]string {
-	"lib/ui.lua",
-	"widget/button.lua",
-	"widget/box.lua",
-	"main_menu.lua",
-}
-
-// ui_content_extract_assets converts the SWF-EMBEDDED UI assets (sub-shapes/bitmaps that can't be
+// baseui_extract_assets converts the SWF-EMBEDDED UI assets (sub-shapes/bitmaps that can't be
 // read as files) into DDS under content/baseui/bethassets at install time — cached, so each is done
 // once. Reads the source SWFs THROUGH THE VFS (so a mod could even override the source). The menu then
 // loads the DDS like any other asset, and a mod can override the extracted file. Whole-file assets
@@ -112,7 +104,7 @@ UI_FRAMEWORK_AND_SCREENS := [?]string {
 //
 // NOTE: bethassets is mounted as a LOOSE root, which the VFS reads live from disk — so files written
 // here are visible to the already-built `v` this same session (no remount needed).
-ui_content_extract_assets :: proc(v: ^vfs.VFS, base: string) {
+baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 	if v == nil {
 		return
 	}

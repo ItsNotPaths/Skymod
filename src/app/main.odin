@@ -277,43 +277,14 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	quicksave_path, _ := filepath.join({saves_dir, "quicksave.skysave"})
 	defer delete(quicksave_path)
 
-	// PRE-WORLD boot screens (the menu "sockets"): Main Menu ⇆ Mod Manager, shown BEFORE the world
-	// builds. The mod manager edits the profile here, so mount/load below build from the FINAL
+	// PRE-WORLD boot screens (preworld.odin): Main Menu ⇆ Mod Manager, shown BEFORE the world
+	// builds. The mod manager edits the profile there, so mount/load below build from the FINAL
 	// profile — enabling a mod and entering the world is seamless (no relaunch). The menu also
 	// appears instantly on launch instead of after the stream. Records the player's choice; the
 	// Continue save-apply runs after the world exists (further below).
-	Boot_Choice :: enum {
-		Quit,
-		New,
-		Continue,
-	}
-	boot_choice := Boot_Choice.Quit
-	if slice.contains(os.args, "--skipmenu") {
-		boot_choice = .New // dev: jump straight to a new game, skipping the boot menu
-	} else {
-		save_summary := ""
-		has_save := false
-		if man, ok := worldstate.read_manifest(quicksave_path); ok {
-			has_save = true
-			save_summary = fmt.tprintf("Save %d — %d change(s)", man.save_number, man.delta_count)
-		}
-		boot: for {
-			switch run_main_menu(&p, &r, base, src, &mprofile, has_save, save_summary) {
-			case .Mods:
-				if !run_mod_manager(&p, &r, &mprofile, src, base, cfg) {
-					return // window closed inside the mod manager
-				}
-				continue boot // Back → show the main menu again
-			case .Continue:
-				boot_choice = .Continue
-				break boot
-			case .New:
-				boot_choice = .New
-				break boot
-			case .None, .Quit:
-				return // window closed or Quit
-			}
-		}
+	boot_choice := run_preworld(&p, &r, base, src, &mprofile, cfg, quicksave_path)
+	if boot_choice == .Quit {
+		return
 	}
 
 	// VFS is cheap (BSA headers) — build it on the main thread.
@@ -1221,178 +1192,6 @@ game_load_worker :: proc(t: ^thread.Thread) {
 	sync.atomic_store(&job.done, true)
 }
 
-// run_main_menu pumps the boot main menu until the player picks an action — or the window closes,
-// reported as .None (the caller treats None/Quit alike: exit). It first tries the synthesized
-// built-in Lua menu (real Skyrim font via the SDL3_gpu UI path, run_lua_main_menu); if that can't
-// initialize (no font in the install / load error), it falls back to the imgui boot menu so the
-// engine never bricks. A pre-world modal screen: clears the frame behind the UI, no world/streaming.
-@(private = "file")
-run_main_menu :: proc(
-	p: ^platform.Platform,
-	r: ^render.Renderer,
-	base, src: string,
-	profile: ^mods.Profile,
-	has_save: bool,
-	save_summary: string,
-) -> tools.Menu_Action {
-	if action, ok := run_lua_main_menu(p, r, base, src, profile); ok {
-		return action
-	}
-	log.warn("menu: built-in Lua UI unavailable; using the imgui boot menu")
-	choice := tools.Menu_Action.None
-	for choice == .None && platform.pump(p) {
-		render.ui_new_frame(r)
-		choice = tools.main_menu_screen(has_save, save_summary)
-		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(r)
-		}
-		free_all(context.temp_allocator)
-	}
-	return choice
-}
-
-// run_mod_manager pumps the mod-manager screen until Back (→ true, return to the main menu)
-// or the window closes (→ false, quit). The menu "socket" for the mod system: today a stub
-// panel; the load-order / enable-disable backend + the world-init relocation land next.
-@(private = "file")
-run_mod_manager :: proc(
-	p: ^platform.Platform,
-	r: ^render.Renderer,
-	profile: ^mods.Profile,
-	src, base: string,
-	cfg: ^settings.Config,
-) -> bool {
-	new_seq := 0
-	dirty := true // recompute the derived plugin order whenever the mod list changes
-	derived: []Derived_Plugin
-	missing: []gamedb.Missing_Master
-
-	for platform.pump(p) {
-		render.ui_new_frame(r)
-
-		active := settings.get(cfg, "active_profile")
-		if active == "" {
-			active = DEFAULT_PROFILE
-		}
-		if dirty {
-			free_derived(derived)
-			free_missing(missing)
-			derived, missing = derive_plugin_order(src, base, profile)
-			dirty = false
-		}
-
-		// Per-frame plain-data views for the imgui-core panel (temp; names borrowed).
-		mods_view := make([]tools.Mod_Entry_View, len(profile.mods), context.temp_allocator)
-		for m, i in profile.mods {
-			mods_view[i] = {
-				name      = m.name,
-				enabled   = m.enabled,
-				locked    = m.locked,
-				separator = m.kind == .Separator,
-			}
-		}
-		plugins_view := make([]tools.Plugin_Row_View, len(derived), context.temp_allocator)
-		for d, i in derived {
-			plugins_view[i] = {name = d.name, source = d.source, master = d.master}
-		}
-		missing_view := make([]tools.Missing_Master_View, len(missing), context.temp_allocator)
-		for m, i in missing {
-			missing_view[i] = {plugin = m.plugin, master = m.master}
-		}
-		profiles := discover_profiles(base, context.temp_allocator)
-
-		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view, missing_view)
-
-		if res.toggled >= 0 {mods.profile_toggle(profile, res.toggled);dirty = true}
-		if res.move_from >= 0 && res.move_to >= 0 {
-			mods.profile_move_to(profile, res.move_from, res.move_to)
-			dirty = true
-		}
-		if res.add_separator {
-			new_seq += 1
-			mods.profile_add_separator(profile, fmt.tprintf("New Separator %d", new_seq))
-			dirty = true
-		}
-		if res.add_empty {
-			new_seq += 1
-			name := fmt.tprintf("New Mod %d", new_seq)
-			// Create the folder under <base>/mods so the empty mod persists + is discoverable.
-			_ = os.make_directory(mods_root(base))
-			dir, _ := filepath.join({mods_root(base), name}, context.temp_allocator)
-			_ = os.make_directory(dir)
-			mods.profile_add(profile, name)
-			dirty = true
-		}
-		// Resolve missing masters by disabling each dependent plugin's providing mod (the constructive
-		// half of the doc's "refuse or auto-disable" — the destructive silent cross-wire is already
-		// killed in the resolver by INVALID_SLOT; this makes the load clean).
-		if res.auto_disable_missing {
-			for mm in missing {
-				for d in derived {
-					if strings.equal_fold(d.name, mm.plugin) {
-						idx := mods.profile_index(profile, d.source)
-						if idx >= 0 && profile.mods[idx].enabled {mods.profile_toggle(profile, idx)}
-						break
-					}
-				}
-			}
-			dirty = true
-		}
-
-		// Profile switch: persist the current list, then load the target's (mods/ stays shared).
-		if res.switch_profile >= 0 && res.switch_profile < len(profiles) {
-			target := profiles[res.switch_profile]
-			if !strings.equal_fold(target, active) {
-				_ = mods.profile_save(profile, modlist_path_for(base, active))
-				settings.set(cfg, "active_profile", target)
-				_ = settings.save(cfg)
-				switch_profile(profile, src, base, target)
-				dirty = true
-			}
-		}
-		// New profile: a fresh list (all mods enabled by default), made active.
-		if res.create_profile {
-			name := fmt.tprintf("Profile %d", len(profiles))
-			ensure_profile_dir(base, name)
-			_ = mods.profile_save(profile, modlist_path_for(base, active))
-			settings.set(cfg, "active_profile", name)
-			_ = settings.save(cfg)
-			switch_profile(profile, src, base, name)
-			dirty = true
-		}
-
-		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(r)
-		}
-		free_all(context.temp_allocator)
-
-		if res.action == .Exit {
-			if mods.profile_save(profile, modlist_path_for(base, active)) {
-				log.infof("mods: saved profile %q — %d item(s)", active, len(profile.mods))
-			}
-			_ = settings.save(cfg)
-			free_derived(derived)
-			free_missing(missing)
-			return true
-		}
-	}
-	free_derived(derived)
-	free_missing(missing)
-	return false // window closed
-}
-
-// switch_profile reloads `profile` in place from <base>/modprofiles/<name>/modlist.txt, reconciled
-// against the (shared) installed mod folders, then re-syncs the locked system rows (needs `src` for
-// DLC detection).
-@(private = "file")
-switch_profile :: proc(profile: ^mods.Profile, src, base, name: string) {
-	mods.profile_destroy(profile)
-	mods.profile_init(profile)
-	_ = mods.profile_load(profile, modlist_path_for(base, name))
-	mods.profile_reconcile(profile, discover_mod_folders(base, context.temp_allocator))
-	mods.profile_set_system(profile, system_mod_names(src, base))
-}
-
 // enable_lighting_mod adds a just-written lighting mod to the active profile (and, if requested,
 // every other profile), persisting each modlist. The mod is lighting-only, so no world rebuild.
 @(private = "file")
@@ -1423,26 +1222,6 @@ enable_lighting_mod :: proc(
 		_ = mods.profile_save(&other, modlist_path_for(base, pname))
 		mods.profile_destroy(&other)
 	}
-}
-
-// free_derived releases a derived-plugin slice (the names/sources are heap-owned).
-@(private = "file")
-free_derived :: proc(d: []Derived_Plugin) {
-	for e in d {
-		delete(e.name)
-		delete(e.source)
-	}
-	delete(d)
-}
-
-// free_missing releases a missing-master slice (plugin/master strings are heap-owned).
-@(private = "file")
-free_missing :: proc(m: []gamedb.Missing_Master) {
-	for e in m {
-		delete(e.plugin)
-		delete(e.master)
-	}
-	delete(m)
 }
 
 // proc_rss_mb reads this process's resident set size (MB) from /proc/self/statm (Linux) — the

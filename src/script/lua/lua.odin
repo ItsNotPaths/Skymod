@@ -8,7 +8,7 @@ package script_lua
 // engine call funnels through the same dispatch chokepoint.
 //
 // The PRE-WORLD UI — the main menu, mod manager, and load screen — is deliberately
-// NOT on this VM (see src/app/ui_vm.odin): it runs before any gamedb/worldstate
+// NOT on this VM (see src/ui/runtime.odin): it runs before any gamedb/worldstate
 // exists, so it has nothing to dispatch into the registry. It uses its own isolated
 // VM with a small `engine.*` host table instead. The split is along the world-context
 // boundary, not UI-vs-gameplay; the `ui` substrate + table→node loader are VM-agnostic

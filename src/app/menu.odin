@@ -1,16 +1,16 @@
 package main
 
-// The Lua main-menu loop: a GENERIC engine driver, not menu-specific logic. Each frame it asks the
-// Lua VM for the composed tree (ui._frame), lays it out, routes raw input (mouse hover/click,
-// keyboard up/down/accept, Backspace) to whichever focusable node it lands on, tells Lua which action
-// fired, exposes the focused id (so Lua widgets style themselves), reads back a result verb, and
-// draws via the SDL3_gpu UI path. It has NO knowledge of "continue"/dialogs/saves — those are Lua.
-//
-// The only menu↔engine contract is the result VERB the menu's Lua hands back via ui.exit, mapped to a
-// boot action here. Returns ok=false on init failure so the caller falls back to the imgui boot menu.
+// The Lua main-menu session: mounts the menu's VFS, builds the live font atlas, opens the UI VM on
+// main_menu.lua, and pumps the substrate's per-frame protocol (ui.frame → layout → ui.route_input →
+// ui.dispatch → draw) until Lua hands back a result verb or the window closes. The menu is a pure
+// function of the active profile — the pre-world loop (preworld.odin) re-runs this after the mod
+// manager, so a profile switch/apply is reflected on return. Screen structure + behavior live
+// entirely in Lua; the only menu↔engine contract is the result VERB (ui.exit) mapped to a boot
+// action here. Returns ok=false on init failure so the caller falls back to the imgui boot menu.
 
 import "core:strings"
 import "core:time"
+import sdl "vendor:sdl3"
 import "../font"
 import "../mods"
 import "../platform"
@@ -33,7 +33,7 @@ run_lua_main_menu :: proc(
 	action: tools.Menu_Action,
 	ok: bool,
 ) {
-	if !ensure_ui_content(base) {
+	if !baseui_ensure(base) {
 		return .None, false
 	}
 	// The menu's own VFS (mods > vanilla Data > vanilla BSAs > mod BSAs): every UI asset — font,
@@ -41,9 +41,9 @@ run_lua_main_menu :: proc(
 	// headers); rebuilt each menu entry, so changes from the mod manager are reflected.
 	v := mount_game_mods(src, base, profile)
 	defer vfs.destroy(&v)
-	ui_content_extract_assets(&v, base) // install-time: convert SWF-embedded UI assets → DDS in bethassets
+	baseui_extract_assets(&v, base) // install-time: convert SWF-embedded UI assets → DDS in bethassets
 
-	atlas, aok := ui_content_build_atlas(&v)
+	atlas, aok := baseui_build_atlas(&v)
 	if !aok {
 		return .None, false
 	}
@@ -51,12 +51,17 @@ run_lua_main_menu :: proc(
 	ui.set_font(&atlas)
 	defer ui.set_font(nil)
 
-	lua_root := ui_lua_root(base, context.temp_allocator)
-	vm: UI_VM
-	if !ui_vm_open(&vm, base, &v, lua_root, "main_menu.lua") {
+	lua_root := baseui_lua_root(base, context.temp_allocator)
+	host := UI_Host {
+		base = base,
+		vf   = &v,
+	}
+	defer ui_host_destroy(&host)
+	vm: ui.VM
+	if !ui.open(&vm, lua_root, "main_menu.lua", &host, install_engine_api) {
 		return .None, false
 	}
-	defer ui_vm_destroy(&vm)
+	defer ui.close(&vm)
 
 	ren := ui_render_init(r, &atlas, &v)
 	defer ui_render_destroy(&ren)
@@ -68,7 +73,7 @@ run_lua_main_menu :: proc(
 	// read it once up front so a disabled logo isn't parsed/uploaded at all (only wire in the load when
 	// the menu actually wants it; re-enabling is a Lua flag flip + this load kicks in).
 	logo_cfg := menu_logo_cfg_default() // baked camera/light look; enabled/pos/scale come from Lua each frame
-	ui_vm_get_logo(&vm, &logo_cfg.enabled, &logo_cfg.pos, &logo_cfg.scale, &logo_cfg.ambient, &logo_cfg.lift)
+	menu_logo_read_lua(&vm, &logo_cfg)
 	logo: Menu_Logo
 	logo_ok := false
 	if logo_cfg.enabled {
@@ -98,10 +103,10 @@ run_lua_main_menu :: proc(
 		click := p.input.select
 
 		// 1. Lua builds the tree (with last frame's focus + clock + viewport so widgets can style/animate).
-		ui_vm_set_time(&vm, time.duration_seconds(time.tick_since(start)))
-		ui_vm_set_viewport(&vm, w, h)
-		ui_vm_set_focus(&vm, focus_id)
-		tree, tok := ui_vm_frame(&vm)
+		ui.set_time(&vm, time.duration_seconds(time.tick_since(start)))
+		ui.set_viewport(&vm, w, h)
+		ui.set_focus(&vm, focus_id)
+		tree, tok := ui.frame(&vm)
 		if !tok {
 			if render.begin_frame(r, MENU_CLEAR) {render.end_frame(r)} // balance imgui, then bail
 			return .None, false // broken UI → fall back to imgui
@@ -117,7 +122,7 @@ run_lua_main_menu :: proc(
 		// 3. Route input → the activated action + the focus for next frame. Both BORROW the tree, so
 		//    clone the focus into our owned buffer now and dispatch the action (step 5) before the
 		//    tree is destroyed below.
-		activated, new_focus := route_input(focusables[:], focus_id, nav, mx, my, click)
+		activated, new_focus := ui.route_input(focusables[:], focus_id, nav, mx, my, click)
 		set_focus_owned(&focus_id, new_focus)
 
 		// 4. Draw THIS frame's tree.
@@ -128,10 +133,10 @@ run_lua_main_menu :: proc(
 		// 5. Apply the activation while the tree `activated` borrows is still alive (state change shows
 		//    next frame), THEN destroy the tree.
 		if nav.back {
-			ui_vm_back(&vm)
+			ui.back(&vm)
 		}
-		ui_vm_dispatch(&vm, activated)
-		verb, rok := ui_vm_take_result(&vm)
+		ui.dispatch(&vm, activated)
+		verb, rok := ui.take_result(&vm)
 
 		ui.destroy(&tree)
 		delete(focusables)
@@ -140,7 +145,7 @@ run_lua_main_menu :: proc(
 		//    logo draws into the scene pass; the UI composites over it in end_frame. The menu Lua owns
 		//    enabled/pos/scale (ui.menu_logo) so a mod can disable or move it; lighting is set BEFORE
 		//    begin_frame (scene_begin pushes it) so the flat-fullbright env covers the logo.
-		ui_vm_get_logo(&vm, &logo_cfg.enabled, &logo_cfg.pos, &logo_cfg.scale, &logo_cfg.ambient, &logo_cfg.lift)
+		menu_logo_read_lua(&vm, &logo_cfg)
 		if logo_ok {
 			render.set_lighting(r, menu_logo_light(&logo_cfg))
 			render.set_post(r, menu_logo_post()) // flat tonemap so the fullbright ambient isn't rolled off
@@ -190,52 +195,6 @@ menu_mouse_px :: proc(p: ^platform.Platform, w, h: f32) -> (f32, f32) {
 	return (ndc.x + 1) * 0.5 * w, (1 - ndc.y) * 0.5 * h
 }
 
-// route_input is the generic focus model: mouse hover sets focus; arrows/W-S step over enabled
-// focusables; click activates the hovered item; accept activates the focused one. Returns the
-// activated action ("" if none) and the (id-based) focus for next frame. BOTH strings borrow `fs`
-// (and thus the tree) — the caller must consume them before destroying the tree.
-@(private = "file")
-route_input :: proc(
-	fs: []ui.Focusable,
-	cur_focus: string,
-	nav: Menu_Nav,
-	mx, my: f32,
-	click: bool,
-) -> (activated: string, focus: string) {
-	if len(fs) == 0 {
-		return "", ""
-	}
-	cur := index_of_id(fs, cur_focus)
-
-	hovered := -1
-	for f, i in fs {
-		if !f.disabled && ui.contains(f.rect, mx, my) {
-			hovered = i
-		}
-	}
-	if hovered >= 0 {
-		cur = hovered
-	}
-	if nav.up {
-		cur = step_enabled(fs, cur, -1)
-	}
-	if nav.down {
-		cur = step_enabled(fs, cur, +1)
-	}
-	if cur < 0 || cur >= len(fs) || fs[cur].disabled {
-		cur = first_enabled(fs)
-	}
-	focus = fs[cur].id if cur >= 0 else ""
-
-	if click && hovered >= 0 {
-		return fs[hovered].action, focus
-	}
-	if nav.accept && cur >= 0 && !fs[cur].disabled {
-		return fs[cur].action, focus
-	}
-	return "", focus
-}
-
 // set_focus_owned replaces the owned focus id with a clone of `src` (which borrows the per-frame
 // tree). Skips the realloc when the content is unchanged — the common case frame to frame — so the
 // owned buffer stays valid and stable. `dst` starts as the empty string (nil data); delete is safe.
@@ -248,42 +207,44 @@ set_focus_owned :: proc(dst: ^string, src: string) {
 	dst^ = strings.clone(src)
 }
 
-@(private = "file")
-index_of_id :: proc(fs: []ui.Focusable, id: string) -> int {
-	if id == "" {
-		return -1
-	}
-	for f, i in fs {
-		if f.id == id {
-			return i
-		}
-	}
-	return -1
-}
-
-// step_enabled moves `dir` from `cur` (wrapping), skipping disabled focusables.
-@(private = "file")
-step_enabled :: proc(fs: []ui.Focusable, cur, dir: int) -> int {
-	n := len(fs)
-	if n == 0 {
-		return -1
-	}
-	i := cur if cur >= 0 else (0 if dir > 0 else n - 1)
-	for _ in 0 ..< n {
-		i = (i + dir + n) % n
-		if !fs[i].disabled {
-			return i
-		}
-	}
-	return cur
-}
+// ── keyboard navigation (raw SDL events → the substrate's edge-triggered ui.Nav intent) ─────────
+//
+// The platform calls one Event_Hook per raw SDL event; this hook forwards to imgui (so the dev
+// overlay keeps working) and records edge-triggered nav keys (down on this pump, not held), which
+// the menu loop drains each frame with menu_nav_take. Mouse position + left-click come from
+// platform's Input snapshot, so only the keyboard lives here.
+//
+// Note: platform.pump treats Esc as quit (returns false), so the menu uses Backspace for "back".
 
 @(private = "file")
-first_enabled :: proc(fs: []ui.Focusable) -> int {
-	for f, i in fs {
-		if !f.disabled {
-			return i
+g_nav: ui.Nav
+
+// menu_event_hook is wired as platform.on_event while the Lua menu runs. Forwards to imgui + records
+// nav-key edges. Held repeats are ignored so one keypress moves the cursor one step.
+menu_event_hook :: proc(ev: ^sdl.Event) {
+	render.ui_process_event(ev)
+	#partial switch ev.type {
+	case .KEY_DOWN:
+		if ev.key.repeat {
+			return
+		}
+		#partial switch ev.key.scancode {
+		case .UP, .W:
+			g_nav.up = true
+		case .DOWN, .S:
+			g_nav.down = true
+		case .RETURN, .KP_ENTER, .SPACE:
+			g_nav.accept = true
+		case .BACKSPACE:
+			g_nav.back = true
 		}
 	}
-	return -1
+}
+
+// menu_nav_take returns the nav intent accumulated since the last call and clears it.
+@(private = "file")
+menu_nav_take :: proc() -> ui.Nav {
+	v := g_nav
+	g_nav = {}
+	return v
 }
