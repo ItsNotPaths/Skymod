@@ -133,28 +133,45 @@ is_declared :: proc(reg: ^Registry, class, fn: string) -> bool {
 // are never on a ref. Package-level (not a literal) so the returned slice is stable.
 REF_CLASS_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 
-// Per-kind chains for Form-SUBTYPE handles: a Quest/GlobalVariable/Faction form
-// resolves methods up its own class then Form (Papyrus's hierarchy). These plus the
-// gamedb form→kind map replace the fixed chain with a per-form one (the record-decoder
-// upgrade the naive chain was a placeholder for).
-QUEST_CLASS_CHAIN := []string{"Quest", "Form"}
-GLOBAL_CLASS_CHAIN := []string{"GlobalVariable", "Form"}
-FACTION_CLASS_CHAIN := []string{"Faction", "Form"}
+// KIND_CHAIN is the method-resolution order for each Form-SUBTYPE handle: a Quest/GlobalVariable/
+// Weapon/… form resolves methods up its own class then Form (Papyrus's hierarchy). The class name
+// comes from gamedb.class_name (the single source of truth). Package-level so class_chain returns a
+// stable slice. .Unknown's entry is unused (class_chain routes it to REF_CLASS_CHAIN). Together with
+// the gamedb form→kind map this replaces the fixed chain with a per-form one (the record decoder).
+KIND_CHAIN := [gamedb.Form_Kind][2]string {
+	.Unknown     = {"ObjectReference", "Form"}, // unused — Unknown uses REF_CLASS_CHAIN
+	.Quest       = {gamedb.class_name(.Quest), "Form"},
+	.Global      = {gamedb.class_name(.Global), "Form"},
+	.Faction     = {gamedb.class_name(.Faction), "Form"},
+	.ActorBase   = {gamedb.class_name(.ActorBase), "Form"},
+	.Weapon      = {gamedb.class_name(.Weapon), "Form"},
+	.Potion      = {gamedb.class_name(.Potion), "Form"},
+	.Ingredient  = {gamedb.class_name(.Ingredient), "Form"},
+	.Scroll      = {gamedb.class_name(.Scroll), "Form"},
+	.Spell       = {gamedb.class_name(.Spell), "Form"},
+	.Enchantment = {gamedb.class_name(.Enchantment), "Form"},
+	.Keyword     = {gamedb.class_name(.Keyword), "Form"},
+	.FormList    = {gamedb.class_name(.FormList), "Form"},
+	.MagicEffect = {gamedb.class_name(.MagicEffect), "Form"},
+	.Location    = {gamedb.class_name(.Location), "Form"},
+	.Weather     = {gamedb.class_name(.Weather), "Form"},
+	.Cell_       = {gamedb.class_name(.Cell_), "Form"},
+}
 
 // class_chain picks the method-resolution order for a form's kind. Unknown (object
 // refs / unclassified) keeps the naive object-ref chain, preserving prior behaviour.
 class_chain :: proc(kind: gamedb.Form_Kind) -> []string {
-	switch kind {
-	case .Quest:
-		return QUEST_CLASS_CHAIN
-	case .Global:
-		return GLOBAL_CLASS_CHAIN
-	case .Faction:
-		return FACTION_CLASS_CHAIN
-	case .Unknown:
+	if kind == .Unknown {
 		return REF_CLASS_CHAIN
 	}
-	return REF_CLASS_CHAIN
+	return KIND_CHAIN[kind][:]
+}
+
+// class_display is a form kind's `__tostring` class: the ref's nominal class ("ObjectReference"
+// for Unknown / object refs), else its most-derived class. Distinct from class_chain[0], which is
+// "Actor" for Unknown (the dispatch chain), not what a bare object ref should print as.
+class_display :: proc(kind: gamedb.Form_Kind) -> string {
+	return gamedb.class_name(kind)
 }
 
 // method_class resolves which class in a form's chain owns `fn`. `kind` selects the

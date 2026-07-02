@@ -897,14 +897,103 @@ test_gamedb_form_kinds :: proc(t: ^testing.T) {
 	add_top_record(&out, "QUST", 0x0000_00C0)
 	add_top_record(&out, "GLOB", 0x0000_00C1)
 	add_top_record(&out, "FACT", 0x0000_00C2)
+	// base-object / form-subtype records → their Papyrus base class (chain {Class, Form}).
+	add_top_record(&out, "NPC_", 0x0000_00D0)
+	add_top_record(&out, "WEAP", 0x0000_00D1)
+	add_top_record(&out, "ALCH", 0x0000_00D2)
+	add_top_record(&out, "KYWD", 0x0000_00D3)
 
 	db := gamedb.build(out[:])
 	defer gamedb.destroy(&db)
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C0), gamedb.Form_Kind.Quest)
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C1), gamedb.Form_Kind.Global)
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C2), gamedb.Form_Kind.Faction)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D0), gamedb.Form_Kind.ActorBase)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D1), gamedb.Form_Kind.Weapon)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D2), gamedb.Form_Kind.Potion)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D3), gamedb.Form_Kind.Keyword)
+	testing.expect_value(t, gamedb.class_name(gamedb.Form_Kind.Weapon), "Weapon")
+	testing.expect_value(t, gamedb.class_name(gamedb.Form_Kind.Unknown), "ObjectReference")
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00FF), gamedb.Form_Kind.Unknown) // a REFR/base id
 	testing.expect_value(t, gamedb.form_kind(nil, 0x0000_00C0), gamedb.Form_Kind.Unknown) // nil DB safe
+}
+
+// Item value/weight decode (4a item 2): each carriable base-form's DATA/ENIT layout — WEAP/ARMO/…
+// {value@0, weight@4}; BOOK {value@8, weight@12}; AMMO {value@12, weightless}; ALCH {weight in
+// DATA, value in ENIT}. Also: a placed REFR resolves its base's value/weight, and a non-item is
+// value-less. Byte layouts validated against the real Skyrim.esm via `esmdump --items`.
+@(test)
+test_gamedb_item_value_weight :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// WEAP 0x100: DATA[10] value 25 @0, weight 9.0 @4, damage @8.
+	weap := make([dynamic]u8, 0, 32);defer delete(weap)
+	wd: [10]u8;put_u32(wd[:], 0, 25);put_f32(wd[:], 4, 9.0)
+	field(&weap, "DATA", wd[:])
+	// BOOK 0x101: DATA[16] value 730 @8, weight 1.0 @12 (flags/type/teaches precede).
+	book := make([dynamic]u8, 0, 32);defer delete(book)
+	bd: [16]u8;put_u32(bd[:], 8, 730);put_f32(bd[:], 12, 1.0)
+	field(&book, "DATA", bd[:])
+	// AMMO 0x102: DATA[16] value 5 @12, no weight.
+	ammo := make([dynamic]u8, 0, 32);defer delete(ammo)
+	ad: [16]u8;put_u32(ad[:], 12, 5)
+	field(&ammo, "DATA", ad[:])
+	// ALCH 0x103: weight 0.5 in DATA, value 10 in ENIT[0].
+	alch := make([dynamic]u8, 0, 32);defer delete(alch)
+	dd: [4]u8;put_f32(dd[:], 0, 0.5);field(&alch, "DATA", dd[:])
+	ed: [20]u8;put_u32(ed[:], 0, 10);field(&alch, "ENIT", ed[:])
+
+	// A cell with a REFR (0x200) whose base is the WEAP — for ref→base value resolution.
+	cell_body := make([dynamic]u8, 0, 16);defer delete(cell_body)
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+	refr := make([dynamic]u8, 0, 32);defer delete(refr)
+	field(&refr, "NAME", u32_bytes(0x0000_0100)) // base = the WEAP
+	rdata: [24]u8;field(&refr, "DATA", rdata[:])
+	cc := make([dynamic]u8, 0, 48);defer delete(cc)
+	record(&cc, "REFR", 0, 0x0000_0200, refr[:])
+	cc_grup := make([dynamic]u8, 0, 64);defer delete(cc_grup)
+	group(&cc_grup, u32_bytes(0x0000_00AA), 6, cc[:])
+	cell_grp := make([dynamic]u8, 0, 96);defer delete(cell_grp)
+	record(&cell_grp, "CELL", 0, 0x0000_00AA, cell_body[:])
+	append(&cell_grp, ..cc_grup[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	item_grp :: proc(out: ^[dynamic]u8, sig: string, formid: u32, body: []u8) {
+		c := make([dynamic]u8, 0, 64);defer delete(c)
+		record(&c, sig, 0, formid, body)
+		group(out, transmute([]u8)sig, 0, c[:])
+	}
+	item_grp(&out, "WEAP", 0x0000_0100, weap[:])
+	item_grp(&out, "BOOK", 0x0000_0101, book[:])
+	item_grp(&out, "AMMO", 0x0000_0102, ammo[:])
+	item_grp(&out, "ALCH", 0x0000_0103, alch[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	expect_vw :: proc(t: ^testing.T, db: ^gamedb.DB, form: gamedb.Form_ID, ev: i32, ew: f32) {
+		v, vok := gamedb.value_of(db, form)
+		w, wok := gamedb.weight_of(db, form)
+		testing.expect(t, vok && wok, "value/weight present")
+		testing.expect_value(t, v, ev)
+		testing.expect_value(t, w, ew)
+	}
+	expect_vw(t, &db, 0x0000_0100, 25, 9.0)  // WEAP
+	expect_vw(t, &db, 0x0000_0101, 730, 1.0) // BOOK (offset-8 value)
+	expect_vw(t, &db, 0x0000_0102, 5, 0.0)   // AMMO (weightless)
+	expect_vw(t, &db, 0x0000_0103, 10, 0.5)  // ALCH (value from ENIT)
+	// Classification still applies to item bases now that they also hit is_base_type.
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_0100), gamedb.Form_Kind.Weapon)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_0103), gamedb.Form_Kind.Potion)
+	// A placed REFR resolves its base's value/weight.
+	expect_vw(t, &db, 0x0000_0200, 25, 9.0)
+	// A non-item form has no value/weight.
+	_, vok := gamedb.value_of(&db, 0x0000_00AA) // the CELL
+	testing.expect(t, !vok, "cell is not a valued item")
 }
 
 // add_top_record appends a top-level GRUP (label = the 4-char sig) holding one empty record of that

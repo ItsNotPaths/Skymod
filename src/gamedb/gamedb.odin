@@ -49,11 +49,31 @@ REFR_DELETED :: 0x0000_0020
 // specially are tracked — everything else stays Unknown and falls back to the object-reference /
 // Form default chain, matching the naive pre-decoder behaviour. This is the first slice of the
 // form→class decoder (docs: record-decoders); it grows as more base-form classes get natives.
+//
+// The base-object kinds classify a BASE form by its record signature — a bare weapon/NPC/potion
+// handle dispatches up its own Papyrus base class (chain {Class, Form}) and prints as that class.
+// Placed references (REFR/ACHR) are NOT classified here: they keep the Unknown object-ref chain,
+// so a placed weapon stays an ObjectReference while its base form is a Weapon (the ref-vs-base
+// split). Only records whose class carries declared natives are tracked — see base_class.
 Form_Kind :: enum u8 {
 	Unknown, // object ref or anything not specially classified → default chain
 	Quest,   // QUST
 	Global,  // GLOB
 	Faction, // FACT
+	// base-object / form-subtype classes (chain {Class, Form})
+	ActorBase,   // NPC_
+	Weapon,      // WEAP
+	Potion,      // ALCH
+	Ingredient,  // INGR
+	Scroll,      // SCRL
+	Spell,       // SPEL
+	Enchantment, // ENCH
+	Keyword,     // KYWD
+	FormList,    // FLST
+	MagicEffect, // MGEF
+	Location,    // LCTN
+	Weather,     // WTHR
+	Cell_,       // CELL (trailing _ : `Cell` is the record struct above)
 }
 
 // Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
@@ -88,6 +108,8 @@ DB :: struct {
 	names:         map[Form_ID]string, // base/ref formID -> display name (owned; FULL, localized or inline)
 	base_lod:      map[Form_ID][esm.LOD_MODELS]string, // base formID -> MNAM distant-LOD meshes (owned; "" = absent)
 	base_radius:   map[Form_ID]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
+	base_value:    map[Form_ID]i32, // base formID -> gold value (carriable items; absent = not a valued item)
+	base_weight:   map[Form_ID]f32, // base formID -> weight (carriable items; absent = not a valued item)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
@@ -136,15 +158,106 @@ Grid_Key :: struct {
 	gx, gy: i32,
 }
 
-// base-form record types that carry a MODL mesh — the static-world subset an
-// interior is built from (architecture, furniture, clutter, doors, lights).
+// base-form record types indexed for their MODL mesh (and, for carriable items, value/weight).
+// The first row is the static-world subset an interior is built from (architecture, furniture,
+// clutter, doors, lights); the second row is carriable item base-forms — they render as world
+// models when placed AND identify (FULL name + value + weight, see item_value_weight).
 @(private)
 is_base_type :: proc(s: string) -> bool {
 	switch s {
-	case "STAT", "MSTT", "FURN", "DOOR", "ACTI", "CONT", "FLOR", "TREE", "LIGT", "MISC":
+	case "STAT", "MSTT", "FURN", "DOOR", "ACTI", "CONT", "FLOR", "TREE", "LIGH", "MISC":
+		return true
+	case "WEAP", "ARMO", "ALCH", "INGR", "BOOK", "KEYM", "AMMO", "SLGM":
 		return true
 	}
 	return false
+}
+
+// base_class maps a record signature to the Papyrus class its forms dispatch as (chain {Class,
+// Form}). The single source of form→kind truth: visit() classifies off this for EVERY signature,
+// independent of what else it indexes off the record (a WEAP is both an indexed base mesh and a
+// Weapon handle). Only signatures whose class carries declared natives are listed — everything
+// else stays Unknown (object-ref chain).
+@(private)
+base_class :: proc(s: string) -> (Form_Kind, bool) {
+	switch s {
+	case "QUST":
+		return .Quest, true
+	case "GLOB":
+		return .Global, true
+	case "FACT":
+		return .Faction, true
+	case "CELL":
+		return .Cell_, true
+	case "NPC_":
+		return .ActorBase, true
+	case "WEAP":
+		return .Weapon, true
+	case "ALCH":
+		return .Potion, true
+	case "INGR":
+		return .Ingredient, true
+	case "SCRL":
+		return .Scroll, true
+	case "SPEL":
+		return .Spell, true
+	case "ENCH":
+		return .Enchantment, true
+	case "KYWD":
+		return .Keyword, true
+	case "FLST":
+		return .FormList, true
+	case "MGEF":
+		return .MagicEffect, true
+	case "LCTN":
+		return .Location, true
+	case "WTHR":
+		return .Weather, true
+	}
+	return .Unknown, false
+}
+
+// class_name is the display / most-derived Papyrus class for a form kind — used by a ref's
+// `__tostring` and as the class a typed handle dispatches up first. Unknown (object refs /
+// unclassified) reads "ObjectReference", the ref's nominal class.
+class_name :: proc "contextless" (kind: Form_Kind) -> string {
+	switch kind {
+	case .Unknown:
+		return "ObjectReference"
+	case .Quest:
+		return "Quest"
+	case .Global:
+		return "GlobalVariable"
+	case .Faction:
+		return "Faction"
+	case .ActorBase:
+		return "ActorBase"
+	case .Weapon:
+		return "Weapon"
+	case .Potion:
+		return "Potion"
+	case .Ingredient:
+		return "Ingredient"
+	case .Scroll:
+		return "Scroll"
+	case .Spell:
+		return "Spell"
+	case .Enchantment:
+		return "Enchantment"
+	case .Keyword:
+		return "Keyword"
+	case .FormList:
+		return "FormList"
+	case .MagicEffect:
+		return "MagicEffect"
+	case .Location:
+		return "Location"
+	case .Weather:
+		return "Weather"
+	case .Cell_:
+		return "Cell"
+	}
+	return "ObjectReference"
 }
 
 // build walks a single plugin's bytes and returns the indexed DB — the convenience for a
@@ -166,6 +279,8 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		names         = make(map[Form_ID]string, 8192, allocator),
 		base_lod      = make(map[Form_ID][esm.LOD_MODELS]string, 2048, allocator),
 		base_radius   = make(map[Form_ID]f32, 4096, allocator),
+		base_value    = make(map[Form_ID]i32, 4096, allocator),
+		base_weight   = make(map[Form_ID]f32, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
 		cells         = make(map[Form_ID]Cell, 1024, allocator),
@@ -250,6 +365,8 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.names)
 	delete(db.base_radius)
+	delete(db.base_value)
+	delete(db.base_weight)
 	delete(db.doors)
 	delete(db.trees)
 	for _, c in db.cells {
@@ -487,6 +604,35 @@ name_of :: proc(db: ^DB, form: Form_ID) -> string {
 	return ""
 }
 
+// value_of resolves a form's gold value, following ref → base (a placed item ref inherits its
+// base form's value; a base formID works directly). ok=false when the form isn't a valued item
+// (statics, actors, or a ref whose base isn't indexed). See item_value_weight for the decode.
+value_of :: proc(db: ^DB, form: Form_ID) -> (i32, bool) {
+	if v, ok := db.base_value[form]; ok {
+		return v, true
+	}
+	if r, ok := db.ref_by_id[form]; ok {
+		if v, vok := db.base_value[r.base]; vok {
+			return v, true
+		}
+	}
+	return 0, false
+}
+
+// weight_of resolves a form's weight, following ref → base (same resolution as value_of).
+// ok=false when the form isn't a valued/carriable item.
+weight_of :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
+	if w, ok := db.base_weight[form]; ok {
+		return w, true
+	}
+	if r, ok := db.ref_by_id[form]; ok {
+		if w, wok := db.base_weight[r.base]; wok {
+			return w, true
+		}
+	}
+	return 0, false
+}
+
 // ref_effective_disabled reports whether a placed ref is disabled in the STATIC default
 // state — its own "Initially Disabled" flag, OR (via XESP) its enable parent gating it off.
 // A ref with an enable parent is enabled iff the parent is enabled, XOR the "opposite" flag;
@@ -514,6 +660,13 @@ ref_effective_disabled :: proc(db: ^DB, r: Ref) -> bool {
 visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	db := (^DB)(user)
 	s := esm.sig(rec)
+
+	// Classify the form's Papyrus class off its signature, independent of what else we index off
+	// the record (a WEAP is both an indexed base mesh AND a Weapon handle). Last write wins on
+	// override. Absent from base_class → stays Unknown (object-ref / unclassified).
+	if k, ok := base_class(s); ok {
+		db.form_kinds[rec.form_id] = k
+	}
 
 	switch {
 	case s == "WRLD":
@@ -549,12 +702,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "GRAS":
 		index_gras(db, rec)
 	case s == "QUST":
-		db.form_kinds[rec.form_id] = .Quest // form→class for script dispatch (last write wins on override)
 		index_quest(db, rec)
-	case s == "GLOB":
-		db.form_kinds[rec.form_id] = .Global
-	case s == "FACT":
-		db.form_kinds[rec.form_id] = .Faction
 	case is_base_type(s):
 		index_base(db, rec)
 	}
@@ -981,6 +1129,11 @@ index_base :: proc(db: ^DB, rec: esm.Record) {
 	}
 	if radius, ok := esm.object_bounds(fl); ok {
 		db.base_radius[rec.form_id] = radius
+	}
+	// Carriable items (WEAP/ARMO/ALCH/…) carry a gold value + weight; static-world types don't.
+	if value, weight, ok := esm.item_value_weight(rec.type, fl); ok {
+		db.base_value[rec.form_id] = value
+		db.base_weight[rec.form_id] = weight
 	}
 	if rec.type == "DOOR" {
 		db.doors[rec.form_id] = true // door-panel base (open-interiors portal cull)

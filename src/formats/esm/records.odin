@@ -130,6 +130,37 @@ object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
 	return 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz), true
 }
 
+// item_value_weight decodes a base item's gold value + weight. The byte layout is per record
+// type (each offset validated against the real Skyrim.esm): the common carriable items store an
+// {value:u32, weight:f32} pair at DATA[0..8]; BOOK puts value/weight at DATA[8..16] (after its
+// flags/type/teaches header); AMMO keeps value at DATA[12] and has NO weight (arrows are
+// weightless); ALCH (potions/food) stores weight alone in DATA and its value in ENIT[0]. ok=false
+// when the type isn't a valued item, or the field is missing/too short.
+item_value_weight :: proc(rec_type: string, fields: []Field) -> (value: i32, weight: f32, ok: bool) {
+	switch rec_type {
+	case "WEAP", "ARMO", "INGR", "KEYM", "SLGM", "MISC":
+		if f, fok := find_field(fields, "DATA"); fok && len(f.data) >= 8 {
+			return i32(rd32(f.data, 0)), rf32(f.data, 4), true
+		}
+	case "BOOK":
+		if f, fok := find_field(fields, "DATA"); fok && len(f.data) >= 16 {
+			return i32(rd32(f.data, 8)), rf32(f.data, 12), true
+		}
+	case "AMMO":
+		if f, fok := find_field(fields, "DATA"); fok && len(f.data) >= 16 {
+			return i32(rd32(f.data, 12)), 0, true // ammo is weightless in Skyrim
+		}
+	case "ALCH":
+		// weight is a lone f32 in DATA; value lives in ENIT (first u32). Need both fields.
+		f, fok := find_field(fields, "DATA")
+		e, eok := find_field(fields, "ENIT")
+		if fok && len(f.data) >= 4 && eok && len(e.data) >= 4 {
+			return i32(rd32(e.data, 0)), rf32(f.data, 0), true
+		}
+	}
+	return 0, 0, false
+}
+
 // cell_is_interior reports whether a CELL's DATA flags mark it interior.
 cell_is_interior :: proc(fields: []Field) -> bool {
 	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 1 {

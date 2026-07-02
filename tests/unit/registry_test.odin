@@ -319,6 +319,12 @@ test_method_class_dispatch :: proc(t: ^testing.T) {
 	// GlobalVariable.GetValue would miss the object-ref chain; resolves under .Global.
 	cg, okg := script.method_class(&reg, "GetValue", .Global)
 	testing.expect(t, okg && cg == "GlobalVariable", "GetValue -> GlobalVariable")
+	// A base-object handle (a WEAP form) dispatches up its own class: ActorBase.GetSex is invisible
+	// to the object-ref chain but resolves under .ActorBase; the display class is the class itself.
+	cn, okn := script.method_class(&reg, "GetSex", .ActorBase)
+	testing.expect(t, okn && cn == "ActorBase", "GetSex -> ActorBase")
+	testing.expect_value(t, script.class_display(.Weapon), "Weapon")
+	testing.expect_value(t, script.class_display(.Unknown), "ObjectReference") // object refs, not "Actor"
 	// Default (Unknown / object-ref) chain unchanged: Disable -> ObjectReference.
 	cd, _ := script.method_class(&reg, "Disable")
 	testing.expect_value(t, cd, "ObjectReference")
