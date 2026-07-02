@@ -87,7 +87,7 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	}
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data)}
 		delete(inputs)
 	}
 	for name in names {read_plugin_into(&inputs, data_dir, name)}
@@ -269,7 +269,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data)}
 		delete(inputs)
 	}
 
@@ -512,7 +512,19 @@ read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, dir, fname: stri
 	sname := strings.concatenate({stem, "_English.STRINGS"}, context.temp_allocator)
 	spath, _ := filepath.join({dir, "Strings", sname}, context.temp_allocator)
 	sbytes, _ := os.read_entire_file(spath, context.allocator) // nil on absence (localized DLC-in-BSA, or non-localized)
-	append(inputs, gamedb.Plugin_Input{name = strings.clone(fname), data = bytes, strings_data = sbytes})
+	// Sibling long-text table (Data/Strings/<Plugin>_<Lang>.DLSTRINGS): quest-log CNAM + book DESC.
+	dlname := strings.concatenate({stem, "_English.DLSTRINGS"}, context.temp_allocator)
+	dlpath, _ := filepath.join({dir, "Strings", dlname}, context.temp_allocator)
+	dlbytes, _ := os.read_entire_file(dlpath, context.allocator) // nil on absence
+	append(
+		inputs,
+		gamedb.Plugin_Input {
+			name = strings.clone(fname),
+			data = bytes,
+			strings_data = sbytes,
+			dlstrings_data = dlbytes,
+		},
+	)
 }
 
 // files_with_suffix lists files in `dir` whose lower-cased name ends with any of `suffixes`. Names

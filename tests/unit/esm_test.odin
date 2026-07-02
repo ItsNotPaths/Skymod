@@ -996,6 +996,308 @@ test_gamedb_item_value_weight :: proc(t: ^testing.T) {
 	testing.expect(t, !vok, "cell is not a valued item")
 }
 
+// CONT inventory decode (4a item 4): a container's CNTO entries {item formID, count} index into a
+// baseline inventory, item formIDs remapped to global space; a placed REFR resolves its base CONT's
+// contents; a non-container has none. Validated against the real game via `esmdump --contents`.
+@(test)
+test_gamedb_container_contents :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// CONT 0x300: MODL + two CNTO entries — 5x item 0x100, 1x item 0x101.
+	cont := make([dynamic]u8, 0, 48);defer delete(cont)
+	field(&cont, "MODL", transmute([]u8)string("chest.nif\x00"))
+	c0: [8]u8;put_u32(c0[:], 0, 0x0000_0100);put_u32(c0[:], 4, 5)
+	field(&cont, "CNTO", c0[:])
+	c1: [8]u8;put_u32(c1[:], 0, 0x0000_0101);put_u32(c1[:], 4, 1)
+	field(&cont, "CNTO", c1[:])
+	cont_grp := make([dynamic]u8, 0, 96);defer delete(cont_grp)
+	record(&cont_grp, "CONT", 0, 0x0000_0300, cont[:])
+
+	// A cell with a REFR (0x400) whose base is the CONT — for ref→base contents resolution.
+	cell_body := make([dynamic]u8, 0, 16);defer delete(cell_body)
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+	refr := make([dynamic]u8, 0, 32);defer delete(refr)
+	field(&refr, "NAME", u32_bytes(0x0000_0300)) // base = the CONT
+	rdata: [24]u8;field(&refr, "DATA", rdata[:])
+	cc := make([dynamic]u8, 0, 48);defer delete(cc)
+	record(&cc, "REFR", 0, 0x0000_0400, refr[:])
+	cc_grup := make([dynamic]u8, 0, 64);defer delete(cc_grup)
+	group(&cc_grup, u32_bytes(0x0000_00AA), 6, cc[:])
+	cell_grp := make([dynamic]u8, 0, 96);defer delete(cell_grp)
+	record(&cell_grp, "CELL", 0, 0x0000_00AA, cell_body[:])
+	append(&cell_grp, ..cc_grup[:])
+
+	out := make([dynamic]u8, 0, 320);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("CONT"), 0, cont_grp[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	entries, ok := gamedb.contents_of(&db, 0x0000_0300)
+	testing.expect(t, ok, "CONT has contents")
+	testing.expect_value(t, len(entries), 2)
+	testing.expect_value(t, entries[0].item, gamedb.Form_ID(0x0000_0100))
+	testing.expect_value(t, entries[0].count, i32(5))
+	testing.expect_value(t, entries[1].item, gamedb.Form_ID(0x0000_0101))
+	testing.expect_value(t, entries[1].count, i32(1))
+	// A placed container REFR resolves its base's inventory.
+	rentries, rok := gamedb.contents_of(&db, 0x0000_0400)
+	testing.expect(t, rok && len(rentries) == 2, "REFR resolves base contents")
+	// A non-container form has none.
+	_, nok := gamedb.contents_of(&db, 0x0000_00AA) // the CELL
+	testing.expect(t, !nok, "cell has no contents")
+}
+
+// FLST form-list decode (4a): an FLST's ordered LNAM members index as a remapped Form_ID slice, in
+// declaration order; a non-list form has none. Validated against the real game via `esmdump --flst`.
+@(test)
+test_gamedb_form_list :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// FLST 0x500: three ordered members (order is significant, not sorted).
+	flst := make([dynamic]u8, 0, 48);defer delete(flst)
+	field(&flst, "EDID", transmute([]u8)string("TestVoiceTypes\x00"))
+	field(&flst, "LNAM", u32_bytes(0x0000_0202))
+	field(&flst, "LNAM", u32_bytes(0x0000_0200))
+	field(&flst, "LNAM", u32_bytes(0x0000_0201))
+	flst_grp := make([dynamic]u8, 0, 96);defer delete(flst_grp)
+	record(&flst_grp, "FLST", 0, 0x0000_0500, flst[:])
+
+	out := make([dynamic]u8, 0, 256);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("FLST"), 0, flst_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	members, ok := gamedb.form_list_of(&db, 0x0000_0500)
+	testing.expect(t, ok, "FLST has members")
+	testing.expect_value(t, len(members), 3)
+	// Order preserved verbatim (no sorting).
+	testing.expect_value(t, members[0], gamedb.Form_ID(0x0000_0202))
+	testing.expect_value(t, members[1], gamedb.Form_ID(0x0000_0200))
+	testing.expect_value(t, members[2], gamedb.Form_ID(0x0000_0201))
+	// A non-list form has none.
+	_, nok := gamedb.form_list_of(&db, 0x0000_0999)
+	testing.expect(t, !nok, "unknown form has no member list")
+}
+
+// LVLI leveled-list decode (4a, decode-only): LVLD chance-none + LVLF flags + each 12-byte LVLO
+// {level, form, count} with the form remapped; entry order preserved; no rolling. Validated against
+// the real game via `esmdump --lvli` (LVLO stride confirmed 12 bytes on LItemBlacksmithWeapon75).
+@(test)
+test_gamedb_leveled_list :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// LVLI 0x600: chance-none 25, flags 0x03, two 12-byte LVLO entries.
+	lvli := make([dynamic]u8, 0, 64);defer delete(lvli)
+	field(&lvli, "EDID", transmute([]u8)string("LItemTest\x00"))
+	field(&lvli, "LVLD", []u8{25})
+	field(&lvli, "LVLF", []u8{esm.LVLI_CALC_FROM_ALL_LEVELS | esm.LVLI_CALC_FOR_EACH})
+	field(&lvli, "LLCT", []u8{2})
+	// LVLO: level u16@0, pad u16@2, formID u32@4, count u16@8, pad u16@10.
+	e0: [12]u8;put_u16(e0[:], 0, 1);put_u32(e0[:], 4, 0x0000_0310);put_u16(e0[:], 8, 1)
+	field(&lvli, "LVLO", e0[:])
+	e1: [12]u8;put_u16(e1[:], 0, 10);put_u32(e1[:], 4, 0x0000_0311);put_u16(e1[:], 8, 3)
+	field(&lvli, "LVLO", e1[:])
+	lvli_grp := make([dynamic]u8, 0, 128);defer delete(lvli_grp)
+	record(&lvli_grp, "LVLI", 0, 0x0000_0600, lvli[:])
+
+	out := make([dynamic]u8, 0, 320);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("LVLI"), 0, lvli_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	ll, ok := gamedb.leveled_list_of(&db, 0x0000_0600)
+	testing.expect(t, ok, "LVLI decoded")
+	testing.expect_value(t, ll.chance_none, u8(25))
+	testing.expect_value(t, ll.flags, u8(0x03))
+	testing.expect_value(t, len(ll.entries), 2)
+	testing.expect_value(t, ll.entries[0].level, u16(1))
+	testing.expect_value(t, ll.entries[0].form, gamedb.Form_ID(0x0000_0310))
+	testing.expect_value(t, ll.entries[0].count, u16(1))
+	testing.expect_value(t, ll.entries[1].level, u16(10))
+	testing.expect_value(t, ll.entries[1].form, gamedb.Form_ID(0x0000_0311))
+	testing.expect_value(t, ll.entries[1].count, u16(3))
+	// A non-list form has none.
+	_, nok := gamedb.leveled_list_of(&db, 0x0000_0999)
+	testing.expect(t, !nok, "unknown form is not a leveled list")
+}
+
+// GLOB FLTV baseline decode (4a, Tier-3 gap): a global's FNAM type + FLTV value index into
+// global_values as f32; a non-global form has none. Validated against the real game via
+// `esmdump --glob` (GameHour 0x00000038 = 8.0).
+@(test)
+test_gamedb_global_value :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// GLOB 0x700: float type, value 8.0.
+	glob := make([dynamic]u8, 0, 32);defer delete(glob)
+	field(&glob, "EDID", transmute([]u8)string("TestGameHour\x00"))
+	field(&glob, "FNAM", []u8{'f'})
+	fltv: [4]u8;put_f32(fltv[:], 0, 8.0)
+	field(&glob, "FLTV", fltv[:])
+	glob_grp := make([dynamic]u8, 0, 64);defer delete(glob_grp)
+	record(&glob_grp, "GLOB", 0, 0x0000_0700, glob[:])
+
+	out := make([dynamic]u8, 0, 256);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("GLOB"), 0, glob_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	v, ok := gamedb.global_value(&db, 0x0000_0700)
+	testing.expect(t, ok, "GLOB baseline decoded")
+	testing.expect_value(t, v, f32(8.0))
+	// A non-global form has none.
+	_, nok := gamedb.global_value(&db, 0x0000_0999)
+	testing.expect(t, !nok, "unknown form has no global value")
+}
+
+// NPC_ base decode (4a item 5): ACBS stats + DNAM attributes/skills + linked race/class/voice/outfit
+// forms (remapped) + SPLO spells + PKID packages + CNTO inventory + FULL name. Validated against the
+// real Player 0x00000007 via `esmdump --npc` (flags 0x30, level 1, offsets 50/50/50, base 100s).
+@(test)
+test_gamedb_actor_base :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// NPC_ 0x800: a mini-player. ACBS (24B) + DNAM (42B) + links + 2 spells + 1 package + 2 items.
+	npc := make([dynamic]u8, 0, 128);defer delete(npc)
+	field(&npc, "EDID", transmute([]u8)string("TestActor\x00"))
+	acbs: [24]u8
+	put_u32(acbs[:], 0, esm.ACBS_ESSENTIAL | esm.ACBS_UNIQUE) // flags 0x22
+	put_u16(acbs[:], 4, 50) // magicka offset
+	put_u16(acbs[:], 6, 50) // stamina offset
+	put_u16(acbs[:], 8, 5) // level
+	put_u16(acbs[:], 10, 1) // calc min
+	put_u16(acbs[:], 12, 50) // calc max
+	put_u16(acbs[:], 14, 100) // speed mult
+	put_u16(acbs[:], 20, 50) // health offset
+	field(&npc, "ACBS", acbs[:])
+	dnam: [42]u8
+	dnam[0] = 20;dnam[1] = 25;dnam[2] = 15 // first three skill values
+	put_u16(dnam[:], 36, 120) // base health
+	put_u16(dnam[:], 38, 110) // base magicka
+	put_u16(dnam[:], 40, 90) // base stamina
+	field(&npc, "DNAM", dnam[:])
+	field(&npc, "RNAM", u32_bytes(0x0000_0900)) // race
+	field(&npc, "CNAM", u32_bytes(0x0000_0901)) // class
+	field(&npc, "VTCK", u32_bytes(0x0000_0902)) // voice
+	field(&npc, "DOFT", u32_bytes(0x0000_0903)) // outfit
+	field(&npc, "SPLO", u32_bytes(0x0000_0910))
+	field(&npc, "SPLO", u32_bytes(0x0000_0911))
+	field(&npc, "PKID", u32_bytes(0x0000_0920))
+	inv0: [8]u8;put_u32(inv0[:], 0, 0x0000_0930);put_u32(inv0[:], 4, 3)
+	field(&npc, "CNTO", inv0[:])
+	inv1: [8]u8;put_u32(inv1[:], 0, 0x0000_0931);put_u32(inv1[:], 4, 1)
+	field(&npc, "CNTO", inv1[:])
+	field(&npc, "FULL", transmute([]u8)string("Test Hero\x00")) // inline name (non-localized)
+	npc_grp := make([dynamic]u8, 0, 256);defer delete(npc_grp)
+	record(&npc_grp, "NPC_", 0, 0x0000_0800, npc[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("NPC_"), 0, npc_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	a, ok := gamedb.actor_base(&db, 0x0000_0800)
+	testing.expect(t, ok, "NPC_ decoded")
+	testing.expect_value(t, a.flags, u32(esm.ACBS_ESSENTIAL | esm.ACBS_UNIQUE))
+	testing.expect_value(t, a.level, u16(5))
+	testing.expect_value(t, a.calc_min, u16(1))
+	testing.expect_value(t, a.calc_max, u16(50))
+	testing.expect_value(t, a.speed_mult, u16(100))
+	testing.expect_value(t, a.health_off, u16(50))
+	testing.expect_value(t, a.magicka_off, u16(50))
+	testing.expect_value(t, a.stamina_off, u16(50))
+	testing.expect_value(t, a.base_health, u16(120))
+	testing.expect_value(t, a.base_magicka, u16(110))
+	testing.expect_value(t, a.base_stamina, u16(90))
+	testing.expect_value(t, a.skills[0], u8(20))
+	testing.expect_value(t, a.skills[1], u8(25))
+	testing.expect_value(t, a.race, gamedb.Form_ID(0x0000_0900))
+	testing.expect_value(t, a.class, gamedb.Form_ID(0x0000_0901))
+	testing.expect_value(t, a.voice, gamedb.Form_ID(0x0000_0902))
+	testing.expect_value(t, a.outfit, gamedb.Form_ID(0x0000_0903))
+	testing.expect_value(t, len(a.spells), 2)
+	testing.expect_value(t, a.spells[0], gamedb.Form_ID(0x0000_0910))
+	testing.expect_value(t, a.spells[1], gamedb.Form_ID(0x0000_0911))
+	testing.expect_value(t, len(a.packages), 1)
+	testing.expect_value(t, a.packages[0], gamedb.Form_ID(0x0000_0920))
+	testing.expect_value(t, len(a.inventory), 2)
+	testing.expect_value(t, a.inventory[0].item, gamedb.Form_ID(0x0000_0930))
+	testing.expect_value(t, a.inventory[0].count, i32(3))
+	// FULL name is indexed into db.names (NPC_ is not is_base_type — index_npc does it).
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0800), "Test Hero")
+	// A non-NPC form has no actor base.
+	_, nok := gamedb.actor_base(&db, 0x0000_0999)
+	testing.expect(t, !nok, "unknown form is not an actor")
+}
+
+// ACHR placement decode (4a item 5): an actor placement lands in actor_refs (NOT the static cell_refs),
+// its base resolving to the placed NPC_ and its transform decoding like a REFR.
+@(test)
+test_gamedb_actor_placement :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// Minimal NPC_ base 0x0A00 (just enough to exist).
+	npc := make([dynamic]u8, 0, 32);defer delete(npc)
+	field(&npc, "EDID", transmute([]u8)string("Guard\x00"))
+	npc_grp := make([dynamic]u8, 0, 64);defer delete(npc_grp)
+	record(&npc_grp, "NPC_", 0, 0x0000_0A00, npc[:])
+
+	// A cell with an ACHR (0x0A10) placing the NPC_.
+	cell_body := make([dynamic]u8, 0, 16);defer delete(cell_body)
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+	achr := make([dynamic]u8, 0, 48);defer delete(achr)
+	field(&achr, "NAME", u32_bytes(0x0000_0A00)) // base = the NPC_
+	adata: [24]u8;put_f32(adata[:], 0, 12.0);put_f32(adata[:], 4, 34.0);put_f32(adata[:], 8, 56.0)
+	field(&achr, "DATA", adata[:])
+	ac := make([dynamic]u8, 0, 64);defer delete(ac)
+	record(&ac, "ACHR", 0, 0x0000_0A10, achr[:])
+	ac_grup := make([dynamic]u8, 0, 96);defer delete(ac_grup)
+	group(&ac_grup, u32_bytes(0x0000_0AAA), 6, ac[:])
+	cell_grp := make([dynamic]u8, 0, 128);defer delete(cell_grp)
+	record(&cell_grp, "CELL", 0, 0x0000_0AAA, cell_body[:])
+	append(&cell_grp, ..ac_grup[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("NPC_"), 0, npc_grp[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	actors := gamedb.actors_of(&db, 0x0000_0AAA)
+	testing.expect_value(t, len(actors), 1)
+	testing.expect_value(t, actors[0].form_id, gamedb.Form_ID(0x0000_0A10))
+	testing.expect_value(t, actors[0].base, gamedb.Form_ID(0x0000_0A00))
+	testing.expect_value(t, actors[0].pos.x, f32(12.0))
+	testing.expect_value(t, actors[0].pos.z, f32(56.0))
+	// The actor placement is NOT in the static ref list.
+	testing.expect_value(t, len(gamedb.refs_of(&db, 0x0000_0AAA)), 0)
+}
+
 // add_top_record appends a top-level GRUP (label = the 4-char sig) holding one empty record of that
 // signature — enough for form-kind indexing, which keys off the signature + formID only.
 @(private = "file")
@@ -1027,16 +1329,20 @@ test_gamedb_quest_baseline :: proc(t: ^testing.T) {
 	indx10[0] = 10
 	field(&qbody, "INDX", indx10[:])
 	field(&qbody, "QSDT", []u8{0x00})
+	field(&qbody, "CNAM", transmute([]u8)string("Enter the barrow.\x00")) // stage-10 journal log (inline)
 	indx20: [4]u8
 	indx20[0] = 20
 	field(&qbody, "INDX", indx20[:])
 	field(&qbody, "QSDT", []u8{0x01}) // Complete Quest
+	// stage 20 is silent (no CNAM) — must NOT appear in stage_log.
 	qobj5: [2]u8
 	qobj5[0] = 5
 	field(&qbody, "QOBJ", qobj5[:]) // objective 5
+	field(&qbody, "NNAM", transmute([]u8)string("Find the amulet\x00")) // objective-5 display text (inline)
 	qobj15: [2]u8
 	qobj15[0] = 15
 	field(&qbody, "QOBJ", qobj15[:]) // objective 15
+	field(&qbody, "NNAM", transmute([]u8)string("Return to Golldir\x00")) // objective-15 display text (inline)
 
 	out := make([dynamic]u8, 0, 256)
 	defer delete(out)
@@ -1063,9 +1369,23 @@ test_gamedb_quest_baseline :: proc(t: ^testing.T) {
 	testing.expect(t, qbok, "baseline present")
 	testing.expect(t, qb.objectives[5] && qb.objectives[15], "objectives 5,15 defined")
 	testing.expect(t, !qb.objectives[7], "objective 7 undefined")
+	// Journal DISPLAY text: stage-10 log (CNAM), objective NNAMs; silent stage 20 has no log.
+	log10, l10ok := gamedb.quest_stage_log(&db, q, 10)
+	testing.expect(t, l10ok && log10 == "Enter the barrow.", "stage 10 log text decoded")
+	_, l20ok := gamedb.quest_stage_log(&db, q, 20)
+	testing.expect(t, !l20ok, "silent stage 20 has no log entry")
+	obj5, o5ok := gamedb.quest_objective_text(&db, q, 5)
+	testing.expect(t, o5ok && obj5 == "Find the amulet", "objective 5 display text decoded")
+	obj15, o15ok := gamedb.quest_objective_text(&db, q, 15)
+	testing.expect(t, o15ok && obj15 == "Return to Golldir", "objective 15 display text decoded")
 	// A quest we never parsed → not known (so callers skip validation).
 	_, kUnknown := gamedb.quest_stage_exists(&db, 0x0000_0999, 0)
 	testing.expect(t, !kUnknown, "unparsed quest has no baseline")
+}
+
+@(private = "file")
+put_u16 :: proc(b: []u8, off: int, v: u16) {
+	endian.put_u16(b[off:off + 2], .Little, v)
 }
 
 @(private = "file")

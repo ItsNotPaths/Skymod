@@ -85,6 +85,11 @@ Quest_Baseline :: struct {
 	start_game_enabled: bool,
 	stages:             map[u16]bool, // stage index -> completes-the-quest; presence = valid stage
 	objectives:         map[u16]bool, // defined objective indices (QOBJ); presence = defined
+	// Display text (the journal half). Owned, English-resolved at index time. Only stages with a
+	// CNAM log entry appear in stage_log (silent stages — script-only bookkeeping — are absent);
+	// every QOBJ contributes to objective_text (its NNAM display line).
+	stage_log:          map[u16]string, // stage index -> journal log entry text (resolved; owned)
+	objective_text:     map[u16]string, // objective index -> display text (resolved; owned)
 }
 
 // Cell is one cell's identity. Exterior cells carry their worldspace + grid (each
@@ -110,11 +115,17 @@ DB :: struct {
 	base_radius:   map[Form_ID]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
 	base_value:    map[Form_ID]i32, // base formID -> gold value (carriable items; absent = not a valued item)
 	base_weight:   map[Form_ID]f32, // base formID -> weight (carriable items; absent = not a valued item)
+	containers:    map[Form_ID][]Content_Entry, // CONT base formID -> its baseline inventory (owned slices)
+	form_lists:    map[Form_ID][]Form_ID, // FLST formID -> its ordered member forms (owned slices; remapped)
+	leveled_lists: map[Form_ID]Leveled_List, // LVLI formID -> its decoded roll table (owned entries; resolution deferred)
+	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
+	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
-	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> placements
+	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
+	actor_refs:    map[Form_ID][dynamic]Ref, // cell formID -> actor placements (ACHR; base = an NPC_)
 	ref_by_id:     map[Form_ID]Ref, // REFR formID -> its placement (for XTEL door targets)
 	worlds:        map[Form_ID]string, // WRLD formID -> editor id (owned)
 	world_by_edid: map[string]Form_ID, // lowercased worldspace editor id -> formID (key owned)
@@ -132,7 +143,9 @@ DB :: struct {
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
-	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (borrowed; freed per plugin)
+	actor_ref_index: map[Form_ID]Ref_Loc, // build-time only: ACHR formID -> its slot in actor_refs (override dedup); emptied after build
+	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (short text: names; borrowed, freed per plugin)
+	cur_dlstrings: map[u32]string, // build-time only: the current plugin's DLSTRINGS table (long text: quest log CNAM, DESC; borrowed, freed per plugin)
 	cur_localized: bool, // build-time only: is the current plugin localized (FULL = string id vs inline)
 }
 
@@ -142,6 +155,60 @@ DB :: struct {
 Ref_Loc :: struct {
 	cell: Form_ID,
 	idx:  int,
+}
+
+// Content_Entry is one line of a container's baseline inventory: a base item form (remapped to
+// global space) and how many. The immutable baseline — runtime add/remove lives in the overlay
+// (the 4b inventory store reads this as the starting stack list).
+Content_Entry :: struct {
+	item:  Form_ID,
+	count: i32,
+}
+
+// Leveled_Entry is one candidate of a leveled list: at player-level ≥ `level`, this `form` (remapped
+// to global space; may itself be another leveled list) contributes `count` copies to the roll.
+Leveled_Entry :: struct {
+	level: u16,
+	form:  Form_ID,
+	count: u16,
+}
+
+// Leveled_List is a LVLI's decoded roll table (the DATA layer only — no rolling). `chance_none` is
+// the percent chance the roll yields nothing (LVLD); `flags` is LVLF (esm.LVLI_* bits). `entries`
+// is owned by the DB. Resolution (roll by player level, apply chance-none, expand nested lists,
+// pin the outcome in the save overlay) is a consumer concern deferred to the item/loot store.
+Leveled_List :: struct {
+	chance_none: u8,
+	flags:       u8,
+	entries:     []Leveled_Entry, // owned
+}
+
+// Actor_Base is an NPC_'s decoded base identity (the DATA layer — no runtime actor state). Stats
+// come from ACBS (flags/level/offsets) + DNAM (base attributes + skills); the linked forms
+// (race/class/voice/outfit, spells, packages) are remapped to global space; inventory reuses the
+// container CNTO shape. The player (0x00000007) is just the first Actor_Base — "an NPC with
+// different fill-ins" (docs: player-actor-unification). Spawning/capsules/stat-calc are consumers.
+Actor_Base :: struct {
+	flags:         u32, // ACBS flags (esm.ACBS_* — essential/unique/protected/…)
+	level:         u16, // ACBS level (absolute, or ×1000 player-level mult if ACBS_PC_LEVEL_MULT)
+	calc_min:      u16, // ACBS auto-calc level band
+	calc_max:      u16,
+	speed_mult:    u16, // ACBS speed %
+	magicka_off:   u16, // ACBS offsets added on top of the DNAM base attributes
+	stamina_off:   u16,
+	health_off:    u16,
+	base_health:   u16, // DNAM base attributes
+	base_magicka:  u16,
+	base_stamina:  u16,
+	skills:        [esm.NPC_SKILLS]u8, // DNAM 18 base skill values
+	skill_offsets: [esm.NPC_SKILLS]u8, // DNAM 18 skill offsets
+	race:          Form_ID, // RNAM
+	class:         Form_ID, // CNAM
+	voice:         Form_ID, // VTCK
+	outfit:        Form_ID, // DOFT default outfit
+	spells:        []Form_ID, // SPLO (owned)
+	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
+	inventory:     []Content_Entry, // CNTO starting inventory (owned)
 }
 
 // Grass is one scatterable grass type (a GRAS record): the cluster mesh the engine
@@ -281,11 +348,17 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		base_radius   = make(map[Form_ID]f32, 4096, allocator),
 		base_value    = make(map[Form_ID]i32, 4096, allocator),
 		base_weight   = make(map[Form_ID]f32, 4096, allocator),
+		containers    = make(map[Form_ID][]Content_Entry, 512, allocator),
+		form_lists    = make(map[Form_ID][]Form_ID, 512, allocator),
+		leveled_lists = make(map[Form_ID]Leveled_List, 2048, allocator),
+		global_values = make(map[Form_ID]f32, 1024, allocator),
+		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
 		cells         = make(map[Form_ID]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]Form_ID, 1024, allocator),
 		cell_refs     = make(map[Form_ID][dynamic]Ref, 1024, allocator),
+		actor_refs    = make(map[Form_ID][dynamic]Ref, 512, allocator),
 		ref_by_id     = make(map[Form_ID]Ref, 4096, allocator),
 		worlds        = make(map[Form_ID]string, 64, allocator),
 		world_by_edid = make(map[string]Form_ID, 64, allocator),
@@ -303,6 +376,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
+		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
 	}
 	done_bytes := 0
 	for &p in plugins {
@@ -312,22 +386,39 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		// re-cloned into db.names. Non-localized plugins carry inline FULL (table stays nil).
 		db.cur_localized = p.localized
 		db.cur_strings = nil
-		if p.localized && p.strings_data != nil {
-			if tbl, ok := strtab.parse(p.strings_data, .Plain, allocator); ok {
-				db.cur_strings = tbl
+		db.cur_dlstrings = nil
+		if p.localized {
+			// Two tables: .STRINGS (short — names, objective NNAM) and .DLSTRINGS (long — quest log
+			// CNAM, book DESC). Different subrecords index different files; load both so every lstring
+			// we decode resolves. .ILSTRINGS (dialogue) is unused until dialogue lands.
+			if p.strings_data != nil {
+				if tbl, ok := strtab.parse(p.strings_data, .Plain, allocator); ok {
+					db.cur_strings = tbl
+				}
+			}
+			if p.dlstrings_data != nil {
+				if tbl, ok := strtab.parse(p.dlstrings_data, .Lengthed, allocator); ok {
+					db.cur_dlstrings = tbl
+				}
 			}
 		}
 		esm.walk(p.data, visit, &db, &p.fm, progress, done_bytes) // progress = cumulative bytes (for the load bar)
 		if db.cur_strings != nil {
 			strtab.destroy(&db.cur_strings, allocator)
 		}
+		if db.cur_dlstrings != nil {
+			strtab.destroy(&db.cur_dlstrings, allocator)
+		}
 		done_bytes += len(p.data)
 	}
 	db.cur_strings = nil
+	db.cur_dlstrings = nil
 	// Bake XESP enable-parent into effective placement: no separate pass needed — the world
 	// cull calls ref_effective_disabled(db, r) which resolves the parent's state on the fly.
 	delete(db.ref_index) // build-time scaffolding — done once every plugin is walked
 	db.ref_index = nil
+	delete(db.actor_ref_index)
+	db.actor_ref_index = nil
 	log.infof(
 		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
 		len(db.base_models),
@@ -367,6 +458,23 @@ destroy :: proc(db: ^DB) {
 	delete(db.base_radius)
 	delete(db.base_value)
 	delete(db.base_weight)
+	for _, c in db.containers {
+		delete(c, db.allocator)
+	}
+	delete(db.containers)
+	for _, m in db.form_lists {
+		delete(m, db.allocator)
+	}
+	delete(db.form_lists)
+	for _, ll in db.leveled_lists {
+		delete(ll.entries, db.allocator)
+	}
+	delete(db.leveled_lists)
+	delete(db.global_values) // plain f32 values — no owned data
+	for _, a in db.actors {
+		free_actor_base(db, a)
+	}
+	delete(db.actors)
 	delete(db.doors)
 	delete(db.trees)
 	for _, c in db.cells {
@@ -381,6 +489,10 @@ destroy :: proc(db: ^DB) {
 		delete(refs)
 	}
 	delete(db.cell_refs)
+	for _, refs in db.actor_refs {
+		delete(refs)
+	}
+	delete(db.actor_refs)
 	delete(db.ref_by_id)
 	for _, e in db.worlds {
 		delete(e)
@@ -418,11 +530,26 @@ destroy :: proc(db: ^DB) {
 	delete(db.grasses)
 	delete(db.form_kinds)
 	for _, qb in db.quest_baseline {
-		delete(qb.stages)
-		delete(qb.objectives)
+		free_quest_baseline(db, qb)
 	}
 	delete(db.quest_baseline)
 	db^ = {}
+}
+
+// free_quest_baseline releases a Quest_Baseline's owned maps + resolved-text strings. Shared by
+// destroy and the override path (a later plugin replacing the same QUST).
+@(private)
+free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
+	delete(qb.stages)
+	delete(qb.objectives)
+	for _, s in qb.stage_log {
+		delete(s, db.allocator)
+	}
+	delete(qb.stage_log)
+	for _, s in qb.objective_text {
+		delete(s, db.allocator)
+	}
+	delete(qb.objective_text)
 }
 
 // find_cell looks up an interior cell by editor id (case-insensitive).
@@ -474,9 +601,18 @@ cell_at :: proc(db: ^DB, world_form_id: Form_ID, gx, gy: i32) -> (cell_form_id: 
 	return fid, found
 }
 
-// refs_of returns a cell's placed references (empty if none / unknown cell).
+// refs_of returns a cell's placed static references (REFR; empty if none / unknown cell).
 refs_of :: proc(db: ^DB, cell_form_id: Form_ID) -> []Ref {
 	if refs, ok := db.cell_refs[cell_form_id]; ok {
+		return refs[:]
+	}
+	return nil
+}
+
+// actors_of returns a cell's placed actor references (ACHR; empty if none / unknown cell). Each
+// ref's `base` is an NPC_ (actor_base resolves it); spawning them as live actors is a consumer.
+actors_of :: proc(db: ^DB, cell_form_id: Form_ID) -> []Ref {
+	if refs, ok := db.actor_refs[cell_form_id]; ok {
 		return refs[:]
 	}
 	return nil
@@ -633,6 +769,57 @@ weight_of :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
 	return 0, false
 }
 
+// contents_of returns a container's baseline inventory ({item form, count} entries), following
+// ref → base (a placed container ref inherits its base CONT's contents). The slice is owned by
+// the DB — don't mutate/free it. ok=false when the form isn't a container (or its base isn't
+// indexed). This is the immutable starting inventory; runtime changes live in the overlay.
+contents_of :: proc(db: ^DB, form: Form_ID) -> ([]Content_Entry, bool) {
+	if c, ok := db.containers[form]; ok {
+		return c, true
+	}
+	if r, ok := db.ref_by_id[form]; ok {
+		if c, cok := db.containers[r.base]; cok {
+			return c, true
+		}
+	}
+	return nil, false
+}
+
+// form_list_of returns an FLST's ordered member forms (remapped to global space). The slice is
+// owned by the DB — don't mutate/free it. ok=false when the form isn't an indexed form list. Order
+// is significant (member N is the FLST's Nth entry). Members may themselves be any form kind
+// (including nested FLSTs); the list is stored flat, resolution/expansion is a consumer concern.
+form_list_of :: proc(db: ^DB, form: Form_ID) -> ([]Form_ID, bool) {
+	m, ok := db.form_lists[form]
+	return m, ok
+}
+
+// leveled_list_of returns a LVLI's decoded roll table (chance-none, flags, entries). The entries
+// slice is owned by the DB — don't mutate/free it. ok=false when the form isn't an indexed leveled
+// list. This is the static data only; rolling an actual outcome (by player level, chance-none,
+// nested-list expansion) is a consumer concern the item/loot store owns.
+leveled_list_of :: proc(db: ^DB, form: Form_ID) -> (Leveled_List, bool) {
+	ll, ok := db.leveled_lists[form]
+	return ll, ok
+}
+
+// global_value returns a GLOB's static FLTV baseline (the value in an untouched game). ok=false when
+// the form isn't an indexed global. This is the BASELINE only — the runtime value is the worldstate
+// overlay's override ⊕ this (GlobalVariable.GetValue reads the overlay first, falling back here).
+global_value :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
+	v, ok := db.global_values[form]
+	return v, ok
+}
+
+// actor_base returns an NPC_'s decoded base identity (ok=false when the form isn't an indexed NPC_).
+// The struct's slices (spells/packages/inventory) are owned by the DB — don't mutate/free them. The
+// player is actor_base(db, 0x00000007). Its display name is in db.names (name_of); race/class/etc.
+// are global forms resolvable through the DB. Runtime actor state lives in the worldstate overlay.
+actor_base :: proc(db: ^DB, form: Form_ID) -> (Actor_Base, bool) {
+	a, ok := db.actors[form]
+	return a, ok
+}
+
 // ref_effective_disabled reports whether a placed ref is disabled in the STATIC default
 // state — its own "Initially Disabled" flag, OR (via XESP) its enable parent gating it off.
 // A ref with an enable parent is enabled iff the parent is enabled, XOR the "opposite" flag;
@@ -689,6 +876,13 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 				}
 			}
 		}
+	case s == "ACHR":
+		// Actor placement (sibling of REFR; base = an NPC_). Same NAME+DATA layout, so it decodes
+		// through the shared ref path but lands in actor_refs — keeping the static-render cell_refs
+		// list clean. Only kept once its owning cell is indexed.
+		if _, ok := db.cells[ctx.cell_form_id]; ok {
+			index_achr(db, rec, ctx)
+		}
 	case s == "LAND":
 		// Exterior terrain heightmap. LAND lives in its cell's children GRUP, so
 		// ctx.cell_form_id names the owning cell (set before this record is reached).
@@ -703,6 +897,17 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_gras(db, rec)
 	case s == "QUST":
 		index_quest(db, rec)
+	case s == "CONT":
+		index_base(db, rec) // container mesh + name (CONT is a base type)
+		index_container(db, rec, ctx.fm) // its CNTO baseline inventory
+	case s == "FLST":
+		index_form_list(db, rec, ctx.fm) // its LNAM ordered members
+	case s == "LVLI":
+		index_leveled_list(db, rec, ctx.fm) // its LVLO roll table (decode only)
+	case s == "GLOB":
+		index_glob(db, rec) // its FLTV baseline value
+	case s == "NPC_":
+		index_npc(db, rec, ctx.fm) // actor base identity (stats, links, inventory, name)
 	case is_base_type(s):
 		index_base(db, rec)
 	}
@@ -719,9 +924,12 @@ form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 	return db.form_kinds[form] // absent → zero value == .Unknown
 }
 
-// index_quest decodes a QUST's script-relevant baseline: the DNAM "Start Game Enabled" flag and the
-// defined stages (INDX index + the following QSDT "Complete Quest" flag). Field order matters — a
-// QSDT applies to the most recent INDX (xEdit's stage grouping) — so we walk the subrecords in order.
+// index_quest decodes a QUST's script-relevant baseline: the DNAM "Start Game Enabled" flag, the
+// defined stages (INDX index + the following QSDT "Complete Quest" flag), and the journal DISPLAY
+// text — each stage's log entry (CNAM) and each objective's display line (QOBJ index + NNAM). Field
+// order matters: a QSDT/CNAM applies to the most recent INDX, an NNAM to the most recent QOBJ (xEdit's
+// grouping) — so we walk the subrecords in order. CNAM/NNAM resolve through the plugin STRINGS table
+// (or inline for a non-localized plugin), so the stored text is the real English the journal shows.
 @(private)
 index_quest :: proc(db: ^DB, rec: esm.Record) {
 	fl, backing, ok := esm.fields(rec)
@@ -732,15 +940,18 @@ index_quest :: proc(db: ^DB, rec: esm.Record) {
 	defer if backing != nil {delete(backing)}
 
 	if old, existed := db.quest_baseline[rec.form_id]; existed {
-		delete(old.stages) // override: free the previous clone
-		delete(old.objectives)
+		free_quest_baseline(db, old) // override: free the previous clone
 	}
 	qb := Quest_Baseline {
-		stages     = make(map[u16]bool, 16, db.allocator),
-		objectives = make(map[u16]bool, 8, db.allocator),
+		stages         = make(map[u16]bool, 16, db.allocator),
+		objectives     = make(map[u16]bool, 8, db.allocator),
+		stage_log      = make(map[u16]string, 16, db.allocator),
+		objective_text = make(map[u16]string, 8, db.allocator),
 	}
 	cur_stage: u16
 	have_stage := false
+	cur_obj: u16
+	have_obj := false
 	for f in fl {
 		switch f.type {
 		case "DNAM":
@@ -762,14 +973,61 @@ index_quest :: proc(db: ^DB, rec: esm.Record) {
 			if have_stage && len(f.data) >= 1 && f.data[0] & 0x01 != 0 {
 				qb.stages[cur_stage] = true
 			}
+		case "CNAM":
+			// Journal log-entry text for the current stage. Long-text lstring → DLSTRINGS (or inline
+			// for a non-localized plugin). A stage may have several QSDT/CNAM pairs (per-condition
+			// variants) — last one wins as the representative.
+			if have_stage {
+				if txt := resolve_lstring(db, f, db.cur_dlstrings); txt != "" {
+					if old, seen := qb.stage_log[cur_stage]; seen {
+						delete(old, db.allocator)
+					}
+					qb.stage_log[cur_stage] = strings.clone(txt, db.allocator)
+				}
+			}
 		case "QOBJ":
 			// int16 objective index — a defined objective (Complete/FailAllObjectives target all of these).
 			if len(f.data) >= 2 {
-				qb.objectives[u16(f.data[0]) | u16(f.data[1]) << 8] = true
+				cur_obj = u16(f.data[0]) | u16(f.data[1]) << 8
+				have_obj = true
+				qb.objectives[cur_obj] = true
+			}
+		case "NNAM":
+			// Objective display text for the current QOBJ. Short-text lstring → STRINGS (or inline).
+			if have_obj {
+				if txt := resolve_lstring(db, f, db.cur_strings); txt != "" {
+					if old, seen := qb.objective_text[cur_obj]; seen {
+						delete(old, db.allocator)
+					}
+					qb.objective_text[cur_obj] = strings.clone(txt, db.allocator)
+				}
 			}
 		}
 	}
 	db.quest_baseline[rec.form_id] = qb
+}
+
+// resolve_lstring reads a localized-string subrecord: for a localized plugin its 4 bytes are a
+// string id resolved in `table` (the caller picks .STRINGS vs .DLSTRINGS per subrecord kind);
+// otherwise the field is an inline zstring and `table` is ignored. Returns "" when absent/
+// unresolved. The returned string borrows (the caller clones before storing).
+@(private)
+resolve_lstring :: proc(db: ^DB, f: esm.Field, table: map[u32]string) -> string {
+	if db.cur_localized {
+		if sid, ok := esm.lstring_id(f); ok {
+			return strtab.lookup(table, sid)
+		}
+		return ""
+	}
+	// Inline zstring — drop the trailing NUL if present.
+	if len(f.data) == 0 {
+		return ""
+	}
+	n := len(f.data)
+	if f.data[n - 1] == 0 {
+		n -= 1
+	}
+	return string(f.data[:n])
 }
 
 // quest_baseline_of returns a quest's parsed baseline (ok=false if the QUST wasn't indexed — a
@@ -803,6 +1061,29 @@ quest_stage_exists :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (exists: bool
 quest_stage_completes :: proc(db: ^DB, quest: Form_ID, stage: u16) -> bool {
 	qb, ok := quest_baseline_of(db, quest)
 	return ok && qb.stages[stage]
+}
+
+// quest_stage_log returns the journal log-entry text shown when `stage` is reached (CNAM, English-
+// resolved). ok=false for a silent stage (script-only, no CNAM) or an unknown quest/stage. The
+// string is owned by the DB — don't free it. Drives the pause→quest-journal menu.
+quest_stage_log :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (string, bool) {
+	qb, ok := quest_baseline_of(db, quest)
+	if !ok {
+		return "", false
+	}
+	s, has := qb.stage_log[stage]
+	return s, has
+}
+
+// quest_objective_text returns objective `obj`'s display line (NNAM, English-resolved). ok=false for
+// an unknown quest/objective. The string is owned by the DB — don't free it.
+quest_objective_text :: proc(db: ^DB, quest: Form_ID, obj: u16) -> (string, bool) {
+	qb, ok := quest_baseline_of(db, quest)
+	if !ok {
+		return "", false
+	}
+	s, has := qb.objective_text[obj]
+	return s, has
 }
 
 @(private)
@@ -969,6 +1250,48 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
 }
 
+// index_achr indexes an actor placement (ACHR) into actor_refs — the base is an NPC_, the transform
+// decodes through the shared REFR path (identical NAME+DATA layout). Kept separate from cell_refs so
+// the static-world render/cull path never sees actors (their base carries no mesh). Overrides dedup
+// in place via actor_ref_index. Also registered in ref_by_id (a placed-form lookup spans both).
+@(private)
+index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	p := esm.decode_refr(fl)
+	ref := Ref {
+		form_id      = rec.form_id,
+		cell_form_id = ctx.cell_form_id,
+		base         = esm.remap_form(ctx.fm, p.base), // NAME references the actor's base NPC_
+		pos          = p.pos,
+		rot          = p.rot,
+		scale        = p.scale,
+		disabled     = rec.flags & (REFR_INITIALLY_DISABLED | REFR_DELETED) != 0,
+	}
+	if ep, has := esm.refr_enable_parent(fl); has {
+		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent)
+		ref.enable_opposite = ep.opposite
+	}
+	if loc, seen := db.actor_ref_index[rec.form_id]; seen {
+		db.actor_refs[loc.cell][loc.idx] = ref // override in place
+	} else {
+		refs, found := &db.actor_refs[ctx.cell_form_id]
+		if !found {
+			db.actor_refs[ctx.cell_form_id] = make([dynamic]Ref, 0, 16, db.allocator)
+			refs = &db.actor_refs[ctx.cell_form_id]
+		}
+		append(refs, ref)
+		db.actor_ref_index[rec.form_id] = Ref_Loc{ctx.cell_form_id, len(refs) - 1}
+	}
+	db.ref_by_id[rec.form_id] = ref
+	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
+}
+
 @(private)
 index_land :: proc(db: ^DB, rec: esm.Record, cell_form_id: Form_ID, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
@@ -1073,6 +1396,191 @@ index_gras :: proc(db: ^DB, rec: esm.Record) {
 		delete(old.model, db.allocator) // override: free the previous model clone
 	}
 	db.grasses[rec.form_id] = Grass{model = strings.clone(model, db.allocator), density = density}
+}
+
+// index_container decodes a CONT's CNTO baseline inventory: each {item, count}, with the item
+// formID remapped to global space. Stored as an owned Content_Entry slice keyed by the container
+// form. A later plugin overriding the same CONT replaces the list (free the old one first).
+@(private)
+index_container :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	raw := esm.container_contents(fl, context.allocator) // walk has no temp reset — explicit free
+	if raw == nil {
+		return
+	}
+	defer delete(raw, context.allocator)
+	entries := make([]Content_Entry, len(raw), db.allocator)
+	for c, i in raw {
+		entries[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
+	}
+	if old, exists := db.containers[rec.form_id]; exists {
+		delete(old, db.allocator) // override: free the previous inventory
+	}
+	db.containers[rec.form_id] = entries
+}
+
+// index_form_list decodes an FLST's LNAM ordered members, each remapped to global space. Stored as
+// an owned Form_ID slice keyed by the list form. A later plugin overriding the same FLST replaces
+// the list wholesale (free the old one first) — vanilla FLST overrides re-declare all members.
+@(private)
+index_form_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	raw := esm.form_list_members(fl, context.allocator) // walk has no temp reset — explicit free
+	if raw == nil {
+		return
+	}
+	defer delete(raw, context.allocator)
+	members := make([]Form_ID, len(raw), db.allocator)
+	for m, i in raw {
+		members[i] = esm.remap_form(fm, m)
+	}
+	if old, exists := db.form_lists[rec.form_id]; exists {
+		delete(old, db.allocator) // override: free the previous member list
+	}
+	db.form_lists[rec.form_id] = members
+}
+
+// index_leveled_list decodes a LVLI's roll table — chance-none, flags, and each {level, form, count}
+// entry with the form remapped to global space. Stored owned, keyed by the list form. A later plugin
+// overriding the same LVLI replaces the table wholesale (free the old entries first). Decode only:
+// no rolling happens here (see leveled_list_of).
+@(private)
+index_leveled_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	chance, flags, raw := esm.leveled_list(fl, context.allocator) // walk has no temp reset — explicit free
+	defer if raw != nil {delete(raw, context.allocator)}
+	entries: []Leveled_Entry
+	if raw != nil {
+		entries = make([]Leveled_Entry, len(raw), db.allocator)
+		for e, i in raw {
+			entries[i] = Leveled_Entry {
+				level = e.level,
+				form  = esm.remap_form(fm, e.item),
+				count = e.count,
+			}
+		}
+	}
+	if old, exists := db.leveled_lists[rec.form_id]; exists {
+		delete(old.entries, db.allocator) // override: free the previous table
+	}
+	db.leveled_lists[rec.form_id] = Leveled_List{chance_none = chance, flags = flags, entries = entries}
+}
+
+// index_glob decodes a GLOB's FLTV baseline value into global_values. This is the STATIC default; at
+// runtime worldstate.globals overrides it (a scripted SetValue). A later plugin overriding the same
+// GLOB replaces the baseline (last write wins). Non-FLTV globals (malformed) are skipped.
+@(private)
+index_glob :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	if v, _, vok := esm.global_value(fl); vok {
+		db.global_values[rec.form_id] = v
+	}
+}
+
+// free_actor_base releases an Actor_Base's owned slices. Shared by destroy + the override path.
+@(private)
+free_actor_base :: proc(db: ^DB, a: Actor_Base) {
+	delete(a.spells, db.allocator)
+	delete(a.packages, db.allocator)
+	delete(a.inventory, db.allocator)
+}
+
+// index_npc decodes an NPC_ into an Actor_Base: its display name (FULL — NPC_ isn't in is_base_type,
+// so it's indexed here), ACBS/DNAM stats, the linked race/class/voice/outfit + spell/package forms
+// (remapped to global space), and its CNTO starting inventory (reusing the container shape). This is
+// the base-identity DATA layer; the player (0x00000007) falls out as the first actor. A later plugin
+// overriding the same NPC_ replaces the record (free the old owned slices first).
+@(private)
+index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl) // FULL display name (NPC_ carries its own name)
+
+	a: Actor_Base
+	if cfg, cok := esm.actor_config(fl); cok {
+		a.flags = cfg.flags
+		a.level = cfg.level
+		a.calc_min = cfg.calc_min
+		a.calc_max = cfg.calc_max
+		a.speed_mult = cfg.speed_mult
+		a.magicka_off = cfg.magicka_off
+		a.stamina_off = cfg.stamina_off
+		a.health_off = cfg.health_off
+	}
+	if attr, aok := esm.actor_attributes(fl); aok {
+		a.skills = attr.skills
+		a.skill_offsets = attr.skill_offsets
+		a.base_health = attr.health
+		a.base_magicka = attr.magicka
+		a.base_stamina = attr.stamina
+	}
+	if r, rok := esm.subrecord_formid(fl, "RNAM"); rok {a.race = esm.remap_form(fm, r)}
+	if c, cok := esm.subrecord_formid(fl, "CNAM"); cok {a.class = esm.remap_form(fm, c)}
+	if v, vok := esm.subrecord_formid(fl, "VTCK"); vok {a.voice = esm.remap_form(fm, v)}
+	if o, ook := esm.subrecord_formid(fl, "DOFT"); ook {a.outfit = esm.remap_form(fm, o)}
+
+	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.
+	a.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
+	a.packages = remap_formid_list(db, esm.formid_list(fl, "PKID", context.allocator), fm)
+
+	// CNTO starting inventory — same shape as a container's (base item + count), remapped.
+	if raw := esm.container_contents(fl, context.allocator); raw != nil {
+		defer delete(raw, context.allocator)
+		inv := make([]Content_Entry, len(raw), db.allocator)
+		for c, i in raw {
+			inv[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
+		}
+		a.inventory = inv
+	}
+
+	if old, existed := db.actors[rec.form_id]; existed {
+		free_actor_base(db, old) // override: free the previous owned slices
+	}
+	db.actors[rec.form_id] = a
+}
+
+// remap_formid_list remaps a raw/local formID slice (from esm.formid_list) into a DB-owned Form_ID
+// slice, freeing the input. nil in → nil out (no allocation).
+@(private)
+remap_formid_list :: proc(db: ^DB, raw: []u32, fm: ^esm.Form_Map) -> []Form_ID {
+	if raw == nil {
+		return nil
+	}
+	defer delete(raw, context.allocator)
+	out := make([]Form_ID, len(raw), db.allocator)
+	for r, i in raw {
+		out[i] = esm.remap_form(fm, r)
+	}
+	return out
 }
 
 @(private)

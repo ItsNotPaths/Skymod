@@ -56,6 +56,30 @@ full_name :: proc(fields: []Field) -> string {
 	return ""
 }
 
+// global_value decodes a GLOB record's baseline value. FLTV holds the value as an f32 regardless of
+// the FNAM type char ('s' short / 'l' long / 'f' float) — the engine truncates on read for the int
+// types, so we keep the raw float and let the consumer round per the declared kind. `kind` is the
+// FNAM type char (0 if absent). ok=false when the record carries no FLTV.
+global_value :: proc(fields: []Field) -> (value: f32, kind: u8, ok: bool) {
+	if f, fok := find_field(fields, "FNAM"); fok && len(f.data) >= 1 {
+		kind = f.data[0]
+	}
+	if f, fok := find_field(fields, "FLTV"); fok && len(f.data) >= 4 {
+		return rf32(f.data, 0), kind, true
+	}
+	return 0, kind, false
+}
+
+// lstring_id reads a localized-string subrecord's STRINGS id — its first 4 bytes as a u32. ok=false
+// when the field is too short. For any lstring-typed subrecord in a LOCALIZED plugin (CNAM journal
+// text, NNAM objective text, DESC, …); a non-localized plugin carries the text inline instead.
+lstring_id :: proc(f: Field) -> (u32, bool) {
+	if len(f.data) < 4 {
+		return 0, false
+	}
+	return rd32(f.data, 0), true
+}
+
 // full_string_id returns a record's FULL as a localized string id (the u32 to resolve in
 // the plugin's STRINGS table). ok=false if absent/short. Only meaningful when the plugin's
 // TES4 localized flag is set (see esm.Header.localized); otherwise use full_name.
@@ -159,6 +183,211 @@ item_value_weight :: proc(rec_type: string, fields: []Field) -> (value: i32, wei
 		}
 	}
 	return 0, 0, false
+}
+
+// Content_Item is one CNTO entry: a base item form (RAW/local formID — the caller remaps via the
+// plugin Form_Map) and how many of it. Used for CONT container inventories (and, later, NPC_/LVLI).
+Content_Item :: struct {
+	item:  u32,
+	count: i32,
+}
+
+// container_contents collects a record's CNTO item entries — the base items a CONT holds. Each
+// CNTO is 8 bytes: item formID (u32) + count (i32). Returns a freshly-allocated slice the caller
+// owns (nil when the record carries none). FormIDs are raw/local; remap them before use. COCT (a
+// convenience item-count) is ignored — the CNTO count is authoritative.
+container_contents :: proc(fields: []Field, allocator := context.allocator) -> []Content_Item {
+	n := 0
+	for f in fields {
+		if f.type == "CNTO" && len(f.data) >= 8 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Content_Item, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == "CNTO" && len(f.data) >= 8 {
+			out[i] = Content_Item{item = rd32(f.data, 0), count = transmute(i32)rd32(f.data, 4)}
+			i += 1
+		}
+	}
+	return out
+}
+
+// formid_list collects every `tag` subrecord's leading u32 formID, in declaration order — the shape
+// shared by repeated single-formID subrecords (FLST LNAM, NPC_ SPLO spells / PKID packages, …).
+// Returns a freshly-allocated slice the caller owns (nil when none). FormIDs are raw/local; remap
+// them before use. Order is preserved (some consumers index into it).
+formid_list :: proc(fields: []Field, tag: string, allocator := context.allocator) -> []u32 {
+	n := 0
+	for f in fields {
+		if f.type == tag && len(f.data) >= 4 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]u32, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == tag && len(f.data) >= 4 {
+			out[i] = rd32(f.data, 0)
+			i += 1
+		}
+	}
+	return out
+}
+
+// form_list_members collects an FLST record's ordered member forms (its repeated LNAM formIDs).
+// Thin alias over formid_list — order is significant (script GetAt / random-item selection).
+form_list_members :: proc(fields: []Field, allocator := context.allocator) -> []u32 {
+	return formid_list(fields, "LNAM", allocator)
+}
+
+// subrecord_formid reads a single-formID subrecord's leading u32 (RNAM race, CNAM class, VTCK voice,
+// DOFT outfit, …). ok=false when the tag is absent or short. Raw/local; remap before use.
+subrecord_formid :: proc(fields: []Field, tag: string) -> (u32, bool) {
+	if f, ok := find_field(fields, tag); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// ACBS (Actor Base Configuration) flag bits — the actor's base disposition/behaviour. Only the
+// commonly-queried ones are named; the raw u32 is preserved so unlisted bits survive round-trip.
+ACBS_FEMALE :: 0x0000_0001
+ACBS_ESSENTIAL :: 0x0000_0002
+ACBS_RESPAWN :: 0x0000_0008
+ACBS_AUTO_CALC_STATS :: 0x0000_0010
+ACBS_UNIQUE :: 0x0000_0020
+ACBS_PC_LEVEL_MULT :: 0x0000_0080 // `level` field is a ×1000 multiplier of the player's level, not absolute
+ACBS_PROTECTED :: 0x0000_0800
+ACBS_SUMMONABLE :: 0x0000_4000
+
+// Actor_Config is an NPC_'s ACBS block (24 bytes): base disposition flags + level band + the
+// magicka/stamina/health OFFSETS added on top of the DNAM base attributes. `level` is absolute
+// unless ACBS_PC_LEVEL_MULT is set (then it's a ×1000 player-level multiplier). Offsets @16/@18
+// (disposition, template flags) are skipped — not needed by the data layer.
+Actor_Config :: struct {
+	flags:       u32,
+	magicka_off: u16,
+	stamina_off: u16,
+	level:       u16,
+	calc_min:    u16,
+	calc_max:    u16,
+	speed_mult:  u16,
+	health_off:  u16,
+}
+
+// actor_config decodes an NPC_'s ACBS block. ok=false when the record has no (or a truncated) ACBS.
+// Offsets validated against the Player (0x7): flags 0x30 = AUTO_CALC|UNIQUE, level 1, calc 0..100,
+// speed 100, magicka/stamina/health offsets 50/50/50.
+actor_config :: proc(fields: []Field) -> (cfg: Actor_Config, ok: bool) {
+	f, fok := find_field(fields, "ACBS")
+	if !fok || len(f.data) < 24 {
+		return {}, false
+	}
+	return Actor_Config {
+			flags       = rd32(f.data, 0),
+			magicka_off = rd16(f.data, 4),
+			stamina_off = rd16(f.data, 6),
+			level       = rd16(f.data, 8),
+			calc_min    = rd16(f.data, 10),
+			calc_max    = rd16(f.data, 12),
+			speed_mult  = rd16(f.data, 14),
+			health_off  = rd16(f.data, 20),
+		},
+		true
+}
+
+// NPC_SKILLS is the count of skill entries in a DNAM block (18 Skyrim skills).
+NPC_SKILLS :: 18
+
+// Actor_Attributes is an NPC_'s DNAM block (52 bytes): the 18 base skill values + 18 skill offsets,
+// then the base health/magicka/stamina (the ACBS offsets stack on top). The tail (@42+: far-model
+// distance, geared-up flags) is skipped.
+Actor_Attributes :: struct {
+	skills:        [NPC_SKILLS]u8,
+	skill_offsets: [NPC_SKILLS]u8,
+	health:        u16,
+	magicka:       u16,
+	stamina:       u16,
+}
+
+// actor_attributes decodes an NPC_'s DNAM block. ok=false when absent/truncated. Offsets validated
+// against the Player (0x7): skills 15–25, base health/magicka/stamina 100/100/100 (@36/@38/@40).
+actor_attributes :: proc(fields: []Field) -> (attr: Actor_Attributes, ok: bool) {
+	f, fok := find_field(fields, "DNAM")
+	if !fok || len(f.data) < 42 {
+		return {}, false
+	}
+	copy(attr.skills[:], f.data[0:NPC_SKILLS])
+	copy(attr.skill_offsets[:], f.data[NPC_SKILLS:NPC_SKILLS * 2])
+	attr.health = rd16(f.data, 36)
+	attr.magicka = rd16(f.data, 38)
+	attr.stamina = rd16(f.data, 40)
+	return attr, true
+}
+
+// LVLI (leveled-list) LVLF flag bits. CALC_FROM_ALL_LEVELS = "calculate from all levels ≤ the
+// player's" (else only entries whose level == the rolled level qualify); CALC_FOR_EACH = roll the
+// list independently for each unit of the requested count (else roll once and multiply). The
+// remaining bits (use-all, special-loot) are decoded verbatim into `flags` but not interpreted here.
+LVLI_CALC_FROM_ALL_LEVELS :: 0x01
+LVLI_CALC_FOR_EACH :: 0x02
+
+// Leveled_Entry is one LVLO row of a leveled list: at player-level ≥ `level`, this `item` (RAW/local
+// formID — the caller remaps) is a candidate, contributing `count` copies. The item may itself be
+// another LVLI (nested lists), resolved at roll time. On-disk LVLO is 12 bytes: level u16@0, pad@2,
+// formID u32@4, count u16@8, pad@10 (stride validated against LItemBlacksmithWeapon75).
+Leveled_Entry :: struct {
+	level: u16,
+	item:  u32,
+	count: u16,
+}
+
+// leveled_list decodes a LVLI record's roll parameters + entries. `chance_none` (LVLD) is the
+// percent chance the roll yields nothing; `flags` is LVLF (see LVLI_* bits). `entries` is a freshly
+// allocated slice the caller owns (nil when the list is empty). RESOLUTION — rolling by player level,
+// applying chance-none, expanding nested lists — is a consumer concern; this only surfaces the data.
+// LLCT (entry count) is ignored: the LVLO count is authoritative. LVLG (global chance-none override)
+// is not needed for the data layer and is skipped.
+leveled_list :: proc(
+	fields: []Field,
+	allocator := context.allocator,
+) -> (chance_none: u8, flags: u8, entries: []Leveled_Entry) {
+	if f, ok := find_field(fields, "LVLD"); ok && len(f.data) >= 1 {
+		chance_none = f.data[0]
+	}
+	if f, ok := find_field(fields, "LVLF"); ok && len(f.data) >= 1 {
+		flags = f.data[0]
+	}
+	n := 0
+	for f in fields {
+		if f.type == "LVLO" && len(f.data) >= 12 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return
+	}
+	entries = make([]Leveled_Entry, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == "LVLO" && len(f.data) >= 12 {
+			entries[i] = Leveled_Entry {
+				level = rd16(f.data, 0),
+				item  = rd32(f.data, 4),
+				count = rd16(f.data, 8),
+			}
+			i += 1
+		}
+	}
+	return
 }
 
 // cell_is_interior reports whether a CELL's DATA flags mark it interior.
