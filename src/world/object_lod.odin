@@ -105,7 +105,7 @@ bake_object_lod :: proc(st: ^Streamer) {
 		qgx, qgy := lod_quad_div(cell.gx), lod_quad_div(cell.gy)
 		key := lod_quad_key(qgx, qgy)
 		for r in gamedb.refs_of(db, cid) {
-			if r.disabled || r.base == XMARKER || r.base == XMARKER_HEADING {
+			if gamedb.ref_effective_disabled(db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
 				continue
 			}
 			min_r: f32

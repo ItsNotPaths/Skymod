@@ -393,7 +393,7 @@ append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
 	}
 	n0 := len(chunk.instances)
 	for r in refs {
-		if r.disabled || r.base == XMARKER || r.base == XMARKER_HEADING {
+		if gamedb.ref_effective_disabled(db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
 			continue
 		}
 		modl, ok := gamedb.model_of(db, r.base)

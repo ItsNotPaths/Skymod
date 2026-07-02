@@ -32,12 +32,20 @@ VM :: struct {
 	reg:          ^script.Registry,
 	ctx:          script.Call, // self/ws/db template; reg is filled by script.call()
 	host_context: runtime.Context, // captured per run so the "c"-callconv bridge can log/alloc
+	none_warned:  map[string]bool, // per-method log-once guard for None absorption (decision #2)
 }
 
 // UPVAL_VM is lua_upvalueindex(1) — the closure upvalue holding the ^VM. The
 // binding doesn't expose the macro, so derive it from REGISTRYINDEX ourselves.
 @(private)
 UPVAL_VM :: lua.REGISTRYINDEX - 1
+
+// upvalueindex is lua_upvalueindex(i): the pseudo-index of the i-th closure upvalue.
+// The binding omits the macro (it's `LUA_REGISTRYINDEX - i`), so provide it here.
+@(private)
+upvalueindex :: #force_inline proc "contextless" (i: c.int) -> c.int {
+	return lua.REGISTRYINDEX - i
+}
 
 // PRELUDE installs class proxies so modder Lua reads `Class.Fn(args)` rather than
 // the raw native_call primitive. Object `self` comes from the VM ctx for now;
@@ -65,6 +73,7 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 	lua.L_openlibs(vm.L)
 	vm.reg = reg
 	vm.ctx = ctx
+	vm.none_warned = make(map[string]bool)
 
 	// native_call(class, fn, ...) -> ret  — the one dispatch bridge. ^VM rides as
 	// upvalue 1 so the C closure can reach the registry + call context.
@@ -72,10 +81,15 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 	lua.pushcclosure(vm.L, dispatch, 1)
 	lua.setglobal(vm.L, "native_call")
 
+	// Ref + None userdata metatables and the `ref()`/`None` globals — push_value
+	// marshals a Form_ID into a ref, so the metatables must exist before any call.
+	setup_ref_system(vm)
+
 	return do_string(vm, PRELUDE)
 }
 
 destroy :: proc(vm: ^VM) {
+	delete(vm.none_warned)
 	if vm.L != nil {
 		lua.close(vm.L)
 		vm.L = nil
@@ -111,6 +125,25 @@ eval_int :: proc(vm: ^VM, code: string) -> (result: i64, ok: bool) {
 	result = i64(lua.tointeger(vm.L, -1))
 	lua.settop(vm.L, -2) // pop the result
 	return result, true
+}
+
+// eval_form runs a chunk expected to `return` a ref and yields its Form_ID (the
+// marshalling direction for decision #1: a native's Form_ID result surfaces as a ref
+// userdata, not an integer). ok=false on error, no result, or a non-ref result.
+eval_form :: proc(vm: ^VM, code: string) -> (form: script.Form_ID, ok: bool) {
+	vm.host_context = context
+	cs := strings.clone_to_cstring(code, context.temp_allocator)
+	if lua.L_dostring(vm.L, cs) != 0 {
+		log.errorf("lua: %s", to_string(vm.L, -1))
+		lua.settop(vm.L, -2)
+		return 0, false
+	}
+	if lua.gettop(vm.L) == 0 {
+		return 0, false
+	}
+	form, ok = ref_form(vm.L, -1)
+	lua.settop(vm.L, -2) // pop the result
+	return
 }
 
 // dispatch is the C closure behind `native_call(class, fn, ...)`. Upvalue 1 = ^VM.
@@ -152,8 +185,13 @@ to_value :: proc(L: ^lua.State, idx: c.int) -> script.Value {
 		return f32(lua.tonumber(L, idx))
 	case .STRING:
 		return to_string(L, idx)
+	case .USERDATA:
+		// A ref userdata carries a Form_ID; None (and any other userdata) → Papyrus None.
+		if form, ok := ref_form(L, idx); ok {
+			return form
+		}
 	}
-	return nil // NIL / NONE / unsupported → Papyrus None
+	return nil // NIL / None / unsupported → Papyrus None
 }
 
 @(private)
@@ -168,9 +206,9 @@ push_value :: proc(L: ^lua.State, v: script.Value) {
 	case string:
 		lua.pushstring(L, strings.clone_to_cstring(x, context.temp_allocator))
 	case script.Form_ID:
-		lua.pushinteger(L, lua.Integer(u64(x)))
+		push_ref(L, x) // Form_ID → ref userdata (plain ints rejected, decision #1)
 	case:
-		lua.pushnil(L) // nil Value (Papyrus None)
+		push_none(L) // nil Value → the None sentinel (decision #2), not Lua nil
 	}
 }
 

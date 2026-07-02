@@ -124,6 +124,27 @@ is_declared :: proc(reg: ^Registry, class, fn: string) -> bool {
 	return key_temp(class, fn) in reg.declared
 }
 
+// REF_CLASS_CHAIN is the object-ref method-resolution order, most-derived first.
+// A `ref:Method()` call walks it and dispatches to the first class that declares
+// the method — Papyrus resolves methods up the script class chain the same way.
+// This is the naive-first chain (Actor → ObjectReference → Form): enough to split
+// actor-only verbs from the object-ref bulk. It gains the ref's *true* class once
+// the record decoders land a form→class lookup (then the chain is per-form, not
+// fixed). Global-only classes (Game/Debug/Utility) are never on a ref.
+REF_CLASS_CHAIN := []string{"Actor", "ObjectReference", "Form"}
+
+// method_class resolves which class in the ref chain owns `fn`. Returns the first
+// declared/implemented class (ok=true), or "ObjectReference" as the fallback so an
+// unknown method still dispatches somewhere and logs through the normal path.
+method_class :: proc(reg: ^Registry, fn: string) -> (class: string, ok: bool) {
+	for c in REF_CLASS_CHAIN {
+		if is_implemented(reg, c, fn) || is_declared(reg, c, fn) {
+			return c, true
+		}
+	}
+	return "ObjectReference", false
+}
+
 // key_temp builds a lookup key in the temp allocator (no lasting ownership — map
 // lookups compare by content, so a transient key matches an owned one).
 @(private)

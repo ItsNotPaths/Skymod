@@ -46,6 +46,49 @@ model_path :: proc(fields: []Field) -> string {
 	return ""
 }
 
+// full_name returns a record's FULL as INLINE text — the non-localized path (mod ESPs
+// without the localized flag, and any plugin whose FULL is stored as a zstring). "" if
+// absent. For a LOCALIZED plugin the FULL bytes are a string id instead — use full_string_id.
+full_name :: proc(fields: []Field) -> string {
+	if f, ok := find_field(fields, "FULL"); ok {
+		return cstr(f.data)
+	}
+	return ""
+}
+
+// full_string_id returns a record's FULL as a localized string id (the u32 to resolve in
+// the plugin's STRINGS table). ok=false if absent/short. Only meaningful when the plugin's
+// TES4 localized flag is set (see esm.Header.localized); otherwise use full_name.
+full_string_id :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "FULL"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// Enable_Parent is a REFR's XESP: the parent form whose enabled state gates this ref, and
+// whether this ref's effective state is the OPPOSITE of the parent's (flags bit0). A ref
+// with an enable parent is only placed when the parent is enabled (XOR opposite) — the hook
+// the quest system flips live, and the STATIC default the world cull honors to drop
+// quest/alternate debris. door/parent is raw (local) until gamedb remaps it.
+Enable_Parent :: struct {
+	parent:   u32,
+	opposite: bool,
+}
+
+// XESP flags bit0: "Set Enable State to Opposite of Parent."
+XESP_OPPOSITE :: 0x0000_0001
+
+// refr_enable_parent reads a REFR's XESP enable-parent link, if present. XESP = parent
+// formID (u32) + flags (u32). ok=false when the ref has no enable parent (the common case).
+refr_enable_parent :: proc(fields: []Field) -> (Enable_Parent, bool) {
+	f, ok := find_field(fields, "XESP")
+	if !ok || len(f.data) < 8 {
+		return {}, false
+	}
+	return Enable_Parent{parent = rd32(f.data, 0), opposite = rd32(f.data, 4) & XESP_OPPOSITE != 0}, true
+}
+
 // LOD_MODELS is how many distant-LOD model slots a STAT's MNAM holds.
 LOD_MODELS :: 4
 

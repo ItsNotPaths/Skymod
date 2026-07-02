@@ -115,7 +115,7 @@ load_objects_lod :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk, dist, obj_rad
 	hi := smath.Vec3{min(f32), min(f32), min(f32)}
 	any := false
 	for r in gamedb.refs_of(db, chunk.cell_form_id) {
-		if r.disabled || r.base == XMARKER || r.base == XMARKER_HEADING {
+		if gamedb.ref_effective_disabled(db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
 			continue
 		}
 		min_r: f32

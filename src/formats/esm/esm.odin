@@ -29,6 +29,10 @@ FIELD_HEADER :: 6
 
 // Record flags we act on.
 FLAG_COMPRESSED :: 0x0004_0000
+// TES4 header flag: the plugin is LOCALIZED — its string-typed subrecords (FULL, DESC,
+// dialogue) hold a u32 string id resolved via the plugin's external STRINGS file, not
+// inline text. Read off the TES4 record; drives the FULL decode branch (see records.full_*).
+FLAG_LOCALIZED :: 0x0000_0080
 
 // GRUP group types (the label field's meaning depends on this).
 GRUP_TOP :: 0 // label = record-type signature (e.g. "STAT", "CELL")
@@ -223,6 +227,7 @@ find_field :: proc(fields: []Field, tag: string) -> (Field, bool) {
 Header :: struct {
 	masters:        []string,
 	next_object_id: u32,
+	localized:      bool, // TES4 flag 0x80 — string subrecords are STRINGS ids, not inline text
 }
 
 // parse_header reads the leading TES4 record. The file must begin with it.
@@ -245,6 +250,7 @@ parse_header :: proc(data: []u8, allocator := context.allocator) -> (h: Header, 
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
+	h.localized = rec.flags & FLAG_LOCALIZED != 0
 	masters := make([dynamic]string, 0, 8)
 	for f in fl {
 		switch f.type {

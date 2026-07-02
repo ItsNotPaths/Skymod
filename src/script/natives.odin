@@ -36,11 +36,13 @@ register_builtins :: proc(reg: ^Registry) {
 
 n_disable :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_disabled(c.ws, c.self, ref_cell(c, c.self), true)
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 
 n_enable :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_disabled(c.ws, c.self, ref_cell(c, c.self), false)
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 
@@ -56,6 +58,7 @@ n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
 
 n_set_scale :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_scale(c.ws, c.self, ref_cell(c, c.self), arg_f32(args, 0, 1))
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 
@@ -71,6 +74,7 @@ n_get_scale :: proc(c: ^Call, args: []Value) -> Value {
 
 n_delete :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_deleted(c.ws, c.self, ref_cell(c, c.self))
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 
@@ -82,6 +86,7 @@ n_move_to :: proc(c: ^Call, args: []Value) -> Value {
 	dst := ref_pos(c, target)
 	dst += smath.Vec3{arg_f32(args, 1, 0), arg_f32(args, 2, 0), arg_f32(args, 3, 0)}
 	worldstate.set_moved(c.ws, c.self, ref_cell(c, target), smath.translate(dst), dst)
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 

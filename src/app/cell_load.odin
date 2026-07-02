@@ -87,7 +87,7 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	}
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data)}
 		delete(inputs)
 	}
 	for name in names {read_plugin_into(&inputs, data_dir, name)}
@@ -213,7 +213,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data)}
 		delete(inputs)
 	}
 
@@ -417,7 +417,15 @@ read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, dir, fname: stri
 		log.warnf("could not read plugin %s — skipping", p)
 		return
 	}
-	append(inputs, gamedb.Plugin_Input{name = strings.clone(fname), data = bytes})
+	// Sibling localized names table: Data/Strings/<Plugin>_<Lang>.STRINGS (loose). Loaded
+	// unconditionally — build_plugins only consults it when the plugin's TES4 localized flag
+	// is set, and a non-localized plugin has no such file (nil = names come from inline FULL).
+	// English only for now; DLC whose STRINGS live inside a BSA stay nameless until VFS-sourced.
+	stem := filepath.stem(fname)
+	sname := strings.concatenate({stem, "_English.STRINGS"}, context.temp_allocator)
+	spath, _ := filepath.join({dir, "Strings", sname}, context.temp_allocator)
+	sbytes, _ := os.read_entire_file(spath, context.allocator) // nil on absence (localized DLC-in-BSA, or non-localized)
+	append(inputs, gamedb.Plugin_Input{name = strings.clone(fname), data = bytes, strings_data = sbytes})
 }
 
 // files_with_suffix lists files in `dir` whose lower-cased name ends with any of `suffixes`. Names

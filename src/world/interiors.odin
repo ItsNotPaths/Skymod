@@ -419,7 +419,7 @@ build_portals :: proc(m: ^Interiors) {
 	doors, interiors := 0, 0
 	for cid in gamedb.cells_of(m.db, m.world_fid) {
 		for r in gamedb.refs_of(m.db, cid) {
-			if !r.has_tp || r.disabled {
+			if !r.has_tp || gamedb.ref_effective_disabled(m.db, r) {
 				continue
 			}
 			doors += 1

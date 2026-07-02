@@ -31,6 +31,8 @@ import "../physics"
 import "../platform"
 import "../render"
 import slog "../log"
+import "../script"
+import slua "../script/lua"
 import "../settings"
 import "../tools"
 import "../vfs"
@@ -511,12 +513,12 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// Left-click a model to inspect it (handy for confirming what streamed in).
 	insp: tools.Inspector
 
-	// Dev command console (fixed bottom-left panel): the seat for the command system to come —
-	// our own semantics plus CE aliases (tcl, player.additem, …). Today it only echoes.
+	// Dev command console (fixed bottom-left panel): a Lua REPL on the gameplay VM plus
+	// CE aliases (tcl, player.additem, …). The panel is just the widget; the REPL that
+	// backs it is built below (needs `noclip`/`ws`/`db`), which prints the ready banner.
 	console: tools.Console
 	tools.console_init(&console)
 	defer tools.console_destroy(&console)
-	tools.console_print(&console, "SkyMod console — type a command and press Enter. (command system not wired yet)")
 
 	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. On by default.
 	show_overlay := true
@@ -544,6 +546,26 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	}
 	defer if char_ok {physics.character_destroy(&character)}
 	noclip := !char_ok
+
+	// Gameplay script registry + the dev-console REPL on top of it (Phase 4). The REPL
+	// evaluates typed console lines on the same VM transpiled scripts will run on, so
+	// every registered native is a live command; it reads/writes the worldstate overlay
+	// (`ws`) over the gamedb baseline (`db`). `&noclip` lets the tcl/noclip command
+	// toggle the frame loop's own free-fly flag. Declared after `noclip` so its address
+	// is stable for the closure's lifetime; torn down before ws/db (LIFO).
+	sreg: script.Registry
+	script.init(&sreg)
+	defer script.destroy(&sreg)
+	repl: slua.Repl
+	repl_ok := console_repl_init(&repl, &sreg, &ws, &db, &noclip)
+	defer if repl_ok {slua.repl_destroy(&repl)}
+	if repl_ok {
+		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
+		slua.repl_load_rc(&repl, rc_path)
+		tools.console_print(&console, "SkyMod console — Lua REPL on the gameplay VM. `cmd.help()` lists commands.")
+	} else {
+		log.error("console: REPL init failed; falling back to echo")
+	}
 	// The physics world the `character` capsule currently lives in. The player walks the EXTERIOR
 	// `phys` until a load door swaps the active scene to an interior (its own world); on each swap
 	// the capsule is re-homed (destroy + recreate) into the new world. Seeded to the exterior so
@@ -710,10 +732,16 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				}
 			}
 
-			// Dev console: echo submitted commands for now (CE-alias dispatch is future work).
+			// Dev console: evaluate the submitted line on the gameplay REPL and echo the
+			// captured output (results / print / errors). Falls back to a bare echo if the
+			// REPL failed to init.
 			if cmd := tools.console_panel(&console); cmd != "" {
 				tools.console_printf(&console, "> %s", cmd)
-				tools.console_printf(&console, "unknown command (command system not wired yet)")
+				if repl_ok {
+					for line in slua.repl_eval(&repl, cmd) {
+						tools.console_print(&console, line)
+					}
+				}
 				log.infof("console: %q", cmd)
 			}
 		}
@@ -735,6 +763,11 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		// reads scene.pretty each frame, so this takes effect immediately).
 		scene.pretty = pretty
 		active_scene.pretty = pretty
+
+		// Deferred scene-apply (decision #3): drain the overlay changes script natives wrote this
+		// frame (e.g. a console `sel:Disable()`) and apply them live to the active scene — the fixed
+		// frame point where instance hide/move/scale/remove land, before physics rebuilds collision.
+		world.apply_pending_scene_ops(active_scene)
 
 		// Re-home the player capsule into the active scene's physics world. On a door transition
 		// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old
@@ -931,6 +964,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				world.select_instance(active_scene)
 				insp.has_sel = true
 				insp.sel_name = inst.model.path
+				insp.sel_display = gamedb.name_of(&db, gamedb.Form_ID(inst.form_id)) // FULL name (ref → base)
 				insp.sel_base = inst.base
 				insp.sel_pos = inst.pos
 				insp.sel_rot = inst.rot
@@ -938,6 +972,12 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				insp.sel_door_cell = ""
 				insp.sel_tex = inst.model.shapes[shp].diffuse_path if shp >= 0 && shp < len(inst.model.shapes) else ""
 				insp.sel_is_door = gamedb.is_door(&db, inst.base)
+				// Track the picked REFR as the console's `sel`. DIAG: echo the form so we can see
+				// whether the instance actually carries a REFR id (vs 0 → sel becomes None).
+				if repl_ok {
+					slua.repl_set_selection(&repl, script.Form_ID(inst.form_id))
+					tools.console_printf(&console, "[sel] 0x%08X (%s)", u64(inst.form_id), inst.model_path)
+				}
 			}
 		}
 

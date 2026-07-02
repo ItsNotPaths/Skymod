@@ -379,6 +379,95 @@ test_gamedb_multimaster :: proc(t: ^testing.T) {
 	testing.expect_value(t, r.base, gamedb.Form_ID(0x0000_0001_0000_0400))
 }
 
+@(test)
+test_esm_full_xesp_fields :: proc(t: ^testing.T) {
+	// FULL inline name + XESP enable-parent (parent formID + flags; bit0 = opposite).
+	body := make([dynamic]u8, 0, 48);defer delete(body)
+	field(&body, "FULL", transmute([]u8)string("Iron Sword\x00"))
+	xesp: [8]u8
+	put_u32(xesp[:], 0, 0x0001_0010)
+	put_u32(xesp[:], 4, esm.XESP_OPPOSITE)
+	field(&body, "XESP", xesp[:])
+
+	rec := esm.Record{type = "REFR", data = body[:]}
+	fl, backing, ok := esm.fields(rec)
+	testing.expect(t, ok, "split fields")
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	testing.expect_value(t, esm.full_name(fl), "Iron Sword")
+	_, sok := esm.full_string_id(fl) // FULL present ⇒ readable as a u32 id (localized path)
+	testing.expect(t, sok, "full_string_id reads the u32")
+
+	ep, eok := esm.refr_enable_parent(fl)
+	testing.expect(t, eok, "decode XESP")
+	testing.expect_value(t, ep.parent, u32(0x0001_0010))
+	testing.expect(t, ep.opposite, "XESP opposite flag set")
+}
+
+@(test)
+test_gamedb_names_inline :: proc(t: ^testing.T) {
+	// Non-localized plugin: FULL is inline text. name_of resolves a base's own name, a ref
+	// with no override → its base's name, and a ref WITH a FULL override → the override.
+	data := build_named_plugin()
+	defer delete(data)
+	db := gamedb.build(data)
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0300), "Iron Sword") // base's own FULL
+	testing.expect_value(t, gamedb.name_of(&db, 0x0001_0000), "Iron Sword") // ref → base
+	testing.expect_value(t, gamedb.name_of(&db, 0x0001_0005), "Unique Blade") // ref FULL override
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_9999), "") // unknown form
+}
+
+@(test)
+test_gamedb_localized_names :: proc(t: ^testing.T) {
+	// Localized plugin: FULL is a u32 string id resolved via the STRINGS table. Drive
+	// build_plugins directly with a hand-made Loaded_Plugin (localized + strings bytes).
+	data := build_localized_plugin(5) // STAT 0x300 FULL = string id 5
+	defer delete(data)
+
+	// STRINGS blob: id 5 -> "Dragonbone Sword".
+	block: [dynamic]u8;defer delete(block)
+	append(&block, ..transmute([]u8)string("Dragonbone Sword\x00"))
+	sblob := make([dynamic]u8, 0, 64);defer delete(sblob)
+	put_dyn_u32(&sblob, 1) // count
+	put_dyn_u32(&sblob, u32(len(block))) // dataSize
+	put_dyn_u32(&sblob, 5) // stringID
+	put_dyn_u32(&sblob, 0) // offset
+	append(&sblob, ..block[:])
+
+	lp := gamedb.Loaded_Plugin {
+		data         = data,
+		strings_data = sblob[:],
+		localized    = true,
+	}
+	db := gamedb.build_plugins({lp})
+	defer gamedb.destroy(&db)
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0300), "Dragonbone Sword")
+}
+
+@(test)
+test_gamedb_enable_parent :: proc(t: ^testing.T) {
+	// XESP enable-parent gating: a child of a DISABLED parent is effectively disabled (culled)
+	// unless it flips the state with the opposite flag. A ref with no parent follows its own flag.
+	data := build_enable_parent_plugin()
+	defer delete(data)
+	db := gamedb.build(data)
+	defer gamedb.destroy(&db)
+
+	parent, _ := gamedb.ref_by_formid(&db, 0x0001_0010)
+	child, _ := gamedb.ref_by_formid(&db, 0x0001_0011)
+	child_opp, _ := gamedb.ref_by_formid(&db, 0x0001_0012)
+	lone, _ := gamedb.ref_by_formid(&db, 0x0001_0013)
+
+	testing.expect(t, gamedb.ref_effective_disabled(&db, parent), "parent is initially disabled")
+	testing.expect(t, gamedb.ref_effective_disabled(&db, child), "child of a disabled parent is culled")
+	testing.expect(t, !gamedb.ref_effective_disabled(&db, child_opp), "opposite child shows when parent is off")
+	testing.expect(t, !gamedb.ref_effective_disabled(&db, lone), "unparented enabled ref shows")
+	testing.expect_value(t, child.enable_parent, gamedb.Form_ID(0x0001_0010))
+}
+
 // --- synthetic plugin builder ---
 
 // build_world_plugin: TES4 + a top "WRLD" GRUP holding one WRLD record (formID 0x99,
@@ -554,6 +643,122 @@ build_addon_plugin :: proc() -> []u8 {
 	append(&cell_grp, ..cc_grup[:])
 
 	out := make([dynamic]u8, 0, 256)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("STAT"), 0, stat_content[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])
+	return out[:]
+}
+
+// build_named_plugin: a NON-localized plugin — TES4 + STAT 0x300 (MODL + FULL "Iron Sword") +
+// interior CELL 0xAA → REFR 0x00010000 (base 0x300, no FULL) + REFR 0x00010005 (base 0x300,
+// FULL override "Unique Blade"). Exercises name_of's base/ref/override resolution.
+@(private = "file")
+build_named_plugin :: proc() -> []u8 {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	stat_body := make([dynamic]u8, 0, 48);defer delete(stat_body)
+	field(&stat_body, "MODL", transmute([]u8)string("sword.nif\x00"))
+	field(&stat_body, "FULL", transmute([]u8)string("Iron Sword\x00"))
+	stat_content := make([dynamic]u8, 0, 64);defer delete(stat_content)
+	record(&stat_content, "STAT", 0, 0x0000_0300, stat_body[:])
+
+	cell_body := make([dynamic]u8, 0, 32);defer delete(cell_body)
+	field(&cell_body, "EDID", transmute([]u8)string("TestCell\x00"))
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+
+	r1 := make([dynamic]u8, 0, 48);defer delete(r1)
+	field(&r1, "NAME", u32_bytes(0x0000_0300))
+	rdata: [24]u8;field(&r1, "DATA", rdata[:])
+	r2 := make([dynamic]u8, 0, 48);defer delete(r2)
+	field(&r2, "NAME", u32_bytes(0x0000_0300))
+	field(&r2, "DATA", rdata[:])
+	field(&r2, "FULL", transmute([]u8)string("Unique Blade\x00"))
+
+	cc := make([dynamic]u8, 0, 128);defer delete(cc)
+	record(&cc, "REFR", 0, 0x0001_0000, r1[:])
+	record(&cc, "REFR", 0, 0x0001_0005, r2[:])
+	cc_grup := make([dynamic]u8, 0, 160);defer delete(cc_grup)
+	group(&cc_grup, u32_bytes(0x0000_00AA), 6, cc[:])
+	cell_grp := make([dynamic]u8, 0, 192);defer delete(cell_grp)
+	record(&cell_grp, "CELL", 0, 0x0000_00AA, cell_body[:])
+	append(&cell_grp, ..cc_grup[:])
+
+	out := make([dynamic]u8, 0, 320)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("STAT"), 0, stat_content[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])
+	return out[:]
+}
+
+// build_localized_plugin: STAT 0x300 whose FULL is a u32 STRINGS id (localization is signalled
+// via the Loaded_Plugin, not the header, so build_plugins resolves it through the strings table).
+@(private = "file")
+build_localized_plugin :: proc(sid: u32) -> []u8 {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	stat_body := make([dynamic]u8, 0, 48);defer delete(stat_body)
+	field(&stat_body, "MODL", transmute([]u8)string("sword.nif\x00"))
+	field(&stat_body, "FULL", u32_bytes(sid))
+	stat_content := make([dynamic]u8, 0, 64);defer delete(stat_content)
+	record(&stat_content, "STAT", 0, 0x0000_0300, stat_body[:])
+
+	out := make([dynamic]u8, 0, 128)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("STAT"), 0, stat_content[:])
+	return out[:]
+}
+
+// build_enable_parent_plugin: interior CELL 0xAA with a DISABLED parent REFR (0x00010010) and
+// three children referencing STAT 0x300 — a plain child (0x00010011, gated off with the parent),
+// an opposite child (0x00010012, shown when the parent is off), and a lone unparented REFR
+// (0x00010013). Exercises ref_effective_disabled.
+@(private = "file")
+build_enable_parent_plugin :: proc() -> []u8 {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	stat_body := make([dynamic]u8, 0, 32);defer delete(stat_body)
+	field(&stat_body, "MODL", transmute([]u8)string("rock.nif\x00"))
+	stat_content := make([dynamic]u8, 0, 64);defer delete(stat_content)
+	record(&stat_content, "STAT", 0, 0x0000_0300, stat_body[:])
+
+	cell_body := make([dynamic]u8, 0, 32);defer delete(cell_body)
+	field(&cell_body, "EDID", transmute([]u8)string("TestCell\x00"))
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+
+	rdata: [24]u8
+	// Parent (initially disabled).
+	rp := make([dynamic]u8, 0, 48);defer delete(rp)
+	field(&rp, "NAME", u32_bytes(0x0000_0300));field(&rp, "DATA", rdata[:])
+	// Child gated by the parent (opposite off).
+	rc := make([dynamic]u8, 0, 48);defer delete(rc)
+	field(&rc, "NAME", u32_bytes(0x0000_0300));field(&rc, "DATA", rdata[:])
+	xc: [8]u8;put_u32(xc[:], 0, 0x0001_0010);put_u32(xc[:], 4, 0);field(&rc, "XESP", xc[:])
+	// Child with opposite flag (shown when parent off).
+	ro := make([dynamic]u8, 0, 48);defer delete(ro)
+	field(&ro, "NAME", u32_bytes(0x0000_0300));field(&ro, "DATA", rdata[:])
+	xo: [8]u8;put_u32(xo[:], 0, 0x0001_0010);put_u32(xo[:], 4, esm.XESP_OPPOSITE);field(&ro, "XESP", xo[:])
+	// Lone unparented ref.
+	rl := make([dynamic]u8, 0, 48);defer delete(rl)
+	field(&rl, "NAME", u32_bytes(0x0000_0300));field(&rl, "DATA", rdata[:])
+
+	cc := make([dynamic]u8, 0, 256);defer delete(cc)
+	record(&cc, "REFR", gamedb.REFR_INITIALLY_DISABLED, 0x0001_0010, rp[:])
+	record(&cc, "REFR", 0, 0x0001_0011, rc[:])
+	record(&cc, "REFR", 0, 0x0001_0012, ro[:])
+	record(&cc, "REFR", 0, 0x0001_0013, rl[:])
+	cc_grup := make([dynamic]u8, 0, 320);defer delete(cc_grup)
+	group(&cc_grup, u32_bytes(0x0000_00AA), 6, cc[:])
+	cell_grp := make([dynamic]u8, 0, 384);defer delete(cell_grp)
+	record(&cell_grp, "CELL", 0, 0x0000_00AA, cell_body[:])
+	append(&cell_grp, ..cc_grup[:])
+
+	out := make([dynamic]u8, 0, 512)
 	record(&out, "TES4", 0, 0, tes4[:])
 	group(&out, transmute([]u8)string("STAT"), 0, stat_content[:])
 	group(&out, transmute([]u8)string("CELL"), 0, cell_grp[:])

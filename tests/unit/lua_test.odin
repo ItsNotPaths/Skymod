@@ -52,9 +52,13 @@ test_lua_result_out :: proc(t: ^testing.T) {
 	defer slua.destroy(&vm)
 	testing.expect(t, ok, "VM init")
 
-	// Game.GetPlayer() returns the player Form_ID; it must round-trip back as a
-	// Lua integer equal to PLAYER (0x14).
-	p, got := slua.eval_int(&vm, "return Game.GetPlayer()")
-	testing.expect(t, got, "got an integer result")
-	testing.expect_value(t, p, i64(script.PLAYER))
+	// Game.GetPlayer() returns the player form; per decision #1 it surfaces as a REF
+	// userdata (not a bare integer), whose Form_ID round-trips back equal to PLAYER.
+	p, got := slua.eval_form(&vm, "return Game.GetPlayer()")
+	testing.expect(t, got, "got a ref result")
+	testing.expect_value(t, p, script.PLAYER)
+
+	// A bare integer result is NOT a ref (guards the contract: ints are rejected).
+	_, isref := slua.eval_form(&vm, "return 0x14")
+	testing.expect(t, !isref, "a plain integer is not a ref")
 }

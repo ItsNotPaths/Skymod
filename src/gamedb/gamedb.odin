@@ -13,6 +13,7 @@ import "base:runtime"
 import "core:log"
 import "core:strings"
 import "../formats/esm"
+import strtab "../formats/strings"
 
 // Form_ID is the global form handle (esm.Form_ID = u64): (slot<<32)|local. All gamedb
 // keys/handles are global — every plugin's FormIDs are remapped into this space at build.
@@ -30,6 +31,11 @@ Ref :: struct {
 	teleport:     esm.Teleport,
 	has_tp:       bool,
 	disabled:     bool, // REFR "Initially Disabled" flag — not placed in the world
+	// XESP enable-parent: this ref is only placed when its parent is enabled (XOR opposite).
+	// enable_parent 0 = no parent. The STATIC default gate (ref_effective_disabled) drops
+	// quest/alternate debris; the eventual quest system flips the parent live.
+	enable_parent:   Form_ID,
+	enable_opposite: bool,
 }
 
 // REFR record-header flag: the ref starts disabled (an alternate-state placement).
@@ -55,6 +61,7 @@ Cell :: struct {
 DB :: struct {
 	allocator:    runtime.Allocator,
 	base_models:   map[Form_ID]string, // base formID -> mesh path (owned)
+	names:         map[Form_ID]string, // base/ref formID -> display name (owned; FULL, localized or inline)
 	base_lod:      map[Form_ID][esm.LOD_MODELS]string, // base formID -> MNAM distant-LOD meshes (owned; "" = absent)
 	base_radius:   map[Form_ID]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
@@ -77,6 +84,8 @@ DB :: struct {
 	ltex_grass:    map[Form_ID]Form_ID, // LTEX formID -> its GRAS grass-type formID (GNAM)
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
+	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (borrowed; freed per plugin)
+	cur_localized: bool, // build-time only: is the current plugin localized (FULL = string id vs inline)
 }
 
 // Ref_Loc locates a placed ref within cell_refs so a later plugin overriding the same
@@ -128,6 +137,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	db := DB {
 		allocator     = allocator,
 		base_models   = make(map[Form_ID]string, 4096, allocator),
+		names         = make(map[Form_ID]string, 8192, allocator),
 		base_lod      = make(map[Form_ID][esm.LOD_MODELS]string, 2048, allocator),
 		base_radius   = make(map[Form_ID]f32, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
@@ -153,9 +163,26 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	}
 	done_bytes := 0
 	for &p in plugins {
+		// A LOCALIZED plugin stores FULL/DESC as string ids; resolve names via its STRINGS
+		// table (loaded loose by the caller, attached to the input). Parse it once, expose it
+		// to the visitor as build scaffolding, walk, then free it — the names we keep are
+		// re-cloned into db.names. Non-localized plugins carry inline FULL (table stays nil).
+		db.cur_localized = p.localized
+		db.cur_strings = nil
+		if p.localized && p.strings_data != nil {
+			if tbl, ok := strtab.parse(p.strings_data, .Plain, allocator); ok {
+				db.cur_strings = tbl
+			}
+		}
 		esm.walk(p.data, visit, &db, &p.fm, progress, done_bytes) // progress = cumulative bytes (for the load bar)
+		if db.cur_strings != nil {
+			strtab.destroy(&db.cur_strings, allocator)
+		}
 		done_bytes += len(p.data)
 	}
+	db.cur_strings = nil
+	// Bake XESP enable-parent into effective placement: no separate pass needed — the world
+	// cull calls ref_effective_disabled(db, r) which resolves the parent's state on the fly.
 	delete(db.ref_index) // build-time scaffolding — done once every plugin is walked
 	db.ref_index = nil
 	log.infof(
@@ -190,6 +217,10 @@ destroy :: proc(db: ^DB) {
 		delete(m)
 	}
 	delete(db.base_models)
+	for _, n in db.names {
+		delete(n)
+	}
+	delete(db.names)
 	delete(db.base_radius)
 	delete(db.doors)
 	delete(db.trees)
@@ -406,6 +437,43 @@ cell_by_formid :: proc(db: ^DB, form_id: Form_ID) -> (Cell, bool) {
 	return c, ok
 }
 
+// name_of resolves a form's display name (FULL), following ref → base: a REFR's own FULL
+// override wins, else its base form's name. Works for a base formID directly too. "" when
+// no name is known (unnamed forms, or DLC whose loose STRINGS file wasn't loaded). Names
+// come from the localized STRINGS table (or inline FULL for non-localized plugins).
+name_of :: proc(db: ^DB, form: Form_ID) -> string {
+	if n, ok := db.names[form]; ok && n != "" {
+		return n // the form's own FULL — a base name, or a ref's override
+	}
+	if r, ok := db.ref_by_id[form]; ok {
+		if n, nok := db.names[r.base]; nok {
+			return n // ref with no override → its base form's name
+		}
+	}
+	return ""
+}
+
+// ref_effective_disabled reports whether a placed ref is disabled in the STATIC default
+// state — its own "Initially Disabled" flag, OR (via XESP) its enable parent gating it off.
+// A ref with an enable parent is enabled iff the parent is enabled, XOR the "opposite" flag;
+// so it's disabled when that resolves false. One level deep (parent's own raw flag); an
+// unindexed parent falls back to the ref's own flag (don't over-cull). This is the world
+// cull's gate — it drops quest/alternate debris the same way REFR_INITIALLY_DISABLED does.
+ref_effective_disabled :: proc(db: ^DB, r: Ref) -> bool {
+	if r.disabled {
+		return true
+	}
+	if r.enable_parent == 0 {
+		return false
+	}
+	parent, ok := db.ref_by_id[r.enable_parent]
+	if !ok {
+		return false // parent not indexed (cross-cell / unresolved) — keep the ref
+	}
+	child_enabled := (!parent.disabled) != r.enable_opposite // parent-enabled XOR opposite
+	return !child_enabled
+}
+
 // --- walk visitor ---
 
 @(private)
@@ -541,6 +609,30 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 }
 
+// index_name decodes a record's FULL display name into db.names[form], branching on the
+// current plugin's localized flag: localized → a u32 string id resolved in cur_strings;
+// otherwise the inline zstring. Skips empty/unresolved names. `form` is already global —
+// a base form's own name, or a REFR's FULL override. A later plugin (last write wins)
+// replaces the previous clone.
+@(private)
+index_name :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
+	name: string
+	if db.cur_localized {
+		if sid, ok := esm.full_string_id(fl); ok {
+			name = strtab.lookup(db.cur_strings, sid)
+		}
+	} else {
+		name = esm.full_name(fl)
+	}
+	if name == "" {
+		return
+	}
+	if old, ok := db.names[form]; ok {
+		delete(old, db.allocator) // override: free the previous clone
+	}
+	db.names[form] = strings.clone(name, db.allocator)
+}
+
 @(private)
 index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
@@ -569,6 +661,10 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		ref.teleport = tp
 		ref.has_tp = true
 	}
+	if ep, has := esm.refr_enable_parent(fl); has {
+		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent) // XESP references the parent ref
+		ref.enable_opposite = ep.opposite
+	}
 
 	// Override: a later plugin re-declaring this REFR formID replaces it in place (preserves
 	// cell-array order). Otherwise append and remember where it landed. (A relocation to a
@@ -585,6 +681,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		db.ref_index[rec.form_id] = Ref_Loc{cell_form_id, len(refs) - 1}
 	}
 	db.ref_by_id[rec.form_id] = ref
+	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
 }
 
 @(private)
@@ -726,6 +823,7 @@ index_base :: proc(db: ^DB, rec: esm.Record) {
 		}
 		db.base_models[rec.form_id] = strings.clone(model, db.allocator)
 	}
+	index_name(db, rec.form_id, fl) // FULL display name (localized id or inline)
 	// Prebaked distant-LOD meshes (STAT MNAM): clone the populated slots so the LOD rings load
 	// Skyrim's own low-poly meshes instead of decimating at runtime.
 	if lods, n := esm.lod_model_paths(fl); n > 0 {

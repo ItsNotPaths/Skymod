@@ -223,6 +223,79 @@ lock_ref :: proc(s: ^Scene, form_id, cell: Form_ID, locked: bool) -> bool {
 	return true
 }
 
+// apply_pending_scene_ops drains the worldstate deferred-apply queue and live-applies each change to
+// THIS scene (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write
+// the overlay synchronously (read-your-writes) but don't touch the live scene; this is what makes the
+// change visible. Call once per frame on the active scene. No-op without an overlay / empty queue.
+apply_pending_scene_ops :: proc(s: ^Scene) {
+	if s.ws == nil {
+		return
+	}
+	for form in worldstate.pending_scene(s.ws) {
+		apply_overlay_ref(s, form)
+	}
+	worldstate.clear_scene_dirty(s.ws)
+}
+
+// apply_overlay_ref live-applies a single form's CURRENT overlay delta to the resident scene — the
+// deferred sibling of the *_ref verbs, for deltas written straight to the overlay (script natives).
+// It does NOT write the overlay (already written); it only reconciles the resident instance's render +
+// collision with the recorded state. No-op if the form has no delta / isn't resident (a non-resident
+// ref picks the delta up via apply_overlay when its cell next builds). Precedence mirrors apply_overlay.
+apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
+	if s.ws == nil {
+		return
+	}
+	d, ok := worldstate.get(s.ws, form_id)
+	if !ok {
+		return
+	}
+	// Deleted: remove the resident instance + its collision entirely (delete_ref's live half).
+	if .Deleted in d.live {
+		if _, chunk, res := find_resident(s, form_id); res {
+			for i in 0 ..< len(chunk.instances) {
+				if chunk.instances[i].form_id == form_id {
+					remove_instance_bodies(s.phys, chunk, &chunk.instances[i])
+					unordered_remove(&chunk.instances, i)
+					break
+				}
+			}
+			delete_key(&s.resident, form_id)
+			index_instances(s, chunk)
+		}
+		return
+	}
+	inst, chunk, res := find_resident(s, form_id)
+	if !res {
+		return
+	}
+	// Disabled wins over transform (a hidden ref ignores Moved/Scaled, as in apply_overlay).
+	if .Disabled in d.live && d.disabled {
+		if !inst.disabled {
+			inst.disabled = true
+			inst.vis = .Hidden
+			remove_instance_bodies(s.phys, chunk, inst)
+		}
+		return
+	}
+	// Re-enable a previously-hidden ref (flag collision for rebuild).
+	if .Disabled in d.live && !d.disabled && inst.disabled {
+		inst.disabled = false
+		inst.vis = .Show
+		inst.phys_built = false
+		chunk.phys_done = false
+	}
+	if .Moved in d.live {
+		inst.world = d.world
+		inst.pos = d.pos
+		rebuild_instance_collision(s, chunk, inst)
+	} else if .Scaled in d.live {
+		inst.scale = d.scale
+		inst.world = smath.trs(inst.pos, inst.rot, d.scale)
+		rebuild_instance_collision(s, chunk, inst)
+	}
+}
+
 // --- created refs (the ADDITIVE half of baseline ⊕ overlay; docs/live-state.md §6 created-ref store) ---
 
 // build_created_instance constructs an Instance for a runtime-created ref (base form → model path via

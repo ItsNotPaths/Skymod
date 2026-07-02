@@ -88,6 +88,11 @@ World_State :: struct {
 	next_created:    Form_ID,                      // next FormID to hand out (>= CREATED_FORM_BASE)
 	globals:         map[Form_ID]f32,              // GLOB FormID / script var -> value (quests, flags, timers)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
+	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
+	// live scene themselves (script natives) append the form they changed here; the app drains it at
+	// one fixed frame point and re-applies each to the resident scene. The world's own *_ref verbs
+	// apply live at call time and DON'T enqueue. Ordered; a form may repeat (drain is idempotent).
+	scene_dirty:     [dynamic]Form_ID,
 }
 
 init :: proc(ws: ^World_State) {
@@ -97,6 +102,7 @@ init :: proc(ws: ^World_State) {
 	ws.created_by_cell = make(map[Form_ID][dynamic]Form_ID)
 	ws.next_created = CREATED_FORM_BASE
 	ws.globals = make(map[Form_ID]f32)
+	ws.scene_dirty = make([dynamic]Form_ID)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -111,7 +117,24 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.created_by_cell)
 	delete(ws.created)
 	delete(ws.globals)
+	delete(ws.scene_dirty)
 	ws^ = {}
+}
+
+// mark_scene_dirty enqueues `form_id` for deferred live-apply. Called by writers that only touch the
+// overlay (script natives) so the app's per-frame drain re-applies the change to the resident scene.
+mark_scene_dirty :: proc(ws: ^World_State, form_id: Form_ID) {
+	append(&ws.scene_dirty, form_id)
+}
+
+// pending_scene returns the queued dirty forms (drain-and-apply, then clear_scene_dirty).
+pending_scene :: proc(ws: ^World_State) -> []Form_ID {
+	return ws.scene_dirty[:]
+}
+
+// clear_scene_dirty empties the deferred-apply queue (after the app has applied it this frame).
+clear_scene_dirty :: proc(ws: ^World_State) {
+	clear(&ws.scene_dirty)
 }
 
 // create_ref mints a runtime ref in the 0xFF space (no ESM baseline), stores its full placement, and

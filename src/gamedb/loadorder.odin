@@ -15,18 +15,21 @@ import "../formats/esm"
 // resolution + load order) and its raw bytes (borrowed — the DB clones what it keeps, so
 // the caller may free the bytes after build_plugins returns).
 Plugin_Input :: struct {
-	name: string,
-	data: []u8,
+	name:         string,
+	data:         []u8,
+	strings_data: []u8, // loose <Plugin>_<Lang>.STRINGS bytes for a localized plugin (nil = none/inline); borrowed
 }
 
 // Loaded_Plugin is a Plugin_Input resolved into the global load order: its global index
 // (the high byte of the FormIDs it defines) and the Form_Map that rewrites its local
 // FormIDs into global space. Produced by resolve_load_order, consumed by build_plugins.
 Loaded_Plugin :: struct {
-	name:  string,
-	data:  []u8,
-	index: int,
-	fm:    esm.Form_Map,
+	name:         string,
+	data:         []u8,
+	strings_data: []u8, // carried from Plugin_Input (localized names table bytes; nil = none)
+	localized:    bool, // TES4 flag 0x80 — resolved from the header at build time
+	index:        int,
+	fm:           esm.Form_Map,
 }
 
 // resolve_load_order reads each plugin's TES4 master list, topo-sorts the set into Skyrim
@@ -38,10 +41,12 @@ resolve_load_order :: proc(inputs: []Plugin_Input, allocator := context.allocato
 	n := len(inputs)
 	names := make([]string, n, context.temp_allocator)
 	masters := make([][]string, n, context.temp_allocator)
+	localized := make([]bool, n, context.temp_allocator)
 	for inp, i in inputs {
 		names[i] = inp.name
 		if h, ok := esm.parse_header(inp.data, context.temp_allocator); ok {
 			masters[i] = h.masters
+			localized[i] = h.localized
 		}
 	}
 	// Input order is the tie-break rank: passing plugins in mod-list order makes the resolved load
@@ -60,9 +65,11 @@ resolve_load_order :: proc(inputs: []Plugin_Input, allocator := context.allocato
 	out := make([]Loaded_Plugin, n, allocator)
 	for p, gi in perm {
 		lp := Loaded_Plugin {
-			name  = inputs[p].name,
-			data  = inputs[p].data,
-			index = gi,
+			name         = inputs[p].name,
+			data         = inputs[p].data,
+			strings_data = inputs[p].strings_data,
+			localized    = localized[p],
+			index        = gi,
 		}
 		for b in 0 ..< 256 {
 			lp.fm.slot[b] = u32(b) // identity default (unused high bytes pass through)
