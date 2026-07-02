@@ -117,6 +117,38 @@ test_repl_selection_default :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(sout, "000539A8"), "prid selected the ref by id")
 }
 
+// End-to-end quest dispatch: a bare form handle whose gamedb kind is Quest resolves methods up the
+// {Quest, Form} chain — the console path for save debugging. Proves gamedb.form_kind → method_class →
+// call() all connect for a NON-object-ref class. (Without the form-kind map, GetCurrentStageID would
+// miss the object-ref chain and error as an unknown native.)
+@(test)
+test_repl_quest_dispatch :: proc(t: ^testing.T) {
+	repl: slua.Repl
+	ws: worldstate.World_State
+	reg: script.Registry
+	// A DB that classifies one form as a Quest (form_kinds is a plain field — no full ESM build needed).
+	quest := gamedb.Form_ID(0x000C_0DE0)
+	db: gamedb.DB
+	db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind)
+	db.form_kinds[quest] = .Quest
+	defer delete(db.form_kinds)
+
+	testing.expect(t, setup(&repl, &ws, &db, &reg), "repl init")
+	defer {slua.repl_destroy(&repl);worldstate.destroy(&ws);script.destroy(&reg)}
+
+	// Set a stage through a bare quest handle, then read it back — routes to Quest.*, not ObjectReference.
+	// Start() first: SetCurrentStageID only advances a running quest (this DB has no baseline SGE flag).
+	slua.repl_eval(&repl, "q = ref(0x000C0DE0)")
+	slua.repl_eval(&repl, "q:Start()")
+	slua.repl_eval(&repl, "q:SetCurrentStageID(30)")
+	testing.expect_value(t, worldstate.quest_stage(&ws, quest), u16(30))
+	testing.expect_value(t, joined(slua.repl_eval(&repl, "q:GetCurrentStageID()")), "30")
+	// The skymod extension is reachable the same way.
+	slua.repl_eval(&repl, "q:SetCurrentStageID(20)")
+	testing.expect_value(t, joined(slua.repl_eval(&repl, "q:GetCurrentStageID()")), "30") // highest
+	testing.expect_value(t, joined(slua.repl_eval(&repl, "q:GetRecentStageID()")), "20") // last-set
+}
+
 @(test)
 test_preprocess_ce_shapes :: proc(t: ^testing.T) {
 	tmp := context.temp_allocator

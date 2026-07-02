@@ -165,7 +165,11 @@ ref_method :: proc "c" (L: ^lua.State) -> c.int {
 		append(&args, to_value(L, c.int(i)))
 	}
 
-	class, _ := script.method_class(vm.reg, fn)
+	// Resolve the form's kind (QUST/GLOB/FACT/…) so a Quest handle dispatches up {Quest, Form},
+	// a GlobalVariable up {GlobalVariable, Form}, etc. — not the object-ref chain. Unknown forms
+	// (object refs) keep the naive chain. db may be nil (headless) → Unknown.
+	kind := gamedb.form_kind(vm.ctx.db, form)
+	class, _ := script.method_class(vm.reg, fn, kind)
 	cc := vm.ctx
 	cc.self = form
 	ret := script.call(vm.reg, class, fn, &cc, args[:])

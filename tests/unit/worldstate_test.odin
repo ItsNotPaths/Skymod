@@ -30,6 +30,23 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	// Coarse singletons: globals + the player.
 	ws.set_global(&src, 0x00000005, 42.5)
 	ws.set_player(&src, 0, {7, 8, 9}, 1.2, -0.3)
+	// A Dead delta (the new actor life-state field) on its own ref/cell.
+	ws.set_dead(&src, 0x000A11FE, 0x0004DEAD, true)
+	// Quest store: a stage (marks it done + running), a couple of objectives with distinct flags,
+	// and the active/completed bits — exercises the nested done-set + objective-map round-trip.
+	ws.quest_set_running(&src, 0x000C0DE0, true) // explicit Start (SetStage no longer implies running)
+	ws.quest_set_stage(&src, 0x000C0DE0, 40)
+	ws.quest_set_objective(&src, 0x000C0DE0, 10, .Displayed, true)
+	ws.quest_set_objective(&src, 0x000C0DE0, 10, .Completed, true)
+	ws.quest_set_objective(&src, 0x000C0DE0, 20, .Failed, true)
+	ws.quest_set_active(&src, 0x000C0DE0, true)
+	// The three Wave-1 stores: inventory (two items on one owner), actor values (case-folded key),
+	// faction rank, relationship rank — exercises each map-of-maps CBOR round-trip.
+	ws.inv_add(&src, 0x000B0B00, 0x0000000F, 250) // gold
+	ws.inv_add(&src, 0x000B0B00, 0x0001A11E, 3)
+	ws.av_set(&src, 0x000AC701, "Health", 87.5)
+	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
+	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
 
 	path := "test_quicksave.skysave"
 	defer os.remove(path)
@@ -39,7 +56,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	man, mok := ws.read_manifest(path)
 	testing.expect(t, mok, "manifest read failed")
 	testing.expect_value(t, man.save_number, u32(7))
-	testing.expect_value(t, man.delta_count, u32(3))
+	testing.expect_value(t, man.delta_count, u32(4))
 
 	// Full load into a fresh overlay.
 	dst: ws.World_State
@@ -47,7 +64,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	defer ws.destroy(&dst)
 	_, lok := ws.load_from_file(&dst, path)
 	testing.expect(t, lok, "load failed")
-	testing.expect_value(t, ws.count(&dst), 3)
+	testing.expect_value(t, ws.count(&dst), 4)
 
 	d, has := ws.get(&dst, 0x000ABCDE)
 	testing.expect(t, has, "delta A missing after load")
@@ -89,6 +106,36 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	pl, pok := ws.get_player(&dst)
 	testing.expect(t, pok, "player singleton missing after load")
 	testing.expectf(t, abs(pl.pos.x - 7) < 1e-5 && abs(pl.yaw - 1.2) < 1e-5, "player pos/yaw mismatch: %v yaw %v", pl.pos, pl.yaw)
+
+	// Dead delta survives.
+	deadd, deadok := ws.get(&dst, 0x000A11FE)
+	testing.expect(t, deadok, "dead delta missing after load")
+	testing.expect(t, .Dead in deadd.live, "Dead flag lost")
+	testing.expect(t, deadd.dead, "dead value lost")
+
+	// Quest store survives: stage (running + done), the two objectives' distinct flags, active bit.
+	q, qok := ws.quest_get(&dst, 0x000C0DE0)
+	testing.expect(t, qok, "quest state missing after load")
+	testing.expect_value(t, q.stage, u16(40))
+	testing.expect(t, q.running && q.running_set, "quest running/running_set lost")
+	testing.expect(t, q.active, "quest active bit lost")
+	testing.expect(t, ws.quest_is_stage_done(&dst, 0x000C0DE0, 40), "stage 40 not marked done")
+	testing.expect(t, !ws.quest_is_stage_done(&dst, 0x000C0DE0, 41), "spurious done stage")
+	o10 := ws.quest_objective(&dst, 0x000C0DE0, 10)
+	testing.expect(t, .Displayed in o10 && .Completed in o10 && .Failed not_in o10, "objective 10 flags wrong")
+	o20 := ws.quest_objective(&dst, 0x000C0DE0, 20)
+	testing.expect(t, .Failed in o20 && .Displayed not_in o20, "objective 20 flags wrong")
+
+	// The three Wave-1 stores survive.
+	testing.expect_value(t, ws.inv_count(&dst, 0x000B0B00, 0x0000000F), i32(250))
+	testing.expect_value(t, ws.inv_count(&dst, 0x000B0B00, 0x0001A11E), i32(3))
+	hv, hok := ws.av_get(&dst, 0x000AC701, "health") // case-folded lookup hits the stored key
+	testing.expect(t, hok, "actor value missing after load")
+	testing.expectf(t, abs(hv - 87.5) < 1e-5, "AV mismatch: %v", hv)
+	fr, fok := ws.faction_rank(&dst, 0x000AC701, 0x000FAC70)
+	testing.expect(t, fok && fr == 4, "faction rank lost")
+	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))
+	testing.expect_value(t, ws.rel_rank(&dst, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
 }
 
 @(test)

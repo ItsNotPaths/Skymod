@@ -499,6 +499,12 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	worldstate.init(&ws)
 	scene.ws = &ws // overlay on the exterior scene too (interiors get it via traversal_init below)
 	defer worldstate.destroy(&ws)
+	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
+	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
+	// handed to every save/load below so slots resolve to THIS install's forms.
+	save_ft := load_form_table(base)
+	defer mods.formtable_destroy(&save_ft)
+	save_bridge := form_bridge(&save_ft)
 	// Quicksave file beside the binary (<base>/saves/), created on first save (§4.2). The path is
 	// computed before the boot loop above (the menu reads its save summary).
 	save_no: u32
@@ -583,7 +589,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	// (New Game = nothing to do; the overlay starts empty). The choice was made before world init,
 	// so any mod the manager enabled already took effect in the build above — seamless, no relaunch.
 	if boot_choice == .Continue {
-		if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
+		if m, ok := worldstate.load_from_file(&ws, quicksave_path, &save_bridge); ok {
 			save_no = m.save_number
 			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
 			// grid cells stream in afterward and pick it up on build.
@@ -845,7 +851,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 				created_unix = time.to_unix_nanoseconds(time.now()),
 				game_cell    = cell,
 			}
-			if worldstate.save_to_file(&ws, quicksave_path, man) {
+			if worldstate.save_to_file(&ws, quicksave_path, man, &save_bridge) {
 				save_no += 1
 				log.infof("quicksave: wrote %s (%d deltas)", quicksave_path, worldstate.count(&ws))
 			} else {
@@ -853,7 +859,7 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 			}
 		}
 		if p.input.quickload && !kb_cap {
-			if m, ok := worldstate.load_from_file(&ws, quicksave_path); ok {
+			if m, ok := worldstate.load_from_file(&ws, quicksave_path, &save_bridge); ok {
 				log.infof("quickload: loaded %s (%d deltas)", quicksave_path, m.delta_count)
 				if !interiors_on {
 					traversal_reload(&trav) // re-apply the loaded overlay to the live interior
@@ -1259,6 +1265,7 @@ run_mod_manager :: proc(
 	new_seq := 0
 	dirty := true // recompute the derived plugin order whenever the mod list changes
 	derived: []Derived_Plugin
+	missing: []gamedb.Missing_Master
 
 	for platform.pump(p) {
 		render.ui_new_frame(r)
@@ -1269,7 +1276,8 @@ run_mod_manager :: proc(
 		}
 		if dirty {
 			free_derived(derived)
-			derived = derive_plugin_order(src, base, profile)
+			free_missing(missing)
+			derived, missing = derive_plugin_order(src, base, profile)
 			dirty = false
 		}
 
@@ -1287,9 +1295,13 @@ run_mod_manager :: proc(
 		for d, i in derived {
 			plugins_view[i] = {name = d.name, source = d.source, master = d.master}
 		}
+		missing_view := make([]tools.Missing_Master_View, len(missing), context.temp_allocator)
+		for m, i in missing {
+			missing_view[i] = {plugin = m.plugin, master = m.master}
+		}
 		profiles := discover_profiles(base, context.temp_allocator)
 
-		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view)
+		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view, missing_view)
 
 		if res.toggled >= 0 {mods.profile_toggle(profile, res.toggled);dirty = true}
 		if res.move_from >= 0 && res.move_to >= 0 {
@@ -1309,6 +1321,21 @@ run_mod_manager :: proc(
 			dir, _ := filepath.join({mods_root(base), name}, context.temp_allocator)
 			_ = os.make_directory(dir)
 			mods.profile_add(profile, name)
+			dirty = true
+		}
+		// Resolve missing masters by disabling each dependent plugin's providing mod (the constructive
+		// half of the doc's "refuse or auto-disable" — the destructive silent cross-wire is already
+		// killed in the resolver by INVALID_SLOT; this makes the load clean).
+		if res.auto_disable_missing {
+			for mm in missing {
+				for d in derived {
+					if strings.equal_fold(d.name, mm.plugin) {
+						idx := mods.profile_index(profile, d.source)
+						if idx >= 0 && profile.mods[idx].enabled {mods.profile_toggle(profile, idx)}
+						break
+					}
+				}
+			}
 			dirty = true
 		}
 
@@ -1345,10 +1372,12 @@ run_mod_manager :: proc(
 			}
 			_ = settings.save(cfg)
 			free_derived(derived)
+			free_missing(missing)
 			return true
 		}
 	}
 	free_derived(derived)
+	free_missing(missing)
 	return false // window closed
 }
 
@@ -1404,6 +1433,16 @@ free_derived :: proc(d: []Derived_Plugin) {
 		delete(e.source)
 	}
 	delete(d)
+}
+
+// free_missing releases a missing-master slice (plugin/master strings are heap-owned).
+@(private = "file")
+free_missing :: proc(m: []gamedb.Missing_Master) {
+	for e in m {
+		delete(e.plugin)
+		delete(e.master)
+	}
+	delete(m)
 }
 
 // proc_rss_mb reads this process's resident set size (MB) from /proc/self/statm (Linux) — the

@@ -30,6 +30,12 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Game", "GetPlayer", n_get_player)
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)
+
+	register_math(reg) // Math.* — pure callstatic leaves
+	register_quest(reg) // Quest.* — the quest-state store
+	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
+	register_inventory(reg) // ObjectReference/Actor inventory store
+	register_actor(reg) // Actor values + faction/relationship store
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────
@@ -160,6 +166,19 @@ arg_f32 :: proc(args: []Value, i: int, fallback: f32) -> f32 {
 			return v
 		case i32:
 			return f32(v)
+		}
+	}
+	return fallback
+}
+
+@(private)
+arg_i32 :: proc(args: []Value, i: int, fallback: i32) -> i32 {
+	if i < len(args) {
+		#partial switch v in args[i] {
+		case i32:
+			return v
+		case f32:
+			return i32(v)
 		}
 	}
 	return fallback

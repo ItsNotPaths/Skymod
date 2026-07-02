@@ -128,21 +128,51 @@ is_declared :: proc(reg: ^Registry, class, fn: string) -> bool {
 // A `ref:Method()` call walks it and dispatches to the first class that declares
 // the method — Papyrus resolves methods up the script class chain the same way.
 // This is the naive-first chain (Actor → ObjectReference → Form): enough to split
-// actor-only verbs from the object-ref bulk. It gains the ref's *true* class once
-// the record decoders land a form→class lookup (then the chain is per-form, not
-// fixed). Global-only classes (Game/Debug/Utility) are never on a ref.
+// actor-only verbs from the object-ref bulk. Used for object refs and for any form
+// whose kind isn't specially classified. Global-only classes (Game/Debug/Utility)
+// are never on a ref. Package-level (not a literal) so the returned slice is stable.
 REF_CLASS_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 
-// method_class resolves which class in the ref chain owns `fn`. Returns the first
-// declared/implemented class (ok=true), or "ObjectReference" as the fallback so an
-// unknown method still dispatches somewhere and logs through the normal path.
-method_class :: proc(reg: ^Registry, fn: string) -> (class: string, ok: bool) {
-	for c in REF_CLASS_CHAIN {
+// Per-kind chains for Form-SUBTYPE handles: a Quest/GlobalVariable/Faction form
+// resolves methods up its own class then Form (Papyrus's hierarchy). These plus the
+// gamedb form→kind map replace the fixed chain with a per-form one (the record-decoder
+// upgrade the naive chain was a placeholder for).
+QUEST_CLASS_CHAIN := []string{"Quest", "Form"}
+GLOBAL_CLASS_CHAIN := []string{"GlobalVariable", "Form"}
+FACTION_CLASS_CHAIN := []string{"Faction", "Form"}
+
+// class_chain picks the method-resolution order for a form's kind. Unknown (object
+// refs / unclassified) keeps the naive object-ref chain, preserving prior behaviour.
+class_chain :: proc(kind: gamedb.Form_Kind) -> []string {
+	switch kind {
+	case .Quest:
+		return QUEST_CLASS_CHAIN
+	case .Global:
+		return GLOBAL_CLASS_CHAIN
+	case .Faction:
+		return FACTION_CLASS_CHAIN
+	case .Unknown:
+		return REF_CLASS_CHAIN
+	}
+	return REF_CLASS_CHAIN
+}
+
+// method_class resolves which class in a form's chain owns `fn`. `kind` selects the
+// chain (default Unknown = the object-ref chain, so existing callers are unchanged).
+// Returns the first declared/implemented class (ok=true); on a miss it falls back so
+// the call still dispatches + logs through the normal path — "ObjectReference" for the
+// object-ref/Unknown chain (as before), else the form's own most-derived class.
+method_class :: proc(reg: ^Registry, fn: string, kind := gamedb.Form_Kind.Unknown) -> (class: string, ok: bool) {
+	chain := class_chain(kind)
+	for c in chain {
 		if is_implemented(reg, c, fn) || is_declared(reg, c, fn) {
 			return c, true
 		}
 	}
-	return "ObjectReference", false
+	if kind == .Unknown {
+		return "ObjectReference", false
+	}
+	return chain[0], false
 }
 
 // key_temp builds a lookup key in the temp allocator (no lasting ownership — map

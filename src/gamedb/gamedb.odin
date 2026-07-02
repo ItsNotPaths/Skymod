@@ -43,6 +43,30 @@ REFR_INITIALLY_DISABLED :: 0x0000_0800
 // Record-header DELETED flag — an override that removes a master's record (TESForm bit 5).
 REFR_DELETED :: 0x0000_0020
 
+// Form_Kind classifies a form by its record type, for script method-dispatch: which Papyrus class
+// chain a bare form-handle resolves methods up (a Quest handle → {Quest, Form}, a GlobalVariable →
+// {GlobalVariable, Form}). Only the record types that map to a Form-SUBTYPE class we dispatch
+// specially are tracked — everything else stays Unknown and falls back to the object-reference /
+// Form default chain, matching the naive pre-decoder behaviour. This is the first slice of the
+// form→class decoder (docs: record-decoders); it grows as more base-form classes get natives.
+Form_Kind :: enum u8 {
+	Unknown, // object ref or anything not specially classified → default chain
+	Quest,   // QUST
+	Global,  // GLOB
+	Faction, // FACT
+}
+
+// Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
+// the mutable half is worldstate.Quest_State). `start_game_enabled` (DNAM flag) means the quest is
+// running from a new game — so an untouched SGE quest reads IsRunning=true. `stages` maps each defined
+// stage index to whether it's flagged "Complete Quest" (QSDT 0x01); a key's presence = the stage
+// exists (SetCurrentStageID validates against it). Objectives/aliases are later phases.
+Quest_Baseline :: struct {
+	start_game_enabled: bool,
+	stages:             map[u16]bool, // stage index -> completes-the-quest; presence = valid stage
+	objectives:         map[u16]bool, // defined objective indices (QOBJ); presence = defined
+}
+
 // Cell is one cell's identity. Exterior cells carry their worldspace + grid (each
 // grid step is 4096 units); interior cells have world_form_id 0 and has_grid false.
 Cell :: struct {
@@ -83,6 +107,8 @@ DB :: struct {
 	txst_diffuse:  map[Form_ID]string, // TXST formID -> TX00 diffuse path (owned)
 	ltex_grass:    map[Form_ID]Form_ID, // LTEX formID -> its GRAS grass-type formID (GNAM)
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
+	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
+	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
 	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (borrowed; freed per plugin)
 	cur_localized: bool, // build-time only: is the current plugin localized (FULL = string id vs inline)
@@ -159,7 +185,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		txst_diffuse  = make(map[Form_ID]string, 1024, allocator),
 		ltex_grass    = make(map[Form_ID]Form_ID, 128, allocator),
 		grasses       = make(map[Form_ID]Grass, 64, allocator),
-		ref_index     = make(map[Form_ID]Ref_Loc, 4096, allocator),
+		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
+		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
+		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 	}
 	done_bytes := 0
 	for &p in plugins {
@@ -271,6 +299,12 @@ destroy :: proc(db: ^DB) {
 		delete(g.model)
 	}
 	delete(db.grasses)
+	delete(db.form_kinds)
+	for _, qb in db.quest_baseline {
+		delete(qb.stages)
+		delete(qb.objectives)
+	}
+	delete(db.quest_baseline)
 	db^ = {}
 }
 
@@ -514,10 +548,113 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_txst(db, rec)
 	case s == "GRAS":
 		index_gras(db, rec)
+	case s == "QUST":
+		db.form_kinds[rec.form_id] = .Quest // form→class for script dispatch (last write wins on override)
+		index_quest(db, rec)
+	case s == "GLOB":
+		db.form_kinds[rec.form_id] = .Global
+	case s == "FACT":
+		db.form_kinds[rec.form_id] = .Faction
 	case is_base_type(s):
 		index_base(db, rec)
 	}
 	return true
+}
+
+// form_kind returns a form's Papyrus class kind (QUST/GLOB/FACT), or Unknown for object refs and
+// anything not specially classified. Safe on a nil DB (→ Unknown). Drives script method-dispatch:
+// which class chain a bare form-handle resolves methods up.
+form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
+	if db == nil {
+		return .Unknown
+	}
+	return db.form_kinds[form] // absent → zero value == .Unknown
+}
+
+// index_quest decodes a QUST's script-relevant baseline: the DNAM "Start Game Enabled" flag and the
+// defined stages (INDX index + the following QSDT "Complete Quest" flag). Field order matters — a
+// QSDT applies to the most recent INDX (xEdit's stage grouping) — so we walk the subrecords in order.
+@(private)
+index_quest :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	if old, existed := db.quest_baseline[rec.form_id]; existed {
+		delete(old.stages) // override: free the previous clone
+		delete(old.objectives)
+	}
+	qb := Quest_Baseline {
+		stages     = make(map[u16]bool, 16, db.allocator),
+		objectives = make(map[u16]bool, 8, db.allocator),
+	}
+	cur_stage: u16
+	have_stage := false
+	for f in fl {
+		switch f.type {
+		case "DNAM":
+			// DNAM[0] bit 0x01 = Start Game Enabled (12-byte struct; only byte 0 matters here).
+			if len(f.data) >= 1 {
+				qb.start_game_enabled = f.data[0] & 0x01 != 0
+			}
+		case "INDX":
+			// int16 journal index (bytes 0-1) + a flags byte. Presence marks the stage as defined.
+			if len(f.data) >= 2 {
+				cur_stage = u16(f.data[0]) | u16(f.data[1]) << 8
+				have_stage = true
+				if _, seen := qb.stages[cur_stage]; !seen {
+					qb.stages[cur_stage] = false
+				}
+			}
+		case "QSDT":
+			// One stage-data flags byte; bit 0x01 = Complete Quest. Applies to the current INDX.
+			if have_stage && len(f.data) >= 1 && f.data[0] & 0x01 != 0 {
+				qb.stages[cur_stage] = true
+			}
+		case "QOBJ":
+			// int16 objective index — a defined objective (Complete/FailAllObjectives target all of these).
+			if len(f.data) >= 2 {
+				qb.objectives[u16(f.data[0]) | u16(f.data[1]) << 8] = true
+			}
+		}
+	}
+	db.quest_baseline[rec.form_id] = qb
+}
+
+// quest_baseline_of returns a quest's parsed baseline (ok=false if the QUST wasn't indexed — a
+// synthetic/empty DB, or a form that isn't a quest). Callers merge it under the worldstate overlay.
+quest_baseline_of :: proc(db: ^DB, quest: Form_ID) -> (Quest_Baseline, bool) {
+	if db == nil {
+		return {}, false
+	}
+	qb, ok := db.quest_baseline[quest]
+	return qb, ok
+}
+
+// quest_start_game_enabled reports whether an untouched quest is running from a new game (DNAM flag).
+quest_start_game_enabled :: proc(db: ^DB, quest: Form_ID) -> bool {
+	qb, ok := quest_baseline_of(db, quest)
+	return ok && qb.start_game_enabled
+}
+
+// quest_stage_exists returns whether `stage` is a defined stage of `quest`, and whether the quest's
+// baseline is even known (known=false → no QUST parsed, so the caller shouldn't validate against it).
+quest_stage_exists :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (exists: bool, known: bool) {
+	qb, ok := quest_baseline_of(db, quest)
+	if !ok {
+		return false, false
+	}
+	_, exists = qb.stages[stage]
+	return exists, true
+}
+
+// quest_stage_completes reports whether reaching `stage` completes the quest (QSDT "Complete Quest").
+quest_stage_completes :: proc(db: ^DB, quest: Form_ID, stage: u16) -> bool {
+	qb, ok := quest_baseline_of(db, quest)
+	return ok && qb.stages[stage]
 }
 
 @(private)

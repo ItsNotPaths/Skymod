@@ -10,6 +10,7 @@ import "core:encoding/endian"
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/mods"
 
 @(test)
 test_esm_walk_and_decode :: proc(t: ^testing.T) {
@@ -377,6 +378,70 @@ test_gamedb_multimaster :: proc(t: ^testing.T) {
 	r, rok := gamedb.ref_by_formid(&db, 0x0000_0001_0001_0001)
 	testing.expect(t, rok, "addon REFR indexed at global id")
 	testing.expect_value(t, r.base, gamedb.Form_ID(0x0000_0001_0000_0400))
+}
+
+@(test)
+test_gamedb_stable_slots :: proc(t: ^testing.T) {
+	// The form-table's slot_of stamps a plugin's IDENTITY slot, not its load-order index. Same setup
+	// as test_gamedb_multimaster, but Update.esm is interned to stable slot 0x10 — so its own STAT
+	// lands at 0x10<<32|0x400 (NOT load index 1<<32), while Skyrim.esm (pinned 0) keeps its forms at
+	// slot 0 (the hardcoded-ref invariant: raw ids like 0x00000300 still resolve).
+	a := build_master_plugin();defer delete(a)
+	b := build_addon_plugin();defer delete(b)
+	inputs := []gamedb.Plugin_Input{{name = "Skyrim.esm", data = a}, {name = "Update.esm", data = b}}
+
+	ft: mods.Form_Table
+	mods.formtable_init(&ft)
+	defer mods.formtable_destroy(&ft)
+	mods.formtable_assign_official(&ft, "Skyrim.esm", 0)
+	upd := mods.formtable_intern(&ft, "Update.esm", "uuid-upd") // → 0x10
+
+	slot_of := make(map[string]u32, 2, context.temp_allocator)
+	slot_of["skyrim.esm"] = 0
+	slot_of["update.esm"] = upd
+
+	order := gamedb.resolve_load_order(inputs, context.allocator, slot_of)
+	defer delete(order, context.allocator)
+	db := gamedb.build_plugins(order)
+	defer gamedb.destroy(&db)
+
+	m, ok := gamedb.model_of(&db, (gamedb.Form_ID(upd) << 32) | 0x0000_0400)
+	testing.expect(t, ok, "addon STAT lives at the STABLE slot 0x10, not the load index")
+	testing.expect_value(t, m, "addon.nif")
+	_, mok := gamedb.model_of(&db, 0x0000_0300) // Skyrim.esm slot 0 → raw id unchanged
+	testing.expect(t, mok, "Skyrim.esm forms keep slot 0 (raw-ref invariant)")
+}
+
+@(test)
+test_gamedb_reorder_keeps_slot :: proc(t: ^testing.T) {
+	// The headline claim, headless: installing another mod + reordering does NOT renumber an existing
+	// plugin's forms. Update.esm keeps slot 0x10 even after a NEW plugin is interned first — because
+	// the slot comes from the persisted, monotonic form-table, not the load order. So the same save
+	// still points at the same forms (cf. the reorder-breaks-saves bug this closes).
+	a := build_master_plugin();defer delete(a)
+	b := build_addon_plugin();defer delete(b)
+
+	ft: mods.Form_Table
+	mods.formtable_init(&ft)
+	defer mods.formtable_destroy(&ft)
+	mods.formtable_assign_official(&ft, "Skyrim.esm", 0)
+	upd := mods.formtable_intern(&ft, "Update.esm", "uuid-upd") // 0x10
+	mods.formtable_intern(&ft, "NewMod.esp", "uuid-new") // 0x11 — a later install, does NOT touch Update
+	testing.expect(t, mods.formtable_intern(&ft, "Update.esm", "uuid-upd") == upd, "Update.esm keeps its slot")
+
+	slot_of := make(map[string]u32, 2, context.temp_allocator)
+	slot_of["skyrim.esm"] = 0
+	slot_of["update.esm"] = upd
+
+	inputs := []gamedb.Plugin_Input{{name = "Skyrim.esm", data = a}, {name = "Update.esm", data = b}}
+	order := gamedb.resolve_load_order(inputs, context.allocator, slot_of)
+	defer delete(order, context.allocator)
+	db := gamedb.build_plugins(order)
+	defer gamedb.destroy(&db)
+
+	m, ok := gamedb.model_of(&db, (gamedb.Form_ID(upd) << 32) | 0x0000_0400)
+	testing.expect(t, ok, "Update's addon STAT is STILL at slot 0x10 after the new install")
+	testing.expect_value(t, m, "addon.nif")
 }
 
 @(test)
@@ -813,6 +878,105 @@ u32_bytes :: proc(v: u32) -> []u8 {
 @(private = "file")
 f32_bytes :: proc(v: f32) -> []u8 {
 	return u32_bytes(transmute(u32)v)
+}
+
+// gamedb classifies QUST/GLOB/FACT records into Form_Kind (the form→class dispatch decoder). Build a
+// plugin with one of each as a top-level group and assert the kinds; unknown ids + nil DB → Unknown.
+@(test)
+test_gamedb_form_kinds :: proc(t: ^testing.T) {
+	tes4_body := make([dynamic]u8, 0, 32)
+	defer delete(tes4_body)
+	hedr: [12]u8
+	put_f32(hedr[:], 0, 1.7)
+	put_u32(hedr[:], 8, 0x0000_00FF)
+	field(&tes4_body, "HEDR", hedr[:])
+
+	out := make([dynamic]u8, 0, 256)
+	defer delete(out)
+	record(&out, "TES4", 0, 0, tes4_body[:])
+	add_top_record(&out, "QUST", 0x0000_00C0)
+	add_top_record(&out, "GLOB", 0x0000_00C1)
+	add_top_record(&out, "FACT", 0x0000_00C2)
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C0), gamedb.Form_Kind.Quest)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C1), gamedb.Form_Kind.Global)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00C2), gamedb.Form_Kind.Faction)
+	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00FF), gamedb.Form_Kind.Unknown) // a REFR/base id
+	testing.expect_value(t, gamedb.form_kind(nil, 0x0000_00C0), gamedb.Form_Kind.Unknown) // nil DB safe
+}
+
+// add_top_record appends a top-level GRUP (label = the 4-char sig) holding one empty record of that
+// signature — enough for form-kind indexing, which keys off the signature + formID only.
+@(private = "file")
+add_top_record :: proc(out: ^[dynamic]u8, sig: string, formid: u32) {
+	content := make([dynamic]u8, 0, 32)
+	defer delete(content)
+	record(&content, sig, 0, formid, nil)
+	group(out, transmute([]u8)sig, 0, content[:])
+}
+
+// QUST baseline parse: DNAM "Start Game Enabled" flag + defined stages (INDX + the following QSDT
+// "Complete Quest" flag). Stage 10 (not completing), stage 20 (completing).
+@(test)
+test_gamedb_quest_baseline :: proc(t: ^testing.T) {
+	tes4_body := make([dynamic]u8, 0, 32)
+	defer delete(tes4_body)
+	hedr: [12]u8
+	put_f32(hedr[:], 0, 1.7)
+	put_u32(hedr[:], 8, 0x0000_00FF)
+	field(&tes4_body, "HEDR", hedr[:])
+
+	// QUST body: DNAM(SGE) + stage 10 (QSDT not-complete) + stage 20 (QSDT complete).
+	qbody := make([dynamic]u8, 0, 64)
+	defer delete(qbody)
+	dnam: [12]u8
+	dnam[0] = 0x01 // Start Game Enabled
+	field(&qbody, "DNAM", dnam[:])
+	indx10: [4]u8
+	indx10[0] = 10
+	field(&qbody, "INDX", indx10[:])
+	field(&qbody, "QSDT", []u8{0x00})
+	indx20: [4]u8
+	indx20[0] = 20
+	field(&qbody, "INDX", indx20[:])
+	field(&qbody, "QSDT", []u8{0x01}) // Complete Quest
+	qobj5: [2]u8
+	qobj5[0] = 5
+	field(&qbody, "QOBJ", qobj5[:]) // objective 5
+	qobj15: [2]u8
+	qobj15[0] = 15
+	field(&qbody, "QOBJ", qobj15[:]) // objective 15
+
+	out := make([dynamic]u8, 0, 256)
+	defer delete(out)
+	record(&out, "TES4", 0, 0, tes4_body[:])
+	qcontent := make([dynamic]u8, 0, 96)
+	defer delete(qcontent)
+	record(&qcontent, "QUST", 0, 0x0000_00C0, qbody[:])
+	group(&out, transmute([]u8)string("QUST"), 0, qcontent[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+	q := gamedb.Form_ID(0x0000_00C0)
+	testing.expect(t, gamedb.quest_start_game_enabled(&db, q), "SGE flag parsed")
+	e10, k10 := gamedb.quest_stage_exists(&db, q, 10)
+	testing.expect(t, e10 && k10, "stage 10 defined")
+	e20, _ := gamedb.quest_stage_exists(&db, q, 20)
+	testing.expect(t, e20, "stage 20 defined")
+	e99, k99 := gamedb.quest_stage_exists(&db, q, 99)
+	testing.expect(t, !e99 && k99, "stage 99 undefined but quest known")
+	testing.expect(t, !gamedb.quest_stage_completes(&db, q, 10), "stage 10 does not complete")
+	testing.expect(t, gamedb.quest_stage_completes(&db, q, 20), "stage 20 completes the quest")
+	// Objectives (QOBJ) parsed.
+	qb, qbok := gamedb.quest_baseline_of(&db, q)
+	testing.expect(t, qbok, "baseline present")
+	testing.expect(t, qb.objectives[5] && qb.objectives[15], "objectives 5,15 defined")
+	testing.expect(t, !qb.objectives[7], "objective 7 undefined")
+	// A quest we never parsed → not known (so callers skip validation).
+	_, kUnknown := gamedb.quest_stage_exists(&db, 0x0000_0999, 0)
+	testing.expect(t, !kUnknown, "unparsed quest has no baseline")
 }
 
 @(private = "file")

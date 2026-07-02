@@ -103,6 +103,62 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 // MODS_DIRNAME is the folder under the exe dir (base) that holds installed mod folders (MO2-style).
 MODS_DIRNAME :: "mods"
 
+// FORM_TABLE_FILE is the persisted, cross-profile mod-identity → stable-slot map (docs/mods.md), kept
+// beside the exe. Global (shared across profiles), atomic-written by the form-table.
+FORM_TABLE_FILE :: "form_table.txt"
+
+// OFFICIAL_SLOTS pins the base game + DLC masters to fixed low slots. Skyrim.esm MUST be 0 (raw refs
+// like the persistent cell 0x00000D74 and the player 0x14 assume a high word of 0); the rest keep
+// Bethesda's canonical order for readability. Any other vanilla-Data plugin interns as base content.
+@(private = "file")
+OFFICIAL_SLOTS := [?]struct {
+	name: string,
+	slot: u32,
+}{{"Skyrim.esm", 0}, {"Update.esm", 1}, {"Dawnguard.esm", 2}, {"HearthFires.esm", 3}, {"Dragonborn.esm", 4}}
+
+// load_form_table reads the persisted global form-table (<base>/form_table.txt) with the official
+// masters re-pinned — the identity source for the save-bridge remap. Caller destroys it; empty on a
+// first run (before any gamedb build has populated it).
+load_form_table :: proc(base: string, allocator := context.allocator) -> mods.Form_Table {
+	ft: mods.Form_Table
+	mods.formtable_init(&ft, allocator)
+	p, _ := filepath.join({base, FORM_TABLE_FILE}, context.temp_allocator)
+	mods.formtable_load(&ft, p)
+	for o in OFFICIAL_SLOTS {mods.formtable_assign_official(&ft, o.name, o.slot)}
+	return ft
+}
+
+// form_bridge builds a worldstate.Form_Bridge over a form-table: the save uses `identify` to name the
+// stable slots it references and `resolve` to map a saved identity back to this install's slot on load
+// (docs/saves.md §4.4). `ft` must outlive every save/load call that uses the returned bridge.
+form_bridge :: proc(ft: ^mods.Form_Table) -> worldstate.Form_Bridge {
+	return {
+		user = ft,
+		identify = proc(user: rawptr, slot: u32) -> (uuid: string, filename: string, ok: bool) {
+			if e, has := mods.formtable_entry_by_slot((^mods.Form_Table)(user), slot); has {
+				return e.uuid, e.filename, true
+			}
+			return "", "", false
+		},
+		resolve = proc(user: rawptr, uuid: string, filename: string) -> (slot: u32, ok: bool) {
+			return mods.formtable_resolve((^mods.Form_Table)(user), uuid, filename)
+		},
+	}
+}
+
+// mod_identity_uuid returns a mod's stable identity: its sidecar uuid (mods/<name>/skymod/mod.txt) if
+// present, else a content hash of the plugin bytes it actually shipped (the legacy fallback). Temp-
+// allocated — the caller interns it (which clones into the form-table's ownership).
+@(private = "file")
+mod_identity_uuid :: proc(mdir: string, plugins: []gamedb.Plugin_Input) -> string {
+	if id, ok := mods.read_sidecar(mdir, context.temp_allocator); ok {
+		return id.uuid
+	}
+	bytes := make([][]u8, len(plugins), context.temp_allocator)
+	for p, i in plugins {bytes[i] = p.data}
+	return mods.content_hash_identity(bytes, context.temp_allocator)
+}
+
 // mods_root is <base>/mods (temp-allocated by default).
 mods_root :: proc(base: string, allocator := context.temp_allocator) -> string {
 	r, _ := filepath.join({base, MODS_DIRNAME}, allocator)
@@ -217,9 +273,24 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 		delete(inputs)
 	}
 
-	// Base: vanilla Data plugins.
+	// The form-table interns each plugin's STABLE slot (identity ≠ load order — docs/mods.md). Load
+	// the persisted global table, pin the official masters (Skyrim.esm==0), intern every plugin below,
+	// then save it back so a plugin keeps its slot across runs/reorders (the reorder-breaks-saves fix).
+	ft: mods.Form_Table
+	mods.formtable_init(&ft, context.allocator)
+	defer mods.formtable_destroy(&ft)
+	ft_path, _ := filepath.join({base, FORM_TABLE_FILE}, context.temp_allocator)
+	mods.formtable_load(&ft, ft_path) // ok=false on first run → empty table
+	for o in OFFICIAL_SLOTS {mods.formtable_assign_official(&ft, o.name, o.slot)}
+
+	// Base: vanilla Data plugins (core masters pinned above; other vanilla content interned as base).
 	if names, ok := discover_plugins(src, context.temp_allocator); ok {
-		for name in names {read_plugin_into(&inputs, data_dir, name)}
+		for name in names {
+			read_plugin_into(&inputs, data_dir, name)
+			if _, pinned := mods.formtable_slot(&ft, name); !pinned {
+				mods.formtable_intern(&ft, name, mods.OFFICIAL_UUID)
+			}
+		}
 	}
 	// Enabled user mods, in mod-list order (drives the derived plugin order via the input rank).
 	root := mods_root(base)
@@ -229,14 +300,19 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 		if mod == mods.BASE_MOD {continue}
 		nmods += 1
 		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
-		for pl in files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator) {
-			read_plugin_into(&inputs, mdir, pl)
-		}
+		pls := files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator)
+		start := len(inputs)
+		for pl in pls {read_plugin_into(&inputs, mdir, pl)}
+		// The whole mod shares one identity (sidecar uuid, else a content hash of the plugins actually
+		// read); every plugin it ships interns under it.
+		uuid := mod_identity_uuid(mdir, inputs[start:])
+		for i in start ..< len(inputs) {mods.formtable_intern(&ft, inputs[i].name, uuid)}
 	}
 	if len(inputs) == 0 {
 		log.errorf("no plugins to load")
 		return {}, false
 	}
+	mods.formtable_save(&ft, ft_path)
 
 	// Publish the total byte count up front so the loading bar has a denominator.
 	if progress != nil {
@@ -245,7 +321,14 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 		sync.atomic_store(&progress.total, total)
 	}
 
-	order := gamedb.resolve_load_order(inputs[:], context.allocator)
+	// slot_of: case-folded plugin filename → stable slot, so resolve_load_order stamps identity slots.
+	slot_of := make(map[string]u32, len(inputs), context.temp_allocator)
+	for inp in inputs {
+		if s, ok := mods.formtable_slot(&ft, inp.name); ok {
+			slot_of[strings.to_lower(inp.name, context.temp_allocator)] = s
+		}
+	}
+	order := gamedb.resolve_load_order(inputs[:], context.allocator, slot_of)
 	defer delete(order, context.allocator)
 	log.infof("gamedb: %d plugin(s) (vanilla base + %d enabled mod[s])", len(order), nmods)
 	done: ^int = &progress.done if progress != nil else nil
@@ -333,8 +416,10 @@ Derived_Plugin :: struct {
 
 // derive_plugin_order resolves the active profile's plugin load order WITHOUT building the DB — it
 // reads only each plugin's header bytes (for masters) and runs esm.load_order with the mod-list
-// rank. For the mod-manager display; recomputed when the mod list changes. Allocated in `allocator`.
-derive_plugin_order :: proc(src, base: string, profile: ^mods.Profile, allocator := context.allocator) -> []Derived_Plugin {
+// rank. Also returns any missing-master dependency failures (the footgun the manager surfaces at
+// apply). For the mod-manager display; recomputed when the mod list changes. Both allocated in
+// `allocator` (free with free_derived).
+derive_plugin_order :: proc(src, base: string, profile: ^mods.Profile, allocator := context.allocator) -> (order: []Derived_Plugin, missing: []gamedb.Missing_Master) {
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	root := mods_root(base)
 
@@ -353,23 +438,25 @@ derive_plugin_order :: proc(src, base: string, profile: ^mods.Profile, allocator
 		}
 	}
 	if len(names) == 0 {
-		return {}
+		return {}, {}
 	}
+
+	missing = gamedb.validate_masters(names[:], masters[:], allocator)
 
 	rank := make(map[string]int, len(names), context.temp_allocator)
 	for nm, i in names {rank[strings.to_lower(nm, context.temp_allocator)] = i}
 	perm := esm.load_order(names[:], masters[:], context.temp_allocator, rank)
 
-	out := make([]Derived_Plugin, len(perm), allocator)
+	order = make([]Derived_Plugin, len(perm), allocator)
 	for pidx, i in perm {
 		lower := strings.to_lower(names[pidx], context.temp_allocator)
-		out[i] = Derived_Plugin {
+		order[i] = Derived_Plugin {
 			name   = strings.clone(names[pidx], allocator),
 			source = strings.clone(mod_of[pidx], allocator),
 			master = strings.has_suffix(lower, ".esm") || strings.has_suffix(lower, ".esl"),
 		}
 	}
-	return out
+	return order, missing
 }
 
 // gather_plugin_header reads <dir>/<fname>'s header and appends its name, providing mod, and master

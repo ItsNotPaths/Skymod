@@ -68,6 +68,14 @@ fsig :: proc(f: Field) -> string {return f.type}
 // today slot == load-order index. See docs/mods.md.
 Form_ID :: u64
 
+// INVALID_SLOT is a reserved slot for an UNRESOLVED master reference — a plugin whose declared
+// master is missing/disabled. resolve_load_order maps that master's local index here so its forms
+// remap to a slot no record owns (a visibly dangling ref) instead of silently cross-wiring onto
+// whatever slot happens to equal the local index — the #1 Skyrim-modding footgun. The manager
+// catches this at apply (gamedb.validate_masters); INVALID_SLOT is the last-line engine guard. It
+// sits just below the runtime-created slot 0xFFFFFFFF and far above any real allocation.
+INVALID_SLOT :: u32(0xFFFF_FFFE)
+
 // Form_Map remaps one plugin's local FormIDs into global Form_ID space. A source FormID's
 // high byte indexes the plugin's [masters…, self] list; `slot[index]` is the corresponding
 // GLOBAL slot. Built by gamedb.resolve_load_order; nil = identity (raw passthrough, for
