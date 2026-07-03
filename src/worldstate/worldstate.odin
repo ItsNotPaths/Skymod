@@ -8,10 +8,10 @@ package worldstate
 // patches instances from here on load, `world.capture_settles` writes deltas back when physics
 // settles a moved object. Save/load (Phase 3d) is just (de)serialising this struct.
 //
-// This first slice implements the MOVED field (dynamic clutter coming to rest). The remaining
-// categories from §4.1 (scale/disable/open/lock/inventory/life, created refs, cells/locations/
-// globals/factions, player) slot in as new `Ref_Field`s + struct fields without reshaping the
-// file — that forward-compatibility is the whole point.
+// As of Phase 4b the overlay carries every §4.1 category: the per-ref deltas (moved/scaled/
+// disabled/open/locked/dead/deleted), created refs, and the coarse stores (globals, quests,
+// inventories, actor values, factions, relationships, player). Inventory divergence lives in
+// its own `inventories` store rather than a Ref_Field — see World_State below.
 
 import "core:strings"
 import smath "../math"
@@ -21,7 +21,9 @@ import smath "../math"
 Form_ID :: u64
 
 // Ref_Field mirrors Skyrim's ChangeForm `changeFlags`: which fields of a ref diverge from the
-// ESM. Only Moved is captured today; the rest are reserved (see docs/saves.md §4.1).
+// ESM. Every field has a set_* writer below; Inventory is tracked by the `inventories` store
+// instead (kept here so the on-disk bit layout stays stable). Open/Locked record state today —
+// their scene live-apply (door swings open, lock click) is 4c work.
 Ref_Field :: enum u8 {
 	Moved,     // transform changed (clutter pushed/settled, object relocated)
 	Scaled,    // uniform scale changed

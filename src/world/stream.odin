@@ -73,11 +73,14 @@ Pending :: struct {
 }
 
 // Req is a model-decode request handed to the worker. path is borrowed from gamedb
-// (stable for the session).
+// (stable for the session). extras = decode collision/proxy + build the pick copy —
+// true for placed-instance models, false for draw-only meshes (LOD bake, billboards,
+// grass), which are never picked or cooked.
 @(private)
 Req :: struct {
-	path: string,
-	lod:  int,
+	path:   string,
+	lod:    int,
+	extras: bool,
 }
 
 // Result is a decoded model handed back to the main thread for GPU upload.
@@ -338,12 +341,7 @@ stream_pause :: proc(st: ^Streamer, paused: bool) {
 // worlds. Far terrain + any door index are per-worldspace and the caller's to rebuild.
 stream_retarget :: proc(st: ^Streamer, world_fid: Form_ID) {
 	for _, &chunk in st.scene.chunks {
-		release_terrain(st.scene, &chunk)
-		release_grass(st.scene, &chunk)
-		release_objects(st.scene, &chunk)
-		release_chunk_physics(st.scene, &chunk)
-		release_water(st.scene, &chunk)
-		delete(chunk.instances)
+		release_chunk_assets(st.scene, &chunk, deindex = false) // resident set cleared below
 	}
 	clear(&st.scene.chunks)
 	clear(&st.scene.resident) // whole resident set is gone with the chunks
@@ -375,13 +373,7 @@ stream_collapse :: proc(st: ^Streamer, keep_radius: int) {
 	}
 	for cid in to_unload {
 		chunk := st.scene.chunks[cid]
-		release_terrain(st.scene, &chunk)
-		release_grass(st.scene, &chunk)
-		release_objects(st.scene, &chunk)
-		release_chunk_physics(st.scene, &chunk)
-		release_water(st.scene, &chunk)
-		deindex_instances(st.scene, &chunk)
-		delete(chunk.instances)
+		release_chunk_assets(st.scene, &chunk)
 		delete_key(&st.scene.chunks, cid)
 	}
 	clear(&st.pending) // any queued loads are stale; resume replans from the arrival cell
@@ -474,13 +466,7 @@ rewindow :: proc(st: ^Streamer) {
 	}
 	for cid in to_unload {
 		chunk := st.scene.chunks[cid]
-		release_terrain(st.scene, &chunk)
-		release_grass(st.scene, &chunk)
-		release_objects(st.scene, &chunk)
-		release_chunk_physics(st.scene, &chunk)
-		release_water(st.scene, &chunk)
-		deindex_instances(st.scene, &chunk)
-		delete(chunk.instances)
+		release_chunk_assets(st.scene, &chunk)
 		delete_key(&st.scene.chunks, cid)
 	}
 
@@ -521,13 +507,7 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	// Build-before-release: the new chunk is fully built; now free the OLD chunk (a LOD
 	// swap that was rendering until this instant) and replace it in one step — no gap.
 	if old, ok := &st.scene.chunks[cid]; ok {
-		release_terrain(st.scene, old)
-		release_grass(st.scene, old)
-		release_objects(st.scene, old)
-		release_chunk_physics(st.scene, old)
-		release_water(st.scene, old)
-		deindex_instances(st.scene, old)
-		delete(old.instances)
+		release_chunk_assets(st.scene, old)
 	}
 	st.scene.chunks[cid] = chunk
 
@@ -537,11 +517,12 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	index_instances(st.scene, resident)
 	apply_overlay(st.scene, resident) // baseline ⊕ overlay (disabled/moved/scaled) before collision builds
 	if lod == 0 {
+		acquire_chunk_assets(st.scene, resident) // D1: pin this chunk's instance + grass models
 		for inst in resident.instances {
 			enqueue_model(st, inst.model_path)
 		}
 		for b in resident.grass {
-			enqueue_model(st, b.model_path)
+			enqueue_model(st, b.model_path, extras = false) // grass: draw-only (no pick/collision)
 		}
 	}
 	// lod ≥ 1: nothing to enqueue — distant-object meshes were enqueued by bake_object_lod.
@@ -549,9 +530,11 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 }
 
 // enqueue_model requests an off-thread decode for a model path unless it's already cached
-// or in flight (main-thread dedup).
+// or in flight (main-thread dedup). The dedup is path-only, so a path must always be
+// requested with the SAME `extras` — holds today because draw-only paths (LOD meshes,
+// billboards, grass) never appear as cell-instance models (see decode_model's doc).
 @(private)
-enqueue_model :: proc(st: ^Streamer, path: string) {
+enqueue_model :: proc(st: ^Streamer, path: string, extras := true) {
 	if path == "" ||
 	   assetdb.has_model(&st.scene.cache, path) ||
 	   assetdb.is_failed(&st.scene.cache, path) ||
@@ -559,7 +542,7 @@ enqueue_model :: proc(st: ^Streamer, path: string) {
 		return
 	}
 	st.inflight[path] = true
-	enqueue(st, Req{path = path, lod = 0})
+	enqueue(st, Req{path = path, lod = 0, extras = extras})
 }
 
 // drain_loads builds up to LOAD_BUDGET queued cells this frame (nearest first), spreading
@@ -638,7 +621,7 @@ worker_proc :: proc(t: ^thread.Thread) {
 		req := pop(&st.reqs)
 		sync.mutex_unlock(&st.req_mu)
 
-		cpu := assetdb.decode_model(st.v, req.path, req.lod, st.loader_alloc)
+		cpu := assetdb.decode_model(st.v, req.path, req.lod, st.loader_alloc, req.extras)
 
 		sync.mutex_lock(&st.ready_mu)
 		append(&st.ready, Result{path = req.path, cpu = cpu})

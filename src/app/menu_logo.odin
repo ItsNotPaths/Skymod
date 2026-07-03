@@ -124,7 +124,7 @@ menu_logo_load :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> (logo: Menu_Logo, ok
 			vtx := ps.geometry.vertices[i]
 			n: [3]f32 = ps.geometry.normals[i] if i < len(ps.geometry.normals) else {0, 0, 1}
 			uv: [2]f32 = ps.geometry.uvs[i] if i < len(ps.geometry.uvs) else {0, 0}
-			verts[i] = {pos = vtx, normal = n, uv = uv}
+			verts[i] = render.mesh_vertex(vtx, n, uv)
 			wp := ps.world * [4]f32{vtx[0], vtx[1], vtx[2], 1}
 			lo = {min(lo[0], wp[0]), min(lo[1], wp[1]), min(lo[2], wp[2])}
 			hi = {max(hi[0], wp[0]), max(hi[1], wp[1]), max(hi[2], wp[2])}

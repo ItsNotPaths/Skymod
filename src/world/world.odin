@@ -15,6 +15,7 @@ package world
 // resolved lazily at draw. The synchronous loaders resolve it immediately (get_model);
 // the streamer leaves it nil and the model pops in as the worker delivers it.
 
+import "core:fmt"
 import "core:log"
 import "core:strings"
 
@@ -330,20 +331,63 @@ cull_begin :: proc(s: ^Scene) {
 	}
 }
 
-// cache_counts exposes the asset cache's resident model + texture counts (memory-growth probe).
-cache_counts :: proc(s: ^Scene) -> (models, textures: int) {
+// cache_counts exposes the asset cache's resident model + texture counts and approximate
+// payload bytes (memory-growth probe: what D1 eviction bounds).
+cache_counts :: proc(
+	s: ^Scene,
+) -> (models, textures, model_bytes, tex_bytes, cold, cold_bytes, tex_cold, tex_cold_bytes: int) {
 	return assetdb.cache_counts(&s.cache)
+}
+
+// debug_check_model_refs (verification aid) independently recounts the model refs this scene's live
+// holders imply — every resident chunk's instances + grass batches, plus every baked LOD draw — and
+// compares to the asset cache's actual refcounts (assetdb.debug_compare_refs). A mismatch is an
+// acquire/release imbalance (the classic being the rebuild_resident_overlay F9 trap leaking the old
+// instances' refs). ok=true when balanced; otherwise msg names the offending path + want/got. Temp-
+// allocated (freed at frame end). Meant for a DEVTOOLS periodic assert while D1 ships dark.
+debug_check_model_refs :: proc(s: ^Scene) -> (ok: bool, msg: string) {
+	expected := make(map[string]int, 2048, context.temp_allocator)
+	bump :: proc(exp: ^map[string]int, path: string) {
+		if path == "" {
+			return
+		}
+		exp[strings.to_lower(path, context.temp_allocator)] += 1
+	}
+	for _, &chunk in s.chunks {
+		for inst in chunk.instances {
+			bump(&expected, inst.model_path)
+		}
+		for b in chunk.grass {
+			bump(&expected, b.model_path)
+		}
+	}
+	for _, &q in s.lod_quads {
+		for d in q.draws {
+			bump(&expected, d.model_path)
+		}
+	}
+	bal, path, want, got := assetdb.debug_compare_refs(&s.cache, expected)
+	if bal {
+		return true, ""
+	}
+	return false, fmt.tprintf("model-ref imbalance: %q want=%d got=%d", path, want, got)
+}
+
+// debug_check_texture_refs (verification aid, D1 slice 2) checks the cache's texture refcounts
+// against the resident models (assetdb recounts internally — texture refs derive purely from model
+// shapes). Mismatch = a tex_acquire/tex_release imbalance. ok=true when balanced.
+debug_check_texture_refs :: proc(s: ^Scene) -> (ok: bool, msg: string) {
+	bal, key, want, got := assetdb.debug_check_texture_refs(&s.cache)
+	if bal {
+		return true, ""
+	}
+	return false, fmt.tprintf("texture-ref imbalance: %q want=%d got=%d", key, want, got)
 }
 
 scene_destroy :: proc(s: ^Scene) {
 	release_terrain_field(s)
 	for _, &chunk in s.chunks {
-		release_terrain(s, &chunk)
-		release_grass(s, &chunk)
-		release_objects(s, &chunk)
-		release_water(s, &chunk)
-		release_chunk_physics(s, &chunk)
-		delete(chunk.instances)
+		release_chunk_assets(s, &chunk, deindex = false) // resident map is deleted below
 	}
 	delete(s.chunks)
 	if s.has_dyn_debug {render.release_mesh(s.cache.r, s.dyn_debug)}
@@ -357,6 +401,56 @@ scene_destroy :: proc(s: ^Scene) {
 	delete(s.resident)
 	assetdb.cache_destroy(&s.cache)
 	s^ = {}
+}
+
+// release_chunk_assets frees everything a chunk owns — terrain/grass/object buffers, water,
+// collision bodies+constraints, the on-demand hitbox wireframe, the instance array — as THE
+// one chunk-unload path (rewindow / collapse / retarget / LOD swap / scene teardown all used
+// to repeat this block; D1's eviction refcount-release hooks in here once). Also fixes a
+// long-standing leak: the hitbox debug_mesh was only ever freed by clear_collision_debug,
+// never on chunk unload. `deindex` drops the chunk's refs from the resident index — pass
+// false when the whole map is cleared right after (retarget / scene_destroy).
+release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
+	// D1 eviction: drop this chunk's model refs (instances + grass batches). Symmetric with
+	// acquire_chunk_assets — every path that built the chunk acquired these, so releasing over the
+	// CURRENT instance/grass sets rebalances exactly (runtime instance removals — delete_ref,
+	// apply_overlay_ref Deleted — release their one instance as they remove it). At zero refs a model
+	// becomes cold, then eviction-eligible under the budget.
+	for inst in chunk.instances {
+		assetdb.model_release(&s.cache, inst.model_path)
+	}
+	for b in chunk.grass {
+		assetdb.model_release(&s.cache, b.model_path)
+	}
+	release_terrain(s, chunk)
+	release_grass(s, chunk)
+	release_objects(s, chunk)
+	release_chunk_physics(s, chunk)
+	release_water(s, chunk)
+	if chunk.has_debug {
+		render.release_mesh(s.cache.r, chunk.debug_mesh)
+		chunk.debug_mesh = {}
+		chunk.has_debug = false
+	}
+	if deindex {
+		deindex_instances(s, chunk)
+	}
+	delete(chunk.instances)
+	chunk.instances = nil
+}
+
+// acquire_chunk_assets records one model ref per instance + grass batch this chunk holds — the
+// symmetric counterpart to release_chunk_assets' release loop (D1 eviction). Call once a chunk's
+// instance + grass layers are final (after apply_overlay + load_grass), so every model a resident
+// chunk draws is pinned against eviction until the chunk unloads. Path-keyed and residency-
+// independent, so it's fine to acquire before the async decode finishes (the ref precedes upload).
+acquire_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk) {
+	for inst in chunk.instances {
+		assetdb.model_acquire(&s.cache, inst.model_path)
+	}
+	for b in chunk.grass {
+		assetdb.model_acquire(&s.cache, b.model_path)
+	}
 }
 
 // chunk_meta makes an empty chunk carrying just a cell's identity + grid (no instances,
@@ -462,6 +556,7 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID) -> int {
 	load_terrain(s, db, &chunk)
 	load_water(s, db, &chunk)
 	load_grass(s, db, &chunk)
+	acquire_chunk_assets(s, &chunk) // D1: pin instance + grass models (grass now built)
 	build_chunk_physics(s, db, &chunk) // static collision (terrain; objects via sync_physics)
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
@@ -759,7 +854,7 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 	for cid, &chunk in s.chunks {
 		for inst, ii in chunk.instances {
 			m := inst.model
-			if m == nil || len(m.pick_idx) == 0 {
+			if m == nil || assetdb.pick_index_count(m) == 0 {
 				continue
 			}
 			if s.pretty && m.untextured {
@@ -781,11 +876,12 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 			if tb, hit := ray_aabb(lo_o, ld, m.lo, m.hi); !hit || tb >= best_t {
 				continue
 			}
-			// Precise: nearest front-facing triangle.
-			for i := 0; i + 2 < len(m.pick_idx); i += 3 {
-				a := m.pick_pos[m.pick_idx[i]]
-				b := m.pick_pos[m.pick_idx[i + 1]]
-				c := m.pick_pos[m.pick_idx[i + 2]]
+			// Precise: nearest front-facing triangle (positions dequantized per test —
+			// see assetdb.pick_vertex; error ≤ extent/65535, far below pick tolerance).
+			for i := 0; i + 2 < assetdb.pick_index_count(m); i += 3 {
+				a := assetdb.pick_vertex(m, assetdb.pick_index(m, i))
+				b := assetdb.pick_vertex(m, assetdb.pick_index(m, i + 1))
+				c := assetdb.pick_vertex(m, assetdb.pick_index(m, i + 2))
 				if t, hit := ray_triangle(lo_o, ld, a, b, c); hit && t < best_t {
 					best_t = t
 					best_cell, best_inst = cid, ii

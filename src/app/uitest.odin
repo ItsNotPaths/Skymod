@@ -10,57 +10,59 @@ import "../platform"
 import "../render"
 import "../ui"
 
-run_ui_test :: proc() {
-	p, ok := platform.init("SkyMod — UI test", WINDOW_W, WINDOW_H)
-	if !ok {
-		return
-	}
-	defer platform.shutdown(&p)
-	r, rok := render.init(p.window)
-	if !rok {
-		return
-	}
-	defer render.shutdown(&r)
-	render.ui_init(&r)
-	defer render.ui_shutdown(&r)
-	p.on_event = render.ui_process_event
-
-	// dir = "" → the #load-embedded framework + screen (no install needed for the smoke test). The
-	// host is empty (no base/VFS): engine.* still exists, it just reports no saves/credits.
-	host: UI_Host
-	defer ui_host_destroy(&host)
-	vm: ui.VM
-	if !ui.open(&vm, "", "main_menu.lua", &host, install_engine_api) {
-		log.error("ui: failed to open the UI VM")
-		return
-	}
-	defer ui.close(&vm)
-
-	cmds: [dynamic]ui.Draw_Cmd
-	defer delete(cmds)
-
-	logged := false
-	for platform.pump(&p) {
-		render.ui_new_frame(&r)
-		w, h := ui_screen_size()
-		tree, tok := ui.frame(&vm)
-		if !tok {
-			break
+when DEVTOOLS {
+	run_ui_test :: proc() {
+		p, ok := platform.init("SkyMod — UI test", WINDOW_W, WINDOW_H)
+		if !ok {
+			return
 		}
-		ui.measure(&tree)
-		tree.screen = ui.Rect{0, 0, w, h}
-		ui.layout_children(&tree)
-		clear(&cmds)
-		ui.emit(&tree, &cmds)
-		if !logged && len(cmds) > 0 {
-			log.infof("uitest: main_menu loaded — screen %.0fx%.0f, %d draw cmds", w, h, len(cmds))
-			logged = true
+		defer platform.shutdown(&p)
+		r, rok := render.init(p.window)
+		if !rok {
+			return
 		}
-		ui_render_imgui(cmds[:])
-		ui.destroy(&tree)
-		if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(&r)
+		defer render.shutdown(&r)
+		render.ui_init(&r)
+		defer render.ui_shutdown(&r)
+		p.on_event = render.ui_process_event
+
+		// dir = "" → the #load-embedded framework + screen (no install needed for the smoke test). The
+		// host is empty (no base/VFS): engine.* still exists, it just reports no saves/credits.
+		host: UI_Host
+		defer ui_host_destroy(&host)
+		vm: ui.VM
+		if !ui.open(&vm, "", "main_menu.lua", &host, install_engine_api) {
+			log.error("ui: failed to open the UI VM")
+			return
 		}
-		free_all(context.temp_allocator)
+		defer ui.close(&vm)
+
+		cmds: [dynamic]ui.Draw_Cmd
+		defer delete(cmds)
+
+		logged := false
+		for platform.pump(&p) {
+			render.ui_new_frame(&r)
+			w, h := ui_screen_size()
+			tree, tok := ui.frame(&vm)
+			if !tok {
+				break
+			}
+			ui.measure(&tree)
+			tree.screen = ui.Rect{0, 0, w, h}
+			ui.layout_children(&tree)
+			clear(&cmds)
+			ui.emit(&tree, &cmds)
+			if !logged && len(cmds) > 0 {
+				log.infof("uitest: main_menu loaded — screen %.0fx%.0f, %d draw cmds", w, h, len(cmds))
+				logged = true
+			}
+			ui_render_imgui(cmds[:])
+			ui.destroy(&tree)
+			if render.begin_frame(&r, {0.05, 0.06, 0.08, 1.0}) {
+				render.end_frame(&r)
+			}
+			free_all(context.temp_allocator)
+		}
 	}
-}
+} // when DEVTOOLS

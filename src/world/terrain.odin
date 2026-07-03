@@ -100,15 +100,15 @@ build_terrain_verts :: proc(
 			dzdy := (heights[yp * G + x] - heights[ym * G + x]) * HEIGHT_SCALE / (f32(yp - ym) * TERRAIN_STEP)
 			n := smath.normalize3({-dzdx, -dzdy, 1})
 
-			verts[y * G + x] = {
-				pos     = {px, py, z},
-				normal  = n,
-				tangent = {1, 0, 0, 1}, // +X (U-aligned); shader re-orthonormalizes against the normal
-				uv      = {
+			// tangent +X (U-aligned); the shader re-orthonormalizes against the normal.
+			verts[y * G + x] = render.mesh_vertex(
+				{px, py, z},
+				n,
+				{
 					f32(x) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES,
 					f32(y) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES,
 				},
-			}
+			)
 			lo = {min(lo.x, px), min(lo.y, py), min(lo.z, z)}
 			hi = {max(hi.x, px), max(hi.y, py), max(hi.z, z)}
 		}
@@ -194,12 +194,11 @@ build_terrain_lod :: proc(
 			dzdy := (heights[yp * G + hx] - heights[ym * G + hx]) * HEIGHT_SCALE / (f32(yp - ym) * TERRAIN_STEP)
 			append(
 				&verts,
-				render.Mesh_Vertex {
-					pos = {px, py, z},
-					normal = smath.normalize3({-dzdx, -dzdy, 1}),
-					tangent = {1, 0, 0, 1},
-					uv = {f32(hx) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES, f32(hy) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES},
-				},
+				render.mesh_vertex(
+					{px, py, z},
+					smath.normalize3({-dzdx, -dzdy, 1}),
+					{f32(hx) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES, f32(hy) / f32(TERRAIN_QUADS) * TERRAIN_UV_TILES},
+				),
 			)
 			lo = {min(lo.x, px), min(lo.y, py), min(lo.z, z)}
 			hi = {max(hi.x, px), max(hi.y, py), max(hi.z, z)}

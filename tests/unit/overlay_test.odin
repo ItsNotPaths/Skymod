@@ -13,6 +13,7 @@ package unit_tests
 
 import "core:os"
 import "core:testing"
+import "../../src/assetdb"
 import "../../src/gamedb"
 import "../../src/world"
 import ws "../../src/worldstate"
@@ -69,6 +70,10 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 		for _, &c in s.chunks {delete(c.instances)}
 		delete(s.chunks)
 		delete(s.resident)
+		// rebuild_resident_overlay now acquires model refs (D1 eviction) into s.cache; free the
+		// refs map + its owned keys the way scene_destroy does in-game (this synthetic Scene has a
+		// zero-value cache and no renderer, so a bare cache_destroy — nil model/tex maps are no-ops).
+		assetdb.cache_destroy(&s.cache)
 	}
 	s.chunks[CELL] = world.Chunk{cell_form_id = CELL, instances = make([dynamic]world.Instance)}
 

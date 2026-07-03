@@ -76,10 +76,10 @@ bake_water_lod :: proc(st: ^Streamer) {
 		base := u16(len(q.verts))
 		append(
 			&q.verts,
-			render.Mesh_Vertex{pos = {ox, oy, wh}, normal = up, uv = {0, 0}},
-			render.Mesh_Vertex{pos = {ox + CELL_SIZE, oy, wh}, normal = up, uv = {1, 0}},
-			render.Mesh_Vertex{pos = {ox + CELL_SIZE, oy + CELL_SIZE, wh}, normal = up, uv = {1, 1}},
-			render.Mesh_Vertex{pos = {ox, oy + CELL_SIZE, wh}, normal = up, uv = {0, 1}},
+			render.mesh_vertex({ox, oy, wh}, up, {0, 0}),
+			render.mesh_vertex({ox + CELL_SIZE, oy, wh}, up, {1, 0}),
+			render.mesh_vertex({ox + CELL_SIZE, oy + CELL_SIZE, wh}, up, {1, 1}),
+			render.mesh_vertex({ox, oy + CELL_SIZE, wh}, up, {0, 1}),
 		)
 		append(&q.idx, base + 0, base + 1, base + 2, base + 0, base + 2, base + 3)
 		q.lo = {min(q.lo.x, ox), min(q.lo.y, oy), min(q.lo.z, wh)}

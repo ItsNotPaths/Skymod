@@ -57,6 +57,12 @@ object_lod_distance = 24
 # initial load. GPU upload stays single-threaded, so returns taper past core count.
 load_threads = 0
 
+# Cap uploaded world-texture resolution (longest side, pixels) by dropping the DDS's own
+# top mip levels — a memory/quality knob. 0 = full resolution. Vanilla LE textures top out
+# at 2048 so the saving there is modest (512 ≈ -34% texture memory); high-res mod texture
+# packs shrink 4-16x per capped texture. UI/font textures are never capped.
+# texture_max_dim = 0
+
 # EXPERIMENTAL: render interior cells THROUGH their load door with a stencil portal, so you
 # see into the room with no load screen ("Open Cities"-style, generalized to any interior).
 # The interior stays in its own coordinate space and is drawn from a virtual camera relayed

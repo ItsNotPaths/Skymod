@@ -330,7 +330,7 @@ build_portal_quad :: proc(r: ^render.Renderer, v: ^vfs.VFS, p: Portal) -> render
 					for i in 0 ..< 4 {
 						c := corners[i]
 						w := dw * [4]f32{c[0], c[1], c[2], 1}
-						verts[i] = {pos = {w[0], w[1], w[2]}, normal = p.ext_dir, uv = uvs[i]}
+						verts[i] = render.mesh_vertex({w[0], w[1], w[2]}, p.ext_dir, uvs[i])
 					}
 					indices := [6]u16{0, 1, 2, 0, 2, 3}
 					return render.upload_mesh(r, verts[:], indices[:])
@@ -348,10 +348,10 @@ build_portal_quad :: proc(r: ^render.Renderer, v: ^vfs.VFS, p: Portal) -> render
 	tl := bl + smath.scale3(up, PORTAL_HEIGHT)
 	tr := br + smath.scale3(up, PORTAL_HEIGHT)
 	verts := [4]render.Mesh_Vertex {
-		{pos = bl, normal = p.ext_dir, uv = {0, 1}},
-		{pos = br, normal = p.ext_dir, uv = {1, 1}},
-		{pos = tr, normal = p.ext_dir, uv = {1, 0}},
-		{pos = tl, normal = p.ext_dir, uv = {0, 0}},
+		render.mesh_vertex(bl, p.ext_dir, {0, 1}),
+		render.mesh_vertex(br, p.ext_dir, {1, 1}),
+		render.mesh_vertex(tr, p.ext_dir, {1, 0}),
+		render.mesh_vertex(tl, p.ext_dir, {0, 0}),
 	}
 	indices := [6]u16{0, 1, 2, 0, 2, 3}
 	return render.upload_mesh(r, verts[:], indices[:])

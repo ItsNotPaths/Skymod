@@ -80,15 +80,16 @@ build_canopy_proxy :: proc(pts: [][3]f32, alloc := context.allocator) -> (verts:
 		z := zmin + (f32(b) + 0.5) / f32(PROXY_BANDS) * span
 		for s in 0 ..< PROXY_SIDES {
 			a := f32(s) / f32(PROXY_SIDES) * 2 * math.PI
-			v[b * PROXY_SIDES + s] = {
-				pos     = {cx + ring_r[b] * math.cos(a), cy + ring_r[b] * math.sin(a), z},
-				normal  = {0, 0, 1},
-				tangent = {1, 0, 0, 1}, // shadow pass reads only position; safe defaults otherwise
-			}
+			// shadow pass reads only position; safe defaults otherwise
+			v[b * PROXY_SIDES + s] = render.mesh_vertex(
+				{cx + ring_r[b] * math.cos(a), cy + ring_r[b] * math.sin(a), z},
+				{0, 0, 1},
+				{0, 0},
+			)
 		}
 	}
-	v[apex_top] = {pos = {cx, cy, zmax}, normal = {0, 0, 1}, tangent = {1, 0, 0, 1}}
-	v[apex_bot] = {pos = {cx, cy, zmin}, normal = {0, 0, 1}, tangent = {1, 0, 0, 1}}
+	v[apex_top] = render.mesh_vertex({cx, cy, zmax}, {0, 0, 1}, {0, 0})
+	v[apex_bot] = render.mesh_vertex({cx, cy, zmin}, {0, 0, 1}, {0, 0})
 
 	idx := make([dynamic]u16, 0, nring * 6, alloc)
 	for b in 0 ..< PROXY_BANDS - 1 { 	// side quads between adjacent rings

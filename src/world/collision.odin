@@ -453,7 +453,7 @@ points_aabb :: proc(wm: smath.Mat4, pts: [][3]f32) -> [2][3]f32 {
 
 @(private = "file")
 dbg_vert :: proc(p: [3]f32) -> render.Mesh_Vertex {
-	return {pos = p, normal = {0, 0, 1}, uv = {0, 0}, tangent = {1, 0, 0, 1}}
+	return render.mesh_vertex(p, {0, 0, 1}, {0, 0})
 }
 
 // build_instance_bodies turns one instance's cached collision into world-placed Jolt bodies,
@@ -481,7 +481,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 			// ONE dynamic compound body per movable rigid body, from its exact sub-shapes.
 			subs := make([dynamic]physics.Dyn_Shape, 0, 8, context.temp_allocator)
 			for sh in shapes {
-				if sh.body == bi {dyn_sub(&subs, inst, sh)}
+				if sh.body == bi {dyn_sub(&subs, inst.world, inst.pos, sh)}
 			}
 			if len(subs) > 0 {
 				// Body frame at inst.pos so the render-follow math (instance_world) lines up exactly.
@@ -550,13 +550,13 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 	}
 }
 
-// dyn_sub appends one collision shape as a body-local Dyn_Shape descriptor (relative to inst.pos, the
-// dynamic body's frame origin), using an EXACT Jolt primitive for box/sphere/capsule and a convex
-// hull for mesh/convex geometry. mat_rotation extracts the shape's world orientation (scale removed).
-@(private = "file")
-dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, inst: ^Instance, sh: nif.Collision_Shape) {
-	wm := inst.world * sh.transform
-	origin := inst.pos
+// dyn_sub appends one collision shape as a body-local Dyn_Shape descriptor (relative to `origin`,
+// the dynamic body's frame origin; `wm0` is the instance placement), using an EXACT Jolt primitive
+// for box/sphere/capsule and a convex hull for mesh/convex geometry. mat_rotation extracts the
+// shape's world orientation (scale removed). Exported: the --clutterprobe harness calls it too, so
+// the probe builds the SAME dynamic bodies the game does.
+dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, wm0: smath.Mat4, origin: [3]f32, sh: nif.Collision_Shape) {
+	wm := wm0 * sh.transform
 	s := mat_scale(wm)
 	switch sh.kind {
 	case .Box:

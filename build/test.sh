@@ -28,6 +28,10 @@ for pkg in "${pkgs[@]}"; do
     echo "  check $pkg"
     if [ "$pkg" = "src/app" ]; then
         odin check "$pkg"                  # the executable: has a main entry point
+        # The dev harnesses live behind `when DEVTOOLS` (off in a default/release check,
+        # and Odin skips false when-branches entirely) — check them explicitly too.
+        echo "  check $pkg (-define:DEVTOOLS=true)"
+        odin check "$pkg" -define:DEVTOOLS=true
     else
         odin check "$pkg" -no-entry-point  # a library package
     fi

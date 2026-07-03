@@ -17,13 +17,38 @@ HIGHLIGHT_FRAG_SPV :: #load("shaders/highlight.frag.spv")
 // Mesh_Vertex is the general vertex: position + normal + diffuse UV + tangent. The tangent
 // (xyz + w = bitangent handedness ±1) is the authored NIF tangent (or a derived fallback) for
 // tangent-space normal mapping; the fragment shader builds B = cross(N,T)·w.
+//
+// COMPACT since the D1 footprint pass (48 → 28 bytes, −42% vertex memory + draw bandwidth):
+// normal + tangent are snorm8 (.BYTE4_NORM attributes — the GPU presents them to the shaders
+// as normalized floats, so NO shader changes; every fragment path normalize()s the normal, so
+// the ≤1/127 quantization washes out). Build vertices with mesh_vertex() — direct literals
+// are only for position(+uv)-only geometry (water planes, portal quads, wire debug).
+// If 8-bit vertex normals ever band visibly (large smooth surfaces under a grazing sun),
+// the escape hatch is normal: [4]i16 + .SHORT4_NORM (32-byte vertex) — a two-line change.
 Mesh_Vertex :: struct {
 	pos:     smath.Vec3, // offset 0
-	normal:  smath.Vec3, // offset 12
-	uv:      [2]f32,     // offset 24
-	tangent: [4]f32,     // offset 32
+	uv:      [2]f32,     // offset 12
+	normal:  [4]i8,      // offset 20 — snorm8 xyz (w unused)
+	tangent: [4]i8,      // offset 24 — snorm8 xyz + w = handedness (±1 encodes exactly)
 }
-#assert(size_of(Mesh_Vertex) == 48)
+#assert(size_of(Mesh_Vertex) == 28)
+
+// mesh_vertex packs f32 inputs into the compact vertex (see Mesh_Vertex). Inputs need not
+// be perfectly unit — components clamp; the shaders renormalize.
+mesh_vertex :: #force_inline proc(pos: smath.Vec3, normal: smath.Vec3, uv: [2]f32, tangent: [4]f32 = {1, 0, 0, 1}) -> Mesh_Vertex {
+	return {
+		pos     = pos,
+		uv      = uv,
+		normal  = {snorm8(normal.x), snorm8(normal.y), snorm8(normal.z), 0},
+		tangent = {snorm8(tangent.x), snorm8(tangent.y), snorm8(tangent.z), snorm8(tangent.w)},
+	}
+}
+
+@(private)
+snorm8 :: #force_inline proc(v: f32) -> i8 {
+	c := clamp(v, -1, 1) * 127
+	return i8(c + 0.5) if c >= 0 else i8(c - 0.5) // round to nearest (the cast truncates)
+}
 
 // Mesh_Uniforms mirrors the mesh.vert UBO (set 1, binding 0). Scene lighting (sun/ambient/
 // fog) now lives in the per-frame fragment lighting UBO (set 3); this per-draw block carries
@@ -257,7 +282,7 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	// effect.vert reads position + UV (normal is in the vertex but unused).
 	attrs := [3]sdl.GPUVertexAttribute {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
-		{location = 1, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, normal))},
+		{location = 1, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, normal))},
 		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Mesh_Vertex, uv))},
 	}
 	color_target := sdl.GPUColorTargetDescription {
@@ -303,9 +328,11 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 mesh_vertex_attrs :: proc() -> [4]sdl.GPUVertexAttribute {
 	return {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
-		{location = 1, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, normal))},
+		// snorm8 normal/tangent: BYTE4_NORM reaches the shader as normalized floats, so the
+		// vec3/vec4 inputs are unchanged (a vec3 input just drops the 4th component).
+		{location = 1, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, normal))},
 		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Mesh_Vertex, uv))},
-		{location = 3, buffer_slot = 0, format = .FLOAT4, offset = u32(offset_of(Mesh_Vertex, tangent))},
+		{location = 3, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, tangent))},
 	}
 }
 

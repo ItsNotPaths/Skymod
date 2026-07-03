@@ -46,10 +46,10 @@ load_water :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 	oy := f32(chunk.gy) * CELL_SIZE
 	up := smath.Vec3{0, 0, 1}
 	verts := [4]render.Mesh_Vertex {
-		{pos = {ox, oy, wh}, normal = up, uv = {0, 0}},
-		{pos = {ox + CELL_SIZE, oy, wh}, normal = up, uv = {1, 0}},
-		{pos = {ox + CELL_SIZE, oy + CELL_SIZE, wh}, normal = up, uv = {1, 1}},
-		{pos = {ox, oy + CELL_SIZE, wh}, normal = up, uv = {0, 1}},
+		render.mesh_vertex({ox, oy, wh}, up, {0, 0}),
+		render.mesh_vertex({ox + CELL_SIZE, oy, wh}, up, {1, 0}),
+		render.mesh_vertex({ox + CELL_SIZE, oy + CELL_SIZE, wh}, up, {1, 1}),
+		render.mesh_vertex({ox, oy + CELL_SIZE, wh}, up, {0, 1}),
 	}
 	idx := [6]u16{0, 1, 2, 0, 2, 3}
 	chunk.water = render.upload_mesh(s.cache.r, verts[:], idx[:])

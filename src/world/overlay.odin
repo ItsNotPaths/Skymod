@@ -192,6 +192,7 @@ delete_ref :: proc(s: ^Scene, form_id, cell: Form_ID) -> bool {
 		for i in 0 ..< len(chunk.instances) {
 			if chunk.instances[i].form_id == form_id {
 				remove_instance_bodies(s.phys, chunk, &chunk.instances[i])
+				assetdb.model_release(&s.cache, chunk.instances[i].model_path) // D1: drop this ref's model ref
 				unordered_remove(&chunk.instances, i)
 				break
 			}
@@ -256,6 +257,7 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 			for i in 0 ..< len(chunk.instances) {
 				if chunk.instances[i].form_id == form_id {
 					remove_instance_bodies(s.phys, chunk, &chunk.instances[i])
+					assetdb.model_release(&s.cache, chunk.instances[i].model_path) // D1: drop this ref's model ref
 					unordered_remove(&chunk.instances, i)
 					break
 				}
@@ -391,14 +393,21 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 	}
 	for cid, &chunk in s.chunks {
 		// Drop old object bodies (the terrain body stays in chunk.bodies) + old instances + their index.
+		// D1 TRAP: this swaps chunk.instances WITHOUT release_chunk_assets, so it must rebalance the
+		// model refs itself — release over the OLD instances, acquire over the FRESH ones. Miss it and
+		// every F9 quickload pins the old instances' models forever (a ref leak eviction can never reclaim).
 		for &inst in chunk.instances {
 			remove_instance_bodies(s.phys, &chunk, &inst)
+			assetdb.model_release(&s.cache, inst.model_path)
 		}
 		deindex_instances(s, &chunk)
 		delete(chunk.instances)
 		// Recompute: ESM baseline ⊕ created refs ⊕ deltas.
 		fresh := build_overlaid_chunk(s, db, cid)
 		chunk.instances = fresh.instances // ownership transfers; only .instances is heap-allocated
+		for inst in chunk.instances {
+			assetdb.model_acquire(&s.cache, inst.model_path)
+		}
 		index_instances(s, &chunk)
 		apply_overlay(s, &chunk)
 		chunk.phys_done = false // object collision rebuilds via sync_physics; terrain body untouched
@@ -442,6 +451,7 @@ create_ref :: proc(s: ^Scene, db: ^gamedb.DB, base, cell: Form_ID, pos, rot: [3]
 			if m, mok := assetdb.get_model(&s.cache, inst.model_path); mok {
 				inst.model = m
 			}
+			assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
 			append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
 			chunk.phys_done = false         // let sync_physics build the new ref's collision
 			index_instances(s, chunk)

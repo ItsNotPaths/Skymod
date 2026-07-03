@@ -174,7 +174,8 @@ bake_object_lod :: proc(st: ^Streamer) {
 		spans := make([dynamic]Cell_Span, len(b.spans)) // scene-owned copy (bucket is temp); freed in clear_object_lod
 		copy(spans[:], b.spans[:])
 		append(&quad.draws, Lod_Draw{model_path = qm.path, veg = b.veg, buf = buf, spans = spans})
-		enqueue_model(st, qm.path)
+		assetdb.model_acquire(&s.cache, qm.path) // D1: the session-long LOD pin (released in clear_object_lod)
+		enqueue_model(st, qm.path, extras = false) // draw-only: LOD meshes/billboards are never picked or cooked
 		nbuf += 1
 	}
 	render.upload_end(&batch)
@@ -189,6 +190,7 @@ bake_object_lod :: proc(st: ^Streamer) {
 clear_object_lod :: proc(s: ^Scene) {
 	for _, &q in s.lod_quads {
 		for d in q.draws {
+			assetdb.model_release(&s.cache, d.model_path) // D1: release the per-draw LOD pin
 			render.release_obj_instances(s.cache.r, d.buf)
 			delete(d.spans)
 		}
