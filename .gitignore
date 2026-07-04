@@ -7,7 +7,7 @@ src/render/shaders/*.spv
 build/out
 
 # dev-tool sources stay local; their binaries land in the repo root
-tools/
+
 /nifdump
 /esmdump
 /pexdump
