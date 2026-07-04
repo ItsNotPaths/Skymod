@@ -126,8 +126,10 @@ Frustum :: [6]Plane
 
 // frustum_from_vp extracts the 6 world-space frustum planes from a view-projection
 // matrix (Gribb-Hartmann). `vp` maps world → clip with clip.z in [0,w] (the Vulkan/
-// SDL3_gpu range from perspective_rh_zo), so near = row2, far = row3-row2. Planes are
-// normalized so sphere distance tests are in world units. Inside = all planes >= 0.
+// SDL3_gpu range), so near = row2, far = row3-row2. Under the reversed-Z projection
+// (perspective_rh_zo_rev) the two swap roles, but clip.z stays in [0,w] so the SAME six
+// half-spaces bound the SAME volume — culling is unaffected. Planes are normalized so
+// sphere distance tests are in world units. Inside = all planes >= 0.
 frustum_from_vp :: proc(m: Mat4) -> Frustum {
 	row :: proc(m: Mat4, i: int) -> Plane {return {m[i, 0], m[i, 1], m[i, 2], m[i, 3]}}
 	r0, r1, r2, r3 := row(m, 0), row(m, 1), row(m, 2), row(m, 3)
@@ -179,6 +181,22 @@ perspective_rh_zo :: proc(fovy, aspect, near, far: f32) -> Mat4 {
 		t / aspect, 0, 0, 0,
 		0, t, 0, 0,
 		0, 0, far / (near - far), (near * far) / (near - far),
+		0, 0, -1, 0,
+	}
+}
+
+// perspective_rh_zo_rev: reversed-Z perspective — near plane → 1, far plane → 0 (still the
+// [0,1] Vulkan/SDL3_gpu depth range, just inverted). Pair with a depth buffer cleared to 0 and
+// a GREATER depth test. On a FLOAT depth buffer this spreads precision ~uniformly across the
+// whole range instead of bunching it all at the near plane, which is what the forward mapping
+// (perspective_rh_zo) does — the cause of distant z-fighting over the 5..262144 world span.
+// Algebraically it's perspective_rh_zo with near/far swapped in the depth row.
+perspective_rh_zo_rev :: proc(fovy, aspect, near, far: f32) -> Mat4 {
+	t := 1.0 / math.tan(fovy * 0.5)
+	return Mat4 {
+		t / aspect, 0, 0, 0,
+		0, t, 0, 0,
+		0, 0, near / (far - near), (far * near) / (far - near),
 		0, 0, -1, 0,
 	}
 }

@@ -232,11 +232,30 @@ Renderer :: struct {
 // builds the Phase-0 pipeline + cube resources. Returns ok=false, with a logged
 // reason, on failure.
 init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
-	device := sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil)
+	// Prefer the high-performance, HARDWARE-accelerated GPU. On hybrid boxes (discrete + iGPU, or a
+	// software rasterizer like llvmpipe present) the bare CreateGPUDevice can land on the small-VRAM
+	// iGPU / CPU renderer, which then runs out of device memory at high render distance ("Failed to
+	// bind memory for buffer"). REQUIRE_HARDWARE_ACCELERATION rules out llvmpipe; PREFERLOWPOWER=false
+	// asks for the discrete part; VERBOSE makes SDL log the physical device it selected. Fall back to
+	// the simple path if the properties device can't be created (e.g. a genuinely software-only host).
+	device: ^sdl.GPUDevice
+	if props := sdl.CreateProperties(); props != 0 {
+		sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true)
+		sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN, ODIN_DEBUG)
+		sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_PREFERLOWPOWER_BOOLEAN, false)
+		sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_VULKAN_REQUIRE_HARDWARE_ACCELERATION_BOOLEAN, true)
+		sdl.SetBooleanProperty(props, sdl.PROP_GPU_DEVICE_CREATE_VERBOSE_BOOLEAN, true)
+		device = sdl.CreateGPUDeviceWithProperties(props)
+		sdl.DestroyProperties(props)
+	}
+	if device == nil {
+		device = sdl.CreateGPUDevice({.SPIRV}, ODIN_DEBUG, nil) // fallback (software-only host, or older SDL)
+	}
 	if device == nil {
 		log.errorf("render: CreateGPUDevice failed: %s", sdl.GetError())
 		return {}, false
 	}
+	log.infof("render: GPU driver = %s", sdl.GetGPUDeviceDriver(device))
 	if !sdl.ClaimWindowForGPUDevice(device, window) {
 		log.errorf("render: ClaimWindowForGPUDevice failed: %s", sdl.GetError())
 		sdl.DestroyGPUDevice(device)
@@ -569,7 +588,7 @@ scene_begin :: proc(r: ^Renderer, clear: [4]f32) {
 	}
 	depth := sdl.GPUDepthStencilTargetInfo {
 		texture          = r.depth_tex,
-		clear_depth      = 1.0,
+		clear_depth      = 0.0, // reversed-Z: far plane = 0 (see perspective_rh_zo_rev)
 		load_op          = .CLEAR,
 		store_op         = .DONT_CARE,
 		stencil_load_op  = .CLEAR,
@@ -891,7 +910,7 @@ make_cube_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .BACK, front_face = .COUNTER_CLOCKWISE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,
@@ -902,12 +921,14 @@ make_cube_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	return sdl.CreateGPUGraphicsPipeline(r.device, info)
 }
 
-// pick_depth_format chooses the depth(+stencil) target format. Stencil is needed for the
-// open-interiors portals; D24_UNORM_S8 is near-universal, D32F_S8 the wider-precision
-// alternative. Plain D32F is the last resort (no stencil → portals disabled).
+// pick_depth_format chooses the depth(+stencil) target format. We render REVERSED-Z (see
+// perspective_rh_zo_rev), whose precision win needs a FLOAT depth buffer — so prefer
+// D32F_S8 (float depth + the stencil the open-interiors portals need). D24_UNORM_S8 is the
+// fallback (reversed-Z still valid, just less of the float-precision gain); plain D32F is the
+// last resort (no stencil → portals disabled).
 @(private)
 pick_depth_format :: proc(device: ^sdl.GPUDevice) -> sdl.GPUTextureFormat {
-	for f in ([?]sdl.GPUTextureFormat{.D24_UNORM_S8_UINT, .D32_FLOAT_S8_UINT}) {
+	for f in ([?]sdl.GPUTextureFormat{.D32_FLOAT_S8_UINT, .D24_UNORM_S8_UINT}) {
 		if sdl.GPUTextureSupportsFormat(device, f, .D2, {.DEPTH_STENCIL_TARGET}) {
 			return f
 		}
@@ -971,6 +992,17 @@ upload_begin :: proc(r: ^Renderer) -> Upload_Batch {
 	return {device = r.device, cmd = cmd, pass = sdl.BeginGPUCopyPass(cmd)}
 }
 
+// gpu_drain blocks until the GPU finishes all submitted work, so SDL can reclaim the staging
+// (transfer) buffers that upload_end only RELEASES — SDL defers the actual free until the copy
+// completes. In the per-frame path a frame boundary provides that drain; but a big SYNCHRONOUS
+// load (the render-distance bubble) submits thousands of per-mesh uploads with NO frame between
+// them, so their deferred-free staging accumulates and exhausts the host-visible heap — which
+// then fails even tiny binds ("Failed to bind memory for buffer") while VRAM sits mostly free.
+// Call periodically inside such a loop to bound how much staging is in flight at once.
+gpu_drain :: proc(r: ^Renderer) {
+	_ = sdl.WaitForGPUIdle(r.device)
+}
+
 upload_end :: proc(b: ^Upload_Batch) {
 	sdl.EndGPUCopyPass(b.pass)
 	_ = sdl.SubmitGPUCommandBuffer(b.cmd)
@@ -986,9 +1018,23 @@ upload_end :: proc(b: ^Upload_Batch) {
 // freed at upload_end.
 upload_buffer_into :: proc(b: ^Upload_Batch, usage: sdl.GPUBufferUsageFlags, data: []byte) -> ^sdl.GPUBuffer {
 	size := u32(len(data))
+	if size == 0 {
+		return nil
+	}
+	// Any of these can fail under GPU-resource pressure — notably at high render distance, where
+	// the synchronous bubble load allocates a vbuf+ibuf per terrain patch across hundreds of cells
+	// and can hit the driver's max allocation count / VRAM. A nil return here used to reach the
+	// mem.copy below and segfault; instead bail cleanly (the caller's mesh just won't render) and
+	// log the driver reason so the limit is visible. Callers must tolerate a nil buffer (draws skip).
 	buf := sdl.CreateGPUBuffer(b.device, {usage = usage, size = size})
 	tb := sdl.CreateGPUTransferBuffer(b.device, {usage = .UPLOAD, size = size})
-	ptr := sdl.MapGPUTransferBuffer(b.device, tb, false)
+	ptr := sdl.MapGPUTransferBuffer(b.device, tb, false) if tb != nil else nil
+	if buf == nil || tb == nil || ptr == nil {
+		log.errorf("render: buffer upload failed (size %d bytes): %s", size, sdl.GetError())
+		if tb != nil {sdl.ReleaseGPUTransferBuffer(b.device, tb)}
+		if buf != nil {sdl.ReleaseGPUBuffer(b.device, buf)}
+		return nil
+	}
 	mem.copy(ptr, raw_data(data), int(size))
 	sdl.UnmapGPUTransferBuffer(b.device, tb)
 	sdl.UploadToGPUBuffer(b.pass, {transfer_buffer = tb, offset = 0}, {buffer = buf, offset = 0, size = size}, false)

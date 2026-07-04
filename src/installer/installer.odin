@@ -18,6 +18,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "../formats/pe"
 import "core:time"
 
 CONTENT_DIR    :: "content"      // <base>/content — the installed data root
@@ -33,6 +34,36 @@ content_ready :: proc(base: string) -> bool {
 	defer delete(m)
 	data, err := os.read_entire_file(m, context.temp_allocator)
 	return err == nil && len(data) > 0
+}
+
+// Edition is which Skyrim generation an install root holds, autodetected from the
+// executable beside Data/. The parsers self-detect per FILE (BSA version, NIF BS
+// version, form version), so this is for install selection + logging, not format
+// branching.
+Edition :: enum {
+	Unknown,
+	LE,
+	SE,
+}
+
+// detect_edition identifies the edition AND the exact patch from the exe: the file
+// name picks the product line (SkyrimSE.exe vs TESV.exe — their version ranges
+// overlap, so the name disambiguates), and the PE version resource (the "File
+// version" Windows shows in Properties) supplies the authoritative version —
+// 1.6.x = Anniversary, 1.1–1.5.x = Special, 1.9.32 = LE final. version is
+// {0,0,0,0} if the exe carries no version resource.
+detect_edition :: proc(src: string) -> (ed: Edition, version: [4]u16) {
+	se, _ := filepath.join({src, "SkyrimSE.exe"}, context.temp_allocator)
+	if os.exists(se) {
+		version, _ = pe.file_version(se)
+		return .SE, version
+	}
+	le, _ := filepath.join({src, "TESV.exe"}, context.temp_allocator)
+	if os.exists(le) {
+		version, _ = pe.file_version(le)
+		return .LE, version
+	}
+	return .Unknown, {}
 }
 
 // valid_source reports whether `path` looks like a real Skyrim install: a Data/

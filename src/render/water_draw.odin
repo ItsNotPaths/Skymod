@@ -109,7 +109,7 @@ make_water_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		// no write (translucent — must not occlude what's behind it).
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = false},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = false}, // reversed-Z (translucent: test, no write)
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,

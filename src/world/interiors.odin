@@ -285,7 +285,7 @@ relay_view_proj :: proc(
 	}
 	fwd := yaw_rotate(relay_dir(p.xform.yaw, cam_fwd), yaw_offset)
 	view := smath.look_at_rh(eye, eye + fwd, {0, 0, 1})
-	proj := smath.perspective_rh_zo(fovy, aspect, near, far)
+	proj := smath.perspective_rh_zo_rev(fovy, aspect, near, far) // reversed-Z (shares the scene depth pass)
 	return proj * view
 }
 

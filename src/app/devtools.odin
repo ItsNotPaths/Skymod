@@ -40,9 +40,9 @@ when DEVTOOLS {
 	// dev_boot brings the scaffold up (erroring under `flag` if source_game is unset).
 	// Callers defer dev_shutdown(&d) FIRST, then bail if this returns false.
 	dev_boot :: proc(d: ^Dev_Boot, title: cstring, cfg: ^settings.Config, flag: string) -> bool {
-		src := settings.get(cfg, "source_game")
+		src := resolve_source(cfg)
 		if src == "" {
-			log.errorf("%s: source_game not set in settings.txt", flag)
+			log.errorf("%s: no valid install (set source_game_se / source_game_le / source_game in settings.txt)", flag)
 			return false
 		}
 		ok: bool

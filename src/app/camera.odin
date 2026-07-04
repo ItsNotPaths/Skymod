@@ -18,8 +18,9 @@ CAM_FOV_Y :: f32(1.22173) // 70°
 // metres/s. D32_FLOAT depth keeps this range precise.
 CAM_NEAR :: f32(5.0)
 // Far reaches across the streamed/LOD world so distant terrain is visible (≈64 cells).
-// With near 5 this stretches D32 depth precision at extreme range, but distant terrain is
-// coarse LOD anyway; revisit (raise near, or reverse-Z) if far z-fighting shows up.
+// The 5..262144 span (~52000:1) would starve distant depth under a forward mapping; we use
+// REVERSED-Z (perspective_rh_zo_rev) on the FLOAT depth buffer instead, which spreads
+// precision ~uniformly across the range and kills the distant LOD/terrain/water z-fighting.
 CAM_FAR :: f32(262144.0)
 PITCH_LIMIT :: f32(1.55334) // ~89°
 LOOK_SENSITIVITY :: f32(0.0025)
@@ -65,6 +66,6 @@ camera_view_proj :: proc(c: Camera, aspect: f32) -> smath.Mat4 {
 	eye := c.pos
 	center := eye + camera_forward(c)
 	view := smath.look_at_rh(eye, center, {0, 0, 1})
-	proj := smath.perspective_rh_zo(CAM_FOV_Y, aspect, CAM_NEAR, CAM_FAR)
+	proj := smath.perspective_rh_zo_rev(CAM_FOV_Y, aspect, CAM_NEAR, CAM_FAR)
 	return proj * view
 }

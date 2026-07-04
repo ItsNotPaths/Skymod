@@ -107,15 +107,23 @@ ui2_upload :: proc(r: ^Renderer) -> (xfer: [2]^sdl.GPUTransferBuffer) {
 	}
 	ui2_ensure_buffers(r, n_vtx, n_idx)
 
+	// Under GPU-memory pressure (e.g. a huge render-distance load) any of the persistent buffers or
+	// the staging transfers / their maps can come back nil. Bail cleanly rather than memcpy into a
+	// null mapping and crash — ui2_draw already skips when the buffers are nil, so the UI just misses
+	// this frame and recovers once memory frees. (The mesh path logs the underlying reason.)
 	vsize := u32(n_vtx * size_of(UI_Vertex))
+	isize := u32(n_idx * size_of(u32))
 	vtb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = vsize})
-	vptr := sdl.MapGPUTransferBuffer(r.device, vtb, false)
+	itb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = isize})
+	vptr := sdl.MapGPUTransferBuffer(r.device, vtb, false) if vtb != nil else nil
+	iptr := sdl.MapGPUTransferBuffer(r.device, itb, false) if itb != nil else nil
+	if r.ui2_vbuf == nil || r.ui2_ibuf == nil || vptr == nil || iptr == nil {
+		if vtb != nil {sdl.ReleaseGPUTransferBuffer(r.device, vtb)}
+		if itb != nil {sdl.ReleaseGPUTransferBuffer(r.device, itb)}
+		return
+	}
 	mem.copy(vptr, raw_data(r.ui2_verts), int(vsize))
 	sdl.UnmapGPUTransferBuffer(r.device, vtb)
-
-	isize := u32(n_idx * size_of(u32))
-	itb := sdl.CreateGPUTransferBuffer(r.device, {usage = .UPLOAD, size = isize})
-	iptr := sdl.MapGPUTransferBuffer(r.device, itb, false)
 	mem.copy(iptr, raw_data(r.ui2_indices), int(isize))
 	sdl.UnmapGPUTransferBuffer(r.device, itb)
 

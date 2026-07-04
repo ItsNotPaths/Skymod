@@ -78,7 +78,7 @@ draw_grass :: proc(
 	normal: Texture = {},
 	mat: Material_Params = {},
 ) {
-	if gi.buf == nil || gi.count == 0 {
+	if gi.buf == nil || gi.count == 0 || m.vbuf == nil || m.ibuf == nil {
 		return
 	}
 	u := Grass_Uniforms {
@@ -142,7 +142,7 @@ make_grass_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		// discards keep depth correct without sorting).
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,

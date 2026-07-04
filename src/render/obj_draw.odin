@@ -82,7 +82,7 @@ draw_obj :: proc(
 	first_instance: u32 = 0,
 	inst_count: u32 = 0, // 0 = all of oi; else draw a sub-range [first_instance, +inst_count) of a merged buffer
 ) {
-	if oi.buf == nil || oi.count == 0 {
+	if oi.buf == nil || oi.count == 0 || m.vbuf == nil || m.ibuf == nil {
 		return
 	}
 	u := Obj_Uniforms {
@@ -94,6 +94,11 @@ draw_obj :: proc(
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 	mp := mat
+	// Force distant object-LOD matte: coarse LOD meshes ship without a normal map, so mesh.frag
+	// would apply the flat-normal fallback's FULL (unmasked) spec mask and read glossy — where the
+	// near mesh's normal-map alpha would attenuate it. Per-pixel spec at LOD range is just shimmer
+	// anyway, so drop it (mirrors terrain_draw's matte). Spec color / glossiness / emissive stay.
+	mp.spec[3] = 0
 	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp)))
 
 	// Opaque batches (rocks/walls, no alpha test) → backface-culled; tree/leaf batches stay two-sided.
@@ -156,7 +161,7 @@ make_obj_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraphi
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = cull, front_face = MESH_CULL_FRONT_FACE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,

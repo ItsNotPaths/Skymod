@@ -178,9 +178,12 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 	defer render.ui_shutdown(&r)
 	p.on_event = render.ui_process_event
 
-	// Seed the path box from the saved source_game (their install path).
+	// Seed the path box from the best-known install path (override first, then the
+	// per-edition keys) — shown even if stale/invalid so there's something to edit.
 	buf: [1024]u8
 	seed := settings.get(cfg, "source_game")
+	if seed == "" {seed = settings.get(cfg, "source_game_se")}
+	if seed == "" {seed = settings.get(cfg, "source_game_le")}
 	n := copy(buf[:len(buf) - 1], seed)
 	buf[n] = 0
 
@@ -207,7 +210,18 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 			if !installer.valid_source(latest) {
 				continue
 			}
-			settings.set(cfg, "source_game", latest)
+			// Store under the key matching the install's autodetected edition, so both
+			// an LE and an SE path can coexist; unknown-exe trees fall back to the
+			// manual-override key.
+			ed, _ := installer.detect_edition(latest)
+			switch ed {
+			case .SE:
+				settings.set(cfg, "source_game_se", latest)
+			case .LE:
+				settings.set(cfg, "source_game_le", latest)
+			case .Unknown:
+				settings.set(cfg, "source_game", latest)
+			}
 			_ = settings.save(cfg)
 			if installer.install(latest, base) {
 				return true
@@ -219,6 +233,40 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 	}
 	return false // window closed / Esc
 }
+
+// resolve_source picks the active install: an explicit source_game (manual override)
+// wins verbatim; otherwise the per-edition paths are tried — source_game_se first, then
+// source_game_le — and the first that validates (Data/Skyrim.esm present) is used. The
+// edition is autodetected from the exe (SkyrimSE.exe / TESV.exe) and logged once. All
+// parsers self-detect per file, so either edition slots into the same pipeline.
+resolve_source :: proc(cfg: ^settings.Config) -> string {
+	src := settings.get(cfg, "source_game")
+	if src == "" {
+		for key in ([]string{"source_game_se", "source_game_le"}) {
+			if s := settings.get(cfg, key); s != "" && installer.valid_source(s) {
+				src = s
+				break
+			}
+		}
+	}
+	if src != "" && !source_logged {
+		source_logged = true
+		ed, ver := installer.detect_edition(src)
+		switch ed {
+		case .SE:
+			kind := "Anniversary" if ver[0] == 1 && ver[1] >= 6 else "Special"
+			log.infof("source: Skyrim %s Edition %d.%d.%d.%d (SkyrimSE.exe) — %s", kind, ver[0], ver[1], ver[2], ver[3], src)
+		case .LE:
+			log.infof("source: Skyrim Legendary Edition %d.%d.%d.%d (TESV.exe) — %s", ver[0], ver[1], ver[2], ver[3], src)
+		case .Unknown:
+			log.warnf("source: no SkyrimSE.exe/TESV.exe found (edition unknown) — %s", src)
+		}
+	}
+	return src
+}
+
+@(private = "file")
+source_logged: bool
 
 // run_game is the game chassis: bring the session up (game_setup), run the frame loop
 // (game_frame), tear it down in the one documented order (game_teardown — see game.odin).

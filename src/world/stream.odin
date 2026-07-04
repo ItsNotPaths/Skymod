@@ -33,6 +33,7 @@ import "core:time"
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
+import "../render"
 import "../vfs"
 
 // How many decoded models the main thread uploads to the GPU per frame. Caps the
@@ -290,13 +291,24 @@ stream_begin_load :: proc(st: ^Streamer, pos: smath.Vec3) {
 	st.radius = saved
 
 	// Build the whole bubble immediately — no LOAD_BUDGET — so inflight reflects the full set.
+	// This runs BEFORE the frame loop, so nothing else drains the GPU: each cell's terrain/water/
+	// grass meshes upload as their own submits, and SDL frees their staging only on copy-completion.
+	// Without a periodic drain the deferred-free staging piles up across the whole bubble and
+	// exhausts the host-visible heap (tiny binds then fail even with VRAM free — the rd≥6 crash).
+	// Drain every few cells so at most a handful of cells' staging is ever in flight.
+	built := 0
 	for len(st.pending) > 0 {
 		p := pop(&st.pending)
 		if c, ok := st.scene.chunks[p.cid]; ok && c.lod == p.lod {
 			continue
 		}
 		load_streamed_cell(st, p.cid, p.lod, p.dist)
+		built += 1
+		if built % 8 == 0 {
+			render.gpu_drain(st.scene.cache.r)
+		}
 	}
+	render.gpu_drain(st.scene.cache.r) // final drain: reclaim the last partial batch's staging
 	st.load_target = len(st.inflight)
 	log.infof("stream: full-load bubble armed — %d models to decode", st.load_target)
 }

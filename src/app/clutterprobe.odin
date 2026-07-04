@@ -76,8 +76,8 @@ when DEVTOOLS {
 		// narrow-phase runs at small magnitude instead of ~45000.
 		world_verts := false
 		for a in os.args {if a == "worldverts" {world_verts = true;log.info("--clutterprobe: static verts in WORLD space (origin-0 bodies)")}}
-		src := settings.get(cfg, "source_game")
-		if src == "" {log.error("--clutterprobe: source_game not set");return}
+		src := resolve_source(cfg)
+		if src == "" {log.error("--clutterprobe: no valid install configured");return}
 		v := mount_game(src)
 		defer vfs.destroy(&v)
 		db, ok := load_gamedb(src)
@@ -437,8 +437,8 @@ when DEVTOOLS {
 	// sends it to thousands) while it SWINGS. Exercises add_hinge + the constraint math without a GPU.
 	@(private = "file")
 	run_hinge_test :: proc(cfg: ^settings.Config) {
-		src := settings.get(cfg, "source_game")
-		if src == "" {log.error("hingetest: source_game not set");return}
+		src := resolve_source(cfg)
+		if src == "" {log.error("hingetest: no valid install configured");return}
 		v := mount_game(src)
 		defer vfs.destroy(&v)
 		phys, pok := physics.world_create()

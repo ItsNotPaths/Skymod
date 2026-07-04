@@ -134,6 +134,10 @@ validate_all :: proc(arc: ^bsa.Archive) {
 	with_normal, bad_normal := 0, 0 // shapes with a normal-map path; paths not textures\...\.dds
 	with_tangents := 0 // placed shapes whose geometry carries authored tangents
 	mat_bad := 0 // shapes whose material scalars look like garbage (wrong offsets → NaN/huge)
+	bs_blocks := 0 // SSE BSTriShape-family blocks seen (the placed/geom-valid counters below must account for them)
+	geom_valid, geom_bad := 0, 0 // placed shapes passing/failing the bounding-sphere/index self-check
+	geom_ex := make([dynamic]string, 0, 8)
+	defer delete(geom_ex)
 	examples := make([dynamic]string, 0, 8)
 	defer delete(examples)
 	xform_ex := make([dynamic]string, 0, 8)
@@ -158,6 +162,10 @@ validate_all :: proc(arc: ^bsa.Archive) {
 		}
 		defer nif.destroy_header(&h)
 		for i in 0 ..< int(h.num_blocks) {
+			switch nif.block_type(&h, i) {
+			case "BSTriShape", "BSSubIndexTriShape", "BSMeshLODTriShape", "BSDynamicTriShape":
+				bs_blocks += 1
+			}
 			if nif.block_type(&h, i) != "NiTriShapeData" {
 				continue
 			}
@@ -183,6 +191,17 @@ validate_all :: proc(arc: ^bsa.Archive) {
 		for s in scene {
 			if len(s.geometry.triangles) == 0 {
 				empty_placed += 1
+			}
+			// Bounding-sphere + index self-check on every placed shape — for SSE
+			// BSTriShape this is the empirical proof of the packed-vertex layout.
+			{
+				g := s.geometry
+				if vok, _ := nif.validate_geometry(&g); vok {
+					geom_valid += 1
+				} else {
+					geom_bad += 1
+					if len(geom_ex) < 8 {append(&geom_ex, e.path)}
+				}
 			}
 			tx, ty, tz := s.world[0, 3], s.world[1, 3], s.world[2, 3]
 			finite := tx == tx && ty == ty && tz == tz
@@ -252,6 +271,15 @@ validate_all :: proc(arc: ^bsa.Archive) {
 		bad_geom,
 	)
 	fmt.printfln("scene: %d shapes placed; %d with bad/insane world transforms", placed, bad_xform)
+	fmt.printfln(
+		"bs: %d BSTriShape-family blocks (SSE packed geometry); placed geometry self-check: %d valid, %d FAILED",
+		bs_blocks,
+		geom_valid,
+		geom_bad,
+	)
+	for ex in geom_ex {
+		fmt.printfln("  geom-invalid: %s", ex)
+	}
 	fmt.printfln("empty: %d placed shapes have 0 triangles (skinned geometry not recovered)", empty_placed)
 	fmt.printfln(
 		"materials: %d/%d shapes have a diffuse path; %d malformed (not textures\\...\\.dds)",

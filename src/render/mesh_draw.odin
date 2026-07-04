@@ -127,6 +127,7 @@ draw_mesh :: proc(
 	mp := mat
 	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp))) // set 3 binding 1 (material)
 
+	if m.vbuf == nil || m.ibuf == nil {return} // upload was skipped (GPU-resource pressure) — nothing to draw
 	// Opaque geometry (no alpha test) → the backface-culled pipeline; foliage cutouts stay two-sided.
 	pl := r.mesh_pipeline_culled if alpha_cutoff == 0 else r.mesh_pipeline
 	bind_pipeline(r, r.frame_pass, pl)
@@ -174,6 +175,7 @@ draw_effect :: proc(r: ^Renderer, m: Mesh, vp, model: smath.Mat4, diffuse: Textu
 		model = model,
 		anim  = {scroll.x, scroll.y, time, 0},
 	}
+	if m.vbuf == nil || m.ibuf == nil {return} // upload was skipped (GPU-resource pressure) — nothing to draw
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
 	bind_pipeline(r, r.frame_pass, r.effect_pipeline)
@@ -208,6 +210,7 @@ draw_highlight :: proc(
 		wind   = {wind.dir.x, wind.dir.y, wind.strength, wind.speed},
 		params = {time, phase, wind.height_cap, 0},
 	}
+	if m.vbuf == nil || m.ibuf == nil {return} // upload was skipped (GPU-resource pressure) — nothing to draw
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
 
 	bind_pipeline(r, r.frame_pass, r.highlight_pipeline)
@@ -251,7 +254,7 @@ make_highlight_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS_OR_EQUAL, enable_depth_test = true, enable_depth_write = false},
+		depth_stencil_state = {compare_op = .GREATER_OR_EQUAL, enable_depth_test = true, enable_depth_write = false}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,
@@ -311,7 +314,7 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		multisample_state = {sample_count = ._1},
 		// Depth-tested (occluded by solid geometry) but no depth WRITE (additive FX don't hide
 		// each other / what's behind them).
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = false},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = false}, // reversed-Z (additive FX: test, no write)
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,
@@ -372,7 +375,7 @@ make_mesh_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraph
 		// (front_face = MESH_CULL_FRONT_FACE — flip it there if solid geometry renders inside-out).
 		rasterizer_state = {fill_mode = .FILL, cull_mode = cull, front_face = MESH_CULL_FRONT_FACE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,

@@ -271,12 +271,141 @@ decompress_zlib :: proc(stream: []u8, decomp_size: int, allocator := context.all
 	return bytes.buffer_to_bytes(&out), true // buffer-owned slice; caller deletes
 }
 
-// decompress_lz4 inflates an LZ4 block stream (SE / v105). TODO(SE): Odin core has
-// no LZ4 — drop in an LZ4 block decompressor here (the algorithm is ~50 lines) and
-// SE archives extract. This is the ONLY codec work the LE→SE jump needs.
+// decompress_lz4 decodes an SE (v105) compressed payload. Bethesda wraps these in
+// the LZ4 *frame* format (verified against the real SSE archives: magic 0x184D2204
+// follows the 4-byte size prefix), so this parses the frame descriptor and feeds
+// each data block to lz4_block. Hand-rolled since Odin core has no LZ4. Streams
+// without the magic are treated as one raw block (some third-party packers).
+// Checksums (xxHash) are skipped, not verified — the magic + exact-output-size
+// checks catch real corruption for our purposes.
+LZ4_FRAME_MAGIC :: 0x184D2204
+
 @(private)
 decompress_lz4 :: proc(stream: []u8, decomp_size: int, allocator := context.allocator) -> ([]u8, bool) {
-	return nil, false
+	out := make([]u8, decomp_size, allocator)
+	if !lz4_frame(stream, out) {
+		delete(out, allocator)
+		return nil, false
+	}
+	return out, true
+}
+
+@(private)
+lz4_frame :: proc(stream: []u8, out: []u8) -> bool {
+	if len(stream) < 4 {
+		return len(out) == 0
+	}
+	dst := 0
+	magic, _ := endian.get_u32(stream[0:4], .Little)
+	if magic != LZ4_FRAME_MAGIC {
+		return lz4_block(stream, out, &dst) && dst == len(out)
+	}
+
+	// Frame descriptor: FLG, BD, [content size u64], [dict id u32], header checksum.
+	if len(stream) < 7 {
+		return false
+	}
+	flg := stream[4]
+	if flg >> 6 != 1 { // frame format version must be 01
+		return false
+	}
+	block_checksums := flg & 0x10 != 0
+	pos := 6 // past FLG + BD (BD only bounds encoder block size — irrelevant here)
+	if flg & 0x08 != 0 {pos += 8} // content size (redundant: the BSA prefix is authoritative)
+	if flg & 0x01 != 0 {pos += 4} // dictionary id
+	pos += 1                      // header-checksum byte
+
+	for {
+		if pos + 4 > len(stream) {
+			return false
+		}
+		bword, _ := endian.get_u32(stream[pos:pos + 4], .Little)
+		pos += 4
+		if bword == 0 {break} // EndMark (optional content checksum after it — ignored)
+
+		n := int(bword & 0x7FFF_FFFF)
+		if pos + n > len(stream) {
+			return false
+		}
+		if bword & 0x8000_0000 != 0 { // stored uncompressed
+			if dst + n > len(out) {
+				return false
+			}
+			copy(out[dst:], stream[pos:pos + n])
+			dst += n
+		} else if !lz4_block(stream[pos:pos + n], out, &dst) {
+			return false
+		}
+		pos += n
+		if block_checksums {pos += 4}
+	}
+	return dst == len(out)
+}
+
+// lz4_block decodes one raw LZ4 block into out at ^dst. Each sequence is a token
+// (hi nibble = literal length, lo nibble = match length - 4, 15 = "+ 255-continuation
+// bytes"), the literals, then a 2-byte little-endian back-reference offset; the final
+// sequence is literals-only. dst is absolute in out so matches can reach back into
+// earlier blocks of the same frame. Match copies go byte-wise: offset < length
+// overlaps on purpose (LZ4's run-length trick).
+@(private)
+lz4_block :: proc(stream: []u8, out: []u8, dst: ^int) -> bool {
+	src := 0
+	for src < len(stream) {
+		token := stream[src]
+		src += 1
+
+		lit := int(token >> 4)
+		if lit == 15 {
+			for {
+				if src >= len(stream) {
+					return false
+				}
+				b := stream[src]
+				src += 1
+				lit += int(b)
+				if b != 255 {break}
+			}
+		}
+		if src + lit > len(stream) || dst^ + lit > len(out) {
+			return false
+		}
+		copy(out[dst^:], stream[src:src + lit])
+		src += lit
+		dst^ += lit
+
+		if src == len(stream) {break} // last sequence ends after its literals
+
+		if src + 2 > len(stream) {
+			return false
+		}
+		offset := int(stream[src]) | int(stream[src + 1]) << 8
+		src += 2
+		if offset == 0 || offset > dst^ {
+			return false
+		}
+
+		mlen := int(token & 0xF) + 4
+		if mlen == 19 {
+			for {
+				if src >= len(stream) {
+					return false
+				}
+				b := stream[src]
+				src += 1
+				mlen += int(b)
+				if b != 255 {break}
+			}
+		}
+		if dst^ + mlen > len(out) {
+			return false
+		}
+		for k in 0 ..< mlen {
+			out[dst^ + k] = out[dst^ - offset + k]
+		}
+		dst^ += mlen
+	}
+	return true
 }
 
 // --- internals ---

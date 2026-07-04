@@ -1,5 +1,10 @@
 # SkyMod settings — "key = value" per line; '#' starts a comment.
-source_game = /home/unrawk/.local/share/Steam/steamapps/common/Skyrim
+# Manual override: when set, this exact install is used as-is. Leave empty to
+# auto-pick from the per-edition paths below (SE preferred, first that validates).
+# The engine autodetects the edition from the exe (SkyrimSE.exe / TESV.exe).
+source_game =
+source_game_le = /home/unrawk/.local/share/Steam/steamapps/common/Skyrim
+source_game_se = /run/media/paths/SSS-Shared/SteamLibrary/steamapps/common/Skyrim Special Edition
 
 # Keep every run's log in a timestamped logs/ folder instead of overwriting the
 # single skymod.log (same as passing --persist-logs).

@@ -18,8 +18,9 @@ package nif
 import "core:encoding/endian"
 import "core:strings"
 
-VERSION_LE :: 0x14020007 // 20.2.0.7
+VERSION_LE :: 0x14020007 // 20.2.0.7 — same NIF version in LE and SSE
 BS_VERSION_LE :: 83      // Skyrim Legendary Edition
+BS_VERSION_SE :: 100     // Skyrim Special Edition — BSTriShape packed geometry
 
 Header :: struct {
 	version:          u32,
@@ -82,7 +83,7 @@ parse_header :: proc(data: []u8, allocator := context.allocator) -> (h: Header, 
 	skip_short_string(&r)
 
 	if h.version != VERSION_LE {
-		return {}, false // only Skyrim LE for now
+		return {}, false // 20.2.0.7 covers both LE (BS 83) and SSE (BS 100)
 	}
 
 	num_types := int(read_u16(&r))
@@ -187,6 +188,21 @@ read_u32 :: proc(r: ^Reader) -> u32 {
 @(private)
 read_i32 :: proc(r: ^Reader) -> i32 {
 	return i32(read_u32(r))
+}
+
+@(private)
+read_u64 :: proc(r: ^Reader) -> u64 {
+	if !have(r, 8) {return 0}
+	v, _ := endian.get_u64(r.data[r.pos:r.pos + 8], .Little)
+	r.pos += 8
+	return v
+}
+
+// read_f16 reads an IEEE half float and widens it — SSE packed vertex data
+// (positions, UVs) is half-precision.
+@(private)
+read_f16 :: proc(r: ^Reader) -> f32 {
+	return f32(transmute(f16)read_u16(r))
 }
 
 @(private)

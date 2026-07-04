@@ -226,7 +226,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// gamedb from Skyrim.esm → a Streamer keeps a window of cells loaded around the
 	// player, decoding meshes on a worker thread (no hitches) and uploading them under
 	// a per-frame budget. Fly out of the window and watch cells stream in/out.
-	src := settings.get(cfg, "source_game")
+	src := resolve_source(cfg)
 
 	// Mod profile (docs/mods.md layer 4): the MO2-style mod list, persisted per profile as
 	// <base>/profiles/<name>/modlist.txt; the mods/ folder is shared across all profiles.
@@ -275,6 +275,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		src          = src,
 		base         = base,
 		profile      = &g.mprofile,
+		vfs          = &g.v, // mounted above; the worker only reads (thread-safe like asset decode)
 		loader_alloc = loader_alloc,
 	}
 	load_thread := thread.create(game_load_worker)
@@ -385,7 +386,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// "skyrim" profile from the user's own Skyrim.esm imagespace (local, never shipped), then
 	// load the active profile (baked "vanilla"/"realistic", the derived "skyrim", or any sidecar
 	// under <base>/profiles/). Live-editable via the Lighting panel; pushed each frame.
-	ensure_game_lighting_profile(base, settings.get(cfg, "source_game"))
+	ensure_game_lighting_profile(base, resolve_source(cfg))
 	g.lights = lighting_state_init(base, settings.get(cfg, "lighting_profile"), &g.mprofile)
 	g.up.lights = true
 
@@ -558,6 +559,7 @@ game_teardown :: proc(g: ^Game) {
 Game_Load_Job :: struct {
 	src, base:    string,
 	profile:      ^mods.Profile,
+	vfs:          ^vfs.VFS, // mounted before the worker spawns; concurrent read-only use (like the asset decoders)
 	loader_alloc: runtime.Allocator,
 	db:           gamedb.DB,
 	ok:           bool,
@@ -571,7 +573,7 @@ Game_Load_Job :: struct {
 game_load_worker :: proc(t: ^thread.Thread) {
 	job := (^Game_Load_Job)(t.data)
 	context.allocator = job.loader_alloc
-	job.db, job.ok = load_gamedb_mods(job.src, job.base, job.profile, &job.progress)
+	job.db, job.ok = load_gamedb_mods(job.src, job.base, job.profile, job.vfs, &job.progress)
 	sync.atomic_store(&job.done, true)
 }
 

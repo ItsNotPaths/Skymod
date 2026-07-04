@@ -33,6 +33,10 @@ FLAG_COMPRESSED :: 0x0004_0000
 // dialogue) hold a u32 string id resolved via the plugin's external STRINGS file, not
 // inline text. Read off the TES4 record; drives the FULL decode branch (see records.full_*).
 FLAG_LOCALIZED :: 0x0000_0080
+// TES4 header flag: SSE light master (.esl, or flagged .esp). Informational for us —
+// the wide 64-bit Form_ID model gives every plugin a full 32-bit slot, so the FE-prefix
+// packing this flag drives in the real engine never applies (see the Form_ID note below).
+FLAG_LIGHT_MASTER :: 0x0000_0200
 
 // GRUP group types (the label field's meaning depends on this).
 GRUP_TOP :: 0 // label = record-type signature (e.g. "STAT", "CELL")

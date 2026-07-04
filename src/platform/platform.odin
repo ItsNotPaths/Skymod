@@ -55,13 +55,23 @@ Platform :: struct {
 }
 
 init :: proc(title: cstring, width, height: i32) -> (p: Platform, ok: bool) {
-	// Pointer lock (relative mouse mode) for mouse-look. On THIS stack SDL's XWayland backend REFUSES
-	// relative mode for the focused window ("not supported"), but wlroots' NATIVE Wayland backend does
-	// it fine — so when a Wayland session is present, force SDL onto native Wayland before init.
-	// (This is the reverse of sdl3-pointerlock-wayland.txt, whose x11 advice was wrong for this machine —
-	// confirmed against projects/dimsalt.) Guarded by WAYLAND_DISPLAY so real-X11 setups keep their
-	// default; NORMAL priority, so SDL_VIDEO_DRIVER still overrides.
-	if wl := os.get_env("WAYLAND_DISPLAY", context.temp_allocator); wl != "" {
+	// Pointer lock (relative mouse mode) for mouse-look: pick the video driver by what the
+	// SESSION actually is, not by which env vars happen to be set.
+	//  - Real Xorg session (XDG_SESSION_TYPE=x11): force x11. A leaked WAYLAND_DISPLAY (from a
+	//    profile export or an old compositor) would otherwise steer SDL onto the Wayland driver
+	//    with no live compositor behind it — pointer lock dies. X11 relative mode works via
+	//    XInput2 (dlopened libXi at runtime).
+	//  - Wayland session: force native Wayland. On the wlroots stack SDL's XWayland backend
+	//    REFUSES relative mode for the focused window ("not supported"), but the NATIVE Wayland
+	//    backend does it fine. (Reverse of sdl3-pointerlock-wayland.txt's x11 advice — confirmed
+	//    against projects/dimsalt.)
+	// NORMAL priority either way, so SDL_VIDEO_DRIVER still overrides both.
+	session := os.get_env("XDG_SESSION_TYPE", context.temp_allocator)
+	wl := os.get_env("WAYLAND_DISPLAY", context.temp_allocator)
+	switch {
+	case session == "x11":
+		sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "x11")
+	case wl != "":
 		sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "wayland")
 	}
 	if !sdl.Init({.VIDEO}) {

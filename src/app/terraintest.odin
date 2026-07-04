@@ -16,7 +16,7 @@ import "../world"
 
 when DEVTOOLS {
 	run_terrain_test :: proc(cfg: ^settings.Config) {
-		src := settings.get(cfg, "source_game")
+		src := resolve_source(cfg)
 		if src == "" {
 			log.error("--terraintest: source_game not set")
 			return

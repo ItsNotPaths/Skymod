@@ -34,9 +34,52 @@ sort_names :: proc(names: []string) {
 }
 
 // Archives we mount into the VFS: the static-world assets an interior needs (meshes +
-// diffuse textures) PLUS Interface (the menu's fonts/credits/SWFs + UI textures). Mounted
-// in load order; loose Data/ (added first) overrides all, then mods override these.
-GAME_ARCHIVES := []string{"Skyrim - Meshes.bsa", "Skyrim - Textures.bsa", "Skyrim - Interface.bsa"}
+// diffuse textures) PLUS Interface (the menu's fonts/credits/SWFs + UI textures + the base
+// game's localized STRINGS tables). LE ships single files ("Skyrim - Meshes.bsa"); SSE splits
+// the same families ("Skyrim - Meshes0/1.bsa", "Skyrim - Textures0..8.bsa") — so match by
+// family prefix against what's actually in Data instead of hardcoding an edition's names.
+// PLUS plugin-associated archives (the SSE auto-load rule): for every plugin "X.es[mpl]" in
+// Data, "X.bsa" and "X - Textures.bsa" load with it — that's where Creation Club content
+// (cc*.esl + cc*.bsa, _ResourcePack) keeps its meshes/textures AND its STRINGS; without
+// these, all CC records stay nameless and its assets invisible. Families sort first (base
+// precedence), then plugin archives — later mounts win, matching the real engine.
+// Deliberately still excluded: Sounds/Voices/Animations/Misc/Shaders.
+game_archive_names :: proc(data_dir: string, allocator := context.allocator) -> []string {
+	bsas := files_with_suffix(data_dir, {".bsa"}, context.temp_allocator)
+	by_lower := make(map[string]string, len(bsas), context.temp_allocator) // lower name -> on-disk name
+	for b in bsas {by_lower[strings.to_lower(b, context.temp_allocator)] = b}
+
+	added := make(map[string]bool, 64, context.temp_allocator) // lower names already in out
+	out := make([dynamic]string, 0, 16, allocator)
+
+	fams := make([dynamic]string, 0, 16, context.temp_allocator)
+	for b in bsas {
+		lower := strings.to_lower(b, context.temp_allocator)
+		if strings.has_prefix(lower, "skyrim - meshes") ||
+		   strings.has_prefix(lower, "skyrim - textures") ||
+		   strings.has_prefix(lower, "skyrim - interface") {
+			append(&fams, b)
+			added[lower] = true
+		}
+	}
+	sort_names(fams[:])
+	for f in fams {append(&out, strings.clone(f, allocator))}
+
+	assoc := make([dynamic]string, 0, 64, context.temp_allocator)
+	for pl in files_with_suffix(data_dir, {".esm", ".esp", ".esl"}, context.temp_allocator) {
+		stem := strings.to_lower(filepath.stem(pl), context.temp_allocator)
+		for suffix in ([]string{".bsa", " - textures.bsa"}) {
+			key := strings.concatenate({stem, suffix}, context.temp_allocator)
+			if actual, ok := by_lower[key]; ok && !added[key] {
+				append(&assoc, actual)
+				added[key] = true
+			}
+		}
+	}
+	sort_names(assoc[:])
+	for a in assoc {append(&out, strings.clone(a, allocator))}
+	return out[:]
+}
 
 // mount_game builds a VFS over <src>/Data: the loose folder (highest precedence) plus
 // the static-asset archives. Caller frees with vfs.destroy.
@@ -44,7 +87,7 @@ mount_game :: proc(src: string) -> vfs.VFS {
 	v: vfs.VFS
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	vfs.mount_loose(&v, data_dir)
-	for name in GAME_ARCHIVES {
+	for name in game_archive_names(data_dir, context.temp_allocator) {
 		p, _ := filepath.join({data_dir, name}, context.temp_allocator)
 		if !vfs.mount_archive(&v, p) {
 			log.warnf("could not mount %s", p)
@@ -53,7 +96,7 @@ mount_game :: proc(src: string) -> vfs.VFS {
 	return v
 }
 
-// discover_plugins lists the plugin files (.esm/.esp) present in <src>/Data, sorted
+// discover_plugins lists the plugin files (.esm/.esp/.esl) present in <src>/Data, sorted
 // case-insensitively. The mod Profile reconciles against this set (enable/disable). Returns the
 // names allocated in `allocator` (caller frees the slice + each name).
 discover_plugins :: proc(src: string, allocator := context.allocator) -> ([]string, bool) {
@@ -66,7 +109,7 @@ discover_plugins :: proc(src: string, allocator := context.allocator) -> ([]stri
 	out := make([dynamic]string, 0, 16, allocator)
 	for fi in infos {
 		lower := strings.to_lower(fi.name, context.temp_allocator)
-		if strings.has_suffix(lower, ".esm") || strings.has_suffix(lower, ".esp") {
+		if strings.has_suffix(lower, ".esm") || strings.has_suffix(lower, ".esp") || strings.has_suffix(lower, ".esl") {
 			append(&out, strings.clone(fi.name, allocator))
 		}
 	}
@@ -82,15 +125,19 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	names, ok := discover_plugins(src, context.temp_allocator)
 	if !ok || len(names) == 0 {
-		log.errorf("no plugins (.esm/.esp) found in %s", data_dir)
+		log.errorf("no plugins (.esm/.esp/.esl) found in %s", data_dir)
 		return {}, false
 	}
+	// Strings resolve through a VFS (base tables live inside BSAs on SSE); a throwaway
+	// mount is cheap (headers only) and freed once the tables are copied out.
+	v := mount_game(src)
+	defer vfs.destroy(&v)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
 		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data)}
 		delete(inputs)
 	}
-	for name in names {read_plugin_into(&inputs, data_dir, name)}
+	for name in names {read_plugin_into(&inputs, &v, data_dir, name)}
 	if len(inputs) == 0 {
 		return {}, false
 	}
@@ -265,7 +312,7 @@ Load_Progress :: struct {
 	total: int,
 }
 
-load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^Load_Progress = nil) -> (gamedb.DB, bool) {
+load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, v: ^vfs.VFS, progress: ^Load_Progress = nil) -> (gamedb.DB, bool) {
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
@@ -286,7 +333,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 	// Base: vanilla Data plugins (core masters pinned above; other vanilla content interned as base).
 	if names, ok := discover_plugins(src, context.temp_allocator); ok {
 		for name in names {
-			read_plugin_into(&inputs, data_dir, name)
+			read_plugin_into(&inputs, v, data_dir, name)
 			if _, pinned := mods.formtable_slot(&ft, name); !pinned {
 				mods.formtable_intern(&ft, name, mods.OFFICIAL_UUID)
 			}
@@ -300,9 +347,9 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, progress: ^L
 		if mod == mods.BASE_MOD {continue}
 		nmods += 1
 		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
-		pls := files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator)
+		pls := files_with_suffix(mdir, {".esp", ".esm", ".esl"}, context.temp_allocator)
 		start := len(inputs)
-		for pl in pls {read_plugin_into(&inputs, mdir, pl)}
+		for pl in pls {read_plugin_into(&inputs, v, mdir, pl)}
 		// The whole mod shares one identity (sidecar uuid, else a content hash of the plugins actually
 		// read); every plugin it ships interns under it.
 		uuid := mod_identity_uuid(mdir, inputs[start:])
@@ -364,7 +411,7 @@ mount_game_mods :: proc(src, base: string, profile: ^mods.Profile) -> vfs.VFS {
 	vfs.mount_loose(&v, data_dir)
 
 	// Archives (later mount wins): vanilla base, then content-baseline .bsa, then user-mod .bsa.
-	for name in GAME_ARCHIVES {
+	for name in game_archive_names(data_dir, context.temp_allocator) {
 		p, _ := filepath.join({data_dir, name}, context.temp_allocator)
 		if !vfs.mount_archive(&v, p) {log.warnf("could not mount %s", p)}
 	}
@@ -433,7 +480,7 @@ derive_plugin_order :: proc(src, base: string, profile: ^mods.Profile, allocator
 	for mod in mods.profile_enabled_mods(profile, context.temp_allocator) {
 		if mod == mods.BASE_MOD {continue}
 		mdir, _ := filepath.join({root, mod}, context.temp_allocator)
-		for pl in files_with_suffix(mdir, {".esp", ".esm"}, context.temp_allocator) {
+		for pl in files_with_suffix(mdir, {".esp", ".esm", ".esl"}, context.temp_allocator) {
 			gather_plugin_header(&names, &mod_of, &masters, mdir, pl, mod)
 		}
 	}
@@ -496,26 +543,27 @@ read_header_chunk :: proc(path: string) -> []u8 {
 
 // read_plugin_into reads <dir>/<fname> and appends it as a Plugin_Input (bytes owned by the
 // caller's allocator; freed after build). A read failure is logged and skipped.
+//
+// The plugin's localized tables (Strings/<Plugin>_<Lang>.STRINGS + .DLSTRINGS) resolve through
+// the VFS `v`, so every shipping layout works uniformly: loose Data/Strings (LE-era + mods,
+// loose wins), the base game's tables inside "Skyrim - Interface.bsa" (both editions), and each
+// Creation Club plugin's tables inside its own cc*.bsa (mounted by game_archive_names). Loaded
+// unconditionally — build_plugins only consults them when the plugin's TES4 localized flag is
+// set (nil = names come from inline FULL). English only for now.
 @(private = "file")
-read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, dir, fname: string) {
+read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, v: ^vfs.VFS, dir, fname: string) {
 	p, _ := filepath.join({dir, fname}, context.temp_allocator)
 	bytes, rerr := os.read_entire_file(p, context.allocator)
 	if rerr != nil {
 		log.warnf("could not read plugin %s — skipping", p)
 		return
 	}
-	// Sibling localized names table: Data/Strings/<Plugin>_<Lang>.STRINGS (loose). Loaded
-	// unconditionally — build_plugins only consults it when the plugin's TES4 localized flag
-	// is set, and a non-localized plugin has no such file (nil = names come from inline FULL).
-	// English only for now; DLC whose STRINGS live inside a BSA stay nameless until VFS-sourced.
 	stem := filepath.stem(fname)
-	sname := strings.concatenate({stem, "_English.STRINGS"}, context.temp_allocator)
-	spath, _ := filepath.join({dir, "Strings", sname}, context.temp_allocator)
-	sbytes, _ := os.read_entire_file(spath, context.allocator) // nil on absence (localized DLC-in-BSA, or non-localized)
-	// Sibling long-text table (Data/Strings/<Plugin>_<Lang>.DLSTRINGS): quest-log CNAM + book DESC.
-	dlname := strings.concatenate({stem, "_English.DLSTRINGS"}, context.temp_allocator)
-	dlpath, _ := filepath.join({dir, "Strings", dlname}, context.temp_allocator)
-	dlbytes, _ := os.read_entire_file(dlpath, context.allocator) // nil on absence
+	spath := strings.concatenate({"Strings/", stem, "_English.STRINGS"}, context.temp_allocator)
+	sbytes, _ := vfs.read(v, spath, context.allocator) // nil on absence (non-localized plugin)
+	// Long-text table (.DLSTRINGS): quest-log CNAM + book DESC.
+	dlpath := strings.concatenate({"Strings/", stem, "_English.DLSTRINGS"}, context.temp_allocator)
+	dlbytes, _ := vfs.read(v, dlpath, context.allocator) // nil on absence
 	append(
 		inputs,
 		gamedb.Plugin_Input {

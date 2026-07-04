@@ -76,7 +76,14 @@ upload_texture_into :: proc(b: ^Upload_Batch, format: Tex_Format, srgb: bool, mi
 		total += len(m.data)
 	}
 	tb := sdl.CreateGPUTransferBuffer(b.device, {usage = .UPLOAD, size = u32(total)})
-	dst := sdl.MapGPUTransferBuffer(b.device, tb, false)
+	dst := sdl.MapGPUTransferBuffer(b.device, tb, false) if tb != nil else nil
+	if dst == nil {
+		// GPU-memory pressure (high render distance): don't memcpy into a null map. Drop the
+		// texture — the shape falls back to the white/flat-normal default — rather than crash.
+		if tb != nil {sdl.ReleaseGPUTransferBuffer(b.device, tb)}
+		sdl.ReleaseGPUTexture(b.device, tex)
+		return {}
+	}
 	off := 0
 	offsets := make([]int, len(mips), context.temp_allocator)
 	for m, i in mips {
@@ -233,7 +240,11 @@ release_texture :: proc(r: ^Renderer, t: Texture) {
 upload_texture_pixels :: proc(device: ^sdl.GPUDevice, tex: ^sdl.GPUTexture, data: []u8, w, h: u32) {
 	size := u32(len(data))
 	tb := sdl.CreateGPUTransferBuffer(device, {usage = .UPLOAD, size = size})
-	dst := sdl.MapGPUTransferBuffer(device, tb, false)
+	dst := sdl.MapGPUTransferBuffer(device, tb, false) if tb != nil else nil
+	if dst == nil { // GPU-memory pressure: skip rather than memcpy into a null map (texture stays blank)
+		if tb != nil {sdl.ReleaseGPUTransferBuffer(device, tb)}
+		return
+	}
 	mem.copy(dst, raw_data(data), int(size))
 	sdl.UnmapGPUTransferBuffer(device, tb)
 	cmd := sdl.AcquireGPUCommandBuffer(device)

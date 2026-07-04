@@ -36,6 +36,55 @@ test_bsa_roundtrip_v105_uncompressed :: proc(t: ^testing.T) {
 	bsa_roundtrip(t, bsa.VERSION_SE)
 }
 
+@(test)
+test_bsa_lz4_frame_extract :: proc(t: ^testing.T) {
+	// v105 + FLAG_COMPRESSED: each data block is <u32 decomp size> + an LZ4 *frame*
+	// (magic, descriptor, blocks, EndMark) — the exact shape real SSE archives use
+	// (verified against the install: magic 0x184D2204 follows the size prefix).
+	// One block: 3 literals "abc", match(offset 3, len 9) -> "abcabcabcabc", then
+	// the final literals-only sequence "XYZ".
+	lz4_seq := [10]u8{0x35, 'a', 'b', 'c', 0x03, 0x00, 0x30, 'X', 'Y', 'Z'}
+	framed := [?]u8 {
+		15, 0, 0, 0, // decompressed size (Bethesda's prefix, not part of the frame)
+		0x04, 0x22, 0x4D, 0x18, // frame magic
+		0x60, // FLG: version 01, block-independent, no checksums/content-size/dict
+		0x40, // BD: 64 KB max block size
+		0x00, // header checksum (reader skips it)
+		10, 0, 0, 0, // block: 10 bytes, high bit clear = LZ4-compressed
+		0x35, 'a', 'b', 'c', 0x03, 0x00, 0x30, 'X', 'Y', 'Z',
+		0, 0, 0, 0, // EndMark
+	}
+	// Same block without the frame wrapper: the raw-block fallback path
+	// (third-party packers that skip the frame).
+	raw := [?]u8{15, 0, 0, 0, 0x35, 'a', 'b', 'c', 0x03, 0x00, 0x30, 'X', 'Y', 'Z'}
+	_ = lz4_seq
+
+	files := [2]TFile{{"framed.nif", string(framed[:])}, {"raw.nif", string(raw[:])}}
+	folders := [1]TFolder{{"meshes", files[:]}}
+	archive_bytes := build_synthetic_bsa(bsa.VERSION_SE, folders[:], flags_extra = 0x4)
+	defer delete(archive_bytes)
+
+	dir := unit_temp_dir(t, "skymod_bsa_lz4")
+	defer os.remove_all(dir)
+	defer delete(dir)
+	path, _ := filepath.join({dir, "test.bsa"}, context.allocator)
+	defer delete(path)
+	testing.expect(t, os.write_entire_file(path, archive_bytes) == nil, "write bsa")
+
+	arc, ok := bsa.open(path)
+	testing.expect(t, ok, "open bsa")
+	defer bsa.close(&arc)
+
+	testing.expect_value(t, len(arc.entries), 2)
+	for e in arc.entries {
+		testing.expect(t, e.compressed, "entry marked compressed")
+		data, eok := bsa.extract(&arc, e)
+		testing.expectf(t, eok, "extract %s", e.path)
+		defer delete(data)
+		testing.expectf(t, string(data) == "abcabcabcabcXYZ", "decoded bytes for %s", e.path)
+	}
+}
+
 bsa_roundtrip :: proc(t: ^testing.T, version: u32) {
 	folders := test_folders()
 	archive_bytes := build_synthetic_bsa(version, folders)
@@ -90,10 +139,12 @@ flatten :: proc(folders: []TFolder) -> []string {
 	return out[:]
 }
 
-// build_synthetic_bsa lays out a valid archive: flags = folder names + file names,
-// uncompressed, no embedded names. version selects LE (16-byte folder records) or
-// SE (24-byte). The caller frees the returned bytes.
-build_synthetic_bsa :: proc(version: u32, folders: []TFolder, allocator := context.allocator) -> []u8 {
+// build_synthetic_bsa lays out a valid archive: flags = folder names + file names
+// (+ flags_extra, e.g. FLAG_COMPRESSED — then each TFile.data must already be the
+// on-disk block: decomp-size prefix + compressed stream), no embedded names.
+// version selects LE (16-byte folder records) or SE (24-byte). The caller frees
+// the returned bytes.
+build_synthetic_bsa :: proc(version: u32, folders: []TFolder, flags_extra: u32 = 0, allocator := context.allocator) -> []u8 {
 	folder_rec := u32(16) if version == bsa.VERSION_LE else u32(24)
 	folder_count := u32(len(folders))
 	file_count := u32(0)
@@ -116,7 +167,7 @@ build_synthetic_bsa :: proc(version: u32, folders: []TFolder, allocator := conte
 	append(&b, 'B', 'S', 'A', 0)
 	put_u32(&b, version)
 	put_u32(&b, folder_off)
-	put_u32(&b, 0x3) // folder names + file names; uncompressed
+	put_u32(&b, 0x3 | flags_extra) // folder names + file names (+ caller extras)
 	put_u32(&b, folder_count)
 	put_u32(&b, file_count)
 	put_u32(&b, total_folder_name_len)

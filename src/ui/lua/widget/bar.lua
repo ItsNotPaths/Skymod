@@ -15,7 +15,7 @@
 --   bar{ size={w,h}, value=0..1, fill="#c8a24b",
 --        frame="interface/bar_frame.dds", frame_color="#e0e0e0",   -- deco frame + its RGBA tint (the art
 --                                                                  --   is white, so ANY colour works)
---        bg="hudmenu/shape_416.dds", bg_color="#000000",           -- background frame + its tint
+--        bg="interface/bar_bg.dds", bg_color="#000000",            -- background frame + its tint
 --        slice=48,        -- 3-slice cap width (source px); the middle stretches
 --        inset={ix,iy},   -- fill inset inside the frame (tuck x under the caps so there's no end gap)
 --        anchor=, offset= }

@@ -172,6 +172,12 @@ resolve_effect :: proc(data: []u8, h: ^Header, shader_ref: i32, allocator := con
 	if !r.ok {
 		return {}
 	}
+	// Same build-tree-prefix quirk as texture sets (see normalize_texture_path).
+	if norm := normalize_texture_path(source); len(norm) != len(source) {
+		cloned := strings.clone(norm)
+		delete(source)
+		source = cloned
+	}
 	return {source = source, scroll = effect_scroll(data, h, ctrl_ref)}
 }
 
@@ -361,8 +367,29 @@ parse_lighting_material :: proc(b: []u8) -> (ts_ref: i32, mat: Material, ok: boo
 	return ts_ref, mat, true
 }
 
+// normalize_texture_path strips the absolute build-tree prefix some vanilla SSE assets
+// ship — e.g. SwordFern01.nif's diffuse is "skyrimhd\\build\\pc\\data\\textures\\landscape\\
+// grass\\SwordFern.dds" (Bethesda re-exported the SSE foliage from their HD build tree
+// without relativizing; the real engine snaps to the "textures\\" segment too). Keeps the
+// path from its LAST case-insensitive "textures\\" (or "/") on; anything already rooted
+// there (or with no textures segment at all) passes through unchanged. Returns a slice
+// of the input — caller clones.
+@(private)
+normalize_texture_path :: proc(p: string) -> string {
+	lower := strings.to_lower(p, context.temp_allocator)
+	idx := strings.last_index(lower, "textures\\")
+	if i2 := strings.last_index(lower, "textures/"); i2 > idx {
+		idx = i2
+	}
+	if idx > 0 {
+		return p[idx:]
+	}
+	return p
+}
+
 // resolve_texset reads the diffuse (slot 0) + normal (slot 1) paths from a BSShaderTextureSet
-// ref. Either may be "" (absent). Cloned into the ambient allocator.
+// ref, normalized (see normalize_texture_path). Either may be "" (absent). Cloned into the
+// ambient allocator.
 @(private)
 resolve_texset :: proc(data: []u8, h: ^Header, ts_ref: i32, allocator := context.allocator) -> (diffuse, normal: string) {
 	context.allocator = allocator
@@ -375,10 +402,10 @@ resolve_texset :: proc(data: []u8, h: ^Header, ts_ref: i32, allocator := context
 		return "", ""
 	}
 	if len(paths) > TEX_DIFFUSE && paths[TEX_DIFFUSE] != "" {
-		diffuse = strings.clone(paths[TEX_DIFFUSE])
+		diffuse = strings.clone(normalize_texture_path(paths[TEX_DIFFUSE]))
 	}
 	if len(paths) > TEX_NORMAL && paths[TEX_NORMAL] != "" {
-		normal = strings.clone(paths[TEX_NORMAL])
+		normal = strings.clone(normalize_texture_path(paths[TEX_NORMAL]))
 	}
 	return
 }
@@ -409,5 +436,5 @@ resolve_diffuse :: proc(data: []u8, h: ^Header, shader_ref: i32, allocator := co
 	if !pok || len(paths) <= TEX_DIFFUSE || paths[TEX_DIFFUSE] == "" {
 		return ""
 	}
-	return strings.clone(paths[TEX_DIFFUSE])
+	return strings.clone(normalize_texture_path(paths[TEX_DIFFUSE]))
 }

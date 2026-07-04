@@ -81,7 +81,7 @@ draw_mesh_stencil :: proc(
 	normal: Texture = {},
 	mat: Material_Params = {},
 ) {
-	if r.mesh_stencil_pipeline == nil {
+	if r.mesh_stencil_pipeline == nil || m.vbuf == nil || m.ibuf == nil {
 		return
 	}
 	u := Mesh_Uniforms {
@@ -160,7 +160,7 @@ make_portal_mark_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
 		depth_stencil_state = {
-			compare_op = .LESS,
+			compare_op = .GREATER, // reversed-Z (door must be the nearest surface)
 			enable_depth_test = true,
 			enable_depth_write = false,
 			enable_stencil_test = true,
@@ -268,7 +268,7 @@ make_mesh_stencil_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
 		depth_stencil_state = {
-			compare_op = .LESS,
+			compare_op = .GREATER, // reversed-Z
 			enable_depth_test = true,
 			enable_depth_write = true,
 			enable_stencil_test = true,

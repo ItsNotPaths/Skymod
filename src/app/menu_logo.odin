@@ -199,7 +199,7 @@ menu_logo_draw :: proc(r: ^render.Renderer, logo: ^Menu_Logo, d: ^Menu_Logo_Cfg)
 	eye := logo.center + dir * dist
 	view := smath.look_at_rh(eye, logo.center, {0, 0, 1})
 	near := max(dist * 0.02, 0.05)
-	proj := smath.perspective_rh_zo(d.fov * math.PI / 180, render.aspect(r), near, dist + logo.radius * 4)
+	proj := smath.perspective_rh_zo_rev(d.fov * math.PI / 180, render.aspect(r), near, dist + logo.radius * 4) // reversed-Z (shares the scene depth pass)
 	// Clip-space (NDC) screen offset: translate adds (pos.x·w, pos.y·w) to clip xy, so after the
 	// perspective divide the logo shifts by (pos.x, pos.y) in NDC at every depth.
 	vp := smath.translate({d.pos[0], d.pos[1], 0}) * proj * view

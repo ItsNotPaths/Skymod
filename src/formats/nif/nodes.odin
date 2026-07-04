@@ -91,6 +91,7 @@ Block_Info :: struct {
 	alpha_ref:      i32,   // shape NiAlphaProperty ref, or -1
 	collision_ref:  i32,   // NiAVObject Collision Object ref (bhkCollisionObject), or -1 — used by collision.odin
 	lod_tris:       [3]u32, // BSLODTriShape per-level triangle counts ({0,0,0} if none)
+	inline_geom:    bool,  // SSE BSTriShape family: geometry is packed inside the shape block itself
 }
 
 @(private)
@@ -139,55 +140,63 @@ walk_node :: proc(
 	}
 
 	if info.is_shape {
-		dr := int(info.data_ref)
-		// Both NiTriShape and BSLODTriShape point at NiTriShapeData geometry.
-		if dr >= 0 && dr < int(h.num_blocks) && block_type(h, dr) == "NiTriShapeData" {
-			if g, ok := parse_tri_shape_data(block_data(h, data, dr)); ok {
-				// Skinned geometry (trees' swaying canopy, banners) keeps its vertices in
-				// NiTriShapeData but its triangle list in the NiSkinPartition. Pull the tris
-				// from there so the mesh isn't empty — rendered in bind pose (no skinning).
-				if len(g.triangles) == 0 && info.skin_ref >= 0 {
-					if pidx := skin_partition_block(data, h, int(info.skin_ref)); pidx >= 0 {
-						if st, sok := parse_skin_partition_tris(
-							block_data(h, data, pidx),
-							len(g.vertices),
-						); sok {
-							g.triangles = st
-						}
+		g: Geometry
+		lod_tris := info.lod_tris
+		gok: bool
+		if info.inline_geom {
+			// SSE BSTriShape family: packed geometry inside the shape block itself
+			// (BSMeshLODTriShape's per-level counts trail the data — take them here).
+			g, lod_tris, gok = parse_bs_geometry(block_data(h, data, idx), h.bs_version, block_type(h, idx))
+		} else if dr := int(info.data_ref);
+		   dr >= 0 && dr < int(h.num_blocks) && block_type(h, dr) == "NiTriShapeData" {
+			// LE: both NiTriShape and BSLODTriShape point at NiTriShapeData geometry.
+			g, gok = parse_tri_shape_data(block_data(h, data, dr))
+			// Skinned geometry (trees' swaying canopy, banners) keeps its vertices in
+			// NiTriShapeData but its triangle list in the NiSkinPartition. Pull the tris
+			// from there so the mesh isn't empty — rendered in bind pose (no skinning).
+			if gok && len(g.triangles) == 0 && info.skin_ref >= 0 {
+				if pidx := skin_partition_block(data, h, int(info.skin_ref)); pidx >= 0 {
+					if st, sok := parse_skin_partition_tris(
+						block_data(h, data, pidx),
+						len(g.vertices),
+					); sok {
+						g.triangles = st
 					}
 				}
-				// Effect shapes (BSEffectShaderProperty) carry their texture in a Source Texture
-				// field (not a texture set) + a controller-driven UV scroll; lit shapes resolve
-				// the usual lighting-shader diffuse. Both feed the same `diffuse` (VFS) pipe.
-				is_eff := is_effect_shader(h, info.shader_ref)
-				diffuse, normal: string
-				material := DEFAULT_MATERIAL
-				scroll: [2]f32
-				if is_eff {
-					eff := resolve_effect(data, h, info.shader_ref)
-					diffuse, scroll = eff.source, eff.scroll
-				} else {
-					diffuse, normal, material = resolve_lighting(data, h, info.shader_ref)
-				}
-				cutoff := resolve_alpha(data, h, info.alpha_ref)
-				name := block_name(h, info)
-				append(
-					out,
-					PlacedShape {
-						geometry = g,
-						world = world,
-						diffuse = diffuse,
-						normal = normal,
-						material = material,
-						alpha_cutoff = cutoff,
-						lod_tris = info.lod_tris,
-						is_effect = is_eff,
-						scroll = scroll,
-						name = strings.clone(name),
-						under_hinge = under_hinge,
-					},
-				)
 			}
+		}
+		if gok {
+			// Effect shapes (BSEffectShaderProperty) carry their texture in a Source Texture
+			// field (not a texture set) + a controller-driven UV scroll; lit shapes resolve
+			// the usual lighting-shader diffuse. Both feed the same `diffuse` (VFS) pipe.
+			is_eff := is_effect_shader(h, info.shader_ref)
+			diffuse, normal: string
+			material := DEFAULT_MATERIAL
+			scroll: [2]f32
+			if is_eff {
+				eff := resolve_effect(data, h, info.shader_ref)
+				diffuse, scroll = eff.source, eff.scroll
+			} else {
+				diffuse, normal, material = resolve_lighting(data, h, info.shader_ref)
+			}
+			cutoff := resolve_alpha(data, h, info.alpha_ref)
+			name := block_name(h, info)
+			append(
+				out,
+				PlacedShape {
+					geometry = g,
+					world = world,
+					diffuse = diffuse,
+					normal = normal,
+					material = material,
+					alpha_cutoff = cutoff,
+					lod_tris = lod_tris,
+					is_effect = is_eff,
+					scroll = scroll,
+					name = strings.clone(name),
+					under_hinge = under_hinge,
+				},
+			)
 		}
 		return
 	}
@@ -239,12 +248,29 @@ parse_block_info :: proc(h: ^Header, data: []u8, i: int) -> (bi: Block_Info) {
 	// reader is safe). Without it, whole BSLODTriShape-built buildings (e.g. Whiterun's
 	// WRHouseStores01) and roof pieces silently load as zero shapes.
 	is_shape := t == "NiTriShape" || t == "BSLODTriShape"
-	if !is_node && !is_shape {
+	// SSE (BS 100) shapes: geometry is packed inline, refs live in the BSTriShape
+	// head instead of a NiGeometry material block. Decoded by parse_bs_geometry.
+	is_bs_shape := t == "BSTriShape" ||
+	               t == "BSSubIndexTriShape" ||
+	               t == "BSMeshLODTriShape" ||
+	               t == "BSDynamicTriShape"
+	if !is_node && !is_shape && !is_bs_shape {
 		return
 	}
 
 	r := Reader{data = block_data(h, data, i), ok = true}
 	bi.transform, bi.name_ref, bi.controller_ref, bi.collision_ref = parse_avobject(&r)
+	if is_bs_shape {
+		head := read_bs_head(&r, h.bs_version)
+		if r.ok {
+			bi.skin_ref = head.skin_ref
+			bi.shader_ref = head.shader_ref
+			bi.alpha_ref = head.alpha_ref
+			bi.inline_geom = true
+			bi.is_shape = true
+		}
+		return
+	}
 	if is_node {
 		n := int(read_u32(&r))
 		if !r.ok || n < 0 || n > MAX_LIST {

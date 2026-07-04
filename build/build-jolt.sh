@@ -29,9 +29,31 @@ PROFILE="${JOLT_PROFILE:-OFF}"
 PROFILE_DEF=""
 if [ "$PROFILE" = "ON" ]; then PROFILE_DEF="-DJPH_PROFILE_ENABLED"; fi
 
+# Profiler glue: upstream joltc exposes no C entry points for Jolt's profiler, but
+# the binding (patched by download-deps.sh) declares JPH_ProfileNextFrame/JPH_ProfileDump.
+# Compile the committed shim against the fetched Jolt headers and append it to the
+# C-wrapper archive. The JPH_PROFILE_* macros no-op unless built with JOLT_PROFILE=ON,
+# so the shim is correct in both configs — it just has to EXIST for the link.
+GLUE_SRC="$ROOT/build/jolt_profile_glue.cpp"
+JPH_INC="$BIND/build/_deps/joltphysics-src"
+has_glue() { nm "$LIBDIR/libjoltc.a" 2>/dev/null | grep -q "T JPH_ProfileNextFrame"; }
+add_glue() {
+    local defs="$PROFILE_DEF"
+    if [ "$DOUBLE_PRECISION" = "ON" ]; then defs="$defs -DJPH_DOUBLE_PRECISION"; fi
+    # shellcheck disable=SC2086 # defs is a flag list
+    c++ -std=c++17 -O2 -fPIC -ffunction-sections -fdata-sections $defs \
+        -I"$JPH_INC" -c "$GLUE_SRC" -o "$BIND/build/jolt_profile_glue.o"
+    ar rs "$LIBDIR/libjoltc.a" "$BIND/build/jolt_profile_glue.o" 2>/dev/null
+    echo "  profiler glue added to libjoltc.a"
+}
+
 if [ "$PROFILE" != "ON" ] && [ -f "$LIBDIR/libjoltc.a" ] && [ -f "$LIBDIR/libJolt.a" ]; then
-    echo "  already present: vendor/joltc-odin/lib (libjoltc.a + libJolt.a)"
-    exit 0
+    if ! has_glue && [ -f "$JPH_INC/Jolt/Core/Profiler.h" ]; then add_glue; fi
+    if has_glue; then
+        echo "  already present: vendor/joltc-odin/lib (libjoltc.a + libJolt.a)"
+        exit 0
+    fi
+    # libs exist but the glue can't be retrofitted (no fetched headers) — full rebuild.
 fi
 if [ ! -d "$BIND" ]; then
     echo "error: vendor/joltc-odin missing — run ./download-deps.sh first" >&2
@@ -74,4 +96,5 @@ find "$BIND/build" -name 'libJolt.a' -exec cp {} "$LIBDIR/libJolt.a" \;
     echo "error: build did not produce the static libs (looked under $BIND/build)" >&2
     exit 1
 }
+add_glue
 echo "  done: vendor/joltc-odin/lib (libjoltc.a + libJolt.a)"

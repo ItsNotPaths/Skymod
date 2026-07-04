@@ -735,8 +735,9 @@ cell_by_formid :: proc(db: ^DB, form_id: Form_ID) -> (Cell, bool) {
 
 // name_of resolves a form's display name (FULL), following ref → base: a REFR's own FULL
 // override wins, else its base form's name. Works for a base formID directly too. "" when
-// no name is known (unnamed forms, or DLC whose loose STRINGS file wasn't loaded). Names
-// come from the localized STRINGS table (or inline FULL for non-localized plugins).
+// no name is known (unnamed forms, or a localized plugin whose STRINGS table didn't
+// resolve). Names come from the localized STRINGS table — sourced through the VFS (loose
+// Data/Strings or inside a BSA, see app read_plugin_into) — or inline FULL otherwise.
 name_of :: proc(db: ^DB, form: Form_ID) -> string {
 	if n, ok := db.names[form]; ok && n != "" {
 		return n // the form's own FULL — a base name, or a ref's override

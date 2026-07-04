@@ -29,7 +29,12 @@ Default :: struct {
 	value: string,
 }
 DEFAULTS := [?]Default {
+	// Manual override: when set, this exact install is used. Leave empty to auto-pick
+	// from the per-edition paths below (SE preferred, first that validates). The engine
+	// autodetects the edition from the exe (SkyrimSE.exe = SSE, TESV.exe = LE) either way.
 	{"source_game", ""},
+	{"source_game_le", ""},
+	{"source_game_se", ""},
 	{"persist_logs", "false"},
 	// Pretty mode: hide the white, untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name-based filter. Also set with --pretty.

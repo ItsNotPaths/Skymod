@@ -16,6 +16,7 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "../font"
 import "../formats/dds"
 import "../formats/swf"
@@ -114,19 +115,24 @@ baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 	// creditsmenu.swf exported "SkyrimLogo").
 	logo, _ := filepath.join({assets, "interface", "skyrimlogo.dds"}, context.temp_allocator)
 	extract_swf_bitmap(v, "interface/creditsmenu.swf", "SkyrimLogo", logo)
-	// The Bethesda Game Studios logo (bottom-left of the menu): shape 78 (621×292, #bbbdbf) in startmenu.swf.
+	// The Bethesda Game Studios logo (bottom-left of the menu): 621×292 #bbbdbf — LE startmenu
+	// shape 78, SSE shape 554 (SSE reuses id 78 for an unrelated 28px icon, hence min_w).
 	bethlogo, _ := filepath.join({assets, "interface", "bethesdalogo.dds"}, context.temp_allocator)
-	extract_swf_shape(v, "interface/startmenu.swf", 78, bethlogo)
+	extract_swf_shape(v, "interface/startmenu.swf", {78, 554}, bethlogo, min_w = 200)
 	// The "wirey" meter end-cap (hudmenu shape 740 — a left/right mirror pair with 746). The vanilla shape
 	// is BLACK-filled (its grey is a 2nd fill we don't extract, and there's no separate white copy), so we
 	// re-rasterize it with a WHITE fill → a white cap the bar places on each end (mirrored via flip_x).
 	cap, _ := filepath.join({assets, "interface", "meter_cap.dds"}, context.temp_allocator)
-	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", 740, cap, {255, 255, 255, 255})
+	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", {740, 499}, cap, {255, 255, 255, 255})
 	// The stat-bar deco frame (hudmenu shape 395) re-rasterized WHITE. The vanilla art is red-filled and
 	// can't be tinted to white (red × tint = red), so we recolour it at extraction; white also lets a bar
 	// tint it per stat later. (Its black bg companion, shape 416, is used as-is.)
 	frame, _ := filepath.join({assets, "interface", "bar_frame.dds"}, context.temp_allocator)
-	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", 395, frame, {255, 255, 255, 255})
+	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", {395, 446}, frame, {255, 255, 255, 255})
+	// The bar's BLACK background frame (LE shape 416 / SSE 467, used as-is) at a STABLE path —
+	// Lua references this instead of a dump filename, whose ids differ per edition.
+	bar_bg, _ := filepath.join({assets, "interface", "bar_bg.dds"}, context.temp_allocator)
+	extract_swf_shape(v, "interface/exported/hudmenu.gfx", {416, 467}, bar_bg, min_w = 100)
 	// Browse-and-pick dump: EVERY shape (vector silhouette) + bitmap of the menu SWFs/GFX → DDS under
 	// bethassets/<name>/, so any graphic can be found visually + referenced by `image{source=
 	// "<name>/shape_<id>.dds"}`. Cached per source (skipped once the dir exists). Covers the classic
@@ -172,10 +178,15 @@ make_reticle :: proc(dest: string) {
 	}
 }
 
-// extract_swf_shape rasterizes one shape (by character id) from `swf_path` as a solid silhouette and
+// extract_swf_shape rasterizes one shape from `swf_path` as a solid silhouette and
 // writes it as DDS to `dest` — once (skips if it exists). Best-effort.
 @(private = "file")
-extract_swf_shape :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string) {
+// `ids` are per-edition candidates for the SAME art, tried in ORDER (LE first, then SSE —
+// SSE re-exported every UI SWF, so character ids moved). min_w guards against an id REUSED
+// for different art across editions (startmenu 78: LE = the 621px Bethesda logo, SSE = a
+// 28px icon — the SSE logo moved to 554): a candidate rasterizing narrower than min_w is
+// skipped and the next candidate tried.
+extract_swf_shape :: proc(v: ^vfs.VFS, swf_path: string, ids: []u16, dest: string, min_w := 0) {
 	if os.exists(dest) {
 		return
 	}
@@ -183,30 +194,34 @@ extract_swf_shape :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string) 
 	if !ok {
 		return
 	}
-	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-		if sh.id != id {
-			continue
-		}
-		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, sh.fill, context.temp_allocator)
-		if w <= 0 || h <= 0 {
+	shapes := swf.extract_all_shapes(raw, context.temp_allocator)
+	for want in ids {
+		for sh in shapes {
+			if sh.id != want {
+				continue
+			}
+			rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, sh.fill, context.temp_allocator)
+			if w < max(min_w, 1) || h <= 0 {
+				break // wrong art under a reused id — try the next candidate
+			}
+			ensure_parent_dir(dest)
+			if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
+				log.errorf("ui: could not write %q", dest)
+			} else {
+				log.infof("ui: extracted shape %d → %s (%dx%d)", sh.id, filepath.base(dest), w, h)
+			}
 			return
 		}
-		ensure_parent_dir(dest)
-		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
-			log.errorf("ui: could not write %q", dest)
-		} else {
-			log.infof("ui: extracted shape %d → %s (%dx%d)", id, filepath.base(dest), w, h)
-		}
-		return
 	}
-	log.warnf("ui: shape %d not found in %s", id, swf_path)
+	log.warnf("ui: none of shapes %v (min_w %d) matched in %s", ids, min_w, swf_path)
 }
 
-// extract_swf_shape_colored rasterizes shape `id` from `swf_path` to `dest` in an OVERRIDE colour (not
+// extract_swf_shape_colored rasterizes a shape from `swf_path` to `dest` in an OVERRIDE colour (not
 // the shape's own fill) — e.g. re-colouring a black-filled cap to white so the UI can place/tint it.
+// `ids` are per-edition candidates for the same art (first present wins), like extract_swf_shape.
 // Once (skips if `dest` exists). Best-effort.
 @(private = "file")
-extract_swf_shape_colored :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string, color: [4]u8) {
+extract_swf_shape_colored :: proc(v: ^vfs.VFS, swf_path: string, ids: []u16, dest: string, color: [4]u8) {
 	if os.exists(dest) {
 		return
 	}
@@ -215,7 +230,7 @@ extract_swf_shape_colored :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: 
 		return
 	}
 	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-		if sh.id != id {
+		if !slice.contains(ids, sh.id) {
 			continue
 		}
 		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, color, context.temp_allocator)
@@ -226,11 +241,11 @@ extract_swf_shape_colored :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: 
 		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
 			log.errorf("ui: could not write %q", dest)
 		} else {
-			log.infof("ui: extracted shape %d (recoloured) → %s (%dx%d)", id, filepath.base(dest), w, h)
+			log.infof("ui: extracted shape %d (recoloured) → %s (%dx%d)", sh.id, filepath.base(dest), w, h)
 		}
 		return
 	}
-	log.warnf("ui: shape %d not found in %s", id, swf_path)
+	log.warnf("ui: none of shapes %v found in %s", ids, swf_path)
 }
 
 // dump_swf_assets converts every flat-solid shape (silhouette in its fill colour) + every

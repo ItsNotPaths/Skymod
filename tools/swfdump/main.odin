@@ -94,6 +94,9 @@ main :: proc() {
 			for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
 				rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, sh.fill, context.temp_allocator)
 				if w <= 0 || h <= 0 {continue}
+				// Catalog line: id + size + fill is how a shape is re-identified across
+				// editions (SSE re-exported every UI SWF, so LE's IDs don't carry over).
+				fmt.printfln("  shape %4d  %4dx%-4d  fill #%02x%02x%02x%02x", sh.id, w, h, sh.fill[0], sh.fill[1], sh.fill[2], sh.fill[3])
 				out, _ := filepath.join({destdir, fmt.tprintf("shape_%d.dds", sh.id)}, context.temp_allocator)
 				if os.write_entire_file(out, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) == nil {n += 1}
 			}

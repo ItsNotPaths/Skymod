@@ -54,9 +54,12 @@ build_sdl3() {
         | tar xz --strip-components=1 -C "$work"
 
     # We need window + mouse/keyboard + the GPU (Vulkan) backend. Audio/camera are
-    # off to keep the static archive self-contained; the optional X11 extensions
-    # are off so it builds without a sprawling set of X11 -devel packages. (SDL
-    # dlopens the windowing/GPU backend at runtime, so none of these are baked in.)
+    # off to keep the static archive self-contained. X11 extensions: XINPUT is
+    # REQUIRED (SDL's X11 relative mouse mode = pointer lock is XInput2-only —
+    # without it mouse-look on an Xorg session is a hard "not supported"); XFIXES
+    # confines the locked pointer; XRANDR reads real display modes. Their headers
+    # (libxi-dev, libxfixes-dev, libxrandr-dev) must be present at BUILD time —
+    # the libs themselves are dlopened at runtime. The rest stay off.
     cmake -S "$work" -B "$work/build" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$dest" \
@@ -71,9 +74,9 @@ build_sdl3() {
         -DSDL_CAMERA=OFF \
         -DSDL_X11_XCURSOR=OFF \
         -DSDL_X11_XDBE=OFF \
-        -DSDL_X11_XFIXES=OFF \
-        -DSDL_X11_XINPUT=OFF \
-        -DSDL_X11_XRANDR=OFF \
+        -DSDL_X11_XFIXES=ON \
+        -DSDL_X11_XINPUT=ON \
+        -DSDL_X11_XRANDR=ON \
         -DSDL_X11_XSCRNSAVER=OFF \
         -DSDL_X11_XSHAPE=OFF \
         -DSDL_X11_XSYNC=OFF \
@@ -174,6 +177,21 @@ fetch_jolt() {
     # Drop the upstream test file: it passes [3]f32 literals to ^RVec3 params, which no
     # longer type-checks once RVec3 is f64 (it's their test, not part of our binding use).
     rm -f "$dest/joltc-test.odin"
+    # Profiler entry points: upstream joltc exposes none, so src/physics's
+    # ProfileNextFrame/ProfileDump calls need these decls + the C shim that
+    # build-jolt.sh compiles from build/jolt_profile_glue.cpp. Idempotent.
+    if ! grep -q "ProfileNextFrame" "$dest/joltc.odin"; then
+        cat >>"$dest/joltc.odin" <<'EOF'
+
+// --- skymod addition (download-deps.sh): Jolt profiler entry points, implemented
+// by build/jolt_profile_glue.cpp which build-jolt.sh appends to lib/libjoltc.a ---
+@(default_calling_convention = "c", link_prefix = "JPH_")
+foreign lib {
+	ProfileNextFrame :: proc() ---
+	ProfileDump :: proc(tag: cstring) ---
+}
+EOF
+    fi
     JOLT_DOUBLE=ON bash "$ROOT/build/build-jolt.sh"
 }
 

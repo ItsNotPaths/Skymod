@@ -87,7 +87,7 @@ draw_terrain :: proc(
 	height, ground, index: Texture,
 	u: Terrain_Uniforms,
 ) {
-	if ti.buf == nil || ti.count == 0 || height.tex == nil || ground.tex == nil || index.tex == nil {
+	if m.vbuf == nil || m.ibuf == nil || ti.buf == nil || ti.count == 0 || height.tex == nil || ground.tex == nil || index.tex == nil {
 		return
 	}
 	uu := u
@@ -127,7 +127,7 @@ bind_terrain_textures :: proc(r: ^Renderer, ground, index: Texture) {
 // blends like the distant tier instead of showing hard per-quadrant texture seams. One draw, no
 // instancing, no vertex height sampler (the mesh already holds real Z).
 draw_terrain_near :: proc(r: ^Renderer, m: Mesh, ground, index: Texture, u: Terrain_Uniforms) {
-	if ground.tex == nil || index.tex == nil {
+	if m.vbuf == nil || m.ibuf == nil || ground.tex == nil || index.tex == nil {
 		return
 	}
 	uu := u
@@ -172,7 +172,7 @@ make_terrain_near_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,
@@ -221,7 +221,7 @@ make_terrain_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		depth_stencil_state = {compare_op = .LESS, enable_depth_test = true, enable_depth_write = true},
+		depth_stencil_state = {compare_op = .GREATER, enable_depth_test = true, enable_depth_write = true}, // reversed-Z
 		target_info = {
 			color_target_descriptions = &color_target,
 			num_color_targets = 1,

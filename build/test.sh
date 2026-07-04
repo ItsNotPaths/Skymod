@@ -38,6 +38,15 @@ for pkg in "${pkgs[@]}"; do
 done
 
 echo "==> odin test (tests/unit)"
-odin test tests/unit
+# Unlike `odin check`, `odin test` LINKS a real binary, and the tests' import graph
+# reaches render -> vendor:sdl3 (via assetdb/world), which emits -lSDL3. Resolve it
+# against the vendored static SDL3 exactly like dev.sh/release.sh: pkg-config gives
+# the -L path + SDL's private static deps; the binding itself emits the -lSDL3.
+SDL_PREFIX="$ROOT/vendor/sdl3"
+if [ -e "$SDL_PREFIX/lib/pkgconfig/sdl3.pc" ] || [ -e "$SDL_PREFIX/lib64/pkgconfig/sdl3.pc" ]; then
+    export PKG_CONFIG_PATH="$SDL_PREFIX/lib/pkgconfig:$SDL_PREFIX/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
+fi
+SDL_LINK="$(pkg-config --static --libs sdl3 | tr ' ' '\n' | grep -vx -- '-lSDL3' | tr '\n' ' ')"
+odin test tests/unit -extra-linker-flags:"$SDL_LINK"
 
 echo "==> all green"

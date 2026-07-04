@@ -41,7 +41,7 @@ when DEVTOOLS {
 		}
 		p, r, v := &d.p, &d.r, &d.v
 
-		db, db_ok := load_gamedb(settings.get(cfg, "source_game"))
+		db, db_ok := load_gamedb(resolve_source(cfg))
 		if !db_ok {
 			log.error("--celltest: could not load Skyrim.esm")
 			return

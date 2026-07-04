@@ -38,16 +38,16 @@ ui.screen(function()
       color = "#999999",
     },
 
-    -- Progress bar centred across the bottom: the vanilla stat-bar deco (hudmenu shape 416 black bg +
-    -- shape 395 red frame, both 3-sliced so the decorated knotwork ends stay fixed and the middle
-    -- stretches to width) with our shader fill inside.
+    -- Progress bar centred across the bottom: the vanilla stat-bar deco (black bg frame + red deco
+    -- frame — LE hudmenu shapes 416/395, SSE 467/446 — both 3-sliced so the decorated knotwork ends
+    -- stay fixed and the middle stretches to width) with our shader fill inside.
     bar {
       anchor = "bottom",
       offset = { 0, -60 },
       size = { bar_w, 30 },
       value = p.frac or 0,
       fill = FILL,
-      bg = "hudmenu/shape_416.dds",    -- black background frame
+      bg = "interface/bar_bg.dds",     -- black background frame (stable path; LE 416 / SSE 467)
       frame = "interface/bar_frame.dds", -- the decorated frame (shape 395), extracted WHITE
       frame_color = "#ffffff",          -- tint the white frame to any RGBA (health=red, magicka=blue, …)
       slice = 48,                       -- knotwork cap width (source px) kept fixed; middle stretches
