@@ -121,6 +121,7 @@ DB :: struct {
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
+	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
@@ -142,6 +143,7 @@ DB :: struct {
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
+	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
 	actor_ref_index: map[Form_ID]Ref_Loc, // build-time only: ACHR formID -> its slot in actor_refs (override dedup); emptied after build
 	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (short text: names; borrowed, freed per plugin)
@@ -354,6 +356,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		global_values = make(map[Form_ID]f32, 1024, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
+		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
 		cells         = make(map[Form_ID]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]Form_ID, 1024, allocator),
@@ -377,6 +380,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
+		load_tips      = make([dynamic]string, allocator),
 	}
 	done_bytes := 0
 	for &p in plugins {
@@ -471,11 +475,16 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.leveled_lists)
 	delete(db.global_values) // plain f32 values — no owned data
+	for s in db.load_tips {
+		delete(s, db.allocator)
+	}
+	delete(db.load_tips)
 	for _, a in db.actors {
 		free_actor_base(db, a)
 	}
 	delete(db.actors)
 	delete(db.doors)
+	delete(db.locks)
 	delete(db.trees)
 	for _, c in db.cells {
 		delete(c.editor_id)
@@ -906,6 +915,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_leveled_list(db, rec, ctx.fm) // its LVLO roll table (decode only)
 	case s == "GLOB":
 		index_glob(db, rec) // its FLTV baseline value
+	case s == "LSCR":
+		index_lscr(db, rec) // its DESC loading-tip text (we skip the NNAM 3D model)
 	case s == "NPC_":
 		index_npc(db, rec, ctx.fm) // actor base identity (stats, links, inventory, name)
 	case is_base_type(s):
@@ -1157,6 +1168,10 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		delete(old.editor_id, db.allocator) // override: free the previous clone
 	}
 	db.cells[rec.form_id] = cell
+	// A named cell (interior shops/dungeons: "Riverwood Trader", "Bleak Falls Barrow") carries a
+	// FULL — index it into db.names so a load door's destination prompt shows the real place name
+	// instead of the editor id (door_dest_label prefers it). Wilderness exterior cells have none.
+	index_name(db, rec.form_id, fl)
 	if edid != "" {
 		key := strings.to_lower(edid, context.temp_allocator)
 		if _, seen := db.cell_by_edid[key]; !seen {
@@ -1230,6 +1245,12 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	if ep, has := esm.refr_enable_parent(fl); has {
 		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent) // XESP references the parent ref
 		ref.enable_opposite = ep.opposite
+	}
+	if lk, has := esm.decode_xloc(fl); has {
+		lk.key = esm.remap_form(ctx.fm, u32(lk.key)) // XLOC key references a KEYM form
+		db.locks[rec.form_id] = lk // presence = this ref starts locked (the activation-prompt signal)
+	} else if _, was := db.ref_index[rec.form_id]; was {
+		delete_key(&db.locks, rec.form_id) // override removed the lock — drop the stale baseline
 	}
 
 	// Override: a later plugin re-declaring this REFR formID replaces it in place (preserves
@@ -1501,6 +1522,47 @@ index_glob :: proc(db: ^DB, rec: esm.Record) {
 	}
 }
 
+// index_lscr decodes a LoadScreen's DESC — the loading-tip text the load screen shows. LSCR DESC lives
+// in the PLAIN STRINGS table (verified against Skyrim.esm: 298/298 DESC ids resolve in STRINGS, 0 in
+// DLSTRINGS — unlike a quest journal's CNAM/DESC which ARE in DLSTRINGS), or inline for a non-localized
+// plugin. The NNAM 3D model + camera are deliberately skipped (we don't render the spinning model). Tips
+// accumulate across plugins (a mod's extra LSCRs add more); no dedup — it's a flat rotation pool.
+@(private)
+index_lscr :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	f, fok := esm.find_field(fl, "DESC")
+	if !fok {
+		return
+	}
+	if txt := resolve_lstring(db, f, db.cur_strings); txt != "" {
+		append(&db.load_tips, strings.clone(txt, db.allocator))
+	}
+	// TIP-SCOPE: lightweight context-weighting (planned). Skyrim gates each LSCR by CTDA conditions +
+	// LNAM location links, so entering a place shows that place's tips. To scope tips here: also decode
+	// this record's LNAM (location forms) and the worldspace-gating CTDA conditions into a per-tip scope
+	// tag (generic vs a set of worldspace/location forms), stored alongside the DESC. Then load_tips_for
+	// (below) filters by the load destination. Today the pool is flat (every tip is "generic").
+}
+
+// load_tips returns the decoded LSCR loading-tip pool (empty until the DB is built). Borrowed — the
+// load screen reads it directly; the DB owns the strings.
+//
+// TIP-SCOPE: the context-weighted picker goes here — a future load_tips_for(db, world_fid, location_fid)
+// that returns the tips scoped to that destination (from the per-tip scope tags decoded in index_lscr)
+// concatenated with the generic pool as a fallback. loadui_ready would call it with the load target.
+load_tips :: proc(db: ^DB) -> []string {
+	if db == nil {
+		return {}
+	}
+	return db.load_tips[:]
+}
+
 // free_actor_base releases an Actor_Base's owned slices. Shared by destroy + the override path.
 @(private)
 free_actor_base :: proc(db: ^DB, a: Actor_Base) {
@@ -1663,4 +1725,29 @@ is_tree :: proc(db: ^DB, base_form_id: Form_ID) -> bool {
 // open-interiors portal cull to hide the door panel filling the doorway opening.
 is_door :: proc(db: ^DB, base: Form_ID) -> bool {
 	return base in db.doors
+}
+
+// is_container reports whether a base formID is a CONT record (an openable container).
+is_container :: proc(db: ^DB, base: Form_ID) -> bool {
+	return base in db.containers
+}
+
+// is_actor reports whether a base formID is an NPC_ record (a talkable/lootable actor).
+is_actor :: proc(db: ^DB, base: Form_ID) -> bool {
+	return base in db.actors
+}
+
+// is_item reports whether a base formID is a carriable, valued item (WEAP/ARMO/ALCH/… — anything
+// with a gold value). The takeable-clutter signal.
+is_item :: proc(db: ^DB, base: Form_ID) -> bool {
+	return base in db.base_value
+}
+
+// lock_of returns a placed REFR's baseline lock (its XLOC), if it has one. Presence (ok=true)
+// means the reference starts LOCKED; `Lock_Data.level` is the pick difficulty and `.key` the KEYM
+// that opens it. The runtime lock state (after picking/scripts) is the worldstate overlay's — see
+// the app's effective-lock check, which layers the overlay over this baseline.
+lock_of :: proc(db: ^DB, ref_form: Form_ID) -> (esm.Lock_Data, bool) {
+	lk, ok := db.locks[ref_form]
+	return lk, ok
 }

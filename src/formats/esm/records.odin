@@ -630,6 +630,27 @@ refr_teleport :: proc(fields: []Field) -> (Teleport, bool) {
 		true
 }
 
+// Lock_Data is a REFR's XLOC lock: its difficulty and (optionally) the key that opens it.
+// `key` is raw (local) until gamedb remaps it, like Teleport.door. The mere presence of an
+// XLOC subrecord means the reference starts LOCKED (unlocked-but-lockable refs carry no XLOC);
+// `level` is only the pick difficulty. See decode_xloc.
+Lock_Data :: struct {
+	level: u8,      // 0 Novice/Very Easy · 25 Apprentice · 50 Adept · 75 Expert · 100 Master · 255 requires key
+	key:   Form_ID, // KEYM that opens it (0 = none); raw until remapped
+}
+
+// decode_xloc reads a REFR's XLOC lock data. XLOC (20 bytes in Skyrim, validated vs the real
+// Skyrim.esm): lock level (u8) + 3 unused + key formID (u32 @ 4) + 12 reserved/unused. ok=false
+// when there's no XLOC — i.e. the ref is not locked (Skyrim omits XLOC on unlocked refs). Only the
+// level + key are trusted; the trailing bytes are left unread (their meaning is unverified).
+decode_xloc :: proc(fields: []Field) -> (Lock_Data, bool) {
+	f, ok := find_field(fields, "XLOC")
+	if !ok || len(f.data) < 8 {
+		return {}, false
+	}
+	return Lock_Data{level = f.data[0], key = Form_ID(rd32(f.data, 4))}, true
+}
+
 // Imagespace (IMGS) tone/color parameters (Skyrim layout — validated vs real Skyrim.esm via
 // esmdump --imgs). Skyrim splits these across three subrecords, NOT one DNAM:
 //   HNAM (HDR, 36B/9 floats): eye-adapt speed, bloom blur, bloom threshold, bloom scale, receive

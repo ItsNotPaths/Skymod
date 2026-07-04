@@ -68,6 +68,14 @@ main :: proc() {
 		log.infof("SkyMod starting — log: %s (persist=%v)", logging.path, persist)
 	}
 
+	// --uiassetview: browse the extracted UI assets (content/baseui/bethassets) — ←/→ cycle, name + size
+	// shown. Available in ALL builds (a keeper utility, not a throwaway test harness), so it works in the
+	// shipped/release binary where the assets actually live.
+	if slice.contains(os.args, "--uiassetview") {
+		run_ui_asset_view(&cfg)
+		return
+	}
+
 	// Dev harnesses (compiled only when DEVTOOLS — see devtools.odin): each --flag skips the
 	// normal boot and runs one isolated test scene/probe instead.
 	when DEVTOOLS {

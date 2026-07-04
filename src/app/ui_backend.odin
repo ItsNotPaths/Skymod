@@ -30,6 +30,11 @@ ui_render_imgui :: proc(cmds: []ui.Draw_Cmd) {
 		case .Glyph:
 			// Font-atlas glyph quads are the v2 (SDL3_gpu) backend's job; the imgui DrawList
 			// backend (no atlas) only ever receives .Text. Nothing to draw here.
+		case .Bar:
+			// The glossy meter fill is the v2 pipeline's job; the dev fallback just draws the filled
+			// fraction as a flat rect so a bar is still visible under --uitest.
+			fill_max := imgui.Vec2{c.rect.x + c.rect.w * clamp(c.value, 0, 1), c.rect.y + c.rect.h}
+			imgui.DrawList_AddRectFilled(dl, p_min, fill_max, col)
 		}
 	}
 }

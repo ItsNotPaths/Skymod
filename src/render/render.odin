@@ -129,6 +129,14 @@ Renderer :: struct {
 	post_pipeline:    ^sdl.GPUGraphicsPipeline,
 	post:             Post_Params, // active tonemap/grade (set_post); pushed in the post pass
 
+	// Present cache: the post pass + UI compose into THIS owned texture (swapchain format), then it's
+	// BLIT to the acquired swapchain image. So the swapchain is always fully written by a real rendered
+	// frame — when it's recreated (e.g. a pointer-lock/grab toggle reconfigures the Wayland surface) the
+	// fresh, undefined image can never flash (no checkerboard, no black); the blit covers it entirely,
+	// showing this frame. present_tex persists, so it's inherently the last good frame.
+	present_tex:      ^sdl.GPUTexture,
+	present_w, present_h: u32,
+
 	// Cascaded sun shadows (Phase D): a depth texture array (one layer per cascade) the scene
 	// renders casters into (depth-only) before the lit pass samples it. shadow_cmd/shadow_pass
 	// are valid only between shadow_begin and shadow_end.
@@ -197,12 +205,18 @@ Renderer :: struct {
 	// imgui core API, which carries no SDL/GPU dependency.
 	ui_enabled:       bool,
 	ui_draw_data:     ^imgui.DrawData,
+	// Is a Dear ImGui frame currently open (NewFrame called, not yet Render/EndFrame'd)? Tracks the
+	// lifecycle so it stays balanced even when a load-screen loop (loadui_frame) re-enters ui_new_frame
+	// in the MIDDLE of a game_frame that already opened a frame — ui_new_frame closes a superseded
+	// frame; frame_acquire only Renders one that's actually open. (Interior/city/F9 loads hit this.)
+	ui_frame_open:    bool,
 
 	// Player-facing UI (backend v2): an own SDL3_gpu 2D pipeline that draws the `ui` package's
 	// textured/coloured quads (solid rects over white_tex, glyphs over the font atlas, art images)
 	// into the swapchain (post) pass — replacing imgui's DrawList for the skinned UI. The vertex /
 	// index data is rebuilt each frame (set_ui_drawlist) and uploaded + drawn in end_frame.
 	ui2_pipeline:     ^sdl.GPUGraphicsPipeline,
+	ui2_bar_pipeline: ^sdl.GPUGraphicsPipeline, // meter-fill (glossy sheen) pipeline; Bar batches
 	ui2_sampler:      ^sdl.GPUSampler, // linear/clamp for the atlas + images
 	ui2_vbuf:         ^sdl.GPUBuffer,
 	ui2_ibuf:         ^sdl.GPUBuffer,
@@ -436,6 +450,12 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		shutdown(&r)
 		return {}, false
 	}
+	r.ui2_bar_pipeline = make_bar_pipeline(&r)
+	if r.ui2_bar_pipeline == nil {
+		log.errorf("render: bar pipeline failed: %s", sdl.GetError())
+		shutdown(&r)
+		return {}, false
+	}
 	return r, true
 }
 
@@ -447,9 +467,11 @@ shutdown :: proc(r: ^Renderer) {
 	if r.white_tex != nil {sdl.ReleaseGPUTexture(r.device, r.white_tex)}
 	if r.flat_normal_tex != nil {sdl.ReleaseGPUTexture(r.device, r.flat_normal_tex)}
 	if r.hdr_tex != nil {sdl.ReleaseGPUTexture(r.device, r.hdr_tex)}
+	if r.present_tex != nil {sdl.ReleaseGPUTexture(r.device, r.present_tex)}
 	if r.hdr_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.hdr_sampler)}
 	if r.post_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.post_pipeline)}
 	if r.ui2_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.ui2_pipeline)}
+	if r.ui2_bar_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.ui2_bar_pipeline)}
 	if r.ui2_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.ui2_sampler)}
 	if r.ui2_vbuf != nil {sdl.ReleaseGPUBuffer(r.device, r.ui2_vbuf)}
 	if r.ui2_ibuf != nil {sdl.ReleaseGPUBuffer(r.device, r.ui2_ibuf)}
@@ -500,10 +522,15 @@ aspect :: proc(r: ^Renderer) -> f32 {
 // the Intel driver). Then call scene_begin to open the lit pass.
 frame_acquire :: proc(r: ^Renderer) -> bool {
 	// Finalize the UI's draw data first (balances ui_new_frame even on a dropped frame).
-	// PrepareDrawData must run on the cmd buffer BEFORE the passes that consume it.
-	if r.ui_enabled {
+	// PrepareDrawData must run on the cmd buffer BEFORE the passes that consume it. Only Render an
+	// actually-open frame: a mid-frame load loop may have already closed this game_frame's imgui frame
+	// (see ui_new_frame), in which case there's nothing to render (no stale overlay drawn this frame).
+	if r.ui_enabled && r.ui_frame_open {
 		imgui.Render()
 		r.ui_draw_data = imgui.GetDrawData()
+		r.ui_frame_open = false
+	} else {
+		r.ui_draw_data = nil
 	}
 
 	cmd := sdl.AcquireGPUCommandBuffer(r.device)
@@ -523,6 +550,7 @@ frame_acquire :: proc(r: ^Renderer) -> bool {
 	r.frame_cmd = cmd
 	ensure_depth(r, w, h)
 	ensure_hdr(r, w, h)
+	ensure_present(r, w, h)
 
 	if r.ui_enabled && r.ui_draw_data != nil {
 		imgui_sdlgpu3.PrepareDrawData(r.ui_draw_data, cmd)
@@ -590,9 +618,11 @@ end_frame :: proc(r: ^Renderer) {
 	// between the scene pass and the post pass, so SDL3_gpu orders the write before the draw).
 	ui_xfer := ui2_upload(r)
 
+	// Compose into the owned present-cache texture, NOT the swapchain directly, then blit it below. The
+	// fullscreen triangle covers every pixel, so DONT_CARE is fine here (it's our texture).
 	swap := sdl.GPUColorTargetInfo {
-		texture  = r.frame_swap_tex,
-		load_op  = .DONT_CARE, // the fullscreen post triangle covers every pixel
+		texture  = r.present_tex,
+		load_op  = .DONT_CARE,
 		store_op = .STORE,
 	}
 	post_pass := sdl.BeginGPURenderPass(r.frame_cmd, &swap, 1, nil)
@@ -610,6 +640,18 @@ end_frame :: proc(r: ^Renderer) {
 		imgui_sdlgpu3.RenderDrawData(r.ui_draw_data, r.frame_cmd, post_pass, nil)
 	}
 	sdl.EndGPURenderPass(post_pass)
+
+	// Blit the fully-composed frame onto the acquired swapchain image. This is what guarantees the
+	// swapchain is ALWAYS covered by a real rendered frame — a just-recreated (undefined) swapchain image
+	// can never flash a checkerboard/garbage, because the blit overwrites every pixel with this frame.
+	blit := sdl.GPUBlitInfo {
+		source = {texture = r.present_tex, w = r.present_w, h = r.present_h},
+		destination = {texture = r.frame_swap_tex, w = r.swap_w, h = r.swap_h},
+		load_op = .DONT_CARE, // the blit region is the whole swapchain
+		filter = .NEAREST,    // 1:1 same-size copy
+	}
+	sdl.BlitGPUTexture(r.frame_cmd, blit)
+
 	_ = sdl.SubmitGPUCommandBuffer(r.frame_cmd)
 	ui2_release_transfers(r, ui_xfer)
 	r.frame_pass = nil
@@ -663,9 +705,16 @@ ui_new_frame :: proc(r: ^Renderer) {
 	if !r.ui_enabled {
 		return
 	}
+	// A frame is still open (a mid-game_frame load loop is starting its own screen before the outer
+	// frame reached frame_acquire's Render) — close and discard it so this NewFrame doesn't assert.
+	if r.ui_frame_open {
+		imgui.EndFrame()
+		r.ui_frame_open = false
+	}
 	imgui_sdlgpu3.NewFrame()
 	imgui_sdl3.NewFrame()
 	imgui.NewFrame()
+	r.ui_frame_open = true
 }
 
 // ui_capturing reports whether Dear ImGui wants the mouse / keyboard this frame,
@@ -756,6 +805,31 @@ ensure_hdr :: proc(r: ^Renderer, w, h: u32) {
 		},
 	)
 	r.hdr_w, r.hdr_h = w, h
+}
+
+// ensure_present (re)creates the present-cache texture (swapchain format) at the drawable size. The
+// post pass renders into it and it's blitted to the swapchain — see the `present_tex` field comment.
+ensure_present :: proc(r: ^Renderer, w, h: u32) {
+	if r.present_tex != nil && r.present_w == w && r.present_h == h {
+		return
+	}
+	if r.present_tex != nil {
+		sdl.ReleaseGPUTexture(r.device, r.present_tex)
+	}
+	r.present_tex = sdl.CreateGPUTexture(
+		r.device,
+		{
+			type = .D2,
+			format = r.swapchain_format,
+			usage = {.COLOR_TARGET, .SAMPLER}, // COLOR_TARGET: the post pass writes it; SAMPLER: the blit reads it
+			width = w,
+			height = h,
+			layer_count_or_depth = 1,
+			num_levels = 1,
+			sample_count = ._1,
+		},
+	)
+	r.present_w, r.present_h = w, h
 }
 
 // make_post_pipeline builds the HDR resolve/tonemap pipeline: post.vert (fullscreen triangle,

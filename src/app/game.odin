@@ -57,7 +57,7 @@ SPRINT_SPEED :: f32(600)
 // documented order — a partial setup (early Quit, failed init) tears down only what exists.
 // Subsystems with their own liveness flag (phys_ok, char_ok, repl_ok, interiors_on) use it.
 Game_Up :: struct {
-	platform, render, ui, profile, vfs, db, scene, lights, ws, formtable, traversal,
+	platform, render, ui, loadui, hud, profile, vfs, db, scene, lights, ws, formtable, traversal,
 	console, marker, sreg: bool,
 }
 
@@ -104,6 +104,15 @@ Game :: struct {
 	// platform + renderer
 	p: platform.Platform,
 	r: render.Renderer,
+
+	// the load screen: the shared UI substrate session (ui_session.odin), persisted for the whole
+	// session because it's invoked at boot AND mid-game (interior/city/F9 loads), driven by loadui.odin.
+	loadui: UI_Session,
+
+	// the in-world HUD: an always-on, non-interactive substrate session (hud.lua) drawn every
+	// gameplay frame (hud.odin). Today it's the crosshair reticle + activation prompt; the seed of
+	// the full hudmenu (compass, H/M/S bars) later.
+	hud: UI_Session,
 
 	// mod profile + save paths
 	mprofile:       mods.Profile,
@@ -253,6 +262,11 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.v = mount_game_mods(src, base, &g.mprofile)
 	g.up.vfs = true
 
+	// The load screen (Lua, on the shared UI substrate) — built now so it drives the gamedb-build bar
+	// below too, then reused for the Tamriel full-load and every mid-game cell load. If it can't init
+	// (font/atlas), loadui_frame falls back to the imgui load screen so boot still shows progress.
+	g.up.loadui = loadui_init(g)
+
 	// The gamedb build parses ~250 MB of masters (~20s of pure CPU). Run it on a worker thread while
 	// the main thread animates a loading screen, so the post-menu build doesn't look frozen. The DB
 	// is built in loader_alloc (thread-safe, like the streamer's cross-thread CPU bundles) and handed
@@ -266,20 +280,14 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	load_thread := thread.create(game_load_worker)
 	load_thread.data = &load_job
 	thread.start(load_thread)
-	load_anim: f32
+	// The DB build is the FIRST 40% of one continuous load bar (the Tamriel stream+physics is 40→100%).
+	// One Lua screen spans both — no more "two bars, first half sweeps".
 	for !sync.atomic_load(&load_job.done) {
-		if !platform.pump(&g.p) {break} // window closed mid-load
-		load_anim += g.p.dt
 		done := sync.atomic_load(&load_job.progress.done)
 		total := sync.atomic_load(&load_job.progress.total)
-		frac := f32(-1) // -1 → indeterminate sweep until the total is known
-		if total > 0 {frac = f32(done) / f32(total)}
-		render.ui_new_frame(&g.r)
-		tools.loading_screen_busy("Loading game data…", load_anim, frac)
-		if render.begin_frame(&g.r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(&g.r)
-		}
-		free_all(context.temp_allocator)
+		frac := f32(0) // 0 until the total is known (the bar sits at the start, then fills to 0.40)
+		if total > 0 {frac = 0.40 * f32(done) / f32(total)}
+		if !loadui_frame(g, frac, "Loading game data…") {break} // window closed mid-load
 	}
 	thread.join(load_thread)
 	thread.destroy(load_thread)
@@ -413,6 +421,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	worldstate.init(&g.ws)
 	g.up.ws = true
 	g.scene.ws = &g.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
+	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
+	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
+	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.ws))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
 	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
 	// handed to every save/load below so slots resolve to THIS install's forms.
@@ -424,6 +435,12 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// indexes the worldspace's load doors. Safe even if no worldspace armed (no doors → inert).
 	traversal_init(&g.trav, &g.scene, &g.streamer, &g.db, &g.v, &g.r, &g.ws)
 	g.up.traversal = true
+	// Show the load screen during synchronous interior loads (nil-safe if loadui failed to init).
+	traversal_set_progress(&g.trav, loadui_interior_progress, g)
+
+	// In-world HUD (crosshair reticle + activation prompt) — its own always-on substrate session.
+	// Non-fatal if it fails to init (frame_hud becomes a no-op); the game still plays.
+	g.up.hud = hud_init(g)
 
 	// Dev command console (fixed bottom-left panel): a Lua REPL on the gameplay VM plus
 	// CE aliases (tcl, player.additem, …). The panel is just the widget; the REPL that
@@ -492,8 +509,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
 	// Full-load screen: pump the decode pool + cook collision behind the loading screen until the
-	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in.
-	run_load_screen(&g.p, &g.r, &g.streamer, &g.scene, &g.phys, g.phys_ok, "Loading Tamriel…")
+	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in. This is
+	// the back 60% of the one continuous bar (the DB build was the front 40%).
+	load_screen_stream(g, "Loading Tamriel…", 0.40, 0.60)
 	return true
 }
 
@@ -526,6 +544,8 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.quicksave_path)
 	delete(g.saves_dir)
 	if g.up.profile {mods.profile_destroy(&g.mprofile)}
+	if g.up.hud {hud_destroy(g)} // releases the HUD atlas/UI textures — before render.shutdown (device alive)
+	if g.up.loadui {loadui_destroy(g)} // releases the atlas/UI textures — before render.shutdown (device alive)
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
 	if g.up.platform {platform.shutdown(&g.p)}

@@ -11,7 +11,6 @@ package main
 import "core:strings"
 import "core:time"
 import sdl "vendor:sdl3"
-import "../font"
 import "../mods"
 import "../platform"
 import "../render"
@@ -43,37 +42,20 @@ run_lua_main_menu :: proc(
 	defer vfs.destroy(&v)
 	baseui_extract_assets(&v, base) // install-time: convert SWF-embedded UI assets → DDS in bethassets
 
-	atlas, aok := baseui_build_atlas(&v)
-	if !aok {
+	// The shared UI substrate session (atlas + ui_render + VM + `engine` host) — the SAME bundle the
+	// load screen runs on (ui_session.odin). ui_session_close (deferred) clears the renderer's stale UI
+	// quads too, so the next screen (loading/world) doesn't redraw the menu's.
+	sess: UI_Session
+	if !ui_session_open(&sess, r, &v, base, "main_menu.lua") {
 		return .None, false
 	}
-	defer font.destroy(&atlas)
-	ui.set_font(&atlas)
-	defer ui.set_font(nil)
-
-	lua_root := baseui_lua_root(base, context.temp_allocator)
-	host := UI_Host {
-		base = base,
-		vf   = &v,
-	}
-	defer ui_host_destroy(&host)
-	vm: ui.VM
-	if !ui.open(&vm, lua_root, "main_menu.lua", &host, install_engine_api) {
-		return .None, false
-	}
-	defer ui.close(&vm)
-
-	ren := ui_render_init(r, &atlas, &v)
-	defer ui_render_destroy(&ren)
-	// Clear the renderer's UI drawlist on exit, or the next screen (loading/world) would redraw the
-	// menu's stale quads in its post pass.
-	defer render.set_ui_drawlist(r, {}, {}, {}, {})
+	defer ui_session_close(&sess)
 
 	// The 3D menu logo (logo.nif behind the UI). Lua owns whether it draws (ui.menu_logo.enabled) —
 	// read it once up front so a disabled logo isn't parsed/uploaded at all (only wire in the load when
 	// the menu actually wants it; re-enabling is a Lua flag flip + this load kicks in).
 	logo_cfg := menu_logo_cfg_default() // baked camera/light look; enabled/pos/scale come from Lua each frame
-	menu_logo_read_lua(&vm, &logo_cfg)
+	menu_logo_read_lua(&sess.vm, &logo_cfg)
 	logo: Menu_Logo
 	logo_ok := false
 	if logo_cfg.enabled {
@@ -103,10 +85,11 @@ run_lua_main_menu :: proc(
 		click := p.input.select
 
 		// 1. Lua builds the tree (with last frame's focus + clock + viewport so widgets can style/animate).
-		ui.set_time(&vm, time.duration_seconds(time.tick_since(start)))
-		ui.set_viewport(&vm, w, h)
-		ui.set_focus(&vm, focus_id)
-		tree, tok := ui.frame(&vm)
+		ui.set_font(&sess.atlas) // bind THIS session's atlas — set_font is a global (see ui_session_draw)
+		ui.set_time(&sess.vm, time.duration_seconds(time.tick_since(start)))
+		ui.set_viewport(&sess.vm, w, h)
+		ui.set_focus(&sess.vm, focus_id)
+		tree, tok := ui.frame(&sess.vm)
 		if !tok {
 			if render.begin_frame(r, MENU_CLEAR) {render.end_frame(r)} // balance imgui, then bail
 			return .None, false // broken UI → fall back to imgui
@@ -128,15 +111,15 @@ run_lua_main_menu :: proc(
 		// 4. Draw THIS frame's tree.
 		clear(&cmds)
 		ui.emit(&tree, &cmds)
-		ui_render_draw(&ren, cmds[:], {w, h})
+		ui_render_draw(&sess.ren, cmds[:], {w, h})
 
 		// 5. Apply the activation while the tree `activated` borrows is still alive (state change shows
 		//    next frame), THEN destroy the tree.
 		if nav.back {
-			ui.back(&vm)
+			ui.back(&sess.vm)
 		}
-		ui.dispatch(&vm, activated)
-		verb, rok := ui.take_result(&vm)
+		ui.dispatch(&sess.vm, activated)
+		verb, rok := ui.take_result(&sess.vm)
 
 		ui.destroy(&tree)
 		delete(focusables)
@@ -145,7 +128,7 @@ run_lua_main_menu :: proc(
 		//    logo draws into the scene pass; the UI composites over it in end_frame. The menu Lua owns
 		//    enabled/pos/scale (ui.menu_logo) so a mod can disable or move it; lighting is set BEFORE
 		//    begin_frame (scene_begin pushes it) so the flat-fullbright env covers the logo.
-		menu_logo_read_lua(&vm, &logo_cfg)
+		menu_logo_read_lua(&sess.vm, &logo_cfg)
 		if logo_ok {
 			render.set_lighting(r, menu_logo_light(&logo_cfg))
 			render.set_post(r, menu_logo_post()) // flat tonemap so the fullbright ambient isn't rolled off

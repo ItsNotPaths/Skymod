@@ -17,7 +17,9 @@ import "../ui"
 import "../vfs"
 import "../worldstate"
 
-// UI_Host is the app data the engine.* procs read (installed as vm.user by run_lua_main_menu).
+// UI_Host is the app data the engine.* procs read (installed as vm.user for any UI_Session). Shared by
+// the main menu AND the load screen — the two never run at once, so one host carries both feature sets:
+// the menu reads saves/credits; the load screen reads the load-progress fields (engine.load_progress).
 UI_Host :: struct {
 	base:           string,   // install base (for engine.list_saves)
 	vf:             ^vfs.VFS, // the menu's mounted VFS (mods > content > vanilla) for asset reads
@@ -25,6 +27,25 @@ UI_Host :: struct {
 	has_saves:      bool,     // (no save can appear while we're sitting in the main menu)
 	credits:        []string, // engine.credits lines, parsed once + cached (polled every scroll frame)
 	credits_loaded: bool,
+	// Load-screen state (engine.load_progress). The load driver (loadui.odin) writes these each frame;
+	// loading_menu.lua reads them to draw the bar + level + rotating tip. `phase`/`tips` are BORROWED
+	// (a static/caller-buffer string; gamedb's tip pool) — cloned into Lua at read time, so they only
+	// need to be valid during the frame's ui.frame call.
+	load_frac:      f32,
+	load_phase:     string,
+	load_level:     i32,
+	load_tips:      []string,
+	load_tip_i:     int,
+	load_tip_t:     f32, // seconds accumulated on the current tip (drives rotation)
+	// HUD activation-prompt state (engine.activation()). frame_hud writes these each gameplay frame;
+	// hud.lua reads them to draw the crosshair prompt. `kind`/`name`/`dest`/`button` are BORROWED
+	// (gamedb-owned or a static literal, valid during the frame) — cloned into Lua at read time.
+	act_present:    bool,
+	act_kind:       string, // neutral tag ("door"/"container"/…); Lua maps it to a verb
+	act_name:       string, // the object's own display name
+	act_dest:       string, // a door's destination place name ("Riverwood Trader")
+	act_locked:     bool,
+	act_button:     string, // the activate key label (e.g. "F") — Lua resolves its glyph
 }
 
 ui_host_destroy :: proc(host: ^UI_Host) {
@@ -39,11 +60,52 @@ ui_host_destroy :: proc(host: ^UI_Host) {
 // rides as upvalue 1; the UI_Host as vm.user). Passed to ui.open as the host installer.
 install_engine_api :: proc(vm: ^ui.VM) {
 	L := vm.L
-	lua.createtable(L, 0, 3) // engine = {}
+	lua.createtable(L, 0, 4) // engine = {}
 	ui.register_host(L, vm, "list_saves", engine_list_saves)
 	ui.register_host(L, vm, "save_exists", engine_save_exists)
 	ui.register_host(L, vm, "credits", engine_credits)
+	ui.register_host(L, vm, "load_progress", engine_load_progress)
+	ui.register_host(L, vm, "activation", engine_activation)
 	lua.setglobal(L, "engine") // pops engine
+}
+
+// engine_load_progress() → { frac, phase, level, tip }: the load screen (loading_menu.lua) reads this
+// every frame to draw the progress bar, the player level, and the current rotating loading tip. The
+// fields are published by the load driver (loadui.odin) into the host before each frame.
+@(private = "file")
+engine_load_progress :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	lua.createtable(L, 0, 4)
+	lua.pushnumber(L, lua.Number(host.load_frac));lua.setfield(L, -2, "frac")
+	set_str_field(L, "phase", host.load_phase)
+	lua.pushinteger(L, lua.Integer(host.load_level));lua.setfield(L, -2, "level")
+	tip := ""
+	if len(host.load_tips) > 0 {
+		tip = host.load_tips[host.load_tip_i % len(host.load_tips)]
+	}
+	set_str_field(L, "tip", tip)
+	return 1
+}
+
+// engine_activation() → { present, kind, name, dest, locked, button }: the HUD (hud.lua) reads this
+// every frame to draw the crosshair activation prompt. `kind` is a neutral tag the Lua side maps to a
+// verb, so the wording/styling stay moddable. frame_hud publishes the fields (resolve_activation)
+// each gameplay frame; a non-gameplay frame leaves present=false (just the reticle).
+@(private = "file")
+engine_activation :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	lua.createtable(L, 0, 6)
+	lua.pushboolean(L, b32(host.act_present));lua.setfield(L, -2, "present")
+	set_str_field(L, "kind", host.act_kind)
+	set_str_field(L, "name", host.act_name)
+	set_str_field(L, "dest", host.act_dest)
+	lua.pushboolean(L, b32(host.act_locked));lua.setfield(L, -2, "locked")
+	set_str_field(L, "button", host.act_button)
+	return 1
 }
 
 // engine_credits() → array of text lines for the credits scroll. Reads interface/credits.txt THROUGH

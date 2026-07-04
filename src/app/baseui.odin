@@ -13,6 +13,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "../font"
@@ -116,11 +117,59 @@ baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 	// The Bethesda Game Studios logo (bottom-left of the menu): shape 78 (621×292, #bbbdbf) in startmenu.swf.
 	bethlogo, _ := filepath.join({assets, "interface", "bethesdalogo.dds"}, context.temp_allocator)
 	extract_swf_shape(v, "interface/startmenu.swf", 78, bethlogo)
-	// Browse-and-pick dump: EVERY shape (vector silhouette) + bitmap of the menu SWFs → DDS under
-	// bethassets/<swf>/, so the BGS logo (and any other graphic) can be found visually + referenced
-	// by `image{source="<swf>/shape_<id>.dds"}`. Cached per SWF (skipped once the dir exists).
+	// The "wirey" meter end-cap (hudmenu shape 740 — a left/right mirror pair with 746). The vanilla shape
+	// is BLACK-filled (its grey is a 2nd fill we don't extract, and there's no separate white copy), so we
+	// re-rasterize it with a WHITE fill → a white cap the bar places on each end (mirrored via flip_x).
+	cap, _ := filepath.join({assets, "interface", "meter_cap.dds"}, context.temp_allocator)
+	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", 740, cap, {255, 255, 255, 255})
+	// The stat-bar deco frame (hudmenu shape 395) re-rasterized WHITE. The vanilla art is red-filled and
+	// can't be tinted to white (red × tint = red), so we recolour it at extraction; white also lets a bar
+	// tint it per stat later. (Its black bg companion, shape 416, is used as-is.)
+	frame, _ := filepath.join({assets, "interface", "bar_frame.dds"}, context.temp_allocator)
+	extract_swf_shape_colored(v, "interface/exported/hudmenu.gfx", 395, frame, {255, 255, 255, 255})
+	// Browse-and-pick dump: EVERY shape (vector silhouette) + bitmap of the menu SWFs/GFX → DDS under
+	// bethassets/<name>/, so any graphic can be found visually + referenced by `image{source=
+	// "<name>/shape_<id>.dds"}`. Cached per source (skipped once the dir exists). Covers the classic
+	// .swf menus AND the Scaleform interface\exported\*.gfx (CFX) now that swf_body decodes them —
+	// so the loading-bar track (loadingmenu shape 5000) and the H/M/S meter end-cap (hudmenu shape 434)
+	// land here too. See the "Skyrim UI asset IDs" memory for the catalog of which shape is what.
 	dump_swf_assets(v, assets, "interface/startmenu.swf", "startmenu")
 	dump_swf_assets(v, assets, "interface/creditsmenu.swf", "creditsmenu")
+	dump_swf_assets(v, assets, "interface/loadingmenu.swf", "loadingmenu")
+	dump_swf_assets(v, assets, "interface/exported/hudmenu.gfx", "hudmenu")
+	// The HUD crosshair reticle: a small white dot we SYNTHESIZE (the vanilla crosshair isn't reliably
+	// one extractable flat shape, and a dot is trivial to generate cleanly). hud.lua draws + tints it.
+	reticle, _ := filepath.join({assets, "interface", "reticle.dds"}, context.temp_allocator)
+	make_reticle(reticle)
+}
+
+// make_reticle writes a small white antialiased dot to `dest` (once; skips if it exists). White so
+// hud.lua can tint it (image draws texel × colour); Lua also picks the on-screen size.
+@(private = "file")
+make_reticle :: proc(dest: string) {
+	if os.exists(dest) {
+		return
+	}
+	N :: 32          // texture side
+	R :: f32(6)      // dot radius in texels
+	AA :: f32(1.5)   // edge softness (texels the alpha ramps across)
+	rgba := make([]u8, N * N * 4, context.temp_allocator)
+	c := f32(N - 1) * 0.5
+	for y in 0 ..< N {
+		for x in 0 ..< N {
+			dx, dy := f32(x) - c, f32(y) - c
+			d := math.sqrt(dx * dx + dy * dy)
+			a := clamp((R - d) / AA + 0.5, 0, 1) // 1 inside the dot, ramps to 0 across AA texels at the rim
+			i := (y * N + x) * 4
+			rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3] = 255, 255, 255, u8(a * 255)
+		}
+	}
+	ensure_parent_dir(dest)
+	if os.write_entire_file(dest, dds.write_rgba(rgba, N, N, context.temp_allocator)) != nil {
+		log.errorf("ui: could not write %q", dest)
+	} else {
+		log.infof("ui: generated reticle → %s (%dx%d)", filepath.base(dest), N, N)
+	}
 }
 
 // extract_swf_shape rasterizes one shape (by character id) from `swf_path` as a solid silhouette and
@@ -147,6 +196,37 @@ extract_swf_shape :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string) 
 			log.errorf("ui: could not write %q", dest)
 		} else {
 			log.infof("ui: extracted shape %d → %s (%dx%d)", id, filepath.base(dest), w, h)
+		}
+		return
+	}
+	log.warnf("ui: shape %d not found in %s", id, swf_path)
+}
+
+// extract_swf_shape_colored rasterizes shape `id` from `swf_path` to `dest` in an OVERRIDE colour (not
+// the shape's own fill) — e.g. re-colouring a black-filled cap to white so the UI can place/tint it.
+// Once (skips if `dest` exists). Best-effort.
+@(private = "file")
+extract_swf_shape_colored :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string, color: [4]u8) {
+	if os.exists(dest) {
+		return
+	}
+	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
+	if !ok {
+		return
+	}
+	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
+		if sh.id != id {
+			continue
+		}
+		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, color, context.temp_allocator)
+		if w <= 0 || h <= 0 {
+			return
+		}
+		ensure_parent_dir(dest)
+		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
+			log.errorf("ui: could not write %q", dest)
+		} else {
+			log.infof("ui: extracted shape %d (recoloured) → %s (%dx%d)", id, filepath.base(dest), w, h)
 		}
 		return
 	}

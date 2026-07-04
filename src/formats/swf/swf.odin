@@ -81,9 +81,9 @@ swf_body :: proc(file: []u8, allocator := context.allocator) -> ([]u8, bool) {
 	sig := string(file[0:3])
 	flen := int(u32le(file, 4))
 	switch sig {
-	case "FWS":
+	case "FWS", "GFX": // uncompressed SWF / uncompressed Scaleform GFX
 		return file[8:], true
-	case "CWS":
+	case "CWS", "CFX": // zlib SWF / zlib Scaleform GFX (Skyrim's interface\exported\*.gfx are CFX)
 		out: bytes.Buffer
 		if err := zlib.inflate(file[8:], &out, false, flen - 8); err != nil {
 			bytes.buffer_destroy(&out)

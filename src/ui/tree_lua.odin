@@ -29,6 +29,7 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	if pd, ok := field_num(L, idx, "pad"); ok {n.pad = pd}
 	if s, ok := field_num(L, idx, "scale"); ok {n.scale = s}
 	if w, ok := field_num(L, idx, "wrap"); ok {n.wrap = w}
+	if v, ok := field_num(L, idx, "value"); ok {n.value = v}
 	if col, ok := field_color(L, idx, "color"); ok {n.color = col}
 	if f, ok := field_str(L, idx, "fill"); ok {
 		switch f {
@@ -45,6 +46,13 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	if s, ok := field_str(L, idx, "source"); ok {n.image = strings.clone(s)}
 	if s, ok := field_str(L, idx, "align"); ok {n.align = node_align(s)}
 	if field_bool(L, idx, "modal") {n.modal = true}
+	if field_bool(L, idx, "flip_x") {n.flip_x = true}
+	// `slice` = the horizontal 3-slice cap widths (source px): a number → symmetric {n,n}, or {l,r}.
+	if s, ok := field_num(L, idx, "slice"); ok {
+		n.slice = {s, s}
+	} else if v, vok := field_vec2(L, idx, "slice"); vok {
+		n.slice = v
+	}
 	read_enabled(L, idx, &n)
 
 	cnt := int(lua.rawlen(L, idx))
@@ -217,6 +225,8 @@ node_kind :: proc(s: string) -> Kind {
 		return .Image
 	case "effect":
 		return .Effect
+	case "bar":
+		return .Bar
 	}
 	return .Container
 }

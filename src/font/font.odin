@@ -216,6 +216,10 @@ bake_glyph :: proc(a: ^Atlas, r: rune, px: int) -> Glyph_Metric {
 
 // pick_font chooses the best UI face from a parsed SWF font set: prefer a name containing "futura"
 // (and "condensed"), else the font with the most glyphs (the body face). Returns -1 if none.
+// Skyrim's fonts_en.swf ships THREE Futura Condensed cuts — "Futura CondensedLight" (thin) plus two
+// "Futura Condensed" (the regular/medium weight) — all with equal name+glyph scores, so we DEPRIORITIZE
+// the Light cut: the medium weight reads far better over the 3D world (HUD prompts, menus). Among the
+// remaining equal-scoring faces the first (lowest SWF id) wins — the regular Futura Condensed.
 pick_font :: proc(names: []string, glyph_counts: []int) -> int {
 	best := -1
 	best_score := -1
@@ -224,6 +228,7 @@ pick_font :: proc(names: []string, glyph_counts: []int) -> int {
 		score := glyph_counts[i] // tie-break toward the richest face
 		if strings.contains(lower, "futura") {score += 100000}
 		if strings.contains(lower, "condensed") {score += 50000}
+		if strings.contains(lower, "light") || strings.contains(lower, "thin") {score -= 40000} // avoid the thin cut
 		if score > best_score {
 			best_score = score
 			best = i

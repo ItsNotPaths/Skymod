@@ -642,6 +642,21 @@ Traversal :: struct {
 	arrival_pos: smath.Vec3, // where the last transition landed (auto-fire suppression anchor)
 	has_arrival: bool, // suppress auto-firing until the player walks AUTO_REARM from arrival_pos
 	cur_int_cell: Form_ID, // the interior cell currently loaded (mode == .Interior) — for in-place reload
+	// Load-screen hook: a synchronous interior load reports its per-instance decode fraction here so the
+	// load screen shows real progress instead of a frame-long freeze (wired by the app after loadui exists;
+	// nil = load silently, as before). `progress_user` is the opaque app pointer (the ^Game).
+	progress:      world.Cell_Load_Progress,
+	progress_user: rawptr,
+}
+
+// Traversal_Kind is what a go_through transition did — so the caller (frame_traversal) knows whether to
+// run a streamer-driven load screen (a city gate) after the camera moves. Interior loads block + show
+// their own load screen inside go_through; exterior returns are instant (kept-warm window).
+Traversal_Kind :: enum {
+	None,     // no transition (unresolved destination)
+	Interior, // entered an interior cell (load screen ran inside go_through)
+	City,     // crossed to a different worldspace (caller runs the streamer load screen)
+	Exit,     // returned to the same-worldspace exterior (instant)
 }
 
 traversal_init :: proc(
@@ -672,6 +687,13 @@ traversal_init :: proc(
 		log.warn("traversal: interior physics world creation failed — interiors will have no collision")
 	}
 	rebuild_ext_doors(t)
+}
+
+// traversal_set_progress wires the load-screen callback used during synchronous interior loads. Called
+// by the app once the load screen (loadui) exists; `user` is the ^Game the callback casts back to.
+traversal_set_progress :: proc(t: ^Traversal, cb: world.Cell_Load_Progress, user: rawptr) {
+	t.progress = cb
+	t.progress_user = user
 }
 
 traversal_destroy :: proc(t: ^Traversal) {
@@ -776,6 +798,11 @@ door_dest_label :: proc(t: ^Traversal, tp_door: Form_ID) -> string {
 	if !cok {
 		return ""
 	}
+	// Prefer the cell's FULL display name ("Riverwood Trader", "Sleeping Giant Inn") — what the
+	// activation prompt should read — over the editor id ("RiverwoodTraderInterior").
+	if full := gamedb.name_of(t.db, dcell.form_id); full != "" {
+		return full
+	}
 	if dcell.editor_id != "" {
 		return dcell.editor_id
 	}
@@ -795,19 +822,19 @@ door_dest_label :: proc(t: ^Traversal, tp_door: Form_ID) -> string {
 // in the SAME worldspace → resume streaming there; exterior in a DIFFERENT worldspace (a city
 // gate) → retarget the streamer. ok=false (camera unchanged) only if the destination is
 // unresolved.
-go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, ok: bool) {
+go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, kind: Traversal_Kind) {
 	if !h.ok {
-		return {}, 0, false
+		return {}, 0, .None
 	}
 	dref, dok := gamedb.ref_by_formid(t.db, h.tp_door)
 	if !dok {
 		log.warnf("traversal: door dest 0x%08X not found — staying put", h.tp_door)
-		return {}, 0, false
+		return {}, 0, .None
 	}
 	dcell, cok := gamedb.cell_by_formid(t.db, dref.cell_form_id)
 	if !cok {
 		log.warnf("traversal: door dest cell 0x%08X unknown — staying put", dref.cell_form_id)
-		return {}, 0, false
+		return {}, 0, .None
 	}
 
 	// Arrival placement from the door's XTEL marker (interior-local coords for an interior
@@ -817,11 +844,14 @@ go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, ok
 
 	switch {
 	case dcell.interior:
-		enter_interior(t, dcell.form_id)
+		enter_interior(t, dcell.form_id) // blocks + shows the load screen via t.progress
+		kind = .Interior
 	case dcell.world_form_id != t.st.world_fid:
-		retarget_exterior(t, dcell.world_form_id, pos) // cross-worldspace city gate
+		retarget_exterior(t, dcell.world_form_id, pos) // cross-worldspace city gate (caller runs load screen)
+		kind = .City
 	case:
 		exit_to_exterior(t, pos) // same-worldspace exterior (interior return / wilderness door)
+		kind = .Exit
 	}
 
 	// Anchor auto-fire suppression at the landing spot so the partner door (right here) doesn't
@@ -829,7 +859,7 @@ go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, ok
 	t.arrival_pos = pos
 	t.has_arrival = true
 	log.infof("traversal: entered cell 0x%08X (%s) via door 0x%08X", dcell.form_id, dcell.editor_id, h.tp_door)
-	return pos, yaw, true
+	return pos, yaw, kind
 }
 
 // enter_interior swaps to a freshly-loaded interior cell. The exterior streamer is paused
@@ -851,7 +881,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 		t.interior.dynamic_clutter = true // movable clutter → dynamic bodies (Phase 3b); interiors only
 	}
 	t.interior.ws = t.ws // baseline ⊕ overlay: moved clutter reappears where it settled (Phase 3c)
-	world.load_cell(&t.interior, t.db, cell_id)
+	world.load_cell(&t.interior, t.db, cell_id, t.progress, t.progress_user) // reports decode progress to the load screen
 	// Build all of the interior's static collision NOW (load_cell resolved every model
 	// synchronously, so sync_physics can cook them immediately): the player lands on a solid
 	// floor on arrival instead of falling through for the first few budgeted frames.
@@ -867,6 +897,9 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	gather_doors(t, {cell_id}, &t.int_doors)
 	t.cur_int_cell = cell_id
 	t.mode = .Interior
+	if t.progress != nil {
+		t.progress(t.progress_user, 1) // final frame: bar reaches 100% before gameplay resumes
+	}
 }
 
 // traversal_reload rebuilds the current interior cell in place (an interior→interior swap to the
@@ -907,7 +940,9 @@ retarget_exterior :: proc(t: ^Traversal, world_fid: Form_ID, pos: smath.Vec3) {
 	world.release_terrain_field(t.ext_scene)
 	world.build_terrain_field(t.ext_scene, t.db, world_fid)
 	rebuild_ext_doors(t)
-	world.stream_update(t.st, pos) // prime the new worldspace's window at the arrival cell
+	// Arm a full-bore load of the new worldspace's arrival bubble (not a budgeted stream_update), so the
+	// caller can drive a load screen over it — like Skyrim's city load — instead of streaming in visibly.
+	world.stream_begin_load(t.st, pos)
 	t.mode = .Exterior
 	log.infof("traversal: crossed to worldspace 0x%08X (%s)", world_fid, gamedb.world_editor_id(t.db, world_fid))
 }

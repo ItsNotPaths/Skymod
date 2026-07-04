@@ -43,6 +43,11 @@ game_frame :: proc(g: ^Game) {
 	if g.p.input.toggle_overlay {
 		g.show_overlay = !g.show_overlay
 	}
+	// Pointer lock during gameplay (mouse-look, no button needed). The tilde/backtick dev overlay is the
+	// cursor gate: overlay OPEN → cursor free to click its panels + console; overlay CLOSED → mouse locked
+	// for look. (The overlay is on by default, so a fresh session starts cursor-free until you un-tilde.)
+	// Applied on the next pump.
+	platform.set_mouse_capture(&g.p, !g.show_overlay)
 	g.fr.st = world.stream_stats(&g.streamer)
 
 	frame_diag(g)
@@ -58,6 +63,7 @@ game_frame :: proc(g: ^Game) {
 	frame_physics(g)
 	frame_traversal(g)
 	frame_inspect(g)
+	frame_hud(g) // resolve the crosshair target + publish it; draws into the UI drawlist end_frame composites
 
 	g.elapsed += g.p.dt
 	frame_render(g)
@@ -372,7 +378,7 @@ frame_persistence :: proc(g: ^Game) {
 				if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)}
 				world.stream_begin_load(&g.streamer, g.cam.pos)
 			}
-			run_load_screen(&g.p, &g.r, &g.streamer, &g.scene, &g.phys, g.phys_ok, "Loading save…")
+			load_screen_stream(g, "Loading save…", 0, 1)
 		} else {
 			log.warnf("quickload: no valid save at %s", g.quicksave_path)
 		}
@@ -450,18 +456,36 @@ frame_traversal :: proc(g: ^Game) {
 	crossed := false
 	// Auto-load: fire on proximity (no key), suppressed right after a transition.
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
-		if np, nyaw, gok := go_through(&g.trav, hit); gok {
+		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
 			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
 			crossed = true
+			traversal_finish_load(g, kind)
 		}
 	}
 	// Manual: prompt + F / button (skip for auto doors — they have no visible mesh).
 	g.insp.near_door = hit.ok && !hit.auto && !crossed
 	g.insp.near_door_cell = door_dest_label(&g.trav, hit.tp_door) if g.insp.near_door else ""
 	if g.insp.near_door && g.insp.near_door_cell != "" && (g.p.input.activate || g.fr.insp_action == .Go_Through) {
-		if np, nyaw, gok := go_through(&g.trav, hit); gok {
+		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
 			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
+			traversal_finish_load(g, kind)
 		}
+	}
+}
+
+// traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
+// already showed its load screen inside go_through (the synchronous decode reported through t.progress);
+// a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
+// (like Skyrim's city load). An exterior return is instant (kept-warm window) — nothing to do.
+@(private = "file")
+traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
+	switch kind {
+	case .City:
+		load_screen_stream(g, "Loading…", 0, 1) // streamer-driven; clears the load screen at its end
+	case .Interior:
+		loadui_hide(g) // the interior load ran inside go_through — clear its last frame's quads
+	case .Exit, .None:
+	// instant / no transition — no load screen ran
 	}
 }
 
@@ -658,40 +682,6 @@ frame_render :: proc(g: ^Game) {
 		render.end_frame(&g.r)
 	}
 	g.prof.render += time.duration_milliseconds(time.tick_since(t_render))
-}
-
-// run_load_screen pumps the decode pool + cooks collision behind the dedicated loading screen until
-// the resident set is fully decoded and solid, then optimizes the broadphase once. Reused for the boot
-// full-load AND after an F9 quickload's overlay rebuild (which flags resident chunks for object-
-// collision re-cook) — so a mid-game reload masks its hitch exactly like boot, and gameplay resumes on
-// a solid world. Stays responsive: each iteration pumps input + presents (ESC/close work).
-run_load_screen :: proc(
-	p: ^platform.Platform,
-	r: ^render.Renderer,
-	streamer: ^world.Streamer,
-	scene: ^world.Scene,
-	phys: ^physics.World,
-	phys_ok: bool,
-	label: string,
-) {
-	for world.stream_loading(streamer) && platform.pump(p) {
-		render.ui_new_frame(r)
-		done, total, _ := world.stream_pump_load(streamer)
-		if phys_ok {
-			world.sync_physics(scene, &scene.cache, budget = 128)
-		}
-		tools.loading_screen(label, done, total)
-		if render.begin_frame(r, {0.05, 0.06, 0.08, 1.0}) {
-			render.end_frame(r)
-		}
-		free_all(context.temp_allocator)
-	}
-	// Finish any collision the per-iteration budget didn't reach, then rebuild Jolt's broadphase once
-	// (degrades if stepped after a bulk static-body add/remove).
-	if phys_ok {
-		for world.sync_physics(scene, &scene.cache, budget = max(int)) > 0 {}
-		physics.optimize_broadphase(phys)
-	}
 }
 
 // enable_lighting_mod adds a just-written lighting mod to the active profile (and, if requested,

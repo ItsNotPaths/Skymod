@@ -145,6 +145,28 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 	}
 
 	for c in cmds {
+		// The bar FILL rides a separate pipeline (glossy sheen shader), so it can't coalesce with the
+		// textured batches around it. Close the running textured batch, emit the fill as its own Bar
+		// batch (params in the UBO), then reset so the next textured cmd opens a fresh batch. Painter's
+		// order is preserved: the track (drawn before) and frame chrome (after) stay on either side.
+		if c.kind == .Bar {
+			if have_batch {
+				flush(ur, cur, batch_start)
+				have_batch = false
+			}
+			start := u32(len(ur.indices))
+			ui_push_quad(ur, c)
+			append(
+				&ur.batches,
+				render.UI_Batch {
+					kind = .Bar,
+					bar = {fill = c.color, mask = {clamp(c.value, 0, 1), 0, 0, 0}},
+					first_index = start,
+					index_count = u32(len(ur.indices)) - start,
+				},
+			)
+			continue
+		}
 		tex, ok := ui_cmd_texture(ur, c)
 		if !ok {
 			continue // unresolved image / nothing to draw
@@ -158,7 +180,12 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 			have_batch = true
 			batch_start = u32(len(ur.indices))
 		}
-		ui_push_quad(ur, c)
+		// A 3-sliced image (a stretchable frame/track) draws as 3 quads: fixed caps + a stretched middle.
+		if c.kind == .Image && (c.slice[0] > 0 || c.slice[1] > 0) {
+			ui_push_slice(ur, c, tex)
+		} else {
+			ui_push_quad(ur, c)
+		}
 	}
 	if have_batch {
 		flush(ur, cur, batch_start)
@@ -183,7 +210,6 @@ ui_cmd_texture :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) -> (render.Texture, bool)
 // ui_push_quad appends one command's two-triangle quad (4 verts + 6 indices) to the scratch buffers.
 @(private = "file")
 ui_push_quad :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) {
-	col := pack_rgba(c.color)
 	u0, v0, u1, v1: f32 = 0, 0, 1, 1
 	if c.kind == .Glyph {
 		u0 = c.uv.x
@@ -191,13 +217,47 @@ ui_push_quad :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) {
 		u1 = c.uv.x + c.uv.w
 		v1 = c.uv.y + c.uv.h
 	}
-	r := c.rect
+	if c.flip_x {
+		u0, u1 = u1, u0 // mirror the texture horizontally (left end-cap reuses the right cap art)
+	}
+	ui_push_quad_uv(ur, c.rect, u0, v0, u1, v1, pack_rgba(c.color))
+}
+
+// ui_push_quad_uv appends a quad at `dest` sampling the given texture UV rect, in colour `col`.
+@(private = "file")
+ui_push_quad_uv :: proc(ur: ^UI_Render, dest: ui.Rect, u0, v0, u1, v1: f32, col: [4]u8) {
 	base := u32(len(ur.verts))
-	append(&ur.verts, render.UI_Vertex{pos = {r.x, r.y}, uv = {u0, v0}, col = col})
-	append(&ur.verts, render.UI_Vertex{pos = {r.x + r.w, r.y}, uv = {u1, v0}, col = col})
-	append(&ur.verts, render.UI_Vertex{pos = {r.x + r.w, r.y + r.h}, uv = {u1, v1}, col = col})
-	append(&ur.verts, render.UI_Vertex{pos = {r.x, r.y + r.h}, uv = {u0, v1}, col = col})
+	append(&ur.verts, render.UI_Vertex{pos = {dest.x, dest.y}, uv = {u0, v0}, col = col})
+	append(&ur.verts, render.UI_Vertex{pos = {dest.x + dest.w, dest.y}, uv = {u1, v0}, col = col})
+	append(&ur.verts, render.UI_Vertex{pos = {dest.x + dest.w, dest.y + dest.h}, uv = {u1, v1}, col = col})
+	append(&ur.verts, render.UI_Vertex{pos = {dest.x, dest.y + dest.h}, uv = {u0, v1}, col = col})
 	append(&ur.indices, base, base + 1, base + 2, base, base + 2, base + 3)
+}
+
+// ui_push_slice draws a horizontally 3-sliced image: FIXED left/right caps + a stretched middle (the
+// classic 9-slice, horizontal only). The cap widths (c.slice) are SOURCE pixels drawn 1:1 on screen — so
+// two layered frames (a bg + its border) with the same `slice` keep their decorated ends aligned at any
+// bar width, and the caps stay crisp. The middle samples the uniform inner strip, stretched to fill.
+// Each slice spans the full dest height (vertical is scaled uniformly — bars stretch horizontally).
+@(private = "file")
+ui_push_slice :: proc(ur: ^UI_Render, c: ui.Draw_Cmd, tex: render.Texture) {
+	sw := f32(tex.w)
+	if sw <= 0 {
+		ui_push_quad(ur, c)
+		return
+	}
+	r := c.rect
+	col := pack_rgba(c.color)
+	lw, rw := c.slice[0], c.slice[1]
+	if lw + rw > r.w && lw + rw > 0 {
+		s := r.w / (lw + rw) // caps don't fit — shrink them proportionally (very narrow bar)
+		lw *= s
+		rw *= s
+	}
+	ul, ur_u := c.slice[0] / sw, c.slice[1] / sw
+	ui_push_quad_uv(ur, {r.x, r.y, lw, r.h}, 0, 0, ul, 1, col) // left cap
+	ui_push_quad_uv(ur, {r.x + lw, r.y, r.w - lw - rw, r.h}, ul, 0, 1 - ur_u, 1, col) // stretched middle
+	ui_push_quad_uv(ur, {r.x + r.w - rw, r.y, rw, r.h}, 1 - ur_u, 0, 1, 1, col) // right cap
 }
 
 @(private = "file")

@@ -14,6 +14,8 @@ import sdl "vendor:sdl3"
 
 UI_VERT_SPV :: #load("shaders/ui.vert.spv")
 UI_FRAG_SPV :: #load("shaders/ui.frag.spv")
+BAR_VERT_SPV :: #load("shaders/bar.vert.spv")
+BAR_FRAG_SPV :: #load("shaders/bar.frag.spv")
 
 // UI_Vertex is a 2D UI vertex: screen-pixel position, atlas/image UV, and a normalized RGBA colour.
 UI_Vertex :: struct {
@@ -23,9 +25,28 @@ UI_Vertex :: struct {
 }
 #assert(size_of(UI_Vertex) == 20)
 
-// UI_Batch is a contiguous run of indices drawn with one bound texture (a zero Texture → white).
+// Batch_Kind selects which pipeline draws a UI_Batch. Textured = the shared vertex_color × texel
+// pipeline (rects/glyphs/images). Bar = the dedicated meter-fill pipeline (glossy sheen shader, no
+// texture; the fill params ride in `bar`). Batches draw in list order, so a bar's fill sits between
+// its track and frame chrome even though they use different pipelines.
+Batch_Kind :: enum {
+	Textured,
+	Bar,
+}
+
+// Bar_Params is the meter-fill shader's per-quad uniform (std140: two vec4s → mirrors bar.frag's UBO).
+Bar_Params :: struct {
+	fill: [4]f32, // rgba fill tint
+	mask: [4]f32, // x = value (fill fraction 0..1); yzw reserved
+}
+#assert(size_of(Bar_Params) == 32)
+
+// UI_Batch is a contiguous run of indices drawn with one pipeline. Textured batches bind `tex`
+// (a zero Texture → white); Bar batches push `bar` to the fill shader.
 UI_Batch :: struct {
+	kind:        Batch_Kind,
 	tex:         Texture,
+	bar:         Bar_Params,
 	first_index: u32,
 	index_count: u32,
 }
@@ -124,22 +145,46 @@ ui2_draw :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass) {
 	if screen.x <= 0 || screen.y <= 0 {
 		screen = {f32(r.swap_w), f32(r.swap_h)} // fall back to the framebuffer if unset
 	}
+	// The pixel→NDC screen size is set=1 binding=0 in BOTH the ui and bar vertex shaders, so this one
+	// push serves either pipeline for the whole frame.
 	g := UI_Globals{screen = screen}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &g, u32(size_of(g)))
 
-	sdl.BindGPUGraphicsPipeline(pass, r.ui2_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = r.ui2_vbuf}
 	sdl.BindGPUVertexBuffers(pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = r.ui2_ibuf}
 	sdl.BindGPUIndexBuffer(pass, ib, ._32BIT)
 
+	// Track the bound pipeline so we only rebind on a kind change (bars are rare — usually one run of
+	// textured batches with the odd bar spliced in). Painter's order is preserved: batches draw in
+	// list order regardless of pipeline.
+	cur := Batch_Kind.Textured
+	sdl.BindGPUGraphicsPipeline(pass, r.ui2_pipeline)
+	bound_any := false
+
 	for b in r.ui2_batches {
 		if b.index_count == 0 {
 			continue
 		}
-		tex := b.tex.tex if b.tex.tex != nil else r.white_tex
-		sb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.ui2_sampler}
-		sdl.BindGPUFragmentSamplers(pass, 0, &sb, 1)
+		if b.kind != cur || !bound_any {
+			switch b.kind {
+			case .Textured:
+				sdl.BindGPUGraphicsPipeline(pass, r.ui2_pipeline)
+			case .Bar:
+				sdl.BindGPUGraphicsPipeline(pass, r.ui2_bar_pipeline)
+			}
+			cur = b.kind
+			bound_any = true
+		}
+		switch b.kind {
+		case .Textured:
+			tex := b.tex.tex if b.tex.tex != nil else r.white_tex
+			sb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.ui2_sampler}
+			sdl.BindGPUFragmentSamplers(pass, 0, &sb, 1)
+		case .Bar:
+			bp := b.bar
+			sdl.PushGPUFragmentUniformData(r.frame_cmd, 0, &bp, u32(size_of(bp)))
+		}
 		sdl.DrawGPUIndexedPrimitives(pass, b.index_count, 1, b.first_index, 0, 0)
 	}
 }
@@ -163,6 +208,57 @@ make_ui_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{location = 2, buffer_slot = 0, format = .UBYTE4_NORM, offset = u32(offset_of(UI_Vertex, col))},
 	}
 	// Straight-alpha blend over the swapchain (the post pass target has no depth/stencil).
+	color_target := sdl.GPUColorTargetDescription {
+		format = r.swapchain_format,
+		blend_state = {
+			enable_blend = true,
+			src_color_blendfactor = .SRC_ALPHA,
+			dst_color_blendfactor = .ONE_MINUS_SRC_ALPHA,
+			color_blend_op = .ADD,
+			src_alpha_blendfactor = .ONE,
+			dst_alpha_blendfactor = .ONE_MINUS_SRC_ALPHA,
+			alpha_blend_op = .ADD,
+		},
+	}
+	info := sdl.GPUGraphicsPipelineCreateInfo {
+		vertex_shader = vshader,
+		fragment_shader = fshader,
+		primitive_type = .TRIANGLELIST,
+		vertex_input_state = {
+			vertex_buffer_descriptions = &buffers[0],
+			num_vertex_buffers = 1,
+			vertex_attributes = &attrs[0],
+			num_vertex_attributes = 3,
+		},
+		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
+		multisample_state = {sample_count = ._1},
+		target_info = {color_target_descriptions = &color_target, num_color_targets = 1},
+	}
+	return sdl.CreateGPUGraphicsPipeline(r.device, info)
+}
+
+// make_bar_pipeline builds the meter-fill pipeline: same UI_Vertex layout + straight-alpha blend as
+// the shared UI pipeline, but the fragment stage is bar.frag (a synthesized glossy cylinder fill, no
+// sampler, one uniform buffer of Bar_Params at set=3). The vertex stage is bar.vert (same screen-size
+// UBO at set=1 as ui.vert), so ui2_draw's single vertex-uniform push serves both pipelines.
+@(private)
+make_bar_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
+	vshader := create_shader(r.device, BAR_VERT_SPV, .VERTEX, 0, 1) // 1 uniform buffer (screen size)
+	fshader := create_shader(r.device, BAR_FRAG_SPV, .FRAGMENT, 0, 1) // 0 samplers, 1 uniform buffer (Bar_Params)
+	if vshader == nil || fshader == nil {
+		return nil
+	}
+	defer sdl.ReleaseGPUShader(r.device, vshader)
+	defer sdl.ReleaseGPUShader(r.device, fshader)
+
+	buffers := [1]sdl.GPUVertexBufferDescription {
+		{slot = 0, pitch = u32(size_of(UI_Vertex)), input_rate = .VERTEX},
+	}
+	attrs := [3]sdl.GPUVertexAttribute {
+		{location = 0, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(UI_Vertex, pos))},
+		{location = 1, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(UI_Vertex, uv))},
+		{location = 2, buffer_slot = 0, format = .UBYTE4_NORM, offset = u32(offset_of(UI_Vertex, col))},
+	}
 	color_target := sdl.GPUColorTargetDescription {
 		format = r.swapchain_format,
 		blend_state = {

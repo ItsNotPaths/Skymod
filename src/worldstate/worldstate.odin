@@ -78,6 +78,7 @@ Player_State :: struct {
 	pos:   [3]f32,
 	yaw:   f32,     // camera yaw/pitch (radians) — restored so you face the same way
 	pitch: f32,
+	level: i32,     // character level (shown on the load screen); real leveling lands later, default 1
 	set:   bool,
 }
 
@@ -143,6 +144,13 @@ init :: proc(ws: ^World_State) {
 	ws.factions = make(map[Form_ID]map[Form_ID]i32)
 	ws.relationships = make(map[Form_ID]map[Form_ID]i32)
 	ws.scene_dirty = make([dynamic]Form_ID)
+	ws.player.level = 1 // default until real leveling / save round-trip sets it
+}
+
+// player_level returns the player's character level (>=1). Real leveling + save round-trip land later;
+// for now it's the default seeded in init (surfaced on the load screen).
+player_level :: proc(ws: ^World_State) -> i32 {
+	return max(ws.player.level, 1)
 }
 
 destroy :: proc(ws: ^World_State) {

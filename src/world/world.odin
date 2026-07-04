@@ -541,14 +541,27 @@ free_persistent_grid :: proc(s: ^Scene) {
 	clear(&s.persistent_by_grid)
 }
 
+// Cell_Load_Progress reports interior-load progress (0..1) to a UI callback during the synchronous
+// per-instance decode. `user` is an opaque app pointer (the app package can't be imported here). nil =
+// no reporting (headless / the streamer path). The model decode+upload loop is the bulk of the load,
+// so i/N is an honest fraction.
+Cell_Load_Progress :: #type proc "odin" (user: rawptr, frac: f32)
+
 // load_cell loads one cell synchronously (build + resolve every model via get_model)
 // and inserts it as a chunk. Returns the instance count. Used for interiors and the
-// bounded Whiterun load — NOT the streamer (which decodes off-thread).
-load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID) -> int {
+// bounded Whiterun load — NOT the streamer (which decodes off-thread). An optional `progress`
+// callback (throttled) reports the per-instance decode fraction so a load screen can show real
+// progress instead of a blocking freeze.
+load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Cell_Load_Progress = nil, user: rawptr = nil) -> int {
 	chunk := build_overlaid_chunk(s, db, cell_form_id) // ESM baseline ⊕ created refs
-	for &inst in chunk.instances {
+	ninst := len(chunk.instances)
+	for &inst, i in chunk.instances {
 		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
 			inst.model = m
+		}
+		// Report progress every 16 instances (a present per model would dominate the load).
+		if progress != nil && ninst > 0 && i % 16 == 0 {
+			progress(user, f32(i) / f32(ninst))
 		}
 	}
 	apply_overlay(s, &chunk) // baseline ⊕ overlay: patch moved refs before collision is built (3c)
@@ -846,7 +859,7 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 // Möller-Trumbore over the model's triangles. `t` is world distance throughout (the
 // local ray is scaled so it stays comparable). Pure query — mutates nothing.
 @(private)
-pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx: int, shape: int, ok: bool) {
+pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx: int, shape: int, dist: f32, ok: bool) {
 	best_cell: Form_ID
 	best_inst := -1
 	best_shape := -1
@@ -891,9 +904,9 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 		}
 	}
 	if best_inst < 0 {
-		return 0, -1, -1, false
+		return 0, -1, -1, 0, false
 	}
-	return best_cell, best_inst, best_shape, true
+	return best_cell, best_inst, best_shape, best_t, true
 }
 
 // ray_to_local maps a world ray into the local space of a trs(pos,rot,scale) placement.
@@ -973,7 +986,7 @@ ray_triangle :: proc(o, d, v0, v1, v2: smath.Vec3) -> (t: f32, hit: bool) {
 // pick selects the nearest instance along the ray (for the Inspector). Returns the instance
 // and the index of the SHAPE the ray hit (-1 if unknown). ok=false on a miss.
 pick :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, shape: int, ok: bool) {
-	cell, idx, shp, hit := pick_nearest(s, origin, dir)
+	cell, idx, shp, _, hit := pick_nearest(s, origin, dir)
 	if !hit {
 		s.has_sel = false
 		return nil, -1, false
@@ -987,7 +1000,7 @@ pick :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, shape: int
 // mode) without changing the selection. Returns the instance + the hit SHAPE index (-1 if
 // unknown). ok=false on a miss (clears the hover). The hovered instance is drawn highlighted.
 hover_pick :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, shape: int, ok: bool) {
-	cell, idx, shp, hit := pick_nearest(s, origin, dir)
+	cell, idx, shp, _, hit := pick_nearest(s, origin, dir)
 	if !hit {
 		s.has_hover = false
 		return nil, -1, false
@@ -995,6 +1008,18 @@ hover_pick :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, shap
 	s.hover_cell, s.hover_inst, s.has_hover = cell, idx, true
 	chunk := &s.chunks[cell]
 	return &chunk.instances[idx], shp, true
+}
+
+// probe_ray returns the nearest instance along the ray and its world-unit hit distance WITHOUT
+// touching hover/selection state — the read-only pick the activation crosshair uses each frame.
+// ok=false on a miss.
+probe_ray :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, dist: f32, ok: bool) {
+	cell, idx, _, t, hit := pick_nearest(s, origin, dir)
+	if !hit {
+		return nil, 0, false
+	}
+	chunk := &s.chunks[cell]
+	return &chunk.instances[idx], t, true
 }
 
 // clear_hover drops the hover highlight (call when inspect mode is off).

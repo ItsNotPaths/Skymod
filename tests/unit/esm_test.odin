@@ -74,6 +74,40 @@ test_esm_refr_fields :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_esm_xloc :: proc(t: ^testing.T) {
+	// A REFR with an XLOC lock (20 bytes: level u8 @0, key formID @4). decode_xloc reads level + key;
+	// a REFR without XLOC decodes ok=false (Skyrim omits XLOC on unlocked refs = not locked).
+	body := make([dynamic]u8, 0, 64);defer delete(body)
+	field(&body, "NAME", u32_bytes(0x0001_2345))
+	xloc: [20]u8
+	xloc[0] = 0x32 // lock level = 50 (Adept)
+	put_u32(xloc[:], 4, 0x0000_0A0B) // key formID
+	field(&body, "XLOC", xloc[:])
+
+	rec := esm.Record{type = "REFR", data = body[:]}
+	fl, backing, ok := esm.fields(rec)
+	testing.expect(t, ok, "split REFR fields")
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	lk, lok := esm.decode_xloc(fl)
+	testing.expect(t, lok, "decode XLOC")
+	testing.expect_value(t, lk.level, u8(0x32))
+	testing.expect_value(t, lk.key, esm.Form_ID(0x0000_0A0B))
+
+	// An unlocked REFR (no XLOC) → ok=false.
+	body2 := make([dynamic]u8, 0, 16);defer delete(body2)
+	field(&body2, "NAME", u32_bytes(0x0001_2345))
+	rec2 := esm.Record{type = "REFR", data = body2[:]}
+	fl2, backing2, ok2 := esm.fields(rec2)
+	testing.expect(t, ok2)
+	defer delete(fl2)
+	defer if backing2 != nil {delete(backing2)}
+	_, lok2 := esm.decode_xloc(fl2)
+	testing.expect(t, !lok2, "no XLOC ⇒ not locked")
+}
+
+@(test)
 test_esm_xxxx_overflow :: proc(t: ^testing.T) {
 	// XXXX(size 4)=u32(10) overrides the next field's size; that field's own u16 reads
 	// 0 but it actually carries 10 bytes.
@@ -486,6 +520,27 @@ test_gamedb_names_inline :: proc(t: ^testing.T) {
 }
 
 @(test)
+test_gamedb_cell_full_and_locks :: proc(t: ^testing.T) {
+	// A named interior CELL (FULL "Test Shop") + a locked REFR (XLOC) + an unlocked REFR (no XLOC).
+	// name_of resolves the CELL's FULL (so a load door shows a real place name); lock_of reports the
+	// locked ref and its remapped key, and reports the unlocked ref as not locked.
+	data := build_lock_plugin()
+	defer delete(data)
+	db := gamedb.build(data)
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_00AA), "Test Shop") // CELL FULL indexed
+
+	lk, lok := gamedb.lock_of(&db, 0x0001_0000)
+	testing.expect(t, lok, "locked REFR has a baseline lock")
+	testing.expect_value(t, lk.level, u8(0x32))
+	testing.expect_value(t, lk.key, gamedb.Form_ID(0x0000_0A0B)) // key remapped into global space
+
+	_, uok := gamedb.lock_of(&db, 0x0001_0001)
+	testing.expect(t, !uok, "unlocked REFR has no baseline lock")
+}
+
+@(test)
 test_gamedb_localized_names :: proc(t: ^testing.T) {
 	// Localized plugin: FULL is a u32 string id resolved via the STRINGS table. Drive
 	// build_plugins directly with a hand-made Loaded_Plugin (localized + strings bytes).
@@ -634,6 +689,56 @@ build_plugin :: proc() -> []u8 {
 	// Top "CELL" GRUP holds the CELL record then its children GRUP.
 	cell_group_content := make([dynamic]u8, 0, 128)
 	defer delete(cell_group_content)
+	record(&cell_group_content, "CELL", 0, 0x0000_00AA, cell_body[:])
+	append(&cell_group_content, ..cc_grup[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_group_content[:])
+	return out[:]
+}
+
+// build_lock_plugin: like build_plugin, but the interior CELL 0xAA carries a FULL ("Test Shop") and
+// holds two REFRs — 0x00010000 with an XLOC lock (level 50, key 0x0A0B) and 0x00010001 with none.
+// Drives the CELL-FULL + XLOC decode/index path.
+@(private = "file")
+build_lock_plugin :: proc() -> []u8 {
+	tes4_body := make([dynamic]u8, 0, 32);defer delete(tes4_body)
+	hedr: [12]u8
+	put_f32(hedr[:], 0, 1.7)
+	put_u32(hedr[:], 8, 0x0000_0042)
+	field(&tes4_body, "HEDR", hedr[:])
+
+	// CELL 0xAA: EDID + FULL (inline) + interior DATA.
+	cell_body := make([dynamic]u8, 0, 48);defer delete(cell_body)
+	field(&cell_body, "EDID", transmute([]u8)string("TestShopInterior\x00"))
+	field(&cell_body, "FULL", transmute([]u8)string("Test Shop\x00"))
+	field(&cell_body, "DATA", []u8{esm.CELL_INTERIOR})
+
+	// REFR 0x00010000: NAME + DATA + XLOC (locked).
+	locked_body := make([dynamic]u8, 0, 64);defer delete(locked_body)
+	field(&locked_body, "NAME", u32_bytes(0x0001_2345))
+	ldata: [24]u8
+	field(&locked_body, "DATA", ldata[:])
+	xloc: [20]u8
+	xloc[0] = 0x32
+	put_u32(xloc[:], 4, 0x0000_0A0B)
+	field(&locked_body, "XLOC", xloc[:])
+
+	// REFR 0x00010001: NAME + DATA (unlocked, no XLOC).
+	open_body := make([dynamic]u8, 0, 48);defer delete(open_body)
+	field(&open_body, "NAME", u32_bytes(0x0001_2345))
+	odata: [24]u8
+	field(&open_body, "DATA", odata[:])
+
+	out := make([dynamic]u8, 0, 320)
+	record(&out, "TES4", 0, 0, tes4_body[:])
+
+	// Cell-children GRUP(6), label = CELL formID, holds both REFRs.
+	children := make([dynamic]u8, 0, 128);defer delete(children)
+	record(&children, "REFR", 0, 0x0001_0000, locked_body[:])
+	record(&children, "REFR", 0, 0x0001_0001, open_body[:])
+	cc_grup := make([dynamic]u8, 0, 160);defer delete(cc_grup)
+	group(&cc_grup, u32_bytes(0x0000_00AA), 6, children[:])
+
+	cell_group_content := make([dynamic]u8, 0, 192);defer delete(cell_group_content)
 	record(&cell_group_content, "CELL", 0, 0x0000_00AA, cell_body[:])
 	append(&cell_group_content, ..cc_grup[:])
 	group(&out, transmute([]u8)string("CELL"), 0, cell_group_content[:])
@@ -916,6 +1021,32 @@ test_gamedb_form_kinds :: proc(t: ^testing.T) {
 	testing.expect_value(t, gamedb.class_name(gamedb.Form_Kind.Unknown), "ObjectReference")
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00FF), gamedb.Form_Kind.Unknown) // a REFR/base id
 	testing.expect_value(t, gamedb.form_kind(nil, 0x0000_00C0), gamedb.Form_Kind.Unknown) // nil DB safe
+}
+
+// gamedb decodes LSCR (LoadScreen) DESC into the loading-tip pool, skipping the NNAM 3D model. Build a
+// non-localized plugin with one LSCR (NNAM + inline DESC) and assert the tip lands in load_tips.
+@(test)
+test_gamedb_load_tips :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	lscr_body := make([dynamic]u8, 0, 64);defer delete(lscr_body)
+	field(&lscr_body, "NNAM", u32_bytes(0x0000_0111)) // 3D model form — must be skipped
+	field(&lscr_body, "DESC", transmute([]u8)string("Press Tab to open your inventory.\x00"))
+	lscr_content := make([dynamic]u8, 0, 96);defer delete(lscr_content)
+	record(&lscr_content, "LSCR", 0, 0x0000_0500, lscr_body[:])
+
+	out := make([dynamic]u8, 0, 160);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("LSCR"), 0, lscr_content[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	tips := gamedb.load_tips(&db)
+	testing.expect_value(t, len(tips), 1)
+	testing.expect_value(t, tips[0], "Press Tab to open your inventory.")
 }
 
 // Item value/weight decode (4a item 2): each carriable base-form's DATA/ENIT layout — WEAP/ARMO/…

@@ -11,6 +11,7 @@ package platform
 
 import "core:c"
 import "core:fmt"
+import "core:os"
 import sdl "vendor:sdl3"
 
 // Window is the opaque handle the render layer needs. Re-exported so callers can
@@ -48,14 +49,26 @@ Platform :: struct {
 	dt:             f32, // seconds elapsed during the last pump()
 	on_event:       Event_Hook, // optional; called per raw SDL event
 	last_tick:      u64,
-	mouse_captured: bool,
+	mouse_captured: bool, // DESIRED pointer-lock state (right mouse held)
+	relative_on:    bool, // ACTUAL relative-mouse state (only true once SDL confirmed the lock)
+	relative_warned: bool, // logged the "relative mode failed" reason once this capture attempt
 }
 
 init :: proc(title: cstring, width, height: i32) -> (p: Platform, ok: bool) {
+	// Pointer lock (relative mouse mode) for mouse-look. On THIS stack SDL's XWayland backend REFUSES
+	// relative mode for the focused window ("not supported"), but wlroots' NATIVE Wayland backend does
+	// it fine — so when a Wayland session is present, force SDL onto native Wayland before init.
+	// (This is the reverse of sdl3-pointerlock-wayland.txt, whose x11 advice was wrong for this machine —
+	// confirmed against projects/dimsalt.) Guarded by WAYLAND_DISPLAY so real-X11 setups keep their
+	// default; NORMAL priority, so SDL_VIDEO_DRIVER still overrides.
+	if wl := os.get_env("WAYLAND_DISPLAY", context.temp_allocator); wl != "" {
+		sdl.SetHint(sdl.HINT_VIDEO_DRIVER, "wayland")
+	}
 	if !sdl.Init({.VIDEO}) {
 		fmt.eprintfln("platform: SDL_Init failed: %s", sdl.GetError())
 		return {}, false
 	}
+	fmt.printfln("platform: video driver = %s (native Wayland/wlroots does pointer lock; XWayland refuses it)", sdl.GetCurrentVideoDriver())
 	window := sdl.CreateWindow(title, width, height, {.RESIZABLE})
 	if window == nil {
 		fmt.eprintfln("platform: CreateWindow failed: %s", sdl.GetError())
@@ -154,21 +167,20 @@ pump :: proc(p: ^Platform) -> bool {
 			if ev.button.button == sdl.BUTTON_LEFT {
 				select = true
 			}
-			if ev.button.button == sdl.BUTTON_RIGHT {
-				p.mouse_captured = true
-				_ = sdl.SetWindowRelativeMouseMode(p.window, true)
-			}
-		case .MOUSE_BUTTON_UP:
-			if ev.button.button == sdl.BUTTON_RIGHT {
-				p.mouse_captured = false
-				_ = sdl.SetWindowRelativeMouseMode(p.window, false)
-			}
 		case .MOUSE_MOTION:
-			if p.mouse_captured {
+			// Only consume deltas once the lock is actually engaged, so the frame the lock turns on
+			// doesn't inject a jump from the pre-lock cursor motion.
+			if p.relative_on {
 				look += {ev.motion.xrel, ev.motion.yrel}
 			}
 		}
 	}
+
+	// Pointer lock reconcile: drive the ACTUAL relative-mouse state toward the desired capture. Relative
+	// mode can fail until the window has input focus / is mapped, so RETRY every frame while desired and
+	// only cache success — caching a failure would leave the cursor free forever (see the .txt). Also
+	// grab the pointer to physically confine it (belt-and-suspenders).
+	reconcile_pointer_lock(p)
 
 	nkeys: c.int
 	keys := sdl.GetKeyboardState(&nkeys)
@@ -219,4 +231,39 @@ pump :: proc(p: ^Platform) -> bool {
 	p.dt = f32(now - p.last_tick) / 1000.0
 	p.last_tick = now
 	return running
+}
+
+// set_mouse_capture requests pointer lock (relative mouse / mouse-look). Pointer lock is the DEFAULT in
+// gameplay — the app calls this each frame with the desired state (on while playing, off while a menu or
+// the dev overlay needs the cursor). The actual SDL lock is reconciled in pump (retry-until-success), so
+// this is a cheap flag set. No mouse button is involved — mouse-look is always active during play.
+set_mouse_capture :: proc(p: ^Platform, on: bool) {
+	p.mouse_captured = on
+}
+
+// reconcile_pointer_lock drives the actual SDL relative-mouse state toward `p.mouse_captured`. Enabling
+// can fail transiently (window not yet focused/mapped) or hard (compositor lacks the protocol), so we
+// retry while desired and only set `relative_on` on success — never cache a failure. On success we also
+// grab the pointer. On failure we surface SDL's reason ONCE per capture attempt (it names the missing
+// driver/protocol) instead of swallowing it. See sdl3-pointerlock-wayland.txt.
+@(private = "file")
+reconcile_pointer_lock :: proc(p: ^Platform) {
+	if p.window == nil {
+		return
+	}
+	if p.mouse_captured && !p.relative_on {
+		if sdl.SetWindowRelativeMouseMode(p.window, true) {
+			_ = sdl.SetWindowMouseGrab(p.window, true) // confine the pointer to the window (best-effort)
+			p.relative_on = true
+			p.relative_warned = false
+		} else if !p.relative_warned {
+			fmt.eprintfln("platform: pointer lock failed: %s (try SDL_VIDEO_DRIVER=x11)", sdl.GetError())
+			p.relative_warned = true // don't spam every frame the button is held
+		}
+	} else if !p.mouse_captured && p.relative_on {
+		_ = sdl.SetWindowMouseGrab(p.window, false)
+		_ = sdl.SetWindowRelativeMouseMode(p.window, false)
+		p.relative_on = false
+		p.relative_warned = false
+	}
 }
