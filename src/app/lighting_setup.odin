@@ -1,131 +1,47 @@
 package main
 
-// Lighting profile management + the profile→GPU bridge (ROADMAP full-scene-lighting Phase A).
-// This is where the app glues the pure-data lighting package (lighting.Light_Profile) to the
-// renderer's per-frame GPU block (render.Light_Env): it owns the list of available profiles
-// (two BAKED into the binary + any discovered sidecar folders under <base>/profiles/), the
-// live-editable active profile, and the save path.
+// Lighting preset management + the preset→GPU bridge (ROADMAP full-scene-lighting Phase A). This is
+// where the app glues the pure-data lighting package (lighting.Light_Profile) to the renderer's
+// per-frame GPU block (render.Light_Env). The available presets are the flat <name>.txt files in the
+// pinned baseline content mod content/baselighting (see baselighting.odin) plus the hardcoded
+// "fullbright" dev preset; one is the active look. Presets are complete + mutually exclusive — they
+// do NOT layer (a saved look is just another selectable preset).
 
-import "core:log"
-import "core:os"
-import "core:path/filepath"
 import "core:strings"
-import "../formats/esm"
 import "../lighting"
 import smath "../math"
-import "../mods"
 import "../render"
 
-// GAME_PROFILE_NAME is the sidecar profile the installer/boot derives from the user's own
-// Skyrim.esm imagespace data — a data-faithful "vanilla" generated LOCALLY (never shipped;
-// the extracted Bethesda values are their content, kept on their machine like content/).
-GAME_PROFILE_NAME :: "skyrim"
+// FULLBRIGHT_NAME is the one preset with no .txt on disk: the dev/low-spec look (no sun, flat full
+// ambient, passthrough tonemap → raw textures) whose zero shadow_strength makes the CSM passes skip
+// entirely. Hardcoded (from the #load-embedded copy) so it's always available and never edited.
+FULLBRIGHT_NAME :: "fullbright"
 
-// ensure_game_lighting_profile generates the data-faithful "skyrim" profile from the user's OWN
-// Skyrim.esm (the default clear-day imagespace), once, if it doesn't already exist. The authentic
-// GRADE (saturation / contrast / tint) is taken verbatim — those are pipeline-independent ratios;
-// the HDR-scale numbers (white / sunlight / brightness) are calibrated to CE's renderer, not ours,
-// so we keep our own exposure/white and just adopt brightness as a gentle exposure nudge. Starts
-// from our baked "vanilla" (sun/ambient/fog) and overlays the game's grade. Idempotent + skips
-// silently if source_game is unset. Reads from the user's files, writes to their local profiles/.
-ensure_game_lighting_profile :: proc(base, src_game: string) {
-	if base == "" || src_game == "" {
-		return
-	}
-	marker, _ := filepath.join({base, lighting.SUBDIR, GAME_PROFILE_NAME, lighting.FILE_NAME}, context.temp_allocator)
-	if os.exists(marker) {
-		return // already generated
-	}
-	esm_path, _ := filepath.join({src_game, "Data", "Skyrim.esm"}, context.temp_allocator)
-	data, rerr := os.read_entire_file(esm_path, context.allocator)
-	if rerr != nil {
-		return // no master to read — skip silently (hand-tuned baked vanilla still available)
-	}
-	defer delete(data)
-
-	Pick :: struct {
-		im:   esm.Imagespace,
-		rank: int, // 0 none, 1 DefaultImageSpace, 2 a clear-day exterior
-	}
-	pick: Pick
-	esm.walk(data, proc(rec: esm.Record, wc: esm.Walk_Context, user: rawptr) -> bool {
-		p := (^Pick)(user)
-		if esm.sig(rec) != "IMGS" {
-			return true
-		}
-		fl, backing, ok := esm.fields(rec)
-		if !ok {
-			return true
-		}
-		defer {delete(fl);if backing != nil {delete(backing)}}
-		edid := esm.editor_id(fl)
-		im, dok := esm.decode_imagespace(fl)
-		if !dok {
-			return true
-		}
-		// Prefer a clear-day exterior grade (ISSkyrimClearDAY*), else the neutral default.
-		if strings.has_prefix(edid, "ISSkyrimClearDAY") && p.rank < 2 {
-			p.im, p.rank = im, 2
-		} else if edid == "DefaultImageSpace" && p.rank < 1 {
-			p.im, p.rank = im, 1
-		}
-		return true
-	}, &pick)
-	if pick.rank == 0 {
-		return // no imagespace found
-	}
-
-	baked := lighting.baked(context.temp_allocator)
-	prof := baked[0] // start from our hand-tuned "vanilla" (sun/ambient/fog/albedo_lift)
-	// Overlay the game's authentic grade (verbatim) + a gentle exposure from its brightness.
-	prof.tonemap = .Reinhard // CE-faithful operator
-	prof.veg_shadows = .Full // the real game casts full per-object tree shadows (proxy is our low-spec option)
-	prof.saturation = pick.im.saturation
-	prof.contrast = pick.im.contrast
-	prof.exposure = pick.im.brightness
-	a := pick.im.tint_amount
-	prof.color_filter = {
-		1 - a + a * pick.im.tint_color.x,
-		1 - a + a * pick.im.tint_color.y,
-		1 - a + a * pick.im.tint_color.z,
-	}
-	if lighting.save(&prof, base, GAME_PROFILE_NAME) {
-		log.infof("lighting: derived data-faithful %q profile from your Skyrim.esm imagespace", GAME_PROFILE_NAME)
-	}
-}
-
-// Lighting_State owns the profile picker + the active editable profile.
+// Lighting_State owns the preset picker + the active editable profile.
 Lighting_State :: struct {
-	base:     string,                  // exe dir (borrowed; for sidecar load/save/discover)
-	names:    [dynamic]string,         // owned profile names: baked first, then sidecars
-	baked:    []lighting.Light_Profile, // the embedded profiles (no heap strings inside)
-	n_baked:  int,                     // names[:n_baked] are the baked ones
-	active:   lighting.Light_Profile,  // the live profile (base ⊕ enabled lighting mods; configurator edits)
-	current:  int,                     // index into names (the base)
-	mprofile: ^mods.Profile,           // borrowed: enabled lighting mods layer onto the base
+	base:    string,                 // exe dir (borrowed; for content/baselighting load/save/discover)
+	names:   [dynamic]string,        // owned preset names: content/baselighting/*.txt + "fullbright"
+	active:  lighting.Light_Profile, // the live profile (selected preset; the configurator edits it)
+	current: int,                    // index into names
 }
 
-// lighting_state_init builds the picker: the baked profiles, then on-disk sidecars (whose
-// names don't duplicate a baked one), and loads `want` (a baked name or sidecar folder) as
-// the active profile — falling back to index 0 if `want` isn't found.
-lighting_state_init :: proc(base, want: string, mprofile: ^mods.Profile) -> Lighting_State {
+// lighting_state_init builds the picker from the content/baselighting presets (+ the hardcoded
+// fullbright), then loads `want` (a preset name) as the active profile — falling back to index 0
+// if `want` isn't found. baselighting_ensure must have run first (it materializes vanilla.txt).
+lighting_state_init :: proc(base, want: string) -> Lighting_State {
 	ls: Lighting_State
 	ls.base = base
-	ls.mprofile = mprofile
-	ls.baked = lighting.baked()
-	ls.n_baked = len(ls.baked)
-	for p in ls.baked {
-		append(&ls.names, strings.clone(p.name))
+	names := lighting.discover(baselighting_dir(base, context.temp_allocator))
+	for n in names {
+		append(&ls.names, n) // discover clones each name; we take ownership of the strings
 	}
-	sidecars := lighting.discover(base) // strings cloned by discover; we take ownership
-	for n in sidecars {
-		if slice_has(ls.names[:], n) {
-			delete(n) // a sidecar overriding a baked name reuses the baked slot
-		} else {
-			append(&ls.names, n)
-		}
+	delete(names) // free just the slice backing (the strings moved into ls.names)
+	if len(ls.names) == 0 {
+		append(&ls.names, strings.clone(DEFAULT_LIGHTING)) // defensive: no presets on disk yet
 	}
-	delete(sidecars)
+	if !slice_has(ls.names[:], FULLBRIGHT_NAME) {
+		append(&ls.names, strings.clone(FULLBRIGHT_NAME))
+	}
 
 	ls.current = 0
 	for n, i in ls.names {
@@ -143,12 +59,10 @@ lighting_state_destroy :: proc(ls: ^Lighting_State) {
 		delete(n)
 	}
 	delete(ls.names)
-	delete(ls.baked)
 	ls^ = {}
 }
 
-// lighting_select picks base profile names[i] and re-resolves the active look (base ⊕ enabled
-// lighting mods). A sidecar base wins over a baked one of the same name.
+// lighting_select picks preset names[i] and loads it as the active look.
 lighting_select :: proc(ls: ^Lighting_State, i: int) {
 	if i < 0 || i >= len(ls.names) {
 		return
@@ -157,60 +71,47 @@ lighting_select :: proc(ls: ^Lighting_State, i: int) {
 	ls.active = lighting_resolve(ls)
 }
 
-// lighting_resolve computes the active profile: the selected base (sidecar wins over baked) with
-// every ENABLED lighting mod layered on top in mod-list order (top→bottom; the lowest-listed mod
-// wins per field). A lighting mod is mods/<name>/skymod/lighting.txt (partial txts allowed).
+// lighting_resolve loads the selected preset: the on-disk content/baselighting/<name>.txt wins; the
+// hardcoded fullbright (#load) is the fallback for that name; else DEFAULTS.
 lighting_resolve :: proc(ls: ^Lighting_State) -> lighting.Light_Profile {
-	base: lighting.Light_Profile
-	if p, ok := lighting.load(ls.base, ls.names[ls.current]); ok {
-		base = p
-	} else if ls.current < ls.n_baked {
-		base = ls.baked[ls.current]
-		base.name = ls.names[ls.current]
-	} else {
-		base = lighting.DEFAULTS
+	name := ls.names[ls.current]
+	if p, ok := lighting.load(baselighting_dir(ls.base, context.temp_allocator), name); ok {
+		return p
 	}
-	if ls.mprofile != nil {
-		for modname in mods.profile_enabled_mods(ls.mprofile, context.temp_allocator) {
-			if modname == mods.BASE_MOD {
-				continue
-			}
-			if data, rerr := os.read_entire_file(lighting_mod_path(ls.base, modname), context.temp_allocator);
-			   rerr == nil {
-				lighting.apply_text(&base, string(data))
-			}
-		}
+	if name == FULLBRIGHT_NAME {
+		baked := lighting.baked(context.temp_allocator) // [vanilla, realistic, fullbright]
+		p := baked[2]
+		p.name = FULLBRIGHT_NAME
+		return p
 	}
+	base := lighting.DEFAULTS
+	base.name = name
 	return base
 }
 
-// lighting_mod_path is mods/<modname>/skymod/lighting.txt — the lighting payload a mod may carry.
-lighting_mod_path :: proc(base, modname: string, allocator := context.temp_allocator) -> string {
-	r, _ := filepath.join({base, MODS_DIRNAME, modname, "skymod", "lighting.txt"}, allocator)
-	return r
-}
-
-// lighting_write_mod writes the active profile as a lighting mod at mods/<name>/skymod/lighting.txt.
-// `delta` writes only the fields differing from the resolved stack below (a minimal partial txt);
-// otherwise the whole config. The caller enables the mod in the profile(s) and re-resolves.
-lighting_write_mod :: proc(ls: ^Lighting_State, name: string, delta: bool) -> bool {
+// lighting_save_preset writes the active look as a preset at content/baselighting/<name>.txt (a full
+// serialize — presets are complete looks), then makes it the current selection. The configurator's
+// "Save" calls this; the saved file appears in the picker and can be shared like any content file.
+lighting_save_preset :: proc(ls: ^Lighting_State, name: string) -> bool {
 	if name == "" {
 		return false
 	}
-	txt: string
-	if delta {
-		resolved := lighting_resolve(ls) // base ⊕ existing mods, WITHOUT the live edits
-		txt = lighting.serialize_delta(&ls.active, &resolved, name)
-	} else {
-		txt = lighting.serialize(&ls.active, name)
+	if !lighting.save(&ls.active, baselighting_dir(ls.base, context.temp_allocator), name) {
+		return false
 	}
-	_ = os.make_directory(mods_root(ls.base))
-	moddir, _ := filepath.join({ls.base, MODS_DIRNAME, name}, context.temp_allocator)
-	_ = os.make_directory(moddir)
-	skydir, _ := filepath.join({moddir, "skymod"}, context.temp_allocator)
-	_ = os.make_directory(skydir)
-	path, _ := filepath.join({skydir, "lighting.txt"}, context.temp_allocator)
-	return os.write_entire_file(path, transmute([]byte)txt) == nil
+	idx := -1
+	for n, i in ls.names {
+		if n == name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		append(&ls.names, strings.clone(name))
+		idx = len(ls.names) - 1
+	}
+	ls.current = idx // ls.active already holds the saved values — no re-resolve needed
+	return true
 }
 
 // lighting_env flattens a profile + the current camera position into the renderer's per-frame

@@ -9,6 +9,7 @@ package main
 // lifetime and publishes the resolved activation target into the host each frame.
 
 import "core:log"
+import "../input"
 import "../render"
 
 // hud_init opens the persistent HUD session on hud.lua. baseui (chrome + reticle asset) and a font
@@ -48,7 +49,7 @@ frame_hud :: proc(g: ^Game) {
 
 	// Activate (F): doors cross via frame_traversal. For a non-door target, log a stub so the input
 	// path is proven end-to-end now — real container/dialogue menus hook in here later.
-	if tgt.present && tgt.kind != .Door && g.p.input.activate && !g.fr.kb_cap {
+	if tgt.present && tgt.kind != .Door && input.fired(&g.imgr, "Activate") {
 		subject := tgt.name if tgt.name != "" else "(unnamed)"
 		verb := "open" if tgt.kind == .Container else "activate"
 		log.infof("activate: %s %q [%s] — no menu yet (stub)", verb, subject, activate_kind_tag[tgt.kind])

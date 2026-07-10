@@ -17,6 +17,7 @@ import smath "../math"
 import "../mods"
 import "../physics"
 import "../render"
+import "../settings"
 import "../vfs"
 import "../world"
 import "../worldstate"
@@ -213,10 +214,67 @@ mods_root :: proc(base: string, allocator := context.temp_allocator) -> string {
 }
 
 // PROFILES_DIRNAME holds the per-profile mod lists (the mods/ folder itself is shared across all
-// profiles, MO2-style). Distinct from the lighting system's "profiles/" dir. DEFAULT_PROFILE is the
-// always-present profile.
-PROFILES_DIRNAME :: "modprofiles"
-DEFAULT_PROFILE :: "Default"
+// profiles, MO2-style). This is now the ONLY "profiles" concept — the old lighting "profiles/" dir
+// became the pinned content/baselighting mod (see baselighting.odin), so this reclaimed the clean
+// name via migrate_profiles_layout. DEFAULT_PROFILE is the always-present "vanilla" baseline:
+// unmoddable (system plugins only) and the settings ROOT that every other profile inherits from (see
+// settings.load_child + the input-system notes). Other profiles carry only sparse overrides.
+PROFILES_DIRNAME :: "profiles"
+DEFAULT_PROFILE :: "vanilla"
+
+// migrate_profiles_layout performs the one-time move of mod profiles from the legacy <base>/modprofiles/
+// to <base>/profiles/, now that lighting no longer owns "profiles/". If a stale lighting sidecar dir
+// (a folder holding profile.txt, from the old lighting system) sits in profiles/, it's removed first
+// so it isn't mistaken for a mod profile. Best-effort + idempotent (no-op once modprofiles/ is gone).
+migrate_profiles_layout :: proc(base: string) {
+	old, _ := filepath.join({base, "modprofiles"}, context.temp_allocator)
+	if !os.is_dir(old) {
+		return // already migrated (or fresh install)
+	}
+	newp := profiles_root(base, context.temp_allocator)
+	// Purge stale lighting sidecars (folder with profile.txt, no modlist.txt) squatting in profiles/.
+	if infos, err := os.read_all_directory_by_path(newp, context.temp_allocator); err == nil {
+		for fi in infos {
+			if fi.type != .Directory {continue}
+			d, _ := filepath.join({newp, fi.name}, context.temp_allocator)
+			pf, _ := filepath.join({d, "profile.txt"}, context.temp_allocator)
+			ml, _ := filepath.join({d, "modlist.txt"}, context.temp_allocator)
+			if os.exists(pf) && !os.exists(ml) {
+				remove_tree(d)
+			}
+		}
+	}
+	_ = os.make_directory(newp)
+	// Move each mod-profile folder from modprofiles/ into profiles/ (skip any name that already exists).
+	if infos, err := os.read_all_directory_by_path(old, context.temp_allocator); err == nil {
+		for fi in infos {
+			if fi.type != .Directory {continue}
+			from, _ := filepath.join({old, fi.name}, context.temp_allocator)
+			to, _ := filepath.join({newp, fi.name}, context.temp_allocator)
+			if !os.exists(to) {
+				_ = os.rename(from, to)
+			}
+		}
+	}
+	remove_tree(old) // drop the now-empty (or leftover) legacy dir
+	log.info("profiles: migrated modprofiles/ -> profiles/")
+}
+
+// remove_tree recursively deletes `path` (children first, then the now-empty dir; os.remove handles
+// both files and empty dirs). Best-effort — a failure just leaves the remnant in place.
+remove_tree :: proc(path: string) {
+	if infos, err := os.read_all_directory_by_path(path, context.temp_allocator); err == nil {
+		for fi in infos {
+			child, _ := filepath.join({path, fi.name}, context.temp_allocator)
+			if fi.type == .Directory {
+				remove_tree(child)
+			} else {
+				_ = os.remove(child)
+			}
+		}
+	}
+	_ = os.remove(path)
+}
 
 // modlist_path_for returns <base>/profiles/<name>/modlist.txt (temp-allocated by default).
 modlist_path_for :: proc(base, name: string, allocator := context.temp_allocator) -> string {
@@ -231,6 +289,31 @@ ensure_profile_dir :: proc(base, name: string) {
 	_ = os.make_directory(dir)
 }
 
+// load_root_settings loads the ROOT settings — the vanilla baseline every profile
+// inherits — from <base>/profiles/vanilla/settings.txt. The EXECUTABLE owns this file
+// (not the release script): it ensures the dir, migrates any legacy <base>/settings.txt
+// left by an older build into vanilla (one-time), backfills the DEFAULTS embedded in the
+// binary, and writes the file on first run so a fresh install ships as just the exe.
+load_root_settings :: proc(base: string) -> settings.Config {
+	ensure_profile_dir(base, DEFAULT_PROFILE)
+	dir, _ := filepath.join({base, PROFILES_DIRNAME, DEFAULT_PROFILE}, context.temp_allocator)
+	dest, _ := filepath.join({dir, settings.FILE_NAME}, context.temp_allocator)
+	legacy, _ := filepath.join({base, settings.FILE_NAME}, context.temp_allocator)
+	if os.exists(legacy) {
+		if !os.exists(dest) {
+			_ = os.rename(legacy, dest) // relocate the user's existing settings into vanilla
+			log.infof("settings: migrated %s -> %s", legacy, dest)
+		} else {
+			_ = os.remove(legacy) // vanilla is authoritative; drop the stale base copy
+		}
+	}
+	cfg := settings.load(dir)
+	if !os.exists(cfg.path) {
+		_ = settings.save(&cfg) // first run: materialize the embedded defaults
+	}
+	return cfg
+}
+
 // profiles_root is <base>/profiles (temp-allocated by default).
 profiles_root :: proc(base: string, allocator := context.temp_allocator) -> string {
 	r, _ := filepath.join({base, PROFILES_DIRNAME}, allocator)
@@ -238,7 +321,7 @@ profiles_root :: proc(base: string, allocator := context.temp_allocator) -> stri
 }
 
 // discover_profiles lists the profile names (subdirs of <base>/profiles), always including the
-// Default profile, sorted case-insensitively. Allocated in `allocator`.
+// vanilla baseline profile, sorted case-insensitively. Allocated in `allocator`.
 discover_profiles :: proc(base: string, allocator := context.allocator) -> []string {
 	out := make([dynamic]string, 0, 8, allocator)
 	append(&out, strings.clone(DEFAULT_PROFILE, allocator))
@@ -298,6 +381,10 @@ system_mod_names :: proc(src, base: string, allocator := context.temp_allocator)
 	baseui_dir, _ := filepath.join({base, "content", "baseui"}, context.temp_allocator)
 	if os.is_dir(baseui_dir) {
 		append(&out, strings.clone("SkyMod UI", allocator))
+	}
+	// The forced lighting baseline (content/baselighting): the pinned lighting presets.
+	if os.is_dir(baselighting_dir(base, context.temp_allocator)) {
+		append(&out, strings.clone("SkyMod Lighting", allocator))
 	}
 	return out[:]
 }

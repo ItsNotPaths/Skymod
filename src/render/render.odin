@@ -682,11 +682,22 @@ end_frame :: proc(r: ^Renderer) {
 // --- Dear ImGui lifecycle (the SDL3 + SDL_gpu backends live here because the
 // SDL_gpu one drives the device). UI content is built in src/tools. ---
 
+// EMBED_IMGUI_INI is the dev-panel window layout, BAKED into the binary (like shaders). It's all
+// dev-tool chrome that never needs to be edited/persisted, so we ship a good default and disable
+// imgui's loose imgui.ini entirely (see ui_init) — nothing is written beside the exe.
+@(private = "file")
+EMBED_IMGUI_INI :: #load("imgui_layout.ini", string)
+
 ui_init :: proc(r: ^Renderer) {
 	imgui.CHECKVERSION()
 	imgui.CreateContext()
 	io := imgui.GetIO()
 	io.ConfigFlags += {.NavEnableKeyboard, .DockingEnable}
+	// Load the window layout from the embedded copy, and set IniFilename=nil so imgui neither reads
+	// nor writes a loose imgui.ini in the cwd (layouts don't persist across runs — the baked default
+	// is the source of truth).
+	io.IniFilename = nil
+	imgui.LoadIniSettingsFromMemory(cstring(raw_data(EMBED_IMGUI_INI)), uint(len(EMBED_IMGUI_INI)))
 	imgui.StyleColorsDark()
 
 	imgui_sdl3.InitForSDLGPU(r.window)

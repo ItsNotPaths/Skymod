@@ -73,8 +73,9 @@ DEFAULTS := [?]Default {
 	// inlined (and how far before it unloads, plus a hysteresis margin). Only used when
 	// experimental_open_interiors is on.
 	{"interior_load_distance", "2048"},
-	// Active lighting profile at boot: a baked name ("vanilla"/"realistic") or a sidecar
-	// folder under profiles/. Edit + save live in the in-game Lighting panel.
+	// Active lighting preset at boot: a preset name in content/baselighting/ ("vanilla",
+	// "realistic", any saved look) or the hardcoded "fullbright". Edit + save live in the
+	// in-game Lighting panel; a saved look becomes a new preset there.
 	{"lighting_profile", "vanilla"},
 	// Sun-shadow draw distance in world units (cascaded shadow maps cover [near, this]). 0
 	// disables shadows. Shorter = crisper near shadows (cascades pack closer); longer = shadows
@@ -84,10 +85,18 @@ DEFAULTS := [?]Default {
 
 // Config is an ordered key/value store: `keys` preserves write order, `vals` maps
 // key -> value. All strings are heap-owned; call destroy() to free them.
+//
+// Overlay model (per-profile settings): a Config may have a `parent`. get() falls
+// through to the parent for keys this Config doesn't hold, so a PROFILE Config carries
+// only its overrides and inherits everything else from the `vanilla` root. set()/save()
+// write to THIS Config, so a profile's settings.txt stays sparse (just its deltas).
+// The root (base/settings.txt = the vanilla baseline) is parentless and backfilled
+// with every DEFAULT. See docs/mods.md + the input-system notes.
 Config :: struct {
-	path: string,
-	keys: [dynamic]string,
-	vals: map[string]string,
+	path:   string,
+	keys:   [dynamic]string,
+	vals:   map[string]string,
+	parent: ^Config, // nil for the root/vanilla baseline; set for a profile overlay
 }
 
 // load reads <base>/settings.txt (if present) and returns a Config with every
@@ -100,22 +109,7 @@ load :: proc(base: string, allocator := context.allocator) -> Config {
 	cfg.vals = make(map[string]string)
 
 	if data, err := os.read_entire_file(cfg.path, context.temp_allocator); err == nil {
-		it := string(data)
-		for raw in strings.split_lines_iterator(&it) {
-			line := strings.trim_space(raw)
-			if line == "" || line[0] == '#' {
-				continue
-			}
-			eq := strings.index_byte(line, '=')
-			if eq < 0 {
-				continue
-			}
-			key := strings.trim_space(line[:eq])
-			val := strings.trim_space(line[eq + 1:])
-			if key != "" {
-				put(&cfg, key, val)
-			}
-		}
+		parse_into(&cfg, string(data))
 	}
 
 	// Backfill anything the file didn't have, in DEFAULTS order.
@@ -127,9 +121,63 @@ load :: proc(base: string, allocator := context.allocator) -> Config {
 	return cfg
 }
 
-// get returns the value for key, or "" if absent.
+// load_child loads <dir>/settings.txt as a SPARSE overlay over `parent` (typically the
+// vanilla root). Unlike load, it does NOT backfill defaults — a profile only stores the
+// keys it overrides; everything else resolves through the parent via get(). A missing
+// file yields an empty overlay (pure inheritance).
+load_child :: proc(dir: string, parent: ^Config, allocator := context.allocator) -> Config {
+	context.allocator = allocator
+	cfg: Config
+	cfg.parent = parent
+	cfg.path, _ = filepath.join({dir, FILE_NAME})
+	cfg.vals = make(map[string]string)
+	if data, err := os.read_entire_file(cfg.path, context.temp_allocator); err == nil {
+		parse_into(&cfg, string(data))
+	}
+	return cfg
+}
+
+// root returns the topmost (parentless) Config — where root-only keys like
+// active_profile and source_game belong, regardless of which overlay is active.
+root :: proc(cfg: ^Config) -> ^Config {
+	c := cfg
+	for c.parent != nil {
+		c = c.parent
+	}
+	return c
+}
+
+// parse_into folds a "key = value" text body into cfg (comments + blank lines skipped).
+@(private)
+parse_into :: proc(cfg: ^Config, body: string) {
+	it := body
+	for raw in strings.split_lines_iterator(&it) {
+		line := strings.trim_space(raw)
+		if line == "" || line[0] == '#' {
+			continue
+		}
+		eq := strings.index_byte(line, '=')
+		if eq < 0 {
+			continue
+		}
+		key := strings.trim_space(line[:eq])
+		val := strings.trim_space(line[eq + 1:])
+		if key != "" {
+			put(cfg, key, val)
+		}
+	}
+}
+
+// get returns the value for key, falling through to the parent overlay(s) if this
+// Config doesn't hold it, or "" if nothing does.
 get :: proc(cfg: ^Config, key: string) -> string {
-	return cfg.vals[key] or_else ""
+	if v, ok := cfg.vals[key]; ok {
+		return v
+	}
+	if cfg.parent != nil {
+		return get(cfg.parent, key)
+	}
+	return ""
 }
 
 // get_bool interprets the value as a boolean (true/1/yes/on, case-insensitive).

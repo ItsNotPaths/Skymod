@@ -10,11 +10,10 @@ package lighting
 // The renderer has its own GPU-facing `Light_Env` (all-vec4, std140) that the app fills
 // from the active profile each frame; this package never imports render.
 //
-// FILE FORMAT: a profile is a FOLDER, not a flat file —
-//   profiles/<name>/profile.txt   (these scalars + colors, "key = value" per line)
-//   profiles/<name>/grade.png      (optional color-grade LUT — Phase B; absent = no grade)
-// because color grading is an IMAGE (a 3D LUT), so a profile needs more than one file.
-// Two profiles ship BAKED (#load'd into the binary); user profiles are discovered on disk.
+// FILE FORMAT: a profile ("preset") is a flat text file — <dir>/<name>.txt (these scalars +
+// colors, "key = value" per line). The caller owns <dir> (the app points it at content/baselighting,
+// the pinned baseline content mod). Presets are complete and mutually exclusive: one is the active
+// look, they do NOT layer. Two ship BAKED (#load'd) as seeds; presets are discovered on disk.
 //
 // DARK-ALBEDO CALIBRATION: Skyrim diffuse maps are authored low-albedo expecting the
 // Creation Engine's bright lighting + HDR adaptation to lift them. Defaults here are
@@ -143,9 +142,9 @@ REALISTIC_BAKED :: #load("baked/realistic.txt", string)
 // tonemap → the raw textures on screen, and the CSM passes skip entirely (the big perf win).
 FULLBRIGHT_BAKED :: #load("baked/fullbright.txt", string)
 
-// SUBDIR is the on-disk profiles folder (beside the exe) scanned for sidecar profiles.
-SUBDIR :: "profiles"
-FILE_NAME :: "profile.txt"
+// FILE_EXT is the preset file extension: a preset is a flat <dir>/<name>.txt (the caller owns <dir>,
+// e.g. content/baselighting — the pinned baseline content mod).
+FILE_EXT :: ".txt"
 
 // baked returns the two embedded profiles, already parsed. The caller owns the returned
 // slice (delete it); the profiles' `name` strings are static (baked-text constants
@@ -190,11 +189,11 @@ apply_text :: proc(p: ^Light_Profile, text: string) {
 	}
 }
 
-// load reads <base>/profiles/<name>/profile.txt into a profile. `name` is BORROWED (stored
-// as p.name) — the caller owns it (e.g. an app-side names list). ok=false if the file is
-// missing/unreadable. A profile holds NO heap-owned strings, so there is nothing to destroy.
-load :: proc(base, name: string) -> (p: Light_Profile, ok: bool) {
-	path, _ := filepath.join({base, SUBDIR, name, FILE_NAME}, context.temp_allocator)
+// load reads <dir>/<name>.txt into a profile. `name` is BORROWED (stored as p.name) — the caller
+// owns it (e.g. an app-side names list). ok=false if the file is missing/unreadable. A profile
+// holds NO heap-owned strings, so there is nothing to destroy.
+load :: proc(dir, name: string) -> (p: Light_Profile, ok: bool) {
+	path := preset_path(dir, name)
 	data, rerr := os.read_entire_file(path, context.temp_allocator)
 	if rerr != nil {
 		return {}, false
@@ -204,44 +203,38 @@ load :: proc(base, name: string) -> (p: Light_Profile, ok: bool) {
 	return p, true
 }
 
-// save writes a profile to <base>/profiles/<name>/profile.txt, creating the folder.
-// `name` overrides p.name (so "Save As" can fork a baked profile to a new sidecar).
-save :: proc(p: ^Light_Profile, base, name: string) -> bool {
-	root, _ := filepath.join({base, SUBDIR}, context.temp_allocator)
-	dir, _ := filepath.join({base, SUBDIR, name}, context.temp_allocator)
-	os.make_directory(root) // ignore "already exists"
+// save writes a profile to <dir>/<name>.txt, creating the folder. `name` overrides p.name (so
+// "Save As" can fork a preset to a new file).
+save :: proc(p: ^Light_Profile, dir, name: string) -> bool {
 	if err := os.make_directory(dir); err != nil && !os.is_dir(dir) {
 		return false
 	}
-	path, _ := filepath.join({dir, FILE_NAME}, context.temp_allocator)
-	return os.write_entire_file(path, transmute([]byte)serialize(p, name)) == nil
+	return os.write_entire_file(preset_path(dir, name), transmute([]byte)serialize(p, name)) == nil
 }
 
-// discover lists the sidecar profile names under <base>/profiles/ (each is a subfolder
-// holding a profile.txt). Returns folder names; caller owns the slice + strings.
-discover :: proc(base: string, allocator := context.allocator) -> []string {
-	context.allocator = allocator
-	root, _ := filepath.join({base, SUBDIR}, context.temp_allocator)
-	fd, oerr := os.open(root)
-	if oerr != nil {
-		return {}
-	}
-	defer os.close(fd)
-	infos, rerr := os.read_dir(fd, -1, context.temp_allocator)
-	if rerr != nil {
-		return {}
-	}
+// discover lists the preset names (basenames, without the .txt) of the flat <dir>/*.txt files.
+// Returns names; caller owns the slice + strings.
+discover :: proc(dir: string, allocator := context.allocator) -> []string {
 	out := make([dynamic]string, allocator)
+	infos, rerr := os.read_all_directory_by_path(dir, context.temp_allocator)
+	if rerr != nil {
+		return out[:]
+	}
 	for info in infos {
-		if info.type != .Directory {
+		if info.type == .Directory || !strings.has_suffix(info.name, FILE_EXT) {
 			continue
 		}
-		marker, _ := filepath.join({info.fullpath, FILE_NAME}, context.temp_allocator)
-		if os.exists(marker) {
-			append(&out, strings.clone(info.name, allocator))
-		}
+		append(&out, strings.clone(info.name[:len(info.name) - len(FILE_EXT)], allocator))
 	}
 	return out[:]
+}
+
+// preset_path builds <dir>/<name>.txt (temp-allocated).
+@(private)
+preset_path :: proc(dir, name: string) -> string {
+	file := strings.concatenate({name, FILE_EXT}, context.temp_allocator)
+	p, _ := filepath.join({dir, file}, context.temp_allocator)
+	return p
 }
 
 // --- internals ---
@@ -398,83 +391,6 @@ serialize :: proc(p: ^Light_Profile, name: string) -> string {
 	strings.write_string(&b, vs)
 	strings.write_byte(&b, '\n')
 	return strings.to_string(b)
-}
-
-// serialize_delta renders ONLY the fields where `p` differs from `base` — the minimal partial txt
-// for a "deltas from enabled" lighting mod, which layers on top of the resolved stack below it.
-serialize_delta :: proc(p, base: ^Light_Profile, name: string) -> string {
-	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintf(&b, "# SkyMod lighting mod (delta): %s\n", name)
-	strings.write_string(&b, "# only the fields that differ from the layer below are written.\n\n")
-	wv_d(&b, "sun_dir", p.sun_dir, base.sun_dir)
-	wv_d(&b, "sun_color", p.sun_color, base.sun_color)
-	wf_d(&b, "sun_intensity", p.sun_intensity, base.sun_intensity)
-	wv_d(&b, "ambient_sky", p.ambient_sky, base.ambient_sky)
-	wv_d(&b, "ambient_ground", p.ambient_ground, base.ambient_ground)
-	wf_d(&b, "ambient_intensity", p.ambient_intensity, base.ambient_intensity)
-	wf_d(&b, "ambient_floor", p.ambient_floor, base.ambient_floor)
-	wv_d(&b, "fog_color", p.fog_color, base.fog_color)
-	wf_d(&b, "fog_start", p.fog_start, base.fog_start)
-	wf_d(&b, "fog_end", p.fog_end, base.fog_end)
-	wf_d(&b, "fog_height_falloff", p.fog_height_falloff, base.fog_height_falloff)
-	wf_d(&b, "fog_density", p.fog_density, base.fog_density)
-	wv_d(&b, "sky_color", p.sky_color, base.sky_color)
-	wf_d(&b, "exposure", p.exposure, base.exposure)
-	if p.tonemap != base.tonemap {fmt.sbprintf(&b, "tonemap = %s\n", tonemap_str(p.tonemap))}
-	wf_d(&b, "contrast", p.contrast, base.contrast)
-	wf_d(&b, "saturation", p.saturation, base.saturation)
-	wf_d(&b, "white_point", p.white_point, base.white_point)
-	wv_d(&b, "color_filter", p.color_filter, base.color_filter)
-	wf_d(&b, "albedo_lift", p.albedo_lift, base.albedo_lift)
-	wf_d(&b, "spec_scale", p.spec_scale, base.spec_scale)
-	wf_d(&b, "foliage_spec", p.foliage_spec, base.foliage_spec)
-	wf_d(&b, "gloss_min", p.gloss_min, base.gloss_min)
-	wf_d(&b, "gloss_max", p.gloss_max, base.gloss_max)
-	wf_d(&b, "emissive_scale", p.emissive_scale, base.emissive_scale)
-	wf_d(&b, "normal_strength", p.normal_strength, base.normal_strength)
-	wf_d(&b, "shadow_strength", p.shadow_strength, base.shadow_strength)
-	wf_d(&b, "shadow_bias", p.shadow_bias, base.shadow_bias)
-	wf_d(&b, "shadow_softness", p.shadow_softness, base.shadow_softness)
-	if p.veg_shadows != base.veg_shadows {fmt.sbprintf(&b, "veg_shadows = %s\n", veg_str(p.veg_shadows))}
-	return strings.to_string(b)
-}
-
-@(private)
-tonemap_str :: proc(t: Tonemap) -> string {
-	switch t {
-	case .Reinhard:
-		return "reinhard"
-	case .ACES:
-		return "aces"
-	case .Filmic:
-		return "filmic"
-	case .None:
-		return "none"
-	}
-	return "aces"
-}
-
-@(private)
-veg_str :: proc(v: Veg_Shadows) -> string {
-	switch v {
-	case .Off:
-		return "off"
-	case .Proxy:
-		return "proxy"
-	case .Full:
-		return "full"
-	}
-	return "full"
-}
-
-@(private)
-wf_d :: proc(b: ^strings.Builder, key: string, v, base: f32) {
-	if v != base {wf(b, key, v)}
-}
-
-@(private)
-wv_d :: proc(b: ^strings.Builder, key: string, v, base: Vec3) {
-	if v != base {wv(b, key, v)}
 }
 
 @(private)

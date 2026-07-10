@@ -767,10 +767,10 @@ lod_test_legend :: proc(lod_tris: [3]u32) {
 }
 
 // Lighting_Action is what the lighting configurator requests this frame: switch to a
-// different profile (`select` = index into names, -1 = no change) and/or save the active one.
+// different preset (`select` = index into names, -1 = no change) and/or save the active one.
 Lighting_Action :: struct {
 	select:  int,
-	save_as: bool, // write the active look as a lighting mod (caller reads the name/checkboxes)
+	save_as: bool, // write the active look as a preset in content/baselighting (caller reads the name)
 }
 
 // lighting_panel is the in-game lighting configurator (ROADMAP full-scene-lighting Phase A):
@@ -783,7 +783,6 @@ lighting_panel :: proc(
 	names: []string,
 	current: int,
 	save_name: []u8,
-	all_profiles, delta_mode: ^bool,
 ) -> (
 	act: Lighting_Action,
 ) {
@@ -861,10 +860,7 @@ lighting_panel :: proc(
 
 		imgui.SeparatorText("Save as lighting mod")
 		imgui.SetNextItemWidth(-1)
-		imgui.InputTextWithHint("##lightname", "lighting mod name", cstring(raw_data(save_name)), uint(len(save_name)))
-		imgui.Checkbox("all profiles", all_profiles)
-		imgui.SameLine()
-		imgui.Checkbox("deltas only", delta_mode)
+		imgui.InputTextWithHint("##lightname", "preset name", cstring(raw_data(save_name)), uint(len(save_name)))
 		if imgui.Button("Save As Mod") {
 			act.save_as = true
 		}

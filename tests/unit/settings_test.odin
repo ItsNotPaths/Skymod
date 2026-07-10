@@ -65,6 +65,47 @@ test_settings_merge_keeps_values :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(s, "persist_logs = false"), "default written out")
 }
 
+@(test)
+test_settings_overlay :: proc(t: ^testing.T) {
+	root_dir := temp_settings_dir(t, "overlay_root")
+	defer os.remove_all(root_dir)
+	defer delete(root_dir)
+	child_dir := temp_settings_dir(t, "overlay_child")
+	defer os.remove_all(child_dir)
+	defer delete(child_dir)
+
+	// Root (vanilla) baseline: render_distance defaults to 2, plus a game path.
+	root := settings.load(root_dir)
+	defer settings.destroy(&root)
+	settings.set(&root, "source_game", "/games/Skyrim")
+	testing.expect(t, settings.get(&root, "render_distance") == "2", "root default rd")
+
+	// A profile overlay overrides only render_distance; game path inherits from root.
+	child := settings.load_child(child_dir, &root)
+	defer settings.destroy(&child)
+	testing.expect(t, settings.get(&child, "source_game") == "/games/Skyrim", "inherits root game path")
+	testing.expect(t, settings.get(&child, "render_distance") == "2", "inherits root rd before override")
+
+	settings.set(&child, "render_distance", "12")
+	testing.expect(t, settings.get(&child, "render_distance") == "12", "override wins")
+	testing.expect(t, settings.get(&root, "render_distance") == "2", "root unchanged by child override")
+
+	// root() reaches the baseline from the child, for root-only keys.
+	settings.set(settings.root(&child), "active_profile", "modlistB")
+	testing.expect(t, settings.get(&root, "active_profile") == "modlistB", "root() targets baseline")
+
+	// Saving the child writes ONLY its own overrides (sparse) — not the inherited keys.
+	testing.expect(t, settings.save(&child), "save child")
+	path, _ := filepath.join({child_dir, settings.FILE_NAME}, context.allocator)
+	defer delete(path)
+	data, err := os.read_entire_file(path, context.allocator)
+	testing.expect(t, err == nil, "reread child file")
+	defer delete(data)
+	s := string(data)
+	testing.expect(t, strings.contains(s, "render_distance = 12"), "override persisted")
+	testing.expect(t, !strings.contains(s, "source_game"), "inherited key NOT written to overlay")
+}
+
 // temp_settings_dir makes a fresh, empty dir under the OS temp root, unique per
 // `name` so tests running in parallel don't stomp each other. Caller frees the
 // returned path and removes the dir.

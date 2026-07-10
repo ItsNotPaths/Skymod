@@ -27,6 +27,7 @@ import "core:thread"
 
 import "../assetdb"
 import "../gamedb"
+import "../input"
 import smath "../math"
 import "../mods"
 import "../physics"
@@ -96,14 +97,23 @@ Frame_State :: struct {
 Game :: struct {
 	// borrowed from main() for the whole session
 	logging: ^slog.Logging,
-	cfg:     ^settings.Config,
+	cfg:     ^settings.Config, // EFFECTIVE config: the root cfg for vanilla, else &cfg_overlay
 	base:    string,
+
+	// per-profile settings overlay: when a non-vanilla profile is active, a sparse
+	// Config layered over the root (main's cfg). g.cfg points at it; owned here.
+	cfg_overlay:  settings.Config,
+	cfg_overlaid: bool,
 
 	up: Game_Up,
 
 	// platform + renderer
 	p: platform.Platform,
 	r: render.Renderer,
+
+	// input: rebindable action manager (src/input). Driven each frame from the SDL
+	// device state; the frame_* helpers query it (input.fired/held/axis3).
+	imgr: input.Manager,
 
 	// the load screen: the shared UI substrate session (ui_session.odin), persisted for the whole
 	// session because it's invoked at boot AND mid-game (interior/city/F9 loads), driven by loadui.odin.
@@ -129,10 +139,8 @@ Game :: struct {
 	scene:   world.Scene,
 
 	// scene lighting (configurator panel state included)
-	lights:             Lighting_State,
-	light_save_name:    [64]u8,
-	light_all_profiles: bool,
-	light_delta:        bool,
+	lights:          Lighting_State,
+	light_save_name: [64]u8,
 
 	// streaming + door traversal + experimental open-interiors
 	streamer:     world.Streamer,
@@ -238,6 +246,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		active_profile = DEFAULT_PROFILE
 	}
 	ensure_profile_dir(base, active_profile)
+
 	mods.profile_init(&g.mprofile)
 	g.up.profile = true
 	_ = mods.profile_load(&g.mprofile, modlist_path_for(base, active_profile))
@@ -257,6 +266,25 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if boot_choice == .Quit {
 		return false
 	}
+
+	// The mod manager may have switched the active profile, so resolve settings AFTER the menu.
+	// Per-profile overlay: vanilla uses the root cfg directly; any other profile layers its sparse
+	// settings.txt over the root — g.cfg reads inherit vanilla, writes land in the profile. Built
+	// before input_setup so the effective bind.<id> overrides (baseline ⊕ profile) resolve.
+	final_profile := settings.get(cfg, "active_profile")
+	if final_profile == "" {
+		final_profile = DEFAULT_PROFILE
+	}
+	if final_profile != DEFAULT_PROFILE {
+		ensure_profile_dir(base, final_profile)
+		profile_dir, _ := filepath.join({base, PROFILES_DIRNAME, final_profile}, context.temp_allocator)
+		g.cfg_overlay = settings.load_child(profile_dir, cfg)
+		g.cfg = &g.cfg_overlay
+		g.cfg_overlaid = true
+	}
+	// Input actions: register the default scheme + apply the effective settings' bind overrides.
+	// Leaf subsystem (no window dep); destroyed in game_teardown.
+	input_setup(&g.imgr, g.cfg)
 
 	// VFS is cheap (BSA headers) — build it on the main thread.
 	g.v = mount_game_mods(src, base, &g.mprofile)
@@ -314,7 +342,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
 	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
 	// pushed onto whichever scene we draw each frame (so it also reaches the active interior).
-	g.pretty = slice.contains(os.args, "--pretty") || settings.get_bool(cfg, "pretty")
+	g.pretty = slice.contains(os.args, "--pretty") || settings.get_bool(g.cfg, "pretty")
 	g.scene.pretty = g.pretty
 	if g.pretty {
 		log.info("--pretty: hiding untextured marker placeholders (toggle in Stats)")
@@ -322,27 +350,27 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 
 	// LOD distances (cell radii): full-detail bubble (near terrain + grass + full objects), and how
 	// far Skyrim's prebaked object-LOD meshes reach. Terrain itself is whole-world CDLOD (no knob).
-	g.full_radius = settings.get_int(cfg, "render_distance", 2)
-	obj_radius := settings.get_int(cfg, "object_lod_distance", 24)
+	g.full_radius = settings.get_int(g.cfg, "render_distance", 2)
+	obj_radius := settings.get_int(g.cfg, "object_lod_distance", 24)
 	// Tree billboards are the cheap far-far tier — their own reach (cells), defaulting to the object
 	// reach so an unset value never shrinks trees below the statics. Set it higher to fill the horizon.
-	tree_radius := settings.get_int(cfg, "tree_lod_distance", obj_radius)
+	tree_radius := settings.get_int(g.cfg, "tree_lod_distance", obj_radius)
 
 	// Optional LOD falloff tuning (commented out in settings.txt by default — compiled defaults
 	// here). terrain_lod_falloff = the quadtree coarsening factor (lower = finer distant terrain);
 	// object_lod_falloff scales the per-ring object size cull (>1 = fewer/larger-only distant objects).
-	world.terr_lod_k = settings.get_float(cfg, "terrain_lod_falloff", world.terr_lod_k)
-	world.OBJ_LOD_FALLOFF = settings.get_float(cfg, "object_lod_falloff", world.OBJ_LOD_FALLOFF)
-	world.TREE_LOD_FALLOFF = settings.get_float(cfg, "tree_lod_falloff", world.TREE_LOD_FALLOFF)
+	world.terr_lod_k = settings.get_float(g.cfg, "terrain_lod_falloff", world.terr_lod_k)
+	world.OBJ_LOD_FALLOFF = settings.get_float(g.cfg, "object_lod_falloff", world.OBJ_LOD_FALLOFF)
+	world.TREE_LOD_FALLOFF = settings.get_float(g.cfg, "tree_lod_falloff", world.TREE_LOD_FALLOFF)
 	// Baked distant-object LOD (object_lod.odin): which MNAM LOD band every distant static uses, and
 	// the merge-quad size in cells (smaller = cleaner near transition + more draws). See settings.txt.
-	world.OBJECT_LOD_BAND = settings.get_int(cfg, "object_lod_band", world.OBJECT_LOD_BAND)
-	world.OBJECT_LOD_QUAD = i32(settings.get_int(cfg, "object_lod_quad", int(world.OBJECT_LOD_QUAD)))
+	world.OBJECT_LOD_BAND = settings.get_int(g.cfg, "object_lod_band", world.OBJECT_LOD_BAND)
+	world.OBJECT_LOD_QUAD = i32(settings.get_int(g.cfg, "object_lod_quad", int(world.OBJECT_LOD_QUAD)))
 	// CDLOD geomorph tuning (smooth terrain LOD transitions): falloff = how early in each band the
 	// morph starts (lower = gentler), strength = morph amount (1 = crack-free, 0 = hard snaps).
-	world.terr_geomorph_falloff = settings.get_float(cfg, "terrain_geomorph_falloff", world.terr_geomorph_falloff)
-	world.terr_geomorph_strength = settings.get_float(cfg, "terrain_geomorph_strength", world.terr_geomorph_strength)
-	world.terr_geomorph_distance = settings.get_float(cfg, "terrain_geomorph_distance", world.terr_geomorph_distance)
+	world.terr_geomorph_falloff = settings.get_float(g.cfg, "terrain_geomorph_falloff", world.terr_geomorph_falloff)
+	world.terr_geomorph_strength = settings.get_float(g.cfg, "terrain_geomorph_strength", world.terr_geomorph_strength)
+	world.terr_geomorph_distance = settings.get_float(g.cfg, "terrain_geomorph_distance", world.terr_geomorph_distance)
 	// Fade the CDLOD height-drop out at the near-terrain edge: full drop under the lod-0 bubble
 	// (so the near mesh wins), zero beyond it (so distant terrain sits at true height under the
 	// distant water). full_radius cells of near terrain surround the player; ramp out over the
@@ -353,23 +381,23 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// Texture resolution cap (0 = full): drops the DDS's own top mips at upload — a memory/
 	// quality knob that matters most for high-res mod texture packs. World textures only
 	// (models + terrain ground); the UI atlas paths don't go through the asset cache.
-	assetdb.TEXTURE_MAX_DIM = settings.get_int(cfg, "texture_max_dim", 0)
+	assetdb.TEXTURE_MAX_DIM = settings.get_int(g.cfg, "texture_max_dim", 0)
 
 	// D1 model-cache eviction budget (MB of zero-ref "cold" model payload kept warm before evicting
 	// oldest-first). 0 (default) = eviction OFF — the cache stays monotonic. Ships DARK: the refcounts
 	// run and the diag prints cold=N so acquire/release balance can be validated before a budget frees
 	// anything. Set model_cache_mb=256 (~a few regions of backtracking warmth) once verified.
-	assetdb.MODEL_CACHE_BYTES = settings.get_int(cfg, "model_cache_mb", 0) * 1024 * 1024
+	assetdb.MODEL_CACHE_BYTES = settings.get_int(g.cfg, "model_cache_mb", 0) * 1024 * 1024
 
 	// D1 slice 2: texture-cache eviction budget (MB of zero-ref, non-pinned cold texture payload kept
 	// warm before evicting oldest-first). Textures are ~83% of a region's footprint, so this is the
 	// real memory lever. 0 (default) = OFF (dark). Terrain-ground textures are pinned (never counted).
-	assetdb.TEXTURE_CACHE_BYTES = settings.get_int(cfg, "texture_cache_mb", 0) * 1024 * 1024
+	assetdb.TEXTURE_CACHE_BYTES = settings.get_int(g.cfg, "texture_cache_mb", 0) * 1024 * 1024
 
 	// Decode pool size. load_threads = 0 → auto (logical cores − 1, leaving the main thread a
 	// core); an explicit value overrides. The heavy BSA+NIF+DDS decode is thread-safe, so more
 	// threads fill the asset queue faster — the win is biggest during the initial full load.
-	decode_threads := settings.get_int(cfg, "load_threads", 0)
+	decode_threads := settings.get_int(g.cfg, "load_threads", 0)
 	if decode_threads <= 0 {
 		_, logical, cores_ok := info.cpu_core_count()
 		decode_threads = max(logical - 1, 1) if cores_ok else 4
@@ -378,24 +406,24 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 
 	// Grass draw distance (world units) + a basic, reusable wind (a future HDT-SMP-style
 	// sim would drive/replace the procedural sway). `elapsed` advances the wind phase.
-	g.grass_dist = f32(settings.get_int(cfg, "grass_distance", 8192))
-	g.shadow_dist = f32(settings.get_int(cfg, "shadow_distance", 20000))
+	g.grass_dist = f32(settings.get_int(g.cfg, "grass_distance", 8192))
+	g.shadow_dist = f32(settings.get_int(g.cfg, "shadow_distance", 20000))
 	g.wind = render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
 
-	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): once, derive a data-faithful
-	// "skyrim" profile from the user's own Skyrim.esm imagespace (local, never shipped), then
-	// load the active profile (baked "vanilla"/"realistic", the derived "skyrim", or any sidecar
-	// under <base>/profiles/). Live-editable via the Lighting panel; pushed each frame.
-	ensure_game_lighting_profile(base, resolve_source(cfg))
-	g.lights = lighting_state_init(base, settings.get(cfg, "lighting_profile"), &g.mprofile)
+	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): populate the pinned baseline lighting
+	// content mod content/baselighting (stylized presets from #load; the data-faithful "vanilla"
+	// derived once from the user's own Skyrim.esm imagespace, local + never shipped), then load the
+	// active preset (`lighting_profile`). Live-editable via the Lighting panel; pushed each frame.
+	baselighting_ensure(base, resolve_source(cfg))
+	g.lights = lighting_state_init(base, settings.get(g.cfg, "lighting_profile"))
 	g.up.lights = true
 
 	// EXPERIMENTAL (open-interiors foundation): when experimental_open_interiors is set, discover
 	// the worldspace's load-door → interior links (build_portals) so the door alignment data is
 	// available + visible in the overlay. The renderer that consumes these is a future stencil-
 	// portal effort; the RTT prototype was removed. See the open-interiors-portal memory notes.
-	open_interiors := settings.get_bool(cfg, "experimental_open_interiors")
-	interior_dist := f32(settings.get_int(cfg, "interior_load_distance", 2048))
+	open_interiors := settings.get_bool(g.cfg, "experimental_open_interiors")
+	interior_dist := f32(settings.get_int(g.cfg, "interior_load_distance", 2048))
 	g.portal_push = 32
 	g.portal_yaw_off = 0
 
@@ -549,6 +577,8 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.loadui {loadui_destroy(g)} // releases the atlas/UI textures — before render.shutdown (device alive)
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
+	input.destroy(&g.imgr) // leaf; safe on a zero-value manager
+	if g.cfg_overlaid {settings.destroy(&g.cfg_overlay)} // frees only its own overrides, not the root
 	if g.up.platform {platform.shutdown(&g.p)}
 }
 

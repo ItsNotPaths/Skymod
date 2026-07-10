@@ -53,9 +53,16 @@ main :: proc() {
 	// installed content/ folder all sit beside the binary.
 	base := platform.base_path()
 
-	// Settings beside the executable. source_game (the path to the user's Skyrim
-	// install) lives here so the installer never has to ask twice.
-	cfg := settings.load(base)
+	// One-time layout migration: the mod profiles moved from <base>/modprofiles/ to <base>/profiles/
+	// (the old lighting "profiles/" concept became the pinned content/baselighting mod). Runs before
+	// any dir is read below so settings/modlists resolve from the new location.
+	migrate_profiles_layout(base)
+
+	// Root settings = the vanilla baseline profile (<base>/profiles/vanilla/settings.txt),
+	// which every other profile inherits. The executable creates/refreshes it from the DEFAULTS
+	// embedded in the binary (and migrates any legacy <base>/settings.txt into it) — nothing is
+	// shipped alongside the exe. source_game lives here so the installer never asks twice.
+	cfg := load_root_settings(base)
 	defer settings.destroy(&cfg)
 
 	// Logging beside the executable. Default: skymod.log, wiped each run. With

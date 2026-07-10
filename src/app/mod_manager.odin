@@ -40,6 +40,9 @@ run_mod_manager :: proc(
 		if active == "" {
 			active = DEFAULT_PROFILE
 		}
+		// vanilla is the immutable baseline: its plugin list is locked to the system mods,
+		// so list-editing verbs are ignored while it's active (switch/create still work).
+		locked_profile := strings.equal_fold(active, DEFAULT_PROFILE)
 		if dirty {
 			free_derived(derived)
 			free_missing(missing)
@@ -68,6 +71,15 @@ run_mod_manager :: proc(
 		profiles := discover_profiles(base, context.temp_allocator)
 
 		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view, missing_view)
+
+		// vanilla is the immutable baseline: drop any plugin-list edits (switch/create still apply).
+		if locked_profile {
+			res.toggled = -1
+			res.move_from, res.move_to = -1, -1
+			res.add_separator = false
+			res.add_empty = false
+			res.auto_disable_missing = false
+		}
 
 		if res.toggled >= 0 {mods.profile_toggle(profile, res.toggled);dirty = true}
 		if res.move_from >= 0 && res.move_to >= 0 {
@@ -110,8 +122,8 @@ run_mod_manager :: proc(
 			target := profiles[res.switch_profile]
 			if !strings.equal_fold(target, active) {
 				_ = mods.profile_save(profile, modlist_path_for(base, active))
-				settings.set(cfg, "active_profile", target)
-				_ = settings.save(cfg)
+				settings.set(settings.root(cfg), "active_profile", target) // root-only key
+				_ = settings.save(settings.root(cfg))
 				switch_profile(profile, src, base, target)
 				dirty = true
 			}
@@ -121,8 +133,10 @@ run_mod_manager :: proc(
 			name := fmt.tprintf("Profile %d", len(profiles))
 			ensure_profile_dir(base, name)
 			_ = mods.profile_save(profile, modlist_path_for(base, active))
-			settings.set(cfg, "active_profile", name)
-			_ = settings.save(cfg)
+			// New profile inherits the vanilla baseline automatically (empty settings overlay);
+			// no values are copied — anything unset resolves through the root at load time.
+			settings.set(settings.root(cfg), "active_profile", name) // root-only key
+			_ = settings.save(settings.root(cfg))
 			switch_profile(profile, src, base, name)
 			dirty = true
 		}

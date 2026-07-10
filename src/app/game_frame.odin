@@ -14,8 +14,8 @@ import "core:time"
 
 import "../gamedb"
 import smath "../math"
-import "../mods"
 import "../physics"
+import "../input"
 import "../platform"
 import "../render"
 import slog "../log"
@@ -40,7 +40,18 @@ game_frame :: proc(g: ^Game) {
 	frame_t0 := time.tick_now() // profile: whole-frame busy time (see `prof`)
 	g.fr = {}
 	render.ui_new_frame(&g.r)
-	if g.p.input.toggle_overlay {
+
+	// Drive the input action manager for this frame: sample the SDL device state and
+	// gate the "gameplay" context on whether ImGui owns the keyboard (the console/panels).
+	// "global" actions (overlay toggle) stay live regardless.
+	{
+		_, kb_cap := render.ui_capturing(&g.r)
+		input.set_context(&g.imgr, "gameplay", !kb_cap)
+		f := platform.input_frame(&g.p)
+		input.update(&g.imgr, &f)
+	}
+
+	if input.fired(&g.imgr, "ToggleOverlay") {
 		g.show_overlay = !g.show_overlay
 	}
 	// Pointer lock during gameplay (mouse-look, no button needed). The tilde/backtick dev overlay is the
@@ -198,14 +209,12 @@ frame_overlay :: proc(g: ^Game) {
 		world.interiors_add_cull_tex(&g.interiors, g.insp.sel_tex)
 	}
 
-	// Lighting configurator: live-edit, switch the base profile, or save the look as a mod.
+	// Lighting configurator: live-edit, switch the active preset, or save the look as a new preset.
 	light_act := tools.lighting_panel(
 		&g.lights.active,
 		g.lights.names[:],
 		g.lights.current,
 		g.light_save_name[:],
-		&g.light_all_profiles,
-		&g.light_delta,
 	)
 	if light_act.select >= 0 && light_act.select != g.lights.current {
 		lighting_select(&g.lights, light_act.select)
@@ -217,10 +226,10 @@ frame_overlay :: proc(g: ^Game) {
 			strings.trim_space(string(cstring(raw_data(g.light_save_name[:])))),
 			context.temp_allocator,
 		)
-		if name != "" && lighting_write_mod(&g.lights, name, g.light_delta) {
-			enable_lighting_mod(&g.mprofile, g.base, g.cfg, name, g.light_all_profiles)
-			lighting_select(&g.lights, g.lights.current) // re-resolve with the new mod layered in
-			log.infof("lighting: saved mod %q (delta=%v, all=%v)", name, g.light_delta, g.light_all_profiles)
+		if name != "" && lighting_save_preset(&g.lights, name) {
+			settings.set(g.cfg, "lighting_profile", g.lights.names[g.lights.current])
+			_ = settings.save(g.cfg)
+			log.infof("lighting: saved preset %q", name)
 			g.light_save_name = {}
 		}
 	}
@@ -289,7 +298,7 @@ frame_locomotion :: proc(g: ^Game) {
 	if g.fr.kb_cap {move = {}}
 	if g.fr.mouse_cap {look = {}}
 
-	if g.p.input.noclip {g.noclip = !g.noclip}
+	if input.fired(&g.imgr, "NoClip") {g.noclip = !g.noclip}
 	if g.char_ok && !g.noclip {
 		g.cam.yaw -= look.x * LOOK_SENSITIVITY
 		g.cam.pitch = clamp(g.cam.pitch - look.y * LOOK_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
@@ -314,14 +323,14 @@ frame_debug_verbs :: proc(g: ^Game) {
 	// Drop-test: G spawns a falling ball at the camera (physics verification). Exterior only —
 	// the markers read positions from `phys`, so a ball dropped inside an interior (a
 	// different world) wouldn't track; gate it to the exterior to avoid the confusion.
-	if g.phys_ok && g.p.input.drop && !g.fr.kb_cap && !g.fr.in_interior {
+	if g.phys_ok && input.fired(&g.imgr, "DevDrop") && !g.fr.in_interior {
 		b := physics.add_sphere(&g.phys, 24, g.cam.pos, is_dynamic = true)
 		if b != 0 {append(&g.drops, b)}
 		log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.drops), g.cam.pos.x, g.cam.pos.y, g.cam.pos.z)
 	}
 
 	// Collision-hitbox overlay toggle (K): show the green wireframe of what Jolt actually collides.
-	if g.p.input.hitbox && !g.fr.kb_cap {
+	if input.fired(&g.imgr, "DevHitbox") {
 		g.show_hitboxes = !g.show_hitboxes
 		world.clear_collision_debug(&g.scene) // rebuild fresh each enable (picks up late-loaded models)
 		if g.interiors_on {world.clear_collision_debug(&g.interiors.interior_scene)}
@@ -330,7 +339,7 @@ frame_debug_verbs :: proc(g: ^Game) {
 
 	// Shove-test (H): kick nearby movable clutter so it scatters and resettles — a visible check
 	// of the 3b dynamic-body path (interiors only, where clutter is dynamic).
-	if g.p.input.shove && !g.fr.kb_cap {
+	if input.fired(&g.imgr, "DevShove") {
 		t_shove := time.tick_now()
 		n := world.shove_clutter(g.fr.active_scene, g.cam.pos, 400)
 		act := physics.num_active(g.fr.active_scene.phys) if g.fr.active_scene.phys != nil else 0
@@ -344,7 +353,7 @@ frame_debug_verbs :: proc(g: ^Game) {
 // loads apply on the next interior entry.
 @(private = "file")
 frame_persistence :: proc(g: ^Game) {
-	if g.p.input.quicksave && !g.fr.kb_cap {
+	if input.fired(&g.imgr, "QuickSave") {
 		_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
 		cell := g.trav.cur_int_cell if (!g.interiors_on && g.trav.mode == .Interior) else Form_ID(0)
 		worldstate.set_player(&g.ws, cell, g.cam.pos, g.cam.yaw, g.cam.pitch) // player singleton: where to return on load
@@ -360,7 +369,7 @@ frame_persistence :: proc(g: ^Game) {
 			log.errorf("quicksave: FAILED to write %s", g.quicksave_path)
 		}
 	}
-	if g.p.input.quickload && !g.fr.kb_cap {
+	if input.fired(&g.imgr, "QuickLoad") {
 		if m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); ok {
 			log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
 			if !g.interiors_on {
@@ -465,7 +474,7 @@ frame_traversal :: proc(g: ^Game) {
 	// Manual: prompt + F / button (skip for auto doors — they have no visible mesh).
 	g.insp.near_door = hit.ok && !hit.auto && !crossed
 	g.insp.near_door_cell = door_dest_label(&g.trav, hit.tp_door) if g.insp.near_door else ""
-	if g.insp.near_door && g.insp.near_door_cell != "" && (g.p.input.activate || g.fr.insp_action == .Go_Through) {
+	if g.insp.near_door && g.insp.near_door_cell != "" && (input.fired(&g.imgr, "Activate") || g.fr.insp_action == .Go_Through) {
 		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
 			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
 			traversal_finish_load(g, kind)
@@ -528,7 +537,7 @@ frame_inspect :: proc(g: ^Game) {
 	// Disable-test (Ctrl-hover + X): record a Disabled delta for the hovered ref and hide it live —
 	// the Layer-1 mutation verb end-to-end (overlay delta + live-apply; persists via apply_overlay
 	// on cell reload). Spread target: Alvor's house (exterior) + Sleeping Giant fireplaces (interior).
-	if g.p.input.disable && !g.fr.kb_cap && active_scene.has_hover {
+	if input.fired(&g.imgr, "DevDisable") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
 			inst := &chunk.instances[active_scene.hover_inst]
@@ -543,7 +552,7 @@ frame_inspect :: proc(g: ^Game) {
 	// Spawn-test (Ctrl-hover + B): mint a runtime created ref (0xFF space) — a copy of the hovered
 	// ref's base form — at the camera, in the hovered ref's cell. Exercises the created-ref store +
 	// additive overlay + live spawn; it persists (F5) and respawns on cell reload.
-	if g.p.input.spawn && !g.fr.kb_cap && active_scene.has_hover {
+	if input.fired(&g.imgr, "DevSpawn") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
 			base := chunk.instances[active_scene.hover_inst].base
@@ -682,38 +691,6 @@ frame_render :: proc(g: ^Game) {
 		render.end_frame(&g.r)
 	}
 	g.prof.render += time.duration_milliseconds(time.tick_since(t_render))
-}
-
-// enable_lighting_mod adds a just-written lighting mod to the active profile (and, if requested,
-// every other profile), persisting each modlist. The mod is lighting-only, so no world rebuild.
-@(private = "file")
-enable_lighting_mod :: proc(
-	active: ^mods.Profile,
-	base: string,
-	cfg: ^settings.Config,
-	name: string,
-	all_profiles: bool,
-) {
-	mods.profile_add(active, name)
-	cur := settings.get(cfg, "active_profile")
-	if cur == "" {
-		cur = DEFAULT_PROFILE
-	}
-	_ = mods.profile_save(active, modlist_path_for(base, cur))
-	if !all_profiles {
-		return
-	}
-	for pname in discover_profiles(base, context.temp_allocator) {
-		if strings.equal_fold(pname, cur) {
-			continue
-		}
-		other: mods.Profile
-		mods.profile_init(&other)
-		_ = mods.profile_load(&other, modlist_path_for(base, pname))
-		mods.profile_add(&other, name)
-		_ = mods.profile_save(&other, modlist_path_for(base, pname))
-		mods.profile_destroy(&other)
-	}
 }
 
 // proc_rss_mb reads this process's resident set size (MB) from /proc/self/statm (Linux) — the
