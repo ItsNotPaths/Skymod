@@ -74,7 +74,8 @@ game_frame :: proc(g: ^Game) {
 	frame_physics(g)
 	frame_traversal(g)
 	frame_inspect(g)
-	frame_hud(g) // resolve the crosshair target + publish it; draws into the UI drawlist end_frame composites
+	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
+	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 
 	g.elapsed += g.p.dt
 	frame_render(g)
@@ -451,30 +452,21 @@ frame_physics :: proc(g: ^Game) {
 	g.prof.phys += time.duration_milliseconds(time.tick_since(t_phys))
 }
 
-// frame_traversal drives base door traversal: auto-load doors (cave/dungeon entrances) cross
-// on PROXIMITY; manual doors (real meshes, incl. cross-worldspace city gates) arm a prompt and
-// cross on F / the panel button. Covers interior, interior→interior, exterior return, and
-// cross-worldspace gates. Inert on the experimental open-interiors path (it has its own walk-in).
+// frame_traversal drives the PROXIMITY half of base door traversal: invisible auto-load doors
+// (cave/dungeon AutoLoadMarkers) cross with no key when you walk into them. Manual doors (real
+// meshes, incl. city gates) are crossed by the crosshair now — you look at the door and press
+// Activate — so they're handled in frame_interact, not here. Inert on the experimental
+// open-interiors path (it has its own walk-in).
 @(private = "file")
 frame_traversal :: proc(g: ^Game) {
 	if g.interiors_on {
 		return
 	}
 	traversal_arrival_update(&g.trav, g.cam.pos) // re-arm auto-fire once clear of the last landing
+	// Auto-load only: the nearest door scan exists to catch the invisible markers the crosshair can't
+	// hit. A manual door found here is ignored — Activate crosses it via the crosshair (frame_interact).
 	hit := traversal_nearest_door(&g.trav, g.cam.pos)
-	crossed := false
-	// Auto-load: fire on proximity (no key), suppressed right after a transition.
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
-		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
-			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
-			crossed = true
-			traversal_finish_load(g, kind)
-		}
-	}
-	// Manual: prompt + F / button (skip for auto doors — they have no visible mesh).
-	g.insp.near_door = hit.ok && !hit.auto && !crossed
-	g.insp.near_door_cell = door_dest_label(&g.trav, hit.tp_door) if g.insp.near_door else ""
-	if g.insp.near_door && g.insp.near_door_cell != "" && (input.fired(&g.imgr, "Activate") || g.fr.insp_action == .Go_Through) {
 		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
 			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
 			traversal_finish_load(g, kind)
@@ -486,7 +478,7 @@ frame_traversal :: proc(g: ^Game) {
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
 // (like Skyrim's city load). An exterior return is instant (kept-warm window) — nothing to do.
-@(private = "file")
+// Package-visible: frame_interact calls it after a crosshair door crossing too.
 traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	switch kind {
 	case .City:

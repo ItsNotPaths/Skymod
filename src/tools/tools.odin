@@ -104,13 +104,10 @@ interiors_panel :: proc(
 	return
 }
 
-// Inspector state shared with the app each frame: a proximity door prompt (the
-// actionable transition) and the click-picked model's info (for inspection). The app
-// fills these before this panel runs.
+// Inspector state shared with the app each frame: the click-picked model's info (for
+// inspection). The app fills these before this panel runs. (Door activation moved to the
+// crosshair — see the engine's frame_interact — so there's no proximity door prompt here.)
 Inspector :: struct {
-	// Nearest load door within activation range (drives "Go Through"):
-	near_door:      bool,
-	near_door_cell: string, // destination interior editor id, or "" if exterior
 	// Click-picked model (info only):
 	has_sel:        bool,
 	sel_name:       string, // MODL mesh path of the picked instance
@@ -144,28 +141,14 @@ inspector_destroy :: proc(insp: ^Inspector) {
 // Inspect_Action is what the inspector panel requested this frame.
 Inspect_Action :: enum {
 	None,
-	Go_Through, // door activation (F / button)
-	Cull_Tex,   // add the picked shape's texture to the portal cull set
+	Cull_Tex, // add the picked shape's texture to the portal cull set
 }
 
-// inspector_panel shows the door-activation prompt + the picked model's identity
-// (ROADMAP Iteration 1, Milestones C/D). Approach a load door → a "Go Through" button
-// (also the F key) appears; returns true the frame it's clicked so the app performs
-// the cell transition. Left-click any model to inspect its MODL/base/pos/rotation.
+// inspector_panel shows the picked model's identity (ROADMAP Iteration 1, Milestone D).
+// Left-click any model to inspect its MODL/base/pos/rotation. (Door crossing is on the
+// crosshair now — look at a door and press Activate — so there's no door prompt here.)
 inspector_panel :: proc(insp: ^Inspector) -> (action: Inspect_Action) {
 	if imgui.Begin("Inspector", nil, {}) {
-		if insp.near_door {
-			if insp.near_door_cell != "" {
-				imgui.TextUnformatted(fmt.ctprintf("Door ahead → %s", insp.near_door_cell))
-				if imgui.Button("Go Through (F)") {
-					action = .Go_Through
-				}
-			} else {
-				imgui.TextUnformatted("Door ahead → (exterior — not yet supported)")
-			}
-			imgui.Separator()
-		}
-
 		if insp.has_sel {
 			if insp.sel_display != "" {
 				imgui.TextUnformatted(fmt.ctprintf("name:  %s", insp.sel_display))

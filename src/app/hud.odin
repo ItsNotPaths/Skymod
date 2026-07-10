@@ -8,8 +8,6 @@ package main
 // gameplay frames. The screen itself is pure Lua (hud.lua) — this file only owns the session's
 // lifetime and publishes the resolved activation target into the host each frame.
 
-import "core:log"
-import "../input"
 import "../render"
 
 // hud_init opens the persistent HUD session on hud.lua. baseui (chrome + reticle asset) and a font
@@ -30,10 +28,10 @@ hud_destroy :: proc(g: ^Game) {
 	ui_session_close(&g.hud)
 }
 
-// frame_hud resolves what the crosshair points at, publishes it to the HUD host (engine.activation),
-// draws the HUD, and fires the non-door activate STUB. Runs each gameplay frame before frame_render
-// composites the UI drawlist. Doors are crossed by frame_traversal (proximity + F); this only shows
-// their prompt. A no-op when the session failed to init.
+// frame_hud publishes the crosshair target (already resolved this frame by frame_interact into
+// g.fr.act) to the HUD host (engine.activation) and draws the HUD. Runs each gameplay frame before
+// frame_render composites the UI drawlist. Activate itself is handled in frame_interact; this only
+// shows the prompt. A no-op when the session failed to init.
 frame_hud :: proc(g: ^Game) {
 	if !g.hud.ok {
 		return
@@ -45,20 +43,12 @@ frame_hud :: proc(g: ^Game) {
 		return
 	}
 
-	tgt := resolve_activation(g)
+	tgt := g.fr.act
 	g.hud.host.act_present = tgt.present
 	g.hud.host.act_kind = activate_kind_tag[tgt.kind]
 	g.hud.host.act_name = tgt.name
 	g.hud.host.act_dest = tgt.dest
 	g.hud.host.act_locked = tgt.locked
-
-	// Activate (F): doors cross via frame_traversal. For a non-door target, log a stub so the input
-	// path is proven end-to-end now — real container/dialogue menus hook in here later.
-	if tgt.present && tgt.kind != .Door && input.fired(&g.imgr, "Activate") {
-		subject := tgt.name if tgt.name != "" else "(unnamed)"
-		verb := "open" if tgt.kind == .Container else "activate"
-		log.infof("activate: %s %q [%s] — no menu yet (stub)", verb, subject, activate_kind_tag[tgt.kind])
-	}
 
 	w, h := ui_screen_size()
 	ui_session_draw(&g.hud, w, h)

@@ -22,6 +22,7 @@ Window :: ^sdl.Window
 Input :: struct {
 	move:      [3]f32, // x=forward(+W/-S), y=right(+D/-A), z=up(+E/Space, -Q)
 	look:      [2]f32, // mouse delta px this pump, only while look is captured (hold RMB)
+	scroll:    f32,    // mouse-wheel notches this pump (+up/away, -down/toward) — telekinesis reach
 	fast:      bool,   // shift held -> speed boost
 	select:    bool,   // left mouse pressed this pump (edge) — pick the hovered model
 	activate:  bool,   // F pressed this pump (edge) — use the nearby door
@@ -119,6 +120,7 @@ base_path :: proc() -> string {
 pump :: proc(p: ^Platform) -> bool {
 	running := true
 	look: [2]f32
+	scroll: f32
 	select := false
 	activate := false
 	toggle_overlay := false
@@ -183,6 +185,9 @@ pump :: proc(p: ^Platform) -> bool {
 			if p.relative_on {
 				look += {ev.motion.xrel, ev.motion.yrel}
 			}
+		case .MOUSE_WHEEL:
+			// Accumulate wheel notches this pump (SDL flips sign when the OS has "natural" scrolling).
+			scroll += ev.wheel.y if ev.wheel.direction == .NORMAL else -ev.wheel.y
 		}
 	}
 
@@ -221,6 +226,7 @@ pump :: proc(p: ^Platform) -> bool {
 	p.input = Input {
 		move      = move,
 		look      = look,
+		scroll    = scroll,
 		fast      = fast,
 		select    = select,
 		activate  = activate,

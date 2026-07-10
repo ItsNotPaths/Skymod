@@ -17,6 +17,7 @@ package world
 
 import "core:fmt"
 import "core:log"
+import "core:math/linalg"
 import "core:strings"
 
 import "../physics"
@@ -854,10 +855,12 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 // pick_nearest ray-casts (origin + t·dir, dir normalized) against loaded instances and
 // returns the nearest hit's chunk + index, by PRECISE ray-vs-FACE — so small detail
 // meshes and foliage are selectable, not just whatever has the biggest bounding sphere.
-// Three phases per instance: a cheap world-sphere reject (no matrix), then transform the
-// ray into the instance's local space and reject against the tight model AABB, then
-// Möller-Trumbore over the model's triangles. `t` is world distance throughout (the
-// local ray is scaled so it stays comparable). Pure query — mutates nothing.
+// Three phases per instance: a cheap world-sphere reject, then transform the ray into the
+// instance's local space and reject against the tight model AABB, then Möller-Trumbore over
+// the model's triangles. `t` is world distance throughout (the inverse folds in 1/scale so
+// it stays comparable). Everything runs off the instance's LIVE transform (instance_world) —
+// the SAME pose the draw uses — so a movable-clutter item carried by a dynamic body is
+// selectable where it actually is, not at its baked spawn placement. Pure query — mutates nothing.
 @(private)
 pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx: int, shape: int, dist: f32, ok: bool) {
 	best_cell: Form_ID
@@ -865,7 +868,7 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 	best_shape := -1
 	best_t := max(f32)
 	for cid, &chunk in s.chunks {
-		for inst, ii in chunk.instances {
+		for &inst, ii in chunk.instances {
 			m := inst.model
 			if m == nil || assetdb.pick_index_count(m) == 0 {
 				continue
@@ -873,10 +876,14 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 			if s.pretty && m.untextured {
 				continue // --pretty: blank-white placeholder isn't selectable
 			}
-			// Cheap broad reject: a conservative world sphere around the instance origin
-			// (radius covers the off-origin model centre), no matrix build.
+			// Live pose — a dynamic-body item has moved off its baked placement (matches the draw).
+			iw := instance_world(s, &inst)
+			ipos_h := iw * [4]f32{0, 0, 0, 1} // live instance origin (model-local 0 → world)
+			ipos := smath.Vec3{ipos_h.x, ipos_h.y, ipos_h.z}
+			// Cheap broad reject: a conservative world sphere around the live origin
+			// (radius covers the off-origin model centre), before the inverse.
 			rad := (m.radius + smath.length3(m.center)) * inst.scale
-			oc := inst.pos - origin
+			oc := ipos - origin
 			tca := smath.dot3(oc, dir)
 			if tca < -rad {
 				continue // entirely behind the eye
@@ -884,8 +891,13 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 			if smath.dot3(oc, oc) - tca * tca > rad * rad {
 				continue // ray misses the bounding sphere
 			}
-			// Transform the ray into the instance's local (model) space.
-			lo_o, ld := ray_to_local(inst.pos, inst.rot, inst.scale, origin, dir)
+			// Transform the ray into the instance's local (model) space via the live transform's
+			// inverse. The inverse folds in 1/scale, so the intersection `t` stays in world units.
+			invw := linalg.inverse(iw)
+			lo_h := invw * [4]f32{origin.x, origin.y, origin.z, 1}
+			ld_h := invw * [4]f32{dir.x, dir.y, dir.z, 0}
+			lo_o := smath.Vec3{lo_h.x, lo_h.y, lo_h.z}
+			ld := smath.Vec3{ld_h.x, ld_h.y, ld_h.z}
 			if tb, hit := ray_aabb(lo_o, ld, m.lo, m.hi); !hit || tb >= best_t {
 				continue
 			}
@@ -907,21 +919,6 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 		return 0, -1, -1, 0, false
 	}
 	return best_cell, best_inst, best_shape, best_t, true
-}
-
-// ray_to_local maps a world ray into the local space of a trs(pos,rot,scale) placement.
-// trs = translate · transpose(Rz·Ry·Rx) · scale, so the inverse rotation is (Rz·Ry·Rx)
-// and the inverse is (1/scale)·that·(p − pos). The local dir is scaled by 1/scale too,
-// which makes the intersection t come out in WORLD units (the scale cancels against the
-// placement on the way back out) — so hits are comparable across differently-scaled refs.
-@(private)
-ray_to_local :: proc(pos, rot: smath.Vec3, scale: f32, o, d: smath.Vec3) -> (lo_o, ld: smath.Vec3) {
-	inv := 1.0 / scale if scale != 0 else 1.0
-	a := smath.rotate_z(rot.z) * smath.rotate_y(rot.y) * smath.rotate_x(rot.x)
-	rel := o - pos
-	ro := a * [4]f32{rel.x, rel.y, rel.z, 0}
-	rd := a * [4]f32{d.x, d.y, d.z, 0}
-	return {ro.x, ro.y, ro.z} * inv, {rd.x, rd.y, rd.z} * inv
 }
 
 // ray_aabb slab test. Returns the entry distance (negative if the origin is inside) and
@@ -1032,29 +1029,6 @@ select_instance :: proc(s: ^Scene) {
 	if s.has_hover {
 		s.sel_cell, s.sel_inst, s.has_sel = s.hover_cell, s.hover_inst, true
 	}
-}
-
-// nearest_door returns the closest load-door instance (has a teleport) to `pos` and
-// its distance, or ok=false if the scene has no doors. Doors don't need a loaded model.
-nearest_door :: proc(s: ^Scene, pos: smath.Vec3) -> (door: ^Instance, dist: f32, ok: bool) {
-	best: ^Instance
-	best_d := max(f32)
-	for _, &chunk in s.chunks {
-		for &inst in chunk.instances {
-			if !inst.has_tp {
-				continue
-			}
-			d := smath.length3(inst.pos - pos)
-			if d < best_d {
-				best_d = d
-				best = &inst
-			}
-		}
-	}
-	if best == nil {
-		return nil, 0, false
-	}
-	return best, best_d, true
 }
 
 // selected returns the currently-selected instance, if any.

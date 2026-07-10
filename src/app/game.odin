@@ -87,6 +87,7 @@ Frame_State :: struct {
 	insp_action:        tools.Inspect_Action, // what the inspector panel requested (overlay → traversal)
 	in_interior:        bool, // the player is inside a full-screen interior this frame
 	active_scene:       ^world.Scene, // the scene the player inhabits (exterior or interior)
+	act:                Activation_Target, // what the crosshair points at this frame (frame_interact resolves; frame_hud publishes)
 	mouse_cap, kb_cap:  bool, // ImGui owns the mouse/keyboard this frame
 }
 
@@ -169,6 +170,9 @@ Game :: struct {
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
 	// through the portal.
 	entered:  bool,
+
+	// crosshair interaction: door activation, item pickup, and telekinesis grab (interact.odin)
+	interact: Interact,
 
 	// scripting + dev console + inspector
 	sreg:    script.Registry,
