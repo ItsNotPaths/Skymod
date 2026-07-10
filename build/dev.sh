@@ -22,6 +22,9 @@ SDL_LINK="$(pkg-config --static --libs sdl3 | tr ' ' '\n' | grep -vx -- '-lSDL3'
 echo "==> compiling shaders"
 "$PROJECT_DIR/build/build_shaders.sh"
 
+echo "==> baking input prompts"
+"$PROJECT_DIR/build/bake_prompts.sh"
+
 mkdir -p "$OUT_DIR"
 echo "==> debug build -> build/out/skymod"
 odin build "$PROJECT_DIR/src/app" -debug -out:"$OUT_DIR/skymod" \

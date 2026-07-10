@@ -17,8 +17,13 @@ import "../render"
 // failed) leaves g.hud.ok false and frame_hud becomes a no-op — the game still plays, just without
 // the styled prompt.
 hud_init :: proc(g: ^Game) -> bool {
-	g.hud.host.act_button = "F" // the activate key (platform.Input.activate = F); Lua resolves its glyph
-	return ui_session_open(&g.hud, &g.r, &g.v, g.base, "hud.lua")
+	if !ui_session_open(&g.hud, &g.r, &g.v, g.base, "hud.lua") {
+		return false
+	}
+	// engine.prompt (the prompt{} widget) resolves live bindings through the input manager —
+	// set AFTER open (ui_session_open rebuilds the host struct).
+	g.hud.host.imgr = &g.imgr
+	return true
 }
 
 hud_destroy :: proc(g: ^Game) {

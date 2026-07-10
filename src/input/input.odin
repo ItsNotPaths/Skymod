@@ -371,3 +371,25 @@ binding :: proc(m: ^Manager, id: string) -> string {
 	if idx, has := m.index[id]; has do return m.actions[idx].bind_str
 	return ""
 }
+
+// action_glyph returns the prompt-atlas key for a Button action's CURRENT binding
+// ("" for unknown/unbound/Axis actions — pair with action_label for a text fallback).
+// This is the one query a prompt widget needs: it tracks rebinds automatically, and
+// `style` picks the pad art family when the binding is a pad code.
+action_glyph :: proc(m: ^Manager, id: string, style := Pad_Style.Xbox) -> string {
+	idx, has := m.index[id]
+	if !has do return ""
+	a := &m.actions[idx]
+	if a.kind != .Button do return ""
+	return gesture_glyph(a.gesture, style)
+}
+
+// action_label returns the short human name of a Button action's primary code ("f",
+// "mouse2", "pada"; "" if unbound) — the text fallback when action_glyph has no art.
+action_label :: proc(m: ^Manager, id: string) -> string {
+	idx, has := m.index[id]
+	if !has do return ""
+	a := &m.actions[idx]
+	if a.kind != .Button do return ""
+	return code_name(a.gesture.code)
+}

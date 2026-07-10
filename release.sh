@@ -29,6 +29,10 @@ SDL_LINK="$(pkg-config --static --libs sdl3 | tr ' ' '\n' | grep -vx -- '-lSDL3'
 echo "==> compiling shaders"
 "$PROJECT_DIR/build/build_shaders.sh"
 
+# The button-prompt glyph atlas is #load'd too (src/prompts/prompts.pak).
+echo "==> baking input prompts"
+"$PROJECT_DIR/build/bake_prompts.sh"
+
 echo "==> build: $PROJECT_NAME -> $RELEASE_DIR"
 # Don't wipe the release dir — `odin build` overwrites the binary in place, and we
 # want the runtime logs (skymod.log / the persistent logs/ folder the app writes

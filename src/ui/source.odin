@@ -21,6 +21,8 @@ EMBED_BOX :: #load("lua/widget/box.lua", string)
 @(private = "file")
 EMBED_BAR :: #load("lua/widget/bar.lua", string)
 @(private = "file")
+EMBED_PROMPT :: #load("lua/widget/prompt.lua", string)
+@(private = "file")
 EMBED_MAIN_MENU :: #load("lua/main_menu.lua", string)
 @(private = "file")
 EMBED_LOADING_MENU :: #load("lua/loading_menu.lua", string)
@@ -29,7 +31,7 @@ EMBED_HUD :: #load("lua/hud.lua", string)
 
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in
 // order — they install the constructor globals (container/text/button/box/bar/…).
-FRAMEWORK := [?]string{"lib/ui.lua", "widget/button.lua", "widget/box.lua", "widget/bar.lua"}
+FRAMEWORK := [?]string{"lib/ui.lua", "widget/button.lua", "widget/box.lua", "widget/bar.lua", "widget/prompt.lua"}
 
 // EMBEDDED_FILES is every built-in UI lua file carried in the binary: the framework + the screens.
 // The app synthesizes these to content/baseui/lua each boot (the built-in UI mod).
@@ -38,6 +40,7 @@ EMBEDDED_FILES := [?]string {
 	"widget/button.lua",
 	"widget/box.lua",
 	"widget/bar.lua",
+	"widget/prompt.lua",
 	"main_menu.lua",
 	"loading_menu.lua",
 	"hud.lua",
@@ -55,6 +58,8 @@ embedded :: proc(rel: string) -> (string, bool) {
 		return EMBED_BOX, true
 	case "widget/bar.lua":
 		return EMBED_BAR, true
+	case "widget/prompt.lua":
+		return EMBED_PROMPT, true
 	case "main_menu.lua":
 		return EMBED_MAIN_MENU, true
 	case "loading_menu.lua":

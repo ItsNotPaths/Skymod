@@ -9,6 +9,9 @@
 #   - imgui    : Dear ImGui source + the (pre-generated) odin-imgui bindings,
 #                compiled into a static lib by build/build-imgui.sh. Dev tooling +
 #                the MVP game UI (ROADMAP Phase 0 step 6).
+#   - kenney input prompts : CC0 button-prompt glyph art (keyboard/mouse + every
+#                pad family Kenney draws). build/bake_prompts.sh packs the 64px
+#                tier into src/prompts/prompts.pak, which the binary #load's.
 #
 # vendor/ is download-only: never hand-write code there. (.gitignore drops it.)
 set -euo pipefail
@@ -25,6 +28,9 @@ ODIN_IMGUI_COMMIT="daa7298c62995440fd1b484c0d2f05afde055b33"
 # joltc-odin bindings (amerkoleci/joltc via its committed Odin bindings); its own
 # joltc submodule (which vendors JoltPhysics) is pinned by this commit's gitlink.
 JOLTC_ODIN_COMMIT="84ab78c32314a4bb9f9a2f897a4fcce320db825a"
+# Kenney "Input Prompts" 1.5 (CC0 1.0 — https://kenney.nl/assets/input-prompts).
+# The media hash in the URL pins the exact 1.5 artifact.
+KENNEY_PROMPTS_URL="https://www.kenney.nl/media/pages/assets/input-prompts/8de120163f-1777890371/kenney_input-prompts_1.5.zip"
 
 # Build SDL3 as a static lib and INSTALL it into the vendor/sdl3 prefix. We
 # install (rather than just copying libSDL3.a) so the generated sdl3.pc lands in
@@ -195,6 +201,29 @@ EOF
     JOLT_DOUBLE=ON bash "$ROOT/build/build-jolt.sh"
 }
 
+# Vendor the Kenney input-prompt glyphs: the 64px "Default" tier of every device
+# set + the license. (The zip also carries 128px/SVG/font tiers we don't bake —
+# skipped to keep vendor/ lean.) The pak baker (build/bake_prompts.sh) reads this
+# tree; the runtime never does.
+fetch_input_prompts() {
+    local dest="$VENDOR/kenney-input-prompts"
+    if [ -f "$dest/License.txt" ]; then
+        echo "  already present: vendor/kenney-input-prompts"
+        return
+    fi
+    command -v unzip >/dev/null || { echo "error: unzip is required to unpack the input prompts" >&2; exit 1; }
+
+    echo "  downloading kenney input prompts 1.5 (CC0)..."
+    local work
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' RETURN
+    curl -fsSL "$KENNEY_PROMPTS_URL" -o "$work/prompts.zip"
+    rm -rf "$dest"
+    mkdir -p "$dest"
+    unzip -q "$work/prompts.zip" '*/Default/*.png' 'License.txt' -d "$dest"
+    echo "  done: vendor/kenney-input-prompts ($(find "$dest" -name '*.png' | wc -l) glyphs)"
+}
+
 echo "Fetching dependencies into vendor/ ..."
 
 echo "==> sdl3 ($SDL3_VERSION)"
@@ -208,6 +237,9 @@ fetch_imgui
 
 echo "==> jolt ($JOLTC_ODIN_COMMIT)"
 fetch_jolt
+
+echo "==> kenney input prompts (1.5)"
+fetch_input_prompts
 
 echo ""
 echo "All deps ready."

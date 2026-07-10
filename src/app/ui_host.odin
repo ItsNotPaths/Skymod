@@ -13,6 +13,7 @@ import "core:os"
 import "base:runtime"
 import "core:strings"
 import lua "vendor:lua/5.4"
+import "../input"
 import "../ui"
 import "../vfs"
 import "../worldstate"
@@ -45,7 +46,11 @@ UI_Host :: struct {
 	act_name:       string, // the object's own display name
 	act_dest:       string, // a door's destination place name ("Riverwood Trader")
 	act_locked:     bool,
-	act_button:     string, // the activate key label (e.g. "F") — Lua resolves its glyph
+	// Button-prompt resolution (engine.prompt(action)): the live input manager + the pad
+	// art family. nil imgr (a session opened before input exists) → engine.prompt returns
+	// nil and the prompt widget falls back to text.
+	imgr:           ^input.Manager,
+	pad_style:      input.Pad_Style, // zero value = .Xbox; hot-set from the pad's SDL type later
 }
 
 ui_host_destroy :: proc(host: ^UI_Host) {
@@ -66,7 +71,37 @@ install_engine_api :: proc(vm: ^ui.VM) {
 	ui.register_host(L, vm, "credits", engine_credits)
 	ui.register_host(L, vm, "load_progress", engine_load_progress)
 	ui.register_host(L, vm, "activation", engine_activation)
+	ui.register_host(L, vm, "prompt", engine_prompt)
 	lua.setglobal(L, "engine") // pops engine
+}
+
+// engine_prompt(action_id) → { glyph, label } | nil: the button-prompt for whatever the
+// action is CURRENTLY bound to. `glyph` is a prompt-atlas key ("kbm/keyboard_f"; "" when
+// the code has no art) drawn via image{source="prompts/"..glyph}; `label` is the short
+// code name ("f", "mouse2") for the text fallback. Rebinds and (later) pad-style switches
+// are picked up automatically since screens re-evaluate every frame. nil = no manager yet
+// or unknown action. The prompt{} widget (widget/prompt.lua) wraps this — screens rarely
+// call it directly.
+@(private = "file")
+engine_prompt :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	id := string(lua.L_checkstring(L, 1))
+	if host.imgr == nil {
+		lua.pushnil(L)
+		return 1
+	}
+	glyph := input.action_glyph(host.imgr, id, host.pad_style)
+	label := input.action_label(host.imgr, id)
+	if glyph == "" && label == "" { // unknown action or unbound
+		lua.pushnil(L)
+		return 1
+	}
+	lua.createtable(L, 0, 2)
+	set_str_field(L, "glyph", glyph)
+	set_str_field(L, "label", label)
+	return 1
 }
 
 // engine_load_progress() → { frac, phase, level, tip }: the load screen (loading_menu.lua) reads this
@@ -89,22 +124,22 @@ engine_load_progress :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// engine_activation() → { present, kind, name, dest, locked, button }: the HUD (hud.lua) reads this
+// engine_activation() → { present, kind, name, dest, locked }: the HUD (hud.lua) reads this
 // every frame to draw the crosshair activation prompt. `kind` is a neutral tag the Lua side maps to a
 // verb, so the wording/styling stay moddable. frame_hud publishes the fields (resolve_activation)
-// each gameplay frame; a non-gameplay frame leaves present=false (just the reticle).
+// each gameplay frame; a non-gameplay frame leaves present=false (just the reticle). The activate
+// BUTTON is not in here — the prompt widget resolves it live via engine.prompt("Activate").
 @(private = "file")
 engine_activation :: proc "c" (L: ^lua.State) -> c.int {
 	vm := ui.vm_from_upvalue(L)
 	context = vm.host_ctx
 	host := cast(^UI_Host)vm.user
-	lua.createtable(L, 0, 6)
+	lua.createtable(L, 0, 5)
 	lua.pushboolean(L, b32(host.act_present));lua.setfield(L, -2, "present")
 	set_str_field(L, "kind", host.act_kind)
 	set_str_field(L, "name", host.act_name)
 	set_str_field(L, "dest", host.act_dest)
 	lua.pushboolean(L, b32(host.act_locked));lua.setfield(L, -2, "locked")
-	set_str_field(L, "button", host.act_button)
 	return 1
 }
 

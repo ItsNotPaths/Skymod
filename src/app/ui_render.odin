@@ -7,9 +7,12 @@ package main
 // this is the app-side glue (it owns the atlas + image GPU textures). The imgui DrawList backend in
 // ui_backend.odin stays only as the --uitest/dev fallback (no atlas).
 
+import "core:bytes"
 import "core:log"
+import "core:strings"
 import "../font"
 import "../formats/dds"
+import "../prompts"
 import "../render"
 import "../ui"
 import "../vfs"
@@ -23,10 +26,19 @@ UI_Render :: struct {
 	atlas_tex: render.Texture,
 	vf:        ^vfs.VFS,                   // for lazy-loading `image{source=...}` DDS art via the VFS
 	images:    map[string]render.Texture, // VFS path → texture, lazily loaded + cached (nil tex = failed)
+	// Button-prompt glyphs (`image{source="prompts/<key>"}`): the baked Kenney atlas
+	// (src/prompts), uploaded once on first use — all prompt quads share it, so they batch.
+	prompt_tex:   render.Texture,
+	prompt_dir:   map[string]prompts.Rect,
+	prompt_size:  [2]f32,
+	prompt_tried: bool, // first-use init ran (a failed init caches the miss, no per-frame retry)
 	verts:     [dynamic]render.UI_Vertex,
 	indices:   [dynamic]u32,
 	batches:   [dynamic]render.UI_Batch,
 }
+
+// PROMPT_PREFIX routes an image source to the baked prompt atlas instead of the VFS.
+PROMPT_PREFIX :: "prompts/"
 
 // ui_render_init records the live atlas + the VFS (for art); nothing is uploaded yet. ui_render_draw
 // syncs the atlas, and image textures load lazily the first time a node references them.
@@ -110,6 +122,8 @@ ui_render_sync_atlas :: proc(ur: ^UI_Render) {
 
 ui_render_destroy :: proc(ur: ^UI_Render) {
 	if ur.atlas_tex.tex != nil {render.release_texture(ur.r, ur.atlas_tex)}
+	if ur.prompt_tex.tex != nil {render.release_texture(ur.r, ur.prompt_tex)}
+	delete(ur.prompt_dir)
 	for _, t in ur.images {
 		if t.tex != nil {render.release_texture(ur.r, t)} // nil = a cached failed load
 	}
@@ -167,7 +181,7 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 			)
 			continue
 		}
-		tex, ok := ui_cmd_texture(ur, c)
+		tex, uv, ok := ui_cmd_texture(ur, c)
 		if !ok {
 			continue // unresolved image / nothing to draw
 		}
@@ -184,7 +198,7 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 		if c.kind == .Image && (c.slice[0] > 0 || c.slice[1] > 0) {
 			ui_push_slice(ur, c, tex)
 		} else {
-			ui_push_quad(ur, c)
+			ui_push_quad(ur, c, uv)
 		}
 	}
 	if have_batch {
@@ -193,30 +207,70 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 	render.set_ui_drawlist(ur.r, ur.verts[:], ur.indices[:], ur.batches[:], screen)
 }
 
-// ui_cmd_texture resolves the texture a command samples (and whether it draws at all).
+// ui_cmd_texture resolves the texture a command samples (and whether it draws at all), plus the
+// UV rect within it — {0,0,1,1} for whole-texture art, a sub-rect for font glyphs and the cell of
+// a prompt-atlas glyph.
 @(private = "file")
-ui_cmd_texture :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) -> (render.Texture, bool) {
+ui_cmd_texture :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) -> (render.Texture, ui.Rect, bool) {
+	FULL :: ui.Rect{0, 0, 1, 1}
 	#partial switch c.kind {
 	case .Glyph:
-		return ur.atlas_tex, true
+		return ur.atlas_tex, c.uv, true
 	case .Image:
-		return ui_image_texture(ur, c.image) // lazily load the DDS from the VFS; draws nothing on miss
+		if strings.has_prefix(c.image, PROMPT_PREFIX) {
+			return ui_prompt_texture(ur, c.image[len(PROMPT_PREFIX):])
+		}
+		tex, ok := ui_image_texture(ur, c.image) // lazily load the DDS from the VFS; draws nothing on miss
+		return tex, FULL, ok
 	case .Rect:
-		return render.white_texture(ur.r), true
+		return render.white_texture(ur.r), FULL, true
 	}
-	return {}, false // .Text is the legacy imgui backend's concern
+	return {}, FULL, false // .Text is the legacy imgui backend's concern
 }
 
-// ui_push_quad appends one command's two-triangle quad (4 verts + 6 indices) to the scratch buffers.
+// ui_prompt_texture resolves a baked button-prompt glyph key ("xbox/xbox_button_color_a") to the
+// prompt atlas + its cell's UV rect, decoding + uploading the atlas on first use. A missing key
+// (stub pak / typo / unmapped code) draws nothing — callers keep a text fallback.
 @(private = "file")
-ui_push_quad :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) {
-	u0, v0, u1, v1: f32 = 0, 0, 1, 1
-	if c.kind == .Glyph {
-		u0 = c.uv.x
-		v0 = c.uv.y
-		u1 = c.uv.x + c.uv.w
-		v1 = c.uv.y + c.uv.h
+ui_prompt_texture :: proc(ur: ^UI_Render, key: string) -> (render.Texture, ui.Rect, bool) {
+	if !ur.prompt_tried {
+		ur.prompt_tried = true
+		dir, aw, ah, dok := prompts.dir()
+		img, iok := prompts.atlas(context.temp_allocator)
+		if !dok || !iok {
+			log.warn("ui: prompt atlas failed to parse — prompts disabled")
+			delete(dir)
+		} else {
+			mip := render.Tex_Mip{width = u32(img.width), height = u32(img.height), data = bytes.buffer_to_bytes(&img.pixels)}
+			ur.prompt_tex = render.upload_texture(ur.r, .RGBA8, false, []render.Tex_Mip{mip})
+			ur.prompt_dir = dir
+			ur.prompt_size = {f32(aw), f32(ah)}
+		}
 	}
+	if ur.prompt_tex.tex == nil {
+		return {}, {}, false
+	}
+	cell, has := ur.prompt_dir[key]
+	if !has {
+		return {}, {}, false
+	}
+	uv := ui.Rect {
+		f32(cell.x) / ur.prompt_size.x,
+		f32(cell.y) / ur.prompt_size.y,
+		f32(cell.w) / ur.prompt_size.x,
+		f32(cell.h) / ur.prompt_size.y,
+	}
+	return ur.prompt_tex, uv, true
+}
+
+// ui_push_quad appends one command's two-triangle quad (4 verts + 6 indices) to the scratch buffers,
+// sampling `uv` (from ui_cmd_texture) in the command's resolved texture.
+@(private = "file")
+ui_push_quad :: proc(ur: ^UI_Render, c: ui.Draw_Cmd, uv := ui.Rect{0, 0, 1, 1}) {
+	u0 := uv.x
+	v0 := uv.y
+	u1 := uv.x + uv.w
+	v1 := uv.y + uv.h
 	if c.flip_x {
 		u0, u1 = u1, u0 // mirror the texture horizontally (left end-cap reuses the right cap art)
 	}

@@ -3,6 +3,9 @@ vendor/
 # compiled shaders
 src/render/shaders/*.spv
 
+# baked input-prompt atlas (build/bake_prompts.sh)
+src/prompts/prompts.pak
+
 # build outputs
 build/out
 

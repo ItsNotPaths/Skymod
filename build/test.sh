@@ -12,6 +12,9 @@ cd "$ROOT"
 echo "==> compiling shaders (src/render #load's the .spv)"
 "$ROOT/build/build_shaders.sh"
 
+echo "==> baking input prompts (src/prompts #load's the pak; stub without vendored art)"
+"$ROOT/build/bake_prompts.sh"
+
 # Warn (don't fail) if the local Odin differs from the pin.
 if [ -f .odin-version ]; then
     want="$(cat .odin-version)"
