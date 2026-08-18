@@ -10,6 +10,7 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --rectypes       # record-type histogram
 //   odin run tools/esmdump -- <plugin.esm> --cells <substr> # interior cells matching
 //   odin run tools/esmdump -- <plugin.esm> --cell <edid>    # one cell's placed refs
+//   odin run tools/esmdump -- <plugin.esm> --forms [edid]   # keyword/link/faction/magic/alias survey
 //   odin run tools/esmdump -- <plugin.esm> --worlds         # worldspace survey (cells/refs/land)
 //   odin run tools/esmdump -- <plugin.esm> --world <edid>   # one worldspace's tallies
 //   odin run tools/esmdump -- <plugin.esm> --world-load <edid> # raw-walk ref→model resolution
@@ -199,6 +200,12 @@ main :: proc() {
 	}
 	if len(os.args) >= 3 && os.args[2] == "--lscr" {
 		lscr_mode(data, path)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--forms" {
+		sdb := build_with_strings(data, path)
+		defer gamedb.destroy(&sdb)
+		forms_mode(&sdb, os.args[3] if len(os.args) >= 4 else "")
 		return
 	}
 	if len(os.args) >= 3 && os.args[2] == "--locks" {
@@ -1785,21 +1792,159 @@ rectypes :: proc(data: []u8) {
 // lscr_mode's loader; English LE ships loose Strings/ files.
 build_with_strings :: proc(data: []u8, esm_path: string) -> gamedb.DB {
 	dir := filepath.dir(esm_path)
-	loadraw :: proc(dir, ext: string) -> []u8 {
-		p, _ := filepath.join({dir, "Strings", fmt.tprintf("Skyrim_English.%s", ext)}, context.temp_allocator)
-		b, rerr := os.read_entire_file(p, context.temp_allocator)
-		return b if rerr == nil else nil
+	stem := filepath.stem(filepath.base(esm_path))
+	// Localized tables come from loose Data/Strings (the LE-era layout) OR from
+	// "Skyrim - Interface.bsa" (what SSE actually ships) — mirror the game's VFS lookup, else
+	// every FULL/DESC resolves to "" here and a name survey proves nothing.
+	v: vfs.VFS
+	ifc, _ := filepath.join({dir, "Skyrim - Interface.bsa"}, context.temp_allocator)
+	mounted := vfs.mount_archive(&v, ifc)
+	defer if mounted {vfs.destroy(&v)}
+	loadraw :: proc(v: ^vfs.VFS, mounted: bool, dir, stem, ext: string) -> []u8 {
+		p, _ := filepath.join({dir, "Strings", fmt.tprintf("%s_English.%s", stem, ext)}, context.temp_allocator)
+		if b, rerr := os.read_entire_file(p, context.temp_allocator); rerr == nil {
+			return b
+		}
+		if !mounted {
+			return nil
+		}
+		b, _ := vfs.read(v, fmt.tprintf("Strings/%s_English.%s", stem, ext), context.temp_allocator)
+		return b
 	}
 	inputs := []gamedb.Plugin_Input {
 		{
 			name = filepath.base(esm_path),
 			data = data,
-			strings_data = loadraw(dir, "STRINGS"),
-			dlstrings_data = loadraw(dir, "DLSTRINGS"),
+			strings_data = loadraw(&v, mounted, dir, stem, "STRINGS"),
+			dlstrings_data = loadraw(&v, mounted, dir, stem, "DLSTRINGS"),
 		},
 	}
 	order := gamedb.resolve_load_order(inputs, context.temp_allocator)
 	return gamedb.build_plugins(order)
+}
+
+// forms_mode surveys the form-metadata indexes (keywords, XLKR links, factions, the magic records,
+// quest aliases) against the real ESM — the ground truth those decoders were written from. With no
+// filter it prints tallies + one worked example per index; with `sub` it prints every faction /
+// keyword whose editor id or name contains it.
+forms_mode :: proc(db: ^gamedb.DB, sub: string) {
+	if sub != "" {
+		lsub := strings.to_lower(sub, context.temp_allocator)
+		for form, edid in db.keyword_edid {
+			if strings.contains(strings.to_lower(edid, context.temp_allocator), lsub) {
+				fmt.printfln("  KYWD 0x%08X %q", u64(form), edid)
+			}
+		}
+		for form, f in db.factions {
+			name := gamedb.name_of(db, form)
+			if !strings.contains(strings.to_lower(name, context.temp_allocator), lsub) {
+				continue
+			}
+			fmt.printfln(
+				"  FACT 0x%08X %q flags=0x%08X %d relation(s) %d rank(s)%s",
+				u64(form), name, f.flags, len(f.relations), len(f.ranks),
+				" crime" if f.has_crime else "",
+			)
+			for r in f.ranks {
+				fmt.printfln("    rank %d: %q / %q", r.index, r.male_title, r.female_title)
+			}
+			for r in f.relations {
+				fmt.printfln("    vs 0x%08X: %v (%+d)", u64(r.faction), r.combat, r.modifier)
+			}
+		}
+		return
+	}
+
+	// Tallies — how much of each index the real masters actually populate.
+	kw_forms, kw_tags := 0, 0
+	for _, set in db.keywords {
+		kw_forms += 1
+		kw_tags += len(set)
+	}
+	links := 0
+	for _, l in db.linked_refs {
+		links += len(l)
+	}
+	ranks, relations, crime := 0, 0, 0
+	for _, f in db.factions {
+		ranks += len(f.ranks)
+		relations += len(f.relations)
+		if f.has_crime {crime += 1}
+	}
+	spell_effects, scrolls := 0, 0
+	for _, sp in db.spells {
+		spell_effects += len(sp.effects)
+		if sp.scroll {scrolls += 1}
+	}
+	ench_effects := 0
+	for _, e in db.enchantments {
+		ench_effects += len(e.effects)
+	}
+	described := 0
+	for _, m in db.magic_effects {
+		if m.description != "" {described += 1}
+	}
+	aliases, forced := 0, 0
+	for _, qb in db.quest_baseline {
+		aliases += len(qb.aliases)
+		for a in qb.aliases {
+			if a.fill == .Forced {forced += 1}
+		}
+	}
+	fmt.printfln("keywords:      %d KYWD records, %d tagged forms, %d tags total", len(db.keyword_edid), kw_forms, kw_tags)
+	fmt.printfln("linked refs:   %d refs, %d links", len(db.linked_refs), links)
+	fmt.printfln("factions:      %d, %d ranks, %d relations, %d with crime values", len(db.factions), ranks, relations, crime)
+	fmt.printfln("spells:        %d (%d scrolls), %d effects", len(db.spells), scrolls, spell_effects)
+	fmt.printfln("enchantments:  %d, %d effects", len(db.enchantments), ench_effects)
+	fmt.printfln("magic effects: %d, %d with a description", len(db.magic_effects), described)
+	fmt.printfln("quest aliases: %d (%d forced to a specific ref)", aliases, forced)
+
+	// Worked examples — one populated entry per index, so the values can be eyeballed against the CK.
+	for form, set in db.keywords {
+		if len(set) < 3 {continue}
+		fmt.printfln("\nexample tagged form 0x%08X %q:", u64(form), gamedb.name_of(db, form))
+		for k in set {
+			fmt.printfln("    %q", gamedb.keyword_editor_id(db, k))
+		}
+		break
+	}
+	for form, f in db.factions {
+		if len(f.ranks) < 3 || !f.has_crime {continue}
+		fmt.printfln("\nexample faction 0x%08X %q: murder=%d assault=%d trespass=%d pickpocket=%d steal=x%.2f",
+			u64(form), gamedb.name_of(db, form), f.crime.murder, f.crime.assault,
+			f.crime.trespass, f.crime.pickpocket, f.crime.steal_multiplier)
+		break
+	}
+	for form, sp in db.spells {
+		if len(sp.effects) < 2 {continue}
+		fmt.printfln("\nexample spell 0x%08X %q: cost=%d %v/%v %d effect(s)",
+			u64(form), gamedb.name_of(db, form), sp.info.cost, sp.info.cast_type, sp.info.delivery, len(sp.effects))
+		for e in sp.effects {
+			me, _ := gamedb.magic_effect_of(db, e.effect)
+			fmt.printfln("    0x%08X %-28q mag=%.1f dur=%d  %v", u64(e.effect),
+				gamedb.name_of(db, e.effect), e.magnitude, e.duration, me.info.archetype)
+		}
+		if i, ok := gamedb.spell_costliest_effect(db, form); ok {
+			fmt.printfln("    costliest effect index: %d", i)
+		}
+		break
+	}
+	for form, qb in db.quest_baseline {
+		if len(qb.aliases) < 3 {continue}
+		fmt.printfln("\nexample quest 0x%08X %q aliases:", u64(form), gamedb.name_of(db, form))
+		for a in qb.aliases {
+			fmt.printfln("    [%2d] %-24q %v target=0x%08X extra=%d%s",
+				a.id, a.name, a.fill, u64(a.target), a.extra, " (location)" if a.location else "")
+		}
+		break
+	}
+	for ref, l in db.linked_refs {
+		fmt.printfln("\nexample linked ref 0x%08X:", u64(ref))
+		for k in l {
+			fmt.printfln("    keyword 0x%08X -> 0x%08X", u64(k.keyword), u64(k.ref))
+		}
+		break
+	}
 }
 
 // locks_mode surveys decoded XLOC lock data — validates the XLOC decoder + gamedb lock index against

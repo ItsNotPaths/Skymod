@@ -1528,3 +1528,382 @@ put_u32 :: proc(b: []u8, off: int, v: u32) {
 put_f32 :: proc(b: []u8, off: int, v: f32) {
 	endian.put_u32(b[off:off + 4], .Little, transmute(u32)v)
 }
+
+// Keyword tagging + linked references — the baseline behind Form.HasKeyword and GetLinkedRef.
+// Two KYWD records supply identities; a WEAP carries both as KSIZ/KWDA; a REFR links to another
+// ref on the default (keyword 0) channel and on a keyword channel. Layouts validated against the
+// real Skyrim.esm via `esmdump --forms`.
+@(test)
+test_gamedb_keywords_and_links :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0900)
+	field(&tes4, "HEDR", hedr[:])
+
+	// Two keywords. A KYWD has no FULL — its editor id is its name.
+	kwds := make([dynamic]u8, 0, 128);defer delete(kwds)
+	kw_a := make([dynamic]u8, 0, 32);defer delete(kw_a)
+	field(&kw_a, "EDID", transmute([]u8)string("VendorItemWeapon\x00"))
+	field(&kw_a, "CNAM", u32_bytes(0x0000_0043))
+	record(&kwds, "KYWD", 0, 0x0000_0301, kw_a[:])
+	kw_b := make([dynamic]u8, 0, 32);defer delete(kw_b)
+	field(&kw_b, "EDID", transmute([]u8)string("WeapTypeMace\x00"))
+	record(&kwds, "KYWD", 0, 0x0000_0302, kw_b[:])
+
+	// A weapon tagged with both (KSIZ count + one KWDA holding the pair).
+	weap := make([dynamic]u8, 0, 64);defer delete(weap)
+	field(&weap, "KSIZ", u32_bytes(2))
+	kwda: [8]u8;put_u32(kwda[:], 0, 0x0000_0301);put_u32(kwda[:], 4, 0x0000_0302)
+	field(&weap, "KWDA", kwda[:])
+	weaps := make([dynamic]u8, 0, 96);defer delete(weaps)
+	record(&weaps, "WEAP", 0, 0x0000_0310, weap[:])
+
+	// A REFR with two XLKR links: the default channel (keyword 0) and a keyword channel.
+	refr := make([dynamic]u8, 0, 64);defer delete(refr)
+	field(&refr, "NAME", u32_bytes(0x0000_0310))
+	rdata: [24]u8;field(&refr, "DATA", rdata[:])
+	lk0: [8]u8;put_u32(lk0[:], 0, 0);put_u32(lk0[:], 4, 0x0000_0402)
+	field(&refr, "XLKR", lk0[:])
+	lk1: [8]u8;put_u32(lk1[:], 0, 0x0000_0302);put_u32(lk1[:], 4, 0x0000_0403)
+	field(&refr, "XLKR", lk1[:])
+
+	cell_body := make([dynamic]u8, 0, 16);defer delete(cell_body)
+	cd: [1]u8 = {esm.CELL_INTERIOR};field(&cell_body, "DATA", cd[:])
+	children := make([dynamic]u8, 0, 128);defer delete(children)
+	record(&children, "REFR", 0, 0x0000_0401, refr[:])
+	cell_content := make([dynamic]u8, 0, 192);defer delete(cell_content)
+	record(&cell_content, "CELL", 0, 0x0000_0400, cell_body[:])
+	group(&cell_content, u32_bytes(0x0000_0400), 6, children[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("KYWD"), 0, kwds[:])
+	group(&out, transmute([]u8)string("WEAP"), 0, weaps[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cell_content[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	// Keyword identity resolves both ways, case-insensitively.
+	kw, kok := gamedb.keyword_id(&db, "vendoritemweapon")
+	testing.expect(t, kok, "keyword resolves by editor id")
+	testing.expect_value(t, kw, gamedb.Form_ID(0x0000_0301))
+	testing.expect_value(t, gamedb.keyword_editor_id(&db, 0x0000_0302), "WeapTypeMace")
+
+	testing.expect_value(t, len(gamedb.keywords_of(&db, 0x0000_0310)), 2)
+	testing.expect(t, gamedb.has_keyword(&db, 0x0000_0310, 0x0000_0301), "weapon carries VendorItemWeapon")
+	testing.expect(t, gamedb.has_keyword(&db, 0x0000_0310, 0x0000_0302), "weapon carries WeapTypeMace")
+	testing.expect(t, !gamedb.has_keyword(&db, 0x0000_0310, 0x0000_0399), "unknown keyword absent")
+	testing.expect(t, !gamedb.has_keyword(nil, 0x0000_0310, 0x0000_0301), "nil DB safe")
+
+	// The default link is keyword 0; a keyword selects its own channel.
+	def, dok := gamedb.linked_ref(&db, 0x0000_0401)
+	testing.expect(t, dok, "default linked ref")
+	testing.expect_value(t, def, gamedb.Form_ID(0x0000_0402))
+	tagged, tok := gamedb.linked_ref(&db, 0x0000_0401, 0x0000_0302)
+	testing.expect(t, tok, "keyword-channel linked ref")
+	testing.expect_value(t, tagged, gamedb.Form_ID(0x0000_0403))
+	_, missing := gamedb.linked_ref(&db, 0x0000_0401, 0x0000_0301)
+	testing.expect(t, !missing, "no link on an unused keyword channel")
+	testing.expect_value(t, len(gamedb.linked_refs_of(&db, 0x0000_0401)), 2)
+}
+
+// FACT baseline + NPC_ membership: DATA flags, an XNAM relation, the CRVA crime table, and the
+// RNAM/MNAM rank ladder (an ORDERED walk — MNAM titles the preceding RNAM). The NPC_'s SNAM rows
+// are the authored memberships IsInFaction answers from before any script joins/leaves. Layouts
+// validated against Skyrim.esm (CrimeFactionWhiterun's bounties, the College's rank titles).
+@(test)
+test_gamedb_faction :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0A00)
+	field(&tes4, "HEDR", hedr[:])
+
+	fact := make([dynamic]u8, 0, 128);defer delete(fact)
+	field(&fact, "EDID", transmute([]u8)string("TestGuild\x00"))
+	field(&fact, "FULL", transmute([]u8)string("Test Guild\x00")) // inline: the plugin isn't localized
+	xnam: [12]u8
+	put_u32(xnam[:], 0, 0x0000_0502) // the other faction
+	put_u32(xnam[:], 4, transmute(u32)i32(-25)) // disposition modifier
+	put_u32(xnam[:], 8, u32(esm.Combat_Reaction.Enemy))
+	field(&fact, "XNAM", xnam[:])
+	field(&fact, "DATA", u32_bytes(esm.FACT_TRACK_CRIME))
+	crva: [20]u8
+	crva[0] = 1 // arrest
+	crva[1] = 0 // attack on detect
+	put_u16(crva[:], 2, 1000) // murder
+	put_u16(crva[:], 4, 40) // assault
+	put_u16(crva[:], 6, 5) // trespass
+	put_u16(crva[:], 8, 25) // pickpocket
+	put_f32(crva[:], 12, 0.5) // steal multiplier
+	put_u16(crva[:], 16, 100) // escape
+	put_u16(crva[:], 18, 1000) // werewolf
+	field(&fact, "CRVA", crva[:])
+	field(&fact, "RNAM", u32_bytes(0))
+	field(&fact, "MNAM", transmute([]u8)string("Novice\x00"))
+	field(&fact, "RNAM", u32_bytes(1))
+	field(&fact, "MNAM", transmute([]u8)string("Master\x00"))
+	field(&fact, "FNAM", transmute([]u8)string("Mistress\x00"))
+	facts := make([dynamic]u8, 0, 192);defer delete(facts)
+	record(&facts, "FACT", 0, 0x0000_0501, fact[:])
+
+	// An NPC_ holding rank 1 in it (SNAM = faction formID + rank i8 + 3 unused).
+	npc := make([dynamic]u8, 0, 64);defer delete(npc)
+	snam: [8]u8;put_u32(snam[:], 0, 0x0000_0501);snam[4] = 1
+	field(&npc, "SNAM", snam[:])
+	npcs := make([dynamic]u8, 0, 96);defer delete(npcs)
+	record(&npcs, "NPC_", 0, 0x0000_0510, npc[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("FACT"), 0, facts[:])
+	group(&out, transmute([]u8)string("NPC_"), 0, npcs[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	f, fok := gamedb.faction_of(&db, 0x0000_0501)
+	testing.expect(t, fok, "faction indexed")
+	testing.expect_value(t, f.flags, u32(esm.FACT_TRACK_CRIME))
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0501), "Test Guild")
+
+	testing.expect(t, f.has_crime, "crime values present")
+	testing.expect_value(t, f.crime.murder, u16(1000))
+	testing.expect_value(t, f.crime.assault, u16(40))
+	testing.expect_value(t, f.crime.trespass, u16(5))
+	testing.expect_value(t, f.crime.pickpocket, u16(25))
+	testing.expect_value(t, f.crime.steal_multiplier, f32(0.5))
+	testing.expect_value(t, f.crime.werewolf, u16(1000))
+	testing.expect(t, f.crime.arrest, "arrests rather than attacking")
+	testing.expect(t, !f.crime.attack_on_detect, "does not attack on detect")
+
+	reaction, modifier, rok := gamedb.faction_reaction(&db, 0x0000_0501, 0x0000_0502)
+	testing.expect(t, rok, "relation authored")
+	testing.expect_value(t, reaction, esm.Combat_Reaction.Enemy)
+	testing.expect_value(t, modifier, i32(-25))
+	_, _, none := gamedb.faction_reaction(&db, 0x0000_0501, 0x0000_0599)
+	testing.expect(t, !none, "no relation to an unrelated faction")
+
+	// Each MNAM/FNAM titles the rank its preceding RNAM opened.
+	testing.expect_value(t, len(f.ranks), 2)
+	novice, n0 := gamedb.faction_rank_title(&db, 0x0000_0501, 0)
+	testing.expect(t, n0, "rank 0 titled")
+	testing.expect_value(t, novice, "Novice")
+	master, n1 := gamedb.faction_rank_title(&db, 0x0000_0501, 1)
+	testing.expect(t, n1, "rank 1 titled")
+	testing.expect_value(t, master, "Master")
+	mistress, n1f := gamedb.faction_rank_title(&db, 0x0000_0501, 1, female = true)
+	testing.expect(t, n1f, "rank 1 female title")
+	testing.expect_value(t, mistress, "Mistress")
+	// Rank 0 has no female title — fall back to the male column rather than reporting none.
+	fallback, n0f := gamedb.faction_rank_title(&db, 0x0000_0501, 0, female = true)
+	testing.expect(t, n0f, "female lookup falls back")
+	testing.expect_value(t, fallback, "Novice")
+
+	rank, mok := gamedb.actor_faction_rank(&db, 0x0000_0510, 0x0000_0501)
+	testing.expect(t, mok, "actor is an authored member")
+	testing.expect_value(t, rank, i8(1))
+	_, notmember := gamedb.actor_faction_rank(&db, 0x0000_0510, 0x0000_0502)
+	testing.expect(t, !notmember, "not a member of the other faction")
+}
+
+// The magic records: an MGEF's DATA archetype/actor-value block, a SPEL's SPIT cast parameters +
+// its EFID/EFIT effect list, and an ENCH's ENIT. Offsets validated against Skyrim.esm — every
+// "…FFAimedArea" MGEF reads cast type Fire_And_Forget / delivery Aimed, paralysis reads archetype
+// 21, and Frost Breath decodes as Concentration/Aimed with two effects.
+@(test)
+test_gamedb_magic :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0B00)
+	field(&tes4, "HEDR", hedr[:])
+
+	// Two magic effects: a cheap one and an expensive one (so "costliest" has an answer).
+	mgefs := make([dynamic]u8, 0, 512);defer delete(mgefs)
+	mgef_data :: proc(base_cost: f32, archetype: esm.Effect_Archetype, primary_av: i32) -> [152]u8 {
+		d: [152]u8
+		put_u32(d[:], 0, esm.MGEF_DETRIMENTAL)
+		put_f32(d[:], 4, base_cost)
+		put_u32(d[:], 12, transmute(u32)i32(20)) // magic skill (an AV index — Destruction)
+		put_u32(d[:], 16, transmute(u32)esm.AV_NONE)
+		put_u32(d[:], 64, u32(archetype))
+		put_u32(d[:], 68, transmute(u32)primary_av)
+		put_u32(d[:], 80, u32(esm.Cast_Type.Fire_And_Forget))
+		put_u32(d[:], 84, u32(esm.Delivery.Aimed))
+		return d
+	}
+	cheap := make([dynamic]u8, 0, 256);defer delete(cheap)
+	field(&cheap, "FULL", transmute([]u8)string("Slow\x00"))
+	field(&cheap, "DNAM", transmute([]u8)string("Movement is <mag> percent slower.\x00"))
+	cd := mgef_data(2, .Peak_Value_Modifier, 53)
+	field(&cheap, "DATA", cd[:])
+	record(&mgefs, "MGEF", 0, 0x0000_0601, cheap[:])
+	dear := make([dynamic]u8, 0, 256);defer delete(dear)
+	field(&dear, "FULL", transmute([]u8)string("Frostbite\x00"))
+	dd := mgef_data(40, .Dual_Value_Modifier, 24)
+	field(&dear, "DATA", dd[:])
+	record(&mgefs, "MGEF", 0, 0x0000_0602, dear[:])
+
+	// A spell applying both, cheap effect first (so the costliest index isn't trivially 0).
+	spel := make([dynamic]u8, 0, 128);defer delete(spel)
+	field(&spel, "FULL", transmute([]u8)string("Frost Breath\x00"))
+	spit: [36]u8
+	put_u32(spit[:], 0, 322) // cost
+	put_u32(spit[:], 8, u32(esm.Spell_Type.Spell))
+	put_f32(spit[:], 12, 0.5) // charge time
+	put_u32(spit[:], 16, u32(esm.Cast_Type.Concentration))
+	put_u32(spit[:], 20, u32(esm.Delivery.Aimed))
+	put_f32(spit[:], 28, 4096) // range
+	put_u32(spit[:], 32, 0x0000_0650) // half-cost perk
+	field(&spel, "SPIT", spit[:])
+	field(&spel, "EFID", u32_bytes(0x0000_0601))
+	ef0: [12]u8;put_f32(ef0[:], 0, 50);put_u32(ef0[:], 8, 5)
+	field(&spel, "EFIT", ef0[:])
+	field(&spel, "EFID", u32_bytes(0x0000_0602))
+	ef1: [12]u8;put_f32(ef1[:], 0, 20);put_u32(ef1[:], 8, 1)
+	field(&spel, "EFIT", ef1[:])
+	spels := make([dynamic]u8, 0, 192);defer delete(spels)
+	record(&spels, "SPEL", 0, 0x0000_0610, spel[:])
+
+	// An enchantment carrying one effect.
+	ench := make([dynamic]u8, 0, 128);defer delete(ench)
+	enit: [36]u8
+	put_u32(enit[:], 0, 3161) // cost
+	put_u32(enit[:], 8, u32(esm.Cast_Type.Constant_Effect))
+	put_u32(enit[:], 12, 3161) // charge amount
+	put_u32(enit[:], 16, u32(esm.Delivery.Self))
+	put_u32(enit[:], 20, u32(esm.Enchant_Type.Enchantment))
+	put_u32(enit[:], 28, 0x0000_0660) // base enchantment
+	field(&ench, "ENIT", enit[:])
+	field(&ench, "EFID", u32_bytes(0x0000_0601))
+	ef2: [12]u8;put_f32(ef2[:], 0, 15)
+	field(&ench, "EFIT", ef2[:])
+	enchs := make([dynamic]u8, 0, 192);defer delete(enchs)
+	record(&enchs, "ENCH", 0, 0x0000_0620, ench[:])
+
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("MGEF"), 0, mgefs[:])
+	group(&out, transmute([]u8)string("SPEL"), 0, spels[:])
+	group(&out, transmute([]u8)string("ENCH"), 0, enchs[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	me, meok := gamedb.magic_effect_of(&db, 0x0000_0601)
+	testing.expect(t, meok, "magic effect indexed")
+	testing.expect_value(t, me.info.archetype, esm.Effect_Archetype.Peak_Value_Modifier)
+	testing.expect_value(t, me.info.primary_av, i32(53))
+	testing.expect_value(t, me.info.resist_av, esm.AV_NONE)
+	testing.expect_value(t, me.info.cast_type, esm.Cast_Type.Fire_And_Forget)
+	testing.expect_value(t, me.info.delivery, esm.Delivery.Aimed)
+	testing.expect_value(t, me.info.flags, u32(esm.MGEF_DETRIMENTAL))
+	testing.expect_value(t, me.description, "Movement is <mag> percent slower.")
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0601), "Slow")
+
+	sp, spok := gamedb.spell_of(&db, 0x0000_0610)
+	testing.expect(t, spok, "spell indexed")
+	testing.expect(t, !sp.scroll, "a SPEL is not a scroll")
+	testing.expect_value(t, sp.info.cost, u32(322))
+	testing.expect_value(t, sp.info.type, esm.Spell_Type.Spell)
+	testing.expect_value(t, sp.info.cast_type, esm.Cast_Type.Concentration)
+	testing.expect_value(t, sp.info.delivery, esm.Delivery.Aimed)
+	testing.expect_value(t, sp.info.range, f32(4096))
+	testing.expect_value(t, sp.half_cost_perk, gamedb.Form_ID(0x0000_0650))
+	testing.expect_value(t, len(sp.effects), 2)
+	testing.expect_value(t, sp.effects[0].effect, gamedb.Form_ID(0x0000_0601))
+	testing.expect_value(t, sp.effects[0].magnitude, f32(50))
+	testing.expect_value(t, sp.effects[0].duration, u32(5))
+	testing.expect_value(t, sp.effects[1].effect, gamedb.Form_ID(0x0000_0602))
+
+	// Effect 1 costs 40 base at magnitude 20 — well past effect 0's 2 base at magnitude 50.
+	costliest, cok := gamedb.spell_costliest_effect(&db, 0x0000_0610)
+	testing.expect(t, cok, "costliest effect resolves")
+	testing.expect_value(t, costliest, 1)
+	_, unknown := gamedb.spell_costliest_effect(&db, 0x0000_0699)
+	testing.expect(t, !unknown, "unknown spell has no costliest effect")
+
+	e, eok := gamedb.enchantment_of(&db, 0x0000_0620)
+	testing.expect(t, eok, "enchantment indexed")
+	testing.expect_value(t, e.info.cost, u32(3161))
+	testing.expect_value(t, e.info.cast_type, esm.Cast_Type.Constant_Effect)
+	testing.expect_value(t, e.info.type, esm.Enchant_Type.Enchantment)
+	testing.expect_value(t, e.base_enchantment, gamedb.Form_ID(0x0000_0660))
+	testing.expect_value(t, len(e.effects), 1)
+	testing.expect_value(t, e.effects[0].magnitude, f32(15))
+}
+
+// QUST alias slots: each runs ALST/ALLS → ALED, and the fill subrecords between name HOW the
+// quest engine finds the reference. Only a Forced (ALFR) fill resolves statically. Field order
+// carries the grouping — an objective's FNAM earlier in the record must not leak into an alias.
+// Fill kinds validated against Skyrim.esm (MQ Dragon Rising: Unique_Actor NPCs, Create_Ref
+// soldiers, "Player" forced to 0x14).
+@(test)
+test_gamedb_quest_aliases :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0C00)
+	field(&tes4, "HEDR", hedr[:])
+
+	qust := make([dynamic]u8, 0, 256);defer delete(qust)
+	dnam: [12]u8;dnam[0] = 0x01 // start game enabled
+	field(&qust, "DNAM", dnam[:])
+	// An objective FIRST — its FNAM shares the tag with an alias's flags and must not leak in.
+	obj: [2]u8;put_u16(obj[:], 0, 10);field(&qust, "QOBJ", obj[:])
+	field(&qust, "FNAM", u32_bytes(0xDEAD_BEEF))
+	field(&qust, "NNAM", transmute([]u8)string("Find the dragon\x00"))
+	field(&qust, "ANAM", u32_bytes(3)) // next alias id
+
+	field(&qust, "ALST", u32_bytes(0)) // alias 0: pinned to a specific ref
+	field(&qust, "ALID", transmute([]u8)string("Player\x00"))
+	field(&qust, "FNAM", u32_bytes(0x0000_0002))
+	field(&qust, "ALFR", u32_bytes(0x0000_0014))
+	field(&qust, "ALED", nil)
+
+	field(&qust, "ALST", u32_bytes(1)) // alias 1: a unique actor, filled at quest start
+	field(&qust, "ALID", transmute([]u8)string("Balgruuf\x00"))
+	field(&qust, "ALUA", u32_bytes(0x0000_0701))
+	field(&qust, "ALED", nil)
+
+	field(&qust, "ALLS", u32_bytes(2)) // alias 2: a LOCATION alias with no fill
+	field(&qust, "ALID", transmute([]u8)string("Hold\x00"))
+	field(&qust, "ALED", nil)
+
+	qusts := make([dynamic]u8, 0, 320);defer delete(qusts)
+	record(&qusts, "QUST", 0, 0x0000_0700, qust[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("QUST"), 0, qusts[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	aliases := gamedb.quest_aliases_of(&db, 0x0000_0700)
+	testing.expect_value(t, len(aliases), 3)
+
+	player, pok := gamedb.quest_alias(&db, 0x0000_0700, 0)
+	testing.expect(t, pok, "alias 0 defined")
+	testing.expect_value(t, player.name, "Player")
+	testing.expect_value(t, player.fill, esm.Alias_Fill.Forced)
+	testing.expect_value(t, player.target, gamedb.Form_ID(0x0000_0014))
+	testing.expect_value(t, player.flags, u32(0x0000_0002)) // its OWN FNAM, not the objective's
+	testing.expect(t, !player.location, "a reference alias")
+
+	ref, fok := gamedb.quest_alias_forced_ref(&db, 0x0000_0700, 0)
+	testing.expect(t, fok, "forced ref resolves statically")
+	testing.expect_value(t, ref, gamedb.Form_ID(0x0000_0014))
+
+	jarl, jok := gamedb.quest_alias(&db, 0x0000_0700, 1)
+	testing.expect(t, jok, "alias 1 defined")
+	testing.expect_value(t, jarl.fill, esm.Alias_Fill.Unique_Actor)
+	testing.expect_value(t, jarl.target, gamedb.Form_ID(0x0000_0701))
+	_, notforced := gamedb.quest_alias_forced_ref(&db, 0x0000_0700, 1)
+	testing.expect(t, !notforced, "a Unique_Actor fill is filled at runtime, not statically")
+
+	hold, hok := gamedb.quest_alias(&db, 0x0000_0700, 2)
+	testing.expect(t, hok, "alias 2 defined")
+	testing.expect(t, hold.location, "a location alias")
+	testing.expect_value(t, hold.fill, esm.Alias_Fill.None)
+	testing.expect_value(t, hold.name, "Hold")
+
+	_, missing := gamedb.quest_alias(&db, 0x0000_0700, 9)
+	testing.expect(t, !missing, "undefined alias id")
+	testing.expect_value(t, len(gamedb.quest_aliases_of(&db, 0x0000_0799)), 0) // unknown quest
+}

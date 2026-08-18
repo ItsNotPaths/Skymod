@@ -1,0 +1,646 @@
+package esm
+
+// Typed decoders for the form-metadata + magic + quest-alias record subset (companion to
+// records.odin, which covers cells / placements / base models). Same contract: fields come
+// pre-split by fields(), strings alias the field bytes, formIDs are RAW/local until the
+// caller remaps them. Every byte offset below was validated against the real Skyrim.esm —
+// the validating record is named in each comment.
+
+// --- keywords -------------------------------------------------------------------------
+
+// keywords collects a form's KWDA keyword formIDs — the tag set `Form.HasKeyword` tests
+// against. KSIZ (a u32 count) is a convenience header; the KWDA payload is authoritative,
+// so this reads every KWDA field's u32s and ignores KSIZ. Returns a freshly-allocated slice
+// the caller owns (nil when the form carries none). Raw/local formIDs. (Validated vs
+// DA14DremoraGreatswordFire03: KSIZ=3, KWDA=12 bytes.)
+keywords :: proc(fields: []Field, allocator := context.allocator) -> []u32 {
+	n := 0
+	for f in fields {
+		if f.type == "KWDA" {
+			n += len(f.data) / 4
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]u32, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type != "KWDA" {
+			continue
+		}
+		for off := 0; off + 4 <= len(f.data); off += 4 {
+			out[i] = rd32(f.data, off)
+			i += 1
+		}
+	}
+	return out
+}
+
+// field_u32 reads a subrecord's leading u32 — the shape of every "one number" subrecord
+// (a FACT RNAM rank index, …). ok=false when the field is too short.
+field_u32 :: proc(f: Field) -> (u32, bool) {
+	if len(f.data) < 4 {
+		return 0, false
+	}
+	return rd32(f.data, 0), true
+}
+
+// keyword_color reads a KYWD record's CNAM display color (packed RGB). ok=false if absent.
+// A KYWD's identity is its EDID — the record carries no FULL.
+keyword_color :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "CNAM"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// --- linked references ----------------------------------------------------------------
+
+// Linked_Ref is one XLKR link of a placed reference: the reference it points at, tagged by a
+// keyword. `keyword` 0 is the DEFAULT link (the one bare `GetLinkedRef()` returns); a non-zero
+// keyword names the channel `GetLinkedRef(akKeyword)` selects. Both are raw/local until remapped.
+Linked_Ref :: struct {
+	keyword: u32,
+	ref:     u32,
+}
+
+// linked_refs collects a REFR's XLKR links in declaration order. XLKR is 8 bytes: keyword
+// formID (u32) + target reference formID (u32). Returns a freshly-allocated slice the caller
+// owns (nil when the ref links nothing — the common case). (Validated vs Skyrim.esm REFRs:
+// 7 of the first 3000 carry XLKR, all 8 bytes, keyword 0.)
+linked_refs :: proc(fields: []Field, allocator := context.allocator) -> []Linked_Ref {
+	n := 0
+	for f in fields {
+		if f.type == "XLKR" && len(f.data) >= 8 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Linked_Ref, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == "XLKR" && len(f.data) >= 8 {
+			out[i] = Linked_Ref{keyword = rd32(f.data, 0), ref = rd32(f.data, 4)}
+			i += 1
+		}
+	}
+	return out
+}
+
+// --- faction membership (NPC_ SNAM) ----------------------------------------------------
+
+// Faction_Membership is one SNAM row of an actor base: a faction it belongs to and its rank in
+// it. `faction` is raw/local until remapped. Rank is signed (−1 means "member, no rank" in the
+// CK's convention; vanilla NPCs are almost all rank 0). This is the BASELINE the runtime
+// faction overlay diverges from.
+Faction_Membership :: struct {
+	faction: u32,
+	rank:    i8,
+}
+
+// faction_memberships collects an NPC_'s SNAM faction rows in declaration order. SNAM is 8
+// bytes: faction formID (u32) + rank (i8) + 3 unused. Returns a freshly-allocated slice the
+// caller owns (nil when the actor joins none). (Validated vs dunTransmogrifyHare: 3 SNAMs,
+// 8 bytes each, rank byte @4.)
+faction_memberships :: proc(fields: []Field, allocator := context.allocator) -> []Faction_Membership {
+	n := 0
+	for f in fields {
+		if f.type == "SNAM" && len(f.data) >= 8 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Faction_Membership, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == "SNAM" && len(f.data) >= 8 {
+			out[i] = Faction_Membership{faction = rd32(f.data, 0), rank = transmute(i8)f.data[4]}
+			i += 1
+		}
+	}
+	return out
+}
+
+// --- FACT (faction) --------------------------------------------------------------------
+
+// FACT DATA flag bits. Only the ones a consumer branches on are named; the raw u32 is kept so
+// unlisted bits survive.
+FACT_HIDDEN_FROM_PC :: 0x0000_0001
+FACT_SPECIAL_COMBAT :: 0x0000_0002
+FACT_TRACK_CRIME :: 0x0000_0040
+FACT_IGNORE_MURDER :: 0x0000_0080
+FACT_IGNORE_ASSAULT :: 0x0000_0100
+FACT_IGNORE_STEALING :: 0x0000_0200
+FACT_IGNORE_TRESPASS :: 0x0000_0400
+FACT_DO_NOT_REPORT_CRIMES :: 0x0000_0800
+FACT_VENDOR :: 0x0000_2000
+
+// Combat_Reaction is how members of one faction treat members of another (an XNAM row).
+Combat_Reaction :: enum u32 {
+	Neutral = 0,
+	Enemy   = 1,
+	Ally    = 2,
+	Friend  = 3,
+}
+
+// Faction_Relation is one XNAM row: how this faction regards `faction`. `modifier` shifts the
+// disposition; `combat` is the hard reaction. `faction` is raw/local until remapped.
+Faction_Relation :: struct {
+	faction:  u32,
+	modifier: i32,
+	combat:   Combat_Reaction,
+}
+
+// faction_relations collects a FACT's XNAM rows in declaration order. XNAM is 12 bytes:
+// faction formID (u32) + modifier (i32) + combat reaction (u32). Returns a freshly-allocated
+// slice the caller owns (nil when the faction relates to none). (Validated vs
+// WinterholdJailFaction: one XNAM, faction 0x0DB1, modifier 0, combat 2 = Ally.)
+faction_relations :: proc(fields: []Field, allocator := context.allocator) -> []Faction_Relation {
+	n := 0
+	for f in fields {
+		if f.type == "XNAM" && len(f.data) >= 12 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Faction_Relation, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type == "XNAM" && len(f.data) >= 12 {
+			out[i] = Faction_Relation {
+				faction  = rd32(f.data, 0),
+				modifier = transmute(i32)rd32(f.data, 4),
+				combat   = Combat_Reaction(rd32(f.data, 8)),
+			}
+			i += 1
+		}
+	}
+	return out
+}
+
+// faction_flags reads a FACT's DATA flags word (FACT_* bits). ok=false when absent.
+faction_flags :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// Crime_Values is a crime faction's CRVA block: the bounty each offence carries and how the
+// faction's guards respond. `steal_multiplier` scales the stolen item's gold value into bounty.
+Crime_Values :: struct {
+	arrest:           bool, // guards attempt arrest rather than attacking outright
+	attack_on_detect: bool, // guards attack the moment they detect a wanted player
+	murder:           u16,  // bounty per offence, in gold
+	assault:          u16,
+	trespass:         u16,
+	pickpocket:       u16,
+	steal_multiplier: f32,
+	escape:           u16, // bounty for escaping custody
+	werewolf:         u16, // bounty for being seen transformed
+}
+
+// faction_crime reads a FACT's CRVA crime values (20 bytes): arrest u8@0, attack-on-detect u8@1,
+// murder u16@2, assault u16@4, trespass u16@6, pickpocket u16@8, unused u16@10, steal multiplier
+// f32@12, escape u16@16, werewolf u16@18. ok=false when absent/short. (Validated vs
+// CrimeFactionWhiterun: 1000 / 40 / 5 / 25 gold, ×0.5 steal, 100 escape, 1000 werewolf —
+// Skyrim's canonical hold bounties.)
+faction_crime :: proc(fields: []Field) -> (cv: Crime_Values, ok: bool) {
+	f, fok := find_field(fields, "CRVA")
+	if !fok || len(f.data) < 20 {
+		return {}, false
+	}
+	return Crime_Values {
+			arrest           = f.data[0] != 0,
+			attack_on_detect = f.data[1] != 0,
+			murder           = rd16(f.data, 2),
+			assault          = rd16(f.data, 4),
+			trespass         = rd16(f.data, 6),
+			pickpocket       = rd16(f.data, 8),
+			steal_multiplier = rf32(f.data, 12),
+			escape           = rd16(f.data, 16),
+			werewolf         = rd16(f.data, 18),
+		},
+		true
+}
+
+// --- magic: SPEL / SCRL / ENCH / MGEF ---------------------------------------------------
+
+// Cast_Type is how a magic item is cast. Delivery is how it reaches its target. Both indices
+// are the CK's, shared by SPIT / ENIT / MGEF DATA.
+Cast_Type :: enum u32 {
+	Constant_Effect = 0,
+	Fire_And_Forget = 1,
+	Concentration   = 2,
+}
+
+Delivery :: enum u32 {
+	Self            = 0,
+	Contact         = 1,
+	Aimed           = 2,
+	Target_Actor    = 3,
+	Target_Location = 4,
+}
+
+// Spell_Type classifies a SPEL/SCRL — what slot the form occupies for the caster.
+Spell_Type :: enum u32 {
+	Spell        = 0,
+	Disease      = 1,
+	Power        = 2,
+	Lesser_Power = 3,
+	Ability      = 4,
+	Poison       = 5,
+	Addiction    = 10,
+	Voice        = 11,
+}
+
+// Spell_Info is a SPEL/SCRL's SPIT block (36 bytes): what the spell costs, how it's cast, and
+// how it reaches its target. `half_cost_perk` is raw/local until remapped.
+Spell_Info :: struct {
+	cost:           u32,
+	flags:          u32,
+	type:           Spell_Type,
+	charge_time:    f32,
+	cast_type:      Cast_Type,
+	delivery:       Delivery,
+	cast_duration:  f32,
+	range:          f32,
+	half_cost_perk: u32,
+}
+
+// spell_info reads a SPEL/SCRL's SPIT: cost u32@0, flags u32@4, type u32@8, charge time f32@12,
+// cast type u32@16, delivery u32@20, cast duration f32@24, range f32@28, half-cost perk u32@32.
+// ok=false when absent/short. (Validated vs PerkNightThief: type 4 = Ability; and
+// AbMG08AncanoMagicka: cost 792, charge time 0.5.)
+spell_info :: proc(fields: []Field) -> (si: Spell_Info, ok: bool) {
+	f, fok := find_field(fields, "SPIT")
+	if !fok || len(f.data) < 36 {
+		return {}, false
+	}
+	return Spell_Info {
+			cost           = rd32(f.data, 0),
+			flags          = rd32(f.data, 4),
+			type           = Spell_Type(rd32(f.data, 8)),
+			charge_time    = rf32(f.data, 12),
+			cast_type      = Cast_Type(rd32(f.data, 16)),
+			delivery       = Delivery(rd32(f.data, 20)),
+			cast_duration  = rf32(f.data, 24),
+			range          = rf32(f.data, 28),
+			half_cost_perk = rd32(f.data, 32),
+		},
+		true
+}
+
+// Enchant_Type is what an ENCH can be applied to (the CK's "enchantment type").
+Enchant_Type :: enum u32 {
+	Enchantment = 6,  // armor / apparel
+	Staff_Enchantment = 12, // weapons + staves
+}
+
+// Enchant_Info is an ENCH's ENIT block (36 bytes). `base_enchantment` links the "parent"
+// enchantment a scaled variant derives from; `worn_restrictions` is an FLST of slots it may
+// occupy. Both raw/local until remapped.
+Enchant_Info :: struct {
+	cost:              u32,
+	flags:             u32,
+	cast_type:         Cast_Type,
+	charge_amount:     u32,
+	delivery:          Delivery,
+	type:              Enchant_Type,
+	charge_time:       f32,
+	base_enchantment:  u32,
+	worn_restrictions: u32,
+}
+
+// enchant_info reads an ENCH's ENIT: cost u32@0, flags u32@4, cast type u32@8, charge amount
+// u32@12, delivery u32@16, enchant type u32@20, charge time f32@24, base enchantment u32@28,
+// worn restrictions u32@32. ok=false when absent/short. (Validated vs
+// MGArchMageRobeHoodedEnchant: cost 3161 = charge amount, cast type 0 = Constant Effect,
+// delivery 0 = Self, type 6 = armor enchantment.)
+enchant_info :: proc(fields: []Field) -> (ei: Enchant_Info, ok: bool) {
+	f, fok := find_field(fields, "ENIT")
+	if !fok || len(f.data) < 36 {
+		return {}, false
+	}
+	return Enchant_Info {
+			cost              = rd32(f.data, 0),
+			flags             = rd32(f.data, 4),
+			cast_type         = Cast_Type(rd32(f.data, 8)),
+			charge_amount     = rd32(f.data, 12),
+			delivery          = Delivery(rd32(f.data, 16)),
+			type              = Enchant_Type(rd32(f.data, 20)),
+			charge_time       = rf32(f.data, 24),
+			base_enchantment  = rd32(f.data, 28),
+			worn_restrictions = rd32(f.data, 32),
+		},
+		true
+}
+
+// Effect_Item is one effect a spell / scroll / enchantment / potion applies: which MGEF, and
+// how strongly / how wide / how long. On disk it's an EFID (the MGEF formID) immediately
+// followed by an EFIT (12 bytes: magnitude f32@0, area u32@4, duration u32@8). `effect` is
+// raw/local until remapped.
+Effect_Item :: struct {
+	effect:    u32,
+	magnitude: f32,
+	area:      u32,
+	duration:  u32,
+}
+
+// effect_items collects a record's EFID/EFIT effect pairs in declaration order — the shape
+// shared by SPEL, SCRL, ENCH, ALCH and INGR. An EFID with no following EFIT contributes a
+// zero-magnitude entry (the effect is still applied). Any CTDA conditions attached to an
+// effect are skipped. Returns a freshly-allocated slice the caller owns (nil when none).
+// (Validated vs MGArchMageRobeHoodedEnchant: 7 EFID/EFIT pairs, magnitudes 15/15/15/15/15/100/50.)
+effect_items :: proc(fields: []Field, allocator := context.allocator) -> []Effect_Item {
+	n := 0
+	for f in fields {
+		if f.type == "EFID" && len(f.data) >= 4 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Effect_Item, n, allocator)
+	i := 0
+	for f, k in fields {
+		if f.type != "EFID" || len(f.data) < 4 {
+			continue
+		}
+		e := Effect_Item{effect = rd32(f.data, 0)}
+		if k + 1 < len(fields) && fields[k + 1].type == "EFIT" && len(fields[k + 1].data) >= 12 {
+			d := fields[k + 1].data
+			e.magnitude = rf32(d, 0)
+			e.area = rd32(d, 4)
+			e.duration = rd32(d, 8)
+		}
+		out[i] = e
+		i += 1
+	}
+	return out
+}
+
+// Effect_Archetype is what an MGEF actually DOES — the CK's "effect archetype". Only the
+// archetypes a consumer branches on are named; the raw index is preserved for the rest.
+// (Validated vs Skyrim.esm: ChillrendParalysisFFContact = 21, dunHagsEndSoulTrapFFContact = 23,
+// DA11AbFortifyHealth = 34.)
+Effect_Archetype :: enum u32 {
+	Value_Modifier      = 0,
+	Script              = 1,
+	Dispel              = 2,
+	Cure_Disease        = 3,
+	Absorb              = 4,
+	Dual_Value_Modifier = 5,
+	Calm                = 6,
+	Demoralize          = 7,
+	Frenzy              = 8,
+	Disarm              = 9,
+	Command_Summoned    = 10,
+	Invisibility        = 11,
+	Light               = 12,
+	Night_Eye           = 14,
+	Lock                = 15,
+	Open                = 16,
+	Bound_Weapon        = 17,
+	Summon_Creature     = 18,
+	Detect_Life         = 19,
+	Telekinesis         = 20,
+	Paralysis           = 21,
+	Reanimate           = 22,
+	Soul_Trap           = 23,
+	Turn_Undead         = 24,
+	Guide               = 25,
+	Werewolf_Feed       = 26,
+	Cure_Paralysis      = 27,
+	Cure_Addiction      = 28,
+	Cure_Poison         = 29,
+	Concussion          = 30,
+	Value_And_Parts     = 31,
+	Accumulate_Magnitude = 32,
+	Stagger             = 33,
+	Peak_Value_Modifier = 34,
+	Cloak               = 35,
+	Werewolf            = 36,
+	Slow_Time           = 37,
+	Rally               = 38,
+	Enhance_Weapon      = 39,
+	Spawn_Hazard        = 40,
+	Etherealize         = 41,
+	Banish              = 42,
+	Disguise            = 44,
+	Grab_Actor          = 45,
+	Vampire_Lord        = 46,
+}
+
+// MGEF DATA flag bits (the raw u32 is kept; only the commonly-queried ones are named).
+MGEF_HOSTILE :: 0x0000_0001
+MGEF_RECOVER :: 0x0000_0002
+MGEF_DETRIMENTAL :: 0x0000_0004
+MGEF_NO_HIT_EVENT :: 0x0000_0010
+MGEF_NO_DURATION :: 0x0000_0200
+MGEF_NO_MAGNITUDE :: 0x0000_0400
+MGEF_NO_AREA :: 0x0000_0800
+MGEF_PAINLESS :: 0x0000_4000
+
+// AV_NONE is the "no actor value" sentinel MGEF stores for the skill / resistance / affected
+// value slots (an i32 −1).
+AV_NONE :: i32(-1)
+
+// Magic_Effect_Info is an MGEF's DATA block (152 bytes) — the half of it the data layer needs.
+// Actor-value slots are the CK's ActorValue INDICES (validated: 18 Alteration, 19 Conjuration,
+// 24 Health, 53 Paralysis), AV_NONE when unset; naming them is the consumer's job, so the raw
+// index is what's stored. Form slots are raw/local until remapped. The unread tail is art and
+// sound links (casting art, hit shader, impact data, …) — appearance, not data-layer concerns.
+Magic_Effect_Info :: struct {
+	flags:        u32, // MGEF_* bits
+	base_cost:    f32,
+	magic_skill:  i32, // the school the effect trains (AV index; AV_NONE = none)
+	resist_av:    i32, // the AV that resists it (AV_NONE = unresistable)
+	skill_level:  u32, // minimum skill to cast
+	area:         u32,
+	casting_time: f32,
+	archetype:    Effect_Archetype,
+	primary_av:   i32, // the AV the effect modifies (AV_NONE = none)
+	second_av:    i32,
+	projectile:   u32,
+	explosion:    u32,
+	cast_type:    Cast_Type,
+	delivery:     Delivery,
+}
+
+// magic_effect_info reads an MGEF's DATA: flags u32@0, base cost f32@4, magic skill i32@12,
+// resist AV i32@16, min skill level u32@40, area u32@44, casting time f32@48, archetype u32@64,
+// primary AV i32@68, projectile u32@72, explosion u32@76, cast type u32@80, delivery u32@84,
+// second AV i32@88. ok=false when absent/short. (Offsets validated by editor-id convention
+// across Skyrim.esm: every "…FFContact" reads cast type 1 / delivery 1, "…FFAimedArea" reads
+// 1 / 2, "…FFSelfArea" reads 1 / 0; paralysis effects read archetype 21, soul trap 23.)
+magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) {
+	f, fok := find_field(fields, "DATA")
+	if !fok || len(f.data) < 92 {
+		return {}, false
+	}
+	d := f.data
+	return Magic_Effect_Info {
+			flags        = rd32(d, 0),
+			base_cost    = rf32(d, 4),
+			magic_skill  = transmute(i32)rd32(d, 12),
+			resist_av    = transmute(i32)rd32(d, 16),
+			skill_level  = rd32(d, 40),
+			area         = rd32(d, 44),
+			casting_time = rf32(d, 48),
+			archetype    = Effect_Archetype(rd32(d, 64)),
+			primary_av   = transmute(i32)rd32(d, 68),
+			projectile   = rd32(d, 72),
+			explosion    = rd32(d, 76),
+			cast_type    = Cast_Type(rd32(d, 80)),
+			delivery     = Delivery(rd32(d, 84)),
+			second_av    = transmute(i32)rd32(d, 88),
+		},
+		true
+}
+
+// --- QUST aliases -----------------------------------------------------------------------
+
+// Alias_Fill names HOW a quest alias finds the reference it stands for. Only `Forced` resolves
+// statically (the CK pinned a specific ref at authoring time) — every other kind is filled by
+// the quest engine when the quest starts, so the data layer records the kind + its operands and
+// leaves the resolution to the runtime.
+Alias_Fill :: enum u8 {
+	None,          // no fill subrecord (an alias script fills it)
+	Forced,        // ALFR — a specific reference, known now
+	Unique_Actor,  // ALUA — a specific unique NPC_
+	Create_Ref,    // ALCO/ALCA/ALCL — create a new ref of `target` at alias `extra`
+	From_Event,    // ALFE/ALFD — filled by a story-manager event
+	External,      // ALEQ/ALEA — alias `extra` of quest `target`
+	Matching_Ref,  // ALFA (+ optional ALRT ref type) — search near alias `extra`
+	From_List,     // ALFI — index `extra` into the quest's alias list
+}
+
+// Quest_Alias is one QUST alias definition: the slot a quest's scripts address by id
+// (`ReferenceAlias.GetReference`), its authored fill rule, and its editor name. `location`
+// marks a LOCATION alias (ALLS) rather than a reference alias (ALST). `target` / `extra`
+// carry the fill's operands per `fill` (see Alias_Fill); `target` is a raw/local formID for
+// the form-valued kinds and unused otherwise. `name` aliases the ALID field bytes — clone it
+// to keep it.
+Quest_Alias :: struct {
+	id:       u32,
+	location: bool,
+	flags:    u32,
+	fill:     Alias_Fill,
+	target:   u32,
+	extra:    u32,
+	name:     string,
+}
+
+// quest_aliases decodes a QUST's alias definitions. Each alias runs from an ALST (reference
+// alias id) or ALLS (location alias id) to its ALED end marker; the subrecords between belong
+// to it — ALID name, FNAM flags, and one fill group. Field ORDER carries the grouping (the same
+// FNAM tag is also an objective's flags earlier in the record), so this walks in order and only
+// reads inside an open alias. Returns a freshly-allocated slice the caller owns (nil when the
+// quest defines none). (Validated vs Skyrim.esm: KingOlafsFestivalStarter "Karita" = ALUA;
+// DA15Return = ALFR; MQGreybeardCall = ALCO/ALCA/ALCL; JailQuest = ALFA+ALRT and ALFI+ALFR;
+// BardAudienceQuest = ALEQ/ALEA and an ALLS location alias.)
+quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Quest_Alias {
+	n := 0
+	for f in fields {
+		if (f.type == "ALST" || f.type == "ALLS") && len(f.data) >= 4 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([dynamic]Quest_Alias, 0, n, allocator)
+	cur: Quest_Alias
+	open := false
+	for f in fields {
+		switch f.type {
+		case "ALST", "ALLS":
+			if len(f.data) < 4 {
+				continue
+			}
+			if open {
+				append(&out, cur) // a missing ALED still closes the previous alias
+			}
+			cur = Quest_Alias{id = rd32(f.data, 0), location = f.type == "ALLS"}
+			open = true
+		case "ALED":
+			if open {
+				append(&out, cur)
+				open = false
+			}
+		case:
+			if !open {
+				continue // the same tags appear outside aliases (objective FNAM, quest CTDA)
+			}
+			switch f.type {
+			case "ALID":
+				cur.name = cstr(f.data)
+			case "FNAM":
+				if len(f.data) >= 4 {
+					cur.flags = rd32(f.data, 0)
+				}
+			case "ALFR":
+				// A forced reference. An ALFI alias already claimed the fill (ALFI+ALFR pairs
+				// name the list index AND its default ref) — keep the more specific From_List.
+				if len(f.data) >= 4 {
+					cur.target = rd32(f.data, 0)
+					if cur.fill == .None {
+						cur.fill = .Forced
+					}
+				}
+			case "ALUA":
+				if len(f.data) >= 4 {
+					cur.fill = .Unique_Actor
+					cur.target = rd32(f.data, 0)
+				}
+			case "ALCO":
+				if len(f.data) >= 4 {
+					cur.fill = .Create_Ref
+					cur.target = rd32(f.data, 0)
+				}
+			case "ALCA":
+				if len(f.data) >= 4 && cur.fill == .Create_Ref {
+					cur.extra = rd32(f.data, 0)
+				}
+			case "ALFE":
+				cur.fill = .From_Event
+			case "ALEQ":
+				if len(f.data) >= 4 {
+					cur.fill = .External
+					cur.target = rd32(f.data, 0)
+				}
+			case "ALEA":
+				if len(f.data) >= 4 && cur.fill == .External {
+					cur.extra = rd32(f.data, 0)
+				}
+			case "ALFA":
+				if len(f.data) >= 4 {
+					cur.fill = .Matching_Ref
+					cur.extra = rd32(f.data, 0)
+				}
+			case "ALRT":
+				if len(f.data) >= 4 && cur.fill == .Matching_Ref {
+					cur.target = rd32(f.data, 0) // the ref type to match
+				}
+			case "ALFI":
+				if len(f.data) >= 4 {
+					cur.fill = .From_List
+					cur.extra = rd32(f.data, 0)
+				}
+			}
+		}
+	}
+	if open {
+		append(&out, cur)
+	}
+	return out[:]
+}

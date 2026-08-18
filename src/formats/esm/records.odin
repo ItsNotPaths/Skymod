@@ -156,13 +156,14 @@ object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
 
 // item_value_weight decodes a base item's gold value + weight. The byte layout is per record
 // type (each offset validated against the real Skyrim.esm): the common carriable items store an
-// {value:u32, weight:f32} pair at DATA[0..8]; BOOK puts value/weight at DATA[8..16] (after its
-// flags/type/teaches header); AMMO keeps value at DATA[12] and has NO weight (arrows are
-// weightless); ALCH (potions/food) stores weight alone in DATA and its value in ENIT[0]. ok=false
-// when the type isn't a valued item, or the field is missing/too short.
+// {value:u32, weight:f32} pair at DATA[0..8] (SCRL included — validated vs MGR21ScrollMagicka,
+// 50 gold / 0.5 wt); BOOK puts value/weight at DATA[8..16] (after its flags/type/teaches header);
+// AMMO keeps value at DATA[12] and has NO weight (arrows are weightless); ALCH (potions/food)
+// stores weight alone in DATA and its value in ENIT[0]. ok=false when the type isn't a valued
+// item, or the field is missing/too short.
 item_value_weight :: proc(rec_type: string, fields: []Field) -> (value: i32, weight: f32, ok: bool) {
 	switch rec_type {
-	case "WEAP", "ARMO", "INGR", "KEYM", "SLGM", "MISC":
+	case "WEAP", "ARMO", "INGR", "KEYM", "SLGM", "MISC", "SCRL":
 		if f, fok := find_field(fields, "DATA"); fok && len(f.data) >= 8 {
 			return i32(rd32(f.data, 0)), rf32(f.data, 4), true
 		}

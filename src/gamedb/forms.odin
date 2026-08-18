@@ -1,0 +1,560 @@
+package gamedb
+
+// Form-metadata indexing: the record layer beneath the script runtime's baseline queries —
+// keywords (Form.HasKeyword), linked references (GetLinkedRef), faction identity + membership,
+// the magic records (SPEL/SCRL/ENCH/MGEF), and quest alias definitions. Decoders live in
+// src/formats/esm (records_forms.odin); this file owns the DB-side storage, the local→global
+// FormID remap, and the queries. Every proc here follows the file's house rules: a later plugin
+// overriding a record replaces it wholesale (free the previous owned data first), and the walk
+// has no temp-allocator reset, so scratch slices are freed explicitly.
+
+import "core:strings"
+import "../formats/esm"
+
+// --- keywords ---------------------------------------------------------------------------
+
+// index_keywords stores a form's KWDA keyword set, remapped to global space. Called from every
+// index proc whose record type can carry keywords (base forms, actors, magic records) — a form
+// with no KWDA stores nothing, so absence and "empty set" are the same lookup.
+@(private)
+index_keywords :: proc(db: ^DB, form: Form_ID, fl: []esm.Field, fm: ^esm.Form_Map) {
+	raw := esm.keywords(fl, context.allocator) // walk has no temp reset — remap_formid_list frees it
+	if raw == nil {
+		return
+	}
+	if old, existed := db.keywords[form]; existed {
+		delete(old, db.allocator) // override: free the previous set
+	}
+	db.keywords[form] = remap_formid_list(db, raw, fm)
+}
+
+// index_keyword records a KYWD's identity. A keyword carries no FULL — its editor id IS its
+// name, and it's how content addresses one by hand ("VendorItemFood"), so both directions are
+// stored. The reverse key is lowercased for case-insensitive lookup, matching cell_by_edid.
+@(private)
+index_keyword :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	edid := esm.editor_id(fl)
+	if edid == "" {
+		return
+	}
+	if old, existed := db.keyword_edid[rec.form_id]; existed {
+		delete(old, db.allocator) // override: free the previous clone
+	}
+	db.keyword_edid[rec.form_id] = strings.clone(edid, db.allocator)
+	lower := strings.to_lower(edid, db.allocator)
+	if _, seen := db.keyword_by_edid[lower]; seen {
+		delete(lower, db.allocator) // key already present — the value just gets overwritten
+	}
+	db.keyword_by_edid[lower] = rec.form_id
+}
+
+// keywords_of returns a form's keyword set (empty when the form has none / isn't indexed). The
+// slice is owned by the DB — don't mutate or free it.
+keywords_of :: proc(db: ^DB, form: Form_ID) -> []Form_ID {
+	if db == nil {
+		return nil
+	}
+	return db.keywords[form]
+}
+
+// has_keyword reports whether a form carries `keyword` — the baseline behind Form.HasKeyword.
+// Sets are small (vanilla forms carry ≤ ~8), so a linear scan beats a per-form set.
+has_keyword :: proc(db: ^DB, form: Form_ID, keyword: Form_ID) -> bool {
+	for k in keywords_of(db, form) {
+		if k == keyword {
+			return true
+		}
+	}
+	return false
+}
+
+// keyword_id resolves a keyword's editor id (case-insensitive) to its form — how hand-written
+// content names a keyword without hardcoding a formID. ok=false when no such keyword is indexed.
+keyword_id :: proc(db: ^DB, editor_id: string) -> (Form_ID, bool) {
+	if db == nil {
+		return 0, false
+	}
+	lower := strings.to_lower(editor_id, context.temp_allocator)
+	f, ok := db.keyword_by_edid[lower]
+	return f, ok
+}
+
+// keyword_editor_id returns a keyword form's editor id ("" when it isn't an indexed KYWD). Owned
+// by the DB.
+keyword_editor_id :: proc(db: ^DB, keyword: Form_ID) -> string {
+	if db == nil {
+		return ""
+	}
+	return db.keyword_edid[keyword]
+}
+
+// --- linked references ------------------------------------------------------------------
+
+// index_linked_refs stores a placed ref's XLKR links, remapped. Called from index_ref; most refs
+// link nothing, so nothing is stored for them.
+@(private)
+index_linked_refs :: proc(db: ^DB, form: Form_ID, fl: []esm.Field, fm: ^esm.Form_Map) {
+	raw := esm.linked_refs(fl, context.allocator) // walk has no temp reset — explicit free
+	if raw == nil {
+		if old, existed := db.linked_refs[form]; existed {
+			delete(old, db.allocator) // override dropped the links
+			delete_key(&db.linked_refs, form)
+		}
+		return
+	}
+	defer delete(raw, context.allocator)
+	links := make([]Linked_Ref, len(raw), db.allocator)
+	for l, i in raw {
+		links[i] = Linked_Ref {
+			keyword = esm.remap_form(fm, l.keyword),
+			ref     = esm.remap_form(fm, l.ref),
+		}
+	}
+	if old, existed := db.linked_refs[form]; existed {
+		delete(old, db.allocator) // override: free the previous links
+	}
+	db.linked_refs[form] = links
+}
+
+// linked_refs_of returns a placed ref's XLKR links (empty when it links nothing). Owned by the DB.
+linked_refs_of :: proc(db: ^DB, ref: Form_ID) -> []Linked_Ref {
+	if db == nil {
+		return nil
+	}
+	return db.linked_refs[ref]
+}
+
+// linked_ref resolves one link channel: the reference `ref` points at through `keyword`. Pass
+// keyword 0 for the DEFAULT link — what a bare GetLinkedRef() returns. ok=false when the ref has
+// no link on that channel.
+linked_ref :: proc(db: ^DB, ref: Form_ID, keyword: Form_ID = 0) -> (Form_ID, bool) {
+	for l in linked_refs_of(db, ref) {
+		if l.keyword == keyword {
+			return l.ref, true
+		}
+	}
+	return 0, false
+}
+
+// --- FACT -------------------------------------------------------------------------------
+
+// index_faction decodes a FACT baseline: DATA flags, XNAM relations, the CRVA crime table, and
+// the rank ladder. Ranks need an ORDERED walk — an RNAM declares a rank index and the MNAM /
+// FNAM that follow are its male / female titles (the same tags mean other things elsewhere in
+// the record), so this mirrors index_quest's INDX/QSDT pattern rather than using find_field.
+@(private)
+index_faction :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl) // FULL — the faction's display name ("Companions")
+
+	f: Faction
+	f.flags, _ = esm.faction_flags(fl)
+	f.crime, f.has_crime = esm.faction_crime(fl)
+
+	if raw := esm.faction_relations(fl, context.allocator); raw != nil {
+		defer delete(raw, context.allocator)
+		rels := make([]Faction_Relation, len(raw), db.allocator)
+		for r, i in raw {
+			rels[i] = Faction_Relation {
+				faction  = esm.remap_form(fm, r.faction),
+				modifier = r.modifier,
+				combat   = r.combat,
+			}
+		}
+		f.relations = rels
+	}
+
+	ranks := make([dynamic]Faction_Rank, 0, 8, db.allocator)
+	for field in fl {
+		switch field.type {
+		case "RNAM":
+			if idx, has := esm.field_u32(field); has {
+				append(&ranks, Faction_Rank{index = idx})
+			}
+		case "MNAM", "FNAM":
+			// Titles for the rank the preceding RNAM opened. Short-text lstrings → STRINGS
+			// (or inline for a non-localized plugin).
+			if len(ranks) == 0 {
+				continue
+			}
+			txt := resolve_lstring(db, field, db.cur_strings)
+			if txt == "" {
+				continue
+			}
+			cur := &ranks[len(ranks) - 1]
+			if field.type == "MNAM" {
+				cur.male_title = strings.clone(txt, db.allocator)
+			} else {
+				cur.female_title = strings.clone(txt, db.allocator)
+			}
+		}
+	}
+	if len(ranks) > 0 {
+		f.ranks = ranks[:]
+	} else {
+		delete(ranks)
+	}
+
+	if old, existed := db.factions[rec.form_id]; existed {
+		free_faction(db, old) // override: free the previous owned data
+	}
+	db.factions[rec.form_id] = f
+}
+
+// faction_of returns a faction's decoded baseline (ok=false when the form isn't an indexed FACT).
+// The struct's slices are owned by the DB — don't mutate or free them.
+faction_of :: proc(db: ^DB, faction: Form_ID) -> (Faction, bool) {
+	if db == nil {
+		return {}, false
+	}
+	f, ok := db.factions[faction]
+	return f, ok
+}
+
+// faction_rank_title returns the title shown for `rank` in `faction`, picking the female title
+// when `female` and one is authored (most vanilla factions title only the male column, so that's
+// the fallback). ok=false when the faction / rank isn't indexed or carries no title.
+faction_rank_title :: proc(db: ^DB, faction: Form_ID, rank: u32, female := false) -> (string, bool) {
+	f, ok := faction_of(db, faction)
+	if !ok {
+		return "", false
+	}
+	for r in f.ranks {
+		if r.index != rank {
+			continue
+		}
+		if female && r.female_title != "" {
+			return r.female_title, true
+		}
+		if r.male_title != "" {
+			return r.male_title, true
+		}
+		return "", false
+	}
+	return "", false
+}
+
+// faction_reaction returns how `faction` regards `other` — the XNAM combat reaction plus its
+// disposition modifier. ok=false when no relation is authored between them (the neutral default).
+faction_reaction :: proc(
+	db: ^DB,
+	faction, other: Form_ID,
+) -> (
+	reaction: esm.Combat_Reaction,
+	modifier: i32,
+	ok: bool,
+) {
+	f, found := faction_of(db, faction)
+	if !found {
+		return .Neutral, 0, false
+	}
+	for r in f.relations {
+		if r.faction == other {
+			return r.combat, r.modifier, true
+		}
+	}
+	return .Neutral, 0, false
+}
+
+// actor_faction_rank returns an actor base's BASELINE rank in `faction` (its authored SNAM row).
+// ok=false when the actor isn't an authored member — the caller falls through to the runtime
+// faction overlay, which is where scripted joins/leaves live.
+actor_faction_rank :: proc(db: ^DB, actor: Form_ID, faction: Form_ID) -> (i8, bool) {
+	a, ok := actor_base(db, actor)
+	if !ok {
+		return 0, false
+	}
+	for m in a.factions {
+		if m.faction == faction {
+			return m.rank, true
+		}
+	}
+	return 0, false
+}
+
+// --- magic: SPEL / SCRL / ENCH / MGEF ----------------------------------------------------
+
+// index_spell decodes a SPEL or SCRL into its cast parameters + effect list. Both carry the same
+// SPIT block; `scroll` records which record type it came from (a scroll dispatches as its own
+// Papyrus class and is also a carriable item — see the SCRL case in visit).
+@(private)
+index_spell :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map, scroll: bool) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	// SPEL isn't a base type, so its name/keywords land here. A SCRL redoes both (index_base
+	// already ran) — 74 records, not worth a branch.
+	index_name(db, rec.form_id, fl)
+	index_keywords(db, rec.form_id, fl, fm)
+
+	sp := Spell{scroll = scroll}
+	sp.info, _ = esm.spell_info(fl)
+	sp.half_cost_perk = esm.remap_form(fm, sp.info.half_cost_perk)
+	sp.effects = index_effects(db, fl, fm)
+
+	if old, existed := db.spells[rec.form_id]; existed {
+		delete(old.effects, db.allocator) // override: free the previous effect list
+	}
+	db.spells[rec.form_id] = sp
+}
+
+// index_enchantment decodes an ENCH into its ENIT parameters + the effects it grants.
+@(private)
+index_enchantment :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl)
+	index_keywords(db, rec.form_id, fl, fm)
+
+	e: Enchantment
+	e.info, _ = esm.enchant_info(fl)
+	e.base_enchantment = esm.remap_form(fm, e.info.base_enchantment)
+	e.worn_restrictions = esm.remap_form(fm, e.info.worn_restrictions)
+	e.effects = index_effects(db, fl, fm)
+
+	if old, existed := db.enchantments[rec.form_id]; existed {
+		delete(old.effects, db.allocator) // override: free the previous effect list
+	}
+	db.enchantments[rec.form_id] = e
+}
+
+// index_magic_effect decodes an MGEF: what the effect does (archetype + actor values), its cost,
+// and its player-facing description. The DNAM description resolves in the PLAIN STRINGS table,
+// not DLSTRINGS — verified against Skyrim - Interface.bsa (0x000126B1 = "Stamina regenerates
+// <mag>% slower." in STRINGS, absent from DLSTRINGS/ILSTRINGS). Same as LSCR DESC: it's a short
+// display line, and only genuinely long text (quest journal CNAM, book DESC) lives in DLSTRINGS.
+@(private)
+index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl) // FULL — the effect name shown in the magic menu
+	index_keywords(db, rec.form_id, fl, fm)
+
+	me: Magic_Effect
+	me.info, _ = esm.magic_effect_info(fl)
+	me.projectile = esm.remap_form(fm, me.info.projectile)
+	me.explosion = esm.remap_form(fm, me.info.explosion)
+	if f, has := esm.find_field(fl, "DNAM"); has {
+		if txt := resolve_lstring(db, f, db.cur_strings); txt != "" {
+			me.description = strings.clone(txt, db.allocator)
+		}
+	}
+
+	if old, existed := db.magic_effects[rec.form_id]; existed {
+		delete(old.description, db.allocator) // override: free the previous clone
+	}
+	db.magic_effects[rec.form_id] = me
+}
+
+// index_effects decodes a record's EFID/EFIT effect list into DB-owned, remapped entries. Shared
+// by every magic record (spell, scroll, enchantment). nil when the record applies none.
+@(private)
+index_effects :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Magic_Effect_Ref {
+	raw := esm.effect_items(fl, context.allocator) // walk has no temp reset — explicit free
+	if raw == nil {
+		return nil
+	}
+	defer delete(raw, context.allocator)
+	out := make([]Magic_Effect_Ref, len(raw), db.allocator)
+	for e, i in raw {
+		out[i] = Magic_Effect_Ref {
+			effect    = esm.remap_form(fm, e.effect),
+			magnitude = e.magnitude,
+			area      = e.area,
+			duration  = e.duration,
+		}
+	}
+	return out
+}
+
+// spell_of returns a SPEL/SCRL's baseline (ok=false when the form isn't an indexed spell). Its
+// effect slice is owned by the DB.
+spell_of :: proc(db: ^DB, spell: Form_ID) -> (Spell, bool) {
+	if db == nil {
+		return {}, false
+	}
+	s, ok := db.spells[spell]
+	return s, ok
+}
+
+// enchantment_of returns an ENCH's baseline (ok=false when the form isn't an indexed enchantment).
+enchantment_of :: proc(db: ^DB, ench: Form_ID) -> (Enchantment, bool) {
+	if db == nil {
+		return {}, false
+	}
+	e, ok := db.enchantments[ench]
+	return e, ok
+}
+
+// magic_effect_of returns an MGEF's baseline (ok=false when the form isn't an indexed effect).
+magic_effect_of :: proc(db: ^DB, effect: Form_ID) -> (Magic_Effect, bool) {
+	if db == nil {
+		return {}, false
+	}
+	m, ok := db.magic_effects[effect]
+	return m, ok
+}
+
+// spell_costliest_effect returns the index into a spell's effect list of its most expensive
+// effect — the one Skyrim names the spell's "primary" (GetCostliestEffectIndex). Cost is the
+// effect's MGEF base cost scaled by the magnitude/duration this spell applies it at; ties keep
+// the earlier entry. ok=false for an unindexed spell or one with no effects.
+spell_costliest_effect :: proc(db: ^DB, spell: Form_ID) -> (int, bool) {
+	sp, found := spell_of(db, spell)
+	if !found || len(sp.effects) == 0 {
+		return 0, false
+	}
+	best, best_cost := 0, f32(-1)
+	for e, i in sp.effects {
+		me, has := magic_effect_of(db, e.effect)
+		if !has {
+			continue
+		}
+		// Skyrim's cost curve: base × magnitude^1.1 × (duration/10)^1.1, with the exponent
+		// dropped here — relative ORDER is what the index needs, and it's monotonic either way.
+		cost := me.info.base_cost * max(e.magnitude, 1) * max(f32(e.duration) / 10, 1)
+		if cost > best_cost {
+			best, best_cost = i, cost
+		}
+	}
+	if best_cost < 0 {
+		return 0, false
+	}
+	return best, true
+}
+
+// --- QUST aliases -------------------------------------------------------------------------
+
+// index_quest_aliases decodes a quest's alias slots, remapping each fill's form operand. Called
+// from index_quest with the fields it already parsed.
+@(private)
+index_quest_aliases :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Quest_Alias {
+	raw := esm.quest_aliases(fl, context.allocator) // walk has no temp reset — explicit free
+	if raw == nil {
+		return nil
+	}
+	defer delete(raw, context.allocator)
+	out := make([]Quest_Alias, len(raw), db.allocator)
+	for a, i in raw {
+		out[i] = Quest_Alias {
+			id       = a.id,
+			location = a.location,
+			flags    = a.flags,
+			fill     = a.fill,
+			target   = esm.remap_form(fm, a.target),
+			extra    = a.extra,
+			name     = strings.clone(a.name, db.allocator),
+		}
+	}
+	return out
+}
+
+// quest_aliases_of returns a quest's alias slots in declaration order (empty for an unindexed
+// quest or one with no aliases). Owned by the DB.
+quest_aliases_of :: proc(db: ^DB, quest: Form_ID) -> []Quest_Alias {
+	qb, ok := quest_baseline_of(db, quest)
+	if !ok {
+		return nil
+	}
+	return qb.aliases
+}
+
+// quest_alias returns one alias slot by the id its scripts address it with (Quest.GetAlias).
+// ok=false when the quest defines no such alias.
+quest_alias :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Quest_Alias, bool) {
+	for a in quest_aliases_of(db, quest) {
+		if a.id == id {
+			return a, true
+		}
+	}
+	return {}, false
+}
+
+// quest_alias_forced_ref returns the reference an alias is PINNED to at authoring time (an ALFR
+// fill). ok=false for every other fill kind — those are filled by the quest engine when the
+// quest starts, so the runtime alias store owns them and this baseline has nothing to offer.
+quest_alias_forced_ref :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Form_ID, bool) {
+	a, ok := quest_alias(db, quest, id)
+	if !ok || a.fill != .Forced || a.target == 0 {
+		return 0, false
+	}
+	return a.target, true
+}
+
+// --- teardown ------------------------------------------------------------------------------
+
+// free_faction releases a Faction's owned slices + rank titles. Shared by destroy + the override
+// path.
+@(private)
+free_faction :: proc(db: ^DB, f: Faction) {
+	delete(f.relations, db.allocator)
+	for r in f.ranks {
+		delete(r.male_title, db.allocator)
+		delete(r.female_title, db.allocator)
+	}
+	delete(f.ranks, db.allocator)
+}
+
+// free_form_indexes releases everything this file's maps own. Called from destroy.
+@(private)
+free_form_indexes :: proc(db: ^DB) {
+	for _, k in db.keywords {
+		delete(k, db.allocator)
+	}
+	delete(db.keywords)
+	for _, e in db.keyword_edid {
+		delete(e, db.allocator)
+	}
+	delete(db.keyword_edid)
+	for k, _ in db.keyword_by_edid {
+		delete(k, db.allocator)
+	}
+	delete(db.keyword_by_edid)
+	for _, l in db.linked_refs {
+		delete(l, db.allocator)
+	}
+	delete(db.linked_refs)
+	for _, f in db.factions {
+		free_faction(db, f)
+	}
+	delete(db.factions)
+	for _, s in db.spells {
+		delete(s.effects, db.allocator)
+	}
+	delete(db.spells)
+	for _, e in db.enchantments {
+		delete(e.effects, db.allocator)
+	}
+	delete(db.enchantments)
+	for _, m in db.magic_effects {
+		delete(m.description, db.allocator)
+	}
+	delete(db.magic_effects)
+}

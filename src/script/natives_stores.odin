@@ -21,7 +21,8 @@ register_stores :: proc(reg: ^Registry) {
 }
 
 // ── GlobalVariable ─────────────────────────────────────────────────────────────
-// Baseline GLOB default values aren't indexed yet (see docs), so an unset global reads 0.
+// Overlay-only: an unset global reads 0, not its authored FLTV default. The baseline IS indexed
+// now (gamedb.global_value) — read through c.db here when the globals pass lands.
 
 n_glob_get :: proc(c: ^Call, args: []Value) -> Value {
 	if v, ok := worldstate.get_global(c.ws, c.self); ok {

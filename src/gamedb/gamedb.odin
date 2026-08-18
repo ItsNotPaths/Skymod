@@ -90,6 +90,9 @@ Quest_Baseline :: struct {
 	// every QOBJ contributes to objective_text (its NNAM display line).
 	stage_log:          map[u16]string, // stage index -> journal log entry text (resolved; owned)
 	objective_text:     map[u16]string, // objective index -> display text (resolved; owned)
+	// Alias slots in declaration order (ALST/ALLS). The quest's scripts address these by id, so
+	// consumers index by `id`, not position — quest_alias does that lookup. Owned.
+	aliases:            []Quest_Alias,
 }
 
 // Cell is one cell's identity. Exterior cells carry their worldspace + grid (each
@@ -118,6 +121,14 @@ DB :: struct {
 	containers:    map[Form_ID][]Content_Entry, // CONT base formID -> its baseline inventory (owned slices)
 	form_lists:    map[Form_ID][]Form_ID, // FLST formID -> its ordered member forms (owned slices; remapped)
 	leveled_lists: map[Form_ID]Leveled_List, // LVLI formID -> its decoded roll table (owned entries; resolution deferred)
+	keywords:      map[Form_ID][]Form_ID, // any form -> its KWDA keyword forms (owned; the set HasKeyword tests)
+	keyword_edid:  map[Form_ID]string, // KYWD formID -> its editor id (owned; a keyword has no FULL, the edid IS its name)
+	keyword_by_edid: map[string]Form_ID, // lowercased keyword editor id -> formID (key owned)
+	linked_refs:   map[Form_ID][]Linked_Ref, // REFR formID -> its XLKR links (owned; keyword 0 = the default link)
+	factions:      map[Form_ID]Faction, // FACT formID -> its baseline (owned slices/titles)
+	spells:        map[Form_ID]Spell, // SPEL/SCRL formID -> its cast parameters + effects (owned)
+	enchantments:  map[Form_ID]Enchantment, // ENCH formID -> its parameters + effects (owned)
+	magic_effects: map[Form_ID]Magic_Effect, // MGEF formID -> what the effect does (owned description)
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
@@ -211,6 +222,103 @@ Actor_Base :: struct {
 	spells:        []Form_ID, // SPLO (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
+	factions:      []Faction_Membership, // SNAM baseline faction ranks (owned; the overlay diverges from these)
+}
+
+// Faction_Membership is one baseline faction the actor belongs to, and its rank there (SNAM,
+// remapped). The runtime faction store overlays this — IsInFaction reads the overlay first and
+// falls through to these, so an untouched NPC answers from its authored memberships.
+Faction_Membership :: struct {
+	faction: Form_ID,
+	rank:    i8,
+}
+
+// Faction_Relation is how this faction regards another (an XNAM row, remapped): a disposition
+// shift plus the hard combat reaction that drives ally/enemy checks.
+Faction_Relation :: struct {
+	faction:  Form_ID,
+	modifier: i32,
+	combat:   esm.Combat_Reaction,
+}
+
+// Faction_Rank is one rung of a faction's ladder: the rank index a member holds and the titles
+// shown for it. Titles are English-resolved and owned by the DB; either may be "" (most vanilla
+// factions title only some ranks, and only 10 of 1084 carry a female title).
+Faction_Rank :: struct {
+	index:        u32,
+	male_title:   string, // owned
+	female_title: string, // owned
+}
+
+// Faction is a FACT's decoded baseline: its flags, who it likes, its rank ladder, and (for a
+// crime faction) the bounty table its guards enforce. Runtime membership/reputation lives in the
+// worldstate overlay; this is what the overlay diverges from.
+Faction :: struct {
+	flags:     u32, // esm.FACT_* bits
+	relations: []Faction_Relation, // XNAM (owned)
+	ranks:     []Faction_Rank, // RNAM + MNAM/FNAM titles (owned)
+	crime:     esm.Crime_Values, // CRVA bounty table
+	has_crime: bool, // false when the faction carries no CRVA (crime values read as zero)
+}
+
+// Magic_Effect_Ref is one effect a spell / scroll / enchantment applies: the MGEF (remapped) and
+// the strength / area / duration this caster applies it at.
+Magic_Effect_Ref :: struct {
+	effect:    Form_ID,
+	magnitude: f32,
+	area:      u32,
+	duration:  u32,
+}
+
+// Spell is a SPEL or SCRL baseline: its SPIT cast parameters plus the effects it applies. `scroll`
+// separates the two record types (identical SPIT layout, different Papyrus class). The form fields
+// inside `info` are the raw/local ones as authored — read the remapped handles beside it instead.
+Spell :: struct {
+	info:           esm.Spell_Info,
+	half_cost_perk: Form_ID, // SPIT half-cost perk, remapped
+	scroll:         bool, // SCRL rather than SPEL
+	effects:        []Magic_Effect_Ref, // EFID/EFIT (owned)
+}
+
+// Enchantment is an ENCH baseline: its ENIT parameters plus the effects it grants the item it's
+// applied to. Same raw-vs-remapped split as Spell.
+Enchantment :: struct {
+	info:              esm.Enchant_Info,
+	base_enchantment:  Form_ID, // ENIT parent enchantment, remapped
+	worn_restrictions: Form_ID, // ENIT slot FLST, remapped
+	effects:           []Magic_Effect_Ref, // EFID/EFIT (owned)
+}
+
+// Magic_Effect is an MGEF baseline: what the effect does (archetype + the actor values it reads
+// and writes), what it costs, and its player-facing description. Same raw-vs-remapped split as
+// Spell. `description` is English-resolved and owned ("" when the effect has none).
+Magic_Effect :: struct {
+	info:        esm.Magic_Effect_Info,
+	projectile:  Form_ID, // remapped
+	explosion:   Form_ID, // remapped
+	description: string, // DNAM (owned)
+}
+
+// Linked_Ref is one XLKR link of a placed reference (both handles remapped). `keyword` 0 is the
+// DEFAULT link — what a bare GetLinkedRef() returns; a non-zero keyword names the channel
+// GetLinkedRef(akKeyword) selects.
+Linked_Ref :: struct {
+	keyword: Form_ID,
+	ref:     Form_ID,
+}
+
+// Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
+// (ReferenceAlias.GetReference). `fill` is the AUTHORED rule for finding the reference; only
+// esm.Alias_Fill.Forced resolves statically (`target` is that reference), the rest are filled by
+// the quest engine at start. `name` is the ALID editor name, owned by the DB.
+Quest_Alias :: struct {
+	id:       u32,
+	location: bool, // a location alias (ALLS) rather than a reference alias (ALST)
+	flags:    u32,
+	fill:     esm.Alias_Fill,
+	target:   Form_ID, // the fill's form operand, remapped (0 when the kind has none)
+	extra:    u32, // the fill's index operand (alias id / list index) — see esm.Alias_Fill
+	name:     string, // owned
 }
 
 // Grass is one scatterable grass type (a GRAS record): the cluster mesh the engine
@@ -230,13 +338,14 @@ Grid_Key :: struct {
 // base-form record types indexed for their MODL mesh (and, for carriable items, value/weight).
 // The first row is the static-world subset an interior is built from (architecture, furniture,
 // clutter, doors, lights); the second row is carriable item base-forms — they render as world
-// models when placed AND identify (FULL name + value + weight, see item_value_weight).
+// models when placed AND identify (FULL name + value + weight, see item_value_weight). SCRL is
+// in both worlds: a carriable item here AND a spell (index_spell reads its SPIT).
 @(private)
 is_base_type :: proc(s: string) -> bool {
 	switch s {
 	case "STAT", "MSTT", "FURN", "DOOR", "ACTI", "CONT", "FLOR", "TREE", "LIGH", "MISC":
 		return true
-	case "WEAP", "ARMO", "ALCH", "INGR", "BOOK", "KEYM", "AMMO", "SLGM":
+	case "WEAP", "ARMO", "ALCH", "INGR", "BOOK", "KEYM", "AMMO", "SLGM", "SCRL":
 		return true
 	}
 	return false
@@ -353,6 +462,14 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		containers    = make(map[Form_ID][]Content_Entry, 512, allocator),
 		form_lists    = make(map[Form_ID][]Form_ID, 512, allocator),
 		leveled_lists = make(map[Form_ID]Leveled_List, 2048, allocator),
+		keywords      = make(map[Form_ID][]Form_ID, 4096, allocator),
+		keyword_edid  = make(map[Form_ID]string, 1024, allocator),
+		keyword_by_edid = make(map[string]Form_ID, 1024, allocator),
+		linked_refs   = make(map[Form_ID][]Linked_Ref, 1024, allocator),
+		factions      = make(map[Form_ID]Faction, 1024, allocator),
+		spells        = make(map[Form_ID]Spell, 1024, allocator),
+		enchantments  = make(map[Form_ID]Enchantment, 1024, allocator),
+		magic_effects = make(map[Form_ID]Magic_Effect, 1024, allocator),
 		global_values = make(map[Form_ID]f32, 1024, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
@@ -542,6 +659,7 @@ destroy :: proc(db: ^DB) {
 		free_quest_baseline(db, qb)
 	}
 	delete(db.quest_baseline)
+	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	db^ = {}
 }
 
@@ -559,6 +677,10 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 		delete(s, db.allocator)
 	}
 	delete(qb.objective_text)
+	for a in qb.aliases {
+		delete(a.name, db.allocator)
+	}
+	delete(qb.aliases, db.allocator)
 }
 
 // find_cell looks up an interior cell by editor id (case-insensitive).
@@ -906,14 +1028,27 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "GRAS":
 		index_gras(db, rec)
 	case s == "QUST":
-		index_quest(db, rec)
+		index_quest(db, rec, ctx.fm)
 	case s == "CONT":
-		index_base(db, rec) // container mesh + name (CONT is a base type)
+		index_base(db, rec, ctx.fm) // container mesh + name (CONT is a base type)
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory
 	case s == "FLST":
 		index_form_list(db, rec, ctx.fm) // its LNAM ordered members
-	case s == "LVLI":
-		index_leveled_list(db, rec, ctx.fm) // its LVLO roll table (decode only)
+	case s == "LVLI", s == "LVSP":
+		index_leveled_list(db, rec, ctx.fm) // its LVLO roll table (decode only; LVSP is the same shape)
+	case s == "KYWD":
+		index_keyword(db, rec) // a keyword's identity IS its editor id (no FULL)
+	case s == "FACT":
+		index_faction(db, rec, ctx.fm) // flags, relations, rank ladder, crime bounties
+	case s == "SPEL":
+		index_spell(db, rec, ctx.fm, scroll = false)
+	case s == "SCRL":
+		index_base(db, rec, ctx.fm) // a scroll is a carriable item (mesh + name + value/weight) …
+		index_spell(db, rec, ctx.fm, scroll = true) // … AND a spell (same SPIT block)
+	case s == "ENCH":
+		index_enchantment(db, rec, ctx.fm)
+	case s == "MGEF":
+		index_magic_effect(db, rec, ctx.fm)
 	case s == "GLOB":
 		index_glob(db, rec) // its FLTV baseline value
 	case s == "LSCR":
@@ -921,7 +1056,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "NPC_":
 		index_npc(db, rec, ctx.fm) // actor base identity (stats, links, inventory, name)
 	case is_base_type(s):
-		index_base(db, rec)
+		index_base(db, rec, ctx.fm)
 	}
 	return true
 }
@@ -937,13 +1072,13 @@ form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 }
 
 // index_quest decodes a QUST's script-relevant baseline: the DNAM "Start Game Enabled" flag, the
-// defined stages (INDX index + the following QSDT "Complete Quest" flag), and the journal DISPLAY
-// text — each stage's log entry (CNAM) and each objective's display line (QOBJ index + NNAM). Field
+// defined stages (INDX index + the following QSDT "Complete Quest" flag), the alias slots its
+// scripts address by id (see index_quest_aliases), and the journal DISPLAY text — each stage's log entry (CNAM) and each objective's display line (QOBJ index + NNAM). Field
 // order matters: a QSDT/CNAM applies to the most recent INDX, an NNAM to the most recent QOBJ (xEdit's
 // grouping) — so we walk the subrecords in order. CNAM/NNAM resolve through the plugin STRINGS table
 // (or inline for a non-localized plugin), so the stored text is the real English the journal shows.
 @(private)
-index_quest :: proc(db: ^DB, rec: esm.Record) {
+index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
 	if !ok {
 		return
@@ -1016,6 +1151,7 @@ index_quest :: proc(db: ^DB, rec: esm.Record) {
 			}
 		}
 	}
+	qb.aliases = index_quest_aliases(db, fl, fm)
 	db.quest_baseline[rec.form_id] = qb
 }
 
@@ -1270,6 +1406,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	db.ref_by_id[rec.form_id] = ref
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
+	index_linked_refs(db, rec.form_id, fl, ctx.fm) // XLKR links (GetLinkedRef's baseline)
 }
 
 // index_achr indexes an actor placement (ACHR) into actor_refs — the base is an NPC_, the transform
@@ -1341,8 +1478,13 @@ index_land :: proc(db: ^DB, rec: esm.Record, cell_form_id: Form_ID, fm: ^esm.For
 	// its base texture, then let any ATXT layer with higher opacity at a vertex win. Drives
 	// per-point grass type + presence (so grass follows the painted texture, not a coarse
 	// per-quadrant base). Layers come base-first per quadrant.
-	if layers, lok := esm.land_layers(fl, context.allocator); lok && len(layers) > 0 {
+	// The free must not hang off the len>0 guard: land_layers allocates its backing array up
+	// front, so a LAND with no painted layers (5309 of them in Skyrim.esm) would leak it.
+	if layers, lok := esm.land_layers(fl, context.allocator); lok {
 		defer esm.free_land_layers(layers, context.allocator)
+		if len(layers) == 0 {
+			return
+		}
 		G :: esm.LAND_GRID
 		Q :: G / 2 // 16: a quadrant is 17×17 sharing the centre line at index 16
 		dom := make([]Form_ID, G * G, db.allocator)
@@ -1570,6 +1712,7 @@ free_actor_base :: proc(db: ^DB, a: Actor_Base) {
 	delete(a.spells, db.allocator)
 	delete(a.packages, db.allocator)
 	delete(a.inventory, db.allocator)
+	delete(a.factions, db.allocator)
 }
 
 // index_npc decodes an NPC_ into an Actor_Base: its display name (FULL — NPC_ isn't in is_base_type,
@@ -1587,6 +1730,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer if backing != nil {delete(backing)}
 
 	index_name(db, rec.form_id, fl) // FULL display name (NPC_ carries its own name)
+	index_keywords(db, rec.form_id, fl, fm) // KWDA tag set (ActorTypeNPC, …)
 
 	a: Actor_Base
 	if cfg, cok := esm.actor_config(fl); cok {
@@ -1623,6 +1767,16 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 			inv[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
 		}
 		a.inventory = inv
+	}
+
+	// SNAM baseline faction memberships — what IsInFaction answers before any script joins/leaves.
+	if raw := esm.faction_memberships(fl, context.allocator); raw != nil {
+		defer delete(raw, context.allocator)
+		mem := make([]Faction_Membership, len(raw), db.allocator)
+		for m, i in raw {
+			mem[i] = Faction_Membership{faction = esm.remap_form(fm, m.faction), rank = m.rank}
+		}
+		a.factions = mem
 	}
 
 	if old, existed := db.actors[rec.form_id]; existed {
@@ -1664,7 +1818,7 @@ index_txst :: proc(db: ^DB, rec: esm.Record) {
 }
 
 @(private)
-index_base :: proc(db: ^DB, rec: esm.Record) {
+index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
 	if !ok {
 		return
@@ -1680,6 +1834,7 @@ index_base :: proc(db: ^DB, rec: esm.Record) {
 		db.base_models[rec.form_id] = strings.clone(model, db.allocator)
 	}
 	index_name(db, rec.form_id, fl) // FULL display name (localized id or inline)
+	index_keywords(db, rec.form_id, fl, fm) // KWDA tag set (VendorItem*, ArmorHeavy, …)
 	// Prebaked distant-LOD meshes (STAT MNAM): clone the populated slots so the LOD rings load
 	// Skyrim's own low-poly meshes instead of decimating at runtime.
 	if lods, n := esm.lod_model_paths(fl); n > 0 {
