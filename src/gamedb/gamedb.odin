@@ -129,6 +129,15 @@ DB :: struct {
 	spells:        map[Form_ID]Spell, // SPEL/SCRL formID -> its cast parameters + effects (owned)
 	enchantments:  map[Form_ID]Enchantment, // ENCH formID -> its parameters + effects (owned)
 	magic_effects: map[Form_ID]Magic_Effect, // MGEF formID -> what the effect does (owned description)
+	locations:     map[Form_ID]Location, // LCTN formID -> its place in the location tree + map marker
+	weathers:      map[Form_ID]Weather, // WTHR formID -> its authored sky look (colours/fog/imagespaces)
+	races:         map[Form_ID]Race, // RACE formID -> identity + skill bonuses + body scale (owned description)
+	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
+	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
+	outfits:       map[Form_ID][]Form_ID, // OTFT formID -> the gear it grants (owned; remapped)
+	actor_value_info:     map[Form_ID]Actor_Value_Info, // AVIF formID -> its identity (owned strings)
+	actor_value_by_index: map[i32]Form_ID, // engine ActorValue index -> its AVIF form
+	actor_value_by_key:   map[string]Form_ID, // canonical lower-case AV name -> its AVIF form (key owned)
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
@@ -321,6 +330,44 @@ Quest_Alias :: struct {
 	name:     string, // owned
 }
 
+// LOCATION_TREE_MAX_DEPTH caps a location-parent walk. Vanilla nests ~4 deep (room → dungeon →
+// hold → Skyrim); the cap only exists so a malformed plugin's parent cycle can't hang a query.
+LOCATION_TREE_MAX_DEPTH :: 32
+
+// Location is an LCTN's baseline: where it sits in the location tree and how its map marker
+// draws. Its display name is in db.names and its keywords in the shared keyword index — the
+// keyword set is what Location.GetKeywordData reads. The LCSR/LCEC/LCID membership lists (which
+// refs/cells/actors belong to it) are the quest system's, and stay undecoded.
+Location :: struct {
+	parent:           Form_ID, // PNAM containing location (0 = a root location)
+	marker_color:     u32, // CNAM packed RGBA
+	has_marker_color: bool,
+}
+
+// Weather_Class is a weather's kind — the low four DATA flag bits, and what
+// Weather.GetClassification reports. None means the weather declares no class.
+Weather_Class :: enum u8 {
+	None,
+	Pleasant,
+	Cloudy,
+	Rainy,
+	Snow,
+}
+
+// Weather is a WTHR's authored sky look: classification + motion/precipitation scalars, fog
+// distances, the NAM0 colour table, and the imagespace applied at each time of day. `color_rows`
+// is how many rows NAM0 actually carried — the field is VARIABLE length (vanilla weathers author
+// 16 or 17), so never iterate past it. Index rows with the esm.WTHR_COLOR_* constants and times
+// with 0 sunrise / 1 day / 2 sunset / 3 night.
+Weather :: struct {
+	info:        esm.Weather_Info,
+	fog:         esm.Weather_Fog,
+	has_fog:     bool,
+	colors:      [esm.WTHR_COLOR_ROWS_MAX][esm.WTHR_TIMES][4]u8,
+	color_rows:  int,
+	imagespaces: [esm.WTHR_TIMES]Form_ID, // IMSP, remapped (0 = none)
+}
+
 // Grass is one scatterable grass type (a GRAS record): the cluster mesh the engine
 // instances over terrain and how densely (clusters per unit area).
 Grass :: struct {
@@ -470,6 +517,15 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		spells        = make(map[Form_ID]Spell, 1024, allocator),
 		enchantments  = make(map[Form_ID]Enchantment, 1024, allocator),
 		magic_effects = make(map[Form_ID]Magic_Effect, 1024, allocator),
+		locations     = make(map[Form_ID]Location, 1024, allocator),
+		weathers      = make(map[Form_ID]Weather, 128, allocator),
+		races         = make(map[Form_ID]Race, 128, allocator),
+		classes       = make(map[Form_ID]Class, 256, allocator),
+		voice_types   = make(map[Form_ID]u8, 256, allocator),
+		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
+		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
+		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
+		actor_value_by_key   = make(map[string]Form_ID, 256, allocator),
 		global_values = make(map[Form_ID]f32, 1024, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
@@ -660,6 +716,7 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.quest_baseline)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
+	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}
 }
 
@@ -1034,8 +1091,9 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory
 	case s == "FLST":
 		index_form_list(db, rec, ctx.fm) // its LNAM ordered members
-	case s == "LVLI", s == "LVSP":
-		index_leveled_list(db, rec, ctx.fm) // its LVLO roll table (decode only; LVSP is the same shape)
+	case s == "LVLI", s == "LVSP", s == "LVLN":
+		// One roll-table shape (LVLD/LVLF/LVLO) shared by leveled items, spells and actors.
+		index_leveled_list(db, rec, ctx.fm)
 	case s == "KYWD":
 		index_keyword(db, rec) // a keyword's identity IS its editor id (no FULL)
 	case s == "FACT":
@@ -1049,6 +1107,20 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_enchantment(db, rec, ctx.fm)
 	case s == "MGEF":
 		index_magic_effect(db, rec, ctx.fm)
+	case s == "LCTN":
+		index_location(db, rec, ctx.fm)
+	case s == "WTHR":
+		index_weather(db, rec, ctx.fm)
+	case s == "RACE":
+		index_race(db, rec, ctx.fm)
+	case s == "CLAS":
+		index_class(db, rec)
+	case s == "VTYP":
+		index_voice_type(db, rec)
+	case s == "OTFT":
+		index_outfit(db, rec, ctx.fm)
+	case s == "AVIF":
+		index_actor_value(db, rec)
 	case s == "GLOB":
 		index_glob(db, rec) // its FLTV baseline value
 	case s == "LSCR":

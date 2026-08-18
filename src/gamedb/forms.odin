@@ -508,6 +508,127 @@ quest_alias_forced_ref :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Form_ID, bo
 	return a.target, true
 }
 
+// --- LCTN / WTHR ---------------------------------------------------------------------------
+
+// index_location decodes an LCTN: its display name, the location that contains it (PNAM), its
+// keywords, and its map-marker tint. The parent link is the tree Location.IsChild walks; the
+// LCSR/LCEC/LCID ref+cell membership lists are the quest system's business and stay undecoded.
+@(private)
+index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl)
+	index_keywords(db, rec.form_id, fl, fm)
+
+	loc: Location
+	if p, has := esm.location_parent(fl); has {
+		loc.parent = esm.remap_form(fm, p)
+	}
+	loc.marker_color, loc.has_marker_color = esm.location_marker_color(fl)
+	db.locations[rec.form_id] = loc
+}
+
+// index_weather decodes a WTHR: its DATA classification + sky scalars, FNAM fog, the NAM0 colour
+// table (variable row count — see esm.weather_colors), and the per-time-of-day imagespaces. This
+// is the authored half of the sky/lighting look; nothing consumes it yet (the lighting pass
+// does), but it costs one pass over 84 records to have it ready.
+@(private)
+index_weather :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	index_name(db, rec.form_id, fl)
+
+	w: Weather
+	w.info, _ = esm.weather_info(fl)
+	w.fog, w.has_fog = esm.weather_fog(fl)
+	w.color_rows = esm.weather_colors(fl, &w.colors)
+	if imsp, has := esm.weather_imagespaces(fl); has {
+		for im, i in imsp {
+			w.imagespaces[i] = esm.remap_form(fm, im)
+		}
+	}
+	db.weathers[rec.form_id] = w
+}
+
+// location_of returns a location's decoded baseline (ok=false when the form isn't an indexed
+// LCTN). Its keywords live in the shared keyword index — use keywords_of / has_keyword.
+location_of :: proc(db: ^DB, location: Form_ID) -> (Location, bool) {
+	if db == nil {
+		return {}, false
+	}
+	l, ok := db.locations[location]
+	return l, ok
+}
+
+// location_is_child reports whether `child` sits under `ancestor` in the location tree — the
+// baseline behind Location.IsChild. Walks parents to the root, with a depth cap so a malformed
+// plugin's parent cycle can't hang the query. A location is not its own child.
+location_is_child :: proc(db: ^DB, child, ancestor: Form_ID) -> bool {
+	cur := child
+	for _ in 0 ..< LOCATION_TREE_MAX_DEPTH {
+		l, ok := location_of(db, cur)
+		if !ok || l.parent == 0 {
+			return false
+		}
+		if l.parent == ancestor {
+			return true
+		}
+		cur = l.parent
+	}
+	return false
+}
+
+// weather_of returns a weather's decoded baseline (ok=false when the form isn't an indexed WTHR).
+weather_of :: proc(db: ^DB, weather: Form_ID) -> (Weather, bool) {
+	if db == nil {
+		return {}, false
+	}
+	w, ok := db.weathers[weather]
+	return w, ok
+}
+
+// weather_classification returns a weather's kind — the low four DATA flag bits, which is what
+// Weather.GetClassification reports. Weather_Class.None when the form isn't indexed or the
+// weather declares no class.
+weather_classification :: proc(db: ^DB, weather: Form_ID) -> Weather_Class {
+	w, ok := weather_of(db, weather)
+	if !ok {
+		return .None
+	}
+	switch {
+	case w.info.flags & esm.WTHR_PLEASANT != 0:
+		return .Pleasant
+	case w.info.flags & esm.WTHR_CLOUDY != 0:
+		return .Cloudy
+	case w.info.flags & esm.WTHR_RAINY != 0:
+		return .Rainy
+	case w.info.flags & esm.WTHR_SNOW != 0:
+		return .Snow
+	}
+	return .None
+}
+
+// weather_color returns one row of a weather's NAM0 table at one time of day (RGBA), e.g.
+// weather_color(db, w, esm.WTHR_COLOR_SUNLIGHT, 1) for its noon sun colour. ok=false when the
+// weather isn't indexed or authors fewer rows than `row` (the table is variable length).
+weather_color :: proc(db: ^DB, weather: Form_ID, row, time: int) -> ([4]u8, bool) {
+	w, ok := weather_of(db, weather)
+	if !ok || row < 0 || row >= w.color_rows || time < 0 || time >= esm.WTHR_TIMES {
+		return {}, false
+	}
+	return w.colors[row][time], true
+}
+
 // --- teardown ------------------------------------------------------------------------------
 
 // free_faction releases a Faction's owned slices + rank titles. Shared by destroy + the override
@@ -557,4 +678,6 @@ free_form_indexes :: proc(db: ^DB) {
 		delete(m.description, db.allocator)
 	}
 	delete(db.magic_effects)
+	delete(db.locations) // plain values — no owned data (names live in db.names)
+	delete(db.weathers)
 }

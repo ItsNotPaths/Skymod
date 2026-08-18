@@ -644,3 +644,176 @@ quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Ques
 	}
 	return out[:]
 }
+
+// --- LCTN (location) ---------------------------------------------------------------------
+
+// location_parent reads an LCTN's PNAM — the location that contains this one ("Whiterun Hold"
+// over "Whiterun"). ok=false for a root location. Raw/local until remapped. Locations form a
+// tree, which is what Location.IsChild / HasCommonParent walk.
+location_parent :: proc(fields: []Field) -> (u32, bool) {
+	return subrecord_formid(fields, "PNAM")
+}
+
+// location_marker_color reads an LCTN's CNAM — the packed RGBA tint its map marker draws with.
+// ok=false when absent (the map's default). (Validated vs RiftenMercerHouseInteriorLocation.)
+location_marker_color :: proc(fields: []Field) -> (u32, bool) {
+	if f, ok := find_field(fields, "CNAM"); ok && len(f.data) >= 4 {
+		return rd32(f.data, 0), true
+	}
+	return 0, false
+}
+
+// --- WTHR (weather) ----------------------------------------------------------------------
+
+// WTHR DATA classification bits — what kind of weather this is. The low four are mutually
+// exclusive in practice and are what Weather.GetClassification reports; the aurora bits are
+// independent. (Validated vs SovngardeDark: flags 0x12 = Cloudy | Permanent Aurora.)
+WTHR_PLEASANT :: 0x01
+WTHR_CLOUDY :: 0x02
+WTHR_RAINY :: 0x04
+WTHR_SNOW :: 0x08
+WTHR_PERMANENT_AURORA :: 0x10
+WTHR_AURORA_ALWAYS_VISIBLE :: 0x20
+
+// WTHR_TIMES is how many times of day every weather colour / ambient / imagespace slot is
+// authored for, in order: sunrise, day, sunset, night. (Confirmed empirically: the Stars colour
+// is pure white in slot 3 and black in the rest, and Sunlight is warm in slots 0 and 2.)
+WTHR_TIMES :: 4
+
+// Named rows of a weather's NAM0 colour table. These indices were read off SkyrimClear_A rather
+// than assumed — Stars (6) is white at night and black otherwise, Sunlight (4) is orange at
+// sunrise/sunset and warm white at noon, and Ambient (3) tracks a plausible sky bounce. The
+// unnamed rows (2, 9-11, 13, 14) stay raw; pin them when the lighting pass consumes the table.
+WTHR_COLOR_SKY_UPPER :: 0
+WTHR_COLOR_FOG_NEAR :: 1
+WTHR_COLOR_AMBIENT :: 3
+WTHR_COLOR_SUNLIGHT :: 4
+WTHR_COLOR_SUN :: 5
+WTHR_COLOR_STARS :: 6
+WTHR_COLOR_SKY_LOWER :: 7
+WTHR_COLOR_HORIZON :: 8
+WTHR_COLOR_FOG_FAR :: 12
+WTHR_COLOR_SUN_GLARE :: 15
+
+// WTHR_COLOR_ROWS_MAX bounds the NAM0 table. The field is VARIABLE length — vanilla weathers
+// carry 16 or 17 rows (SkyrimClear_A is 256 bytes = 16, SovngardeDark 272 = 17) — so callers
+// must read `rows`, never assume a fixed count.
+WTHR_COLOR_ROWS_MAX :: 17
+
+// Weather_Fog is a weather's FNAM fog distances, split day/night. `power` shapes the falloff
+// curve and `max` clamps how opaque fog gets.
+Weather_Fog :: struct {
+	day_near:   f32,
+	day_far:    f32,
+	night_near: f32,
+	night_far:  f32,
+	day_power:  f32,
+	night_power: f32,
+	day_max:    f32,
+	night_max:  f32,
+}
+
+// Weather_Info is a WTHR's DATA block: its classification plus the scalars that drive sky
+// motion and precipitation timing. Colours, fog and ambient come from the sibling decoders.
+Weather_Info :: struct {
+	wind_speed:           u8,
+	trans_delta:          u8,
+	sun_glare:            u8,
+	sun_damage:           u8,
+	precip_begin_fade_in: u8,
+	precip_end_fade_out:  u8,
+	thunder_begin_fade_in: u8,
+	thunder_end_fade_out: u8,
+	thunder_frequency:    u8,
+	flags:                u8, // WTHR_* bits
+	lightning_color:      [3]u8,
+	wind_direction:       u8,
+	wind_direction_range: u8,
+}
+
+// weather_info reads a WTHR's DATA (19 bytes): wind speed @0, transition delta @3, sun glare @4,
+// sun damage @5, precipitation fade in/out @6/@7, thunder fade in/out @8/@9, thunder frequency
+// @10, flags @11, lightning colour RGB @12, wind direction @17, wind direction range @18.
+// ok=false when absent/short.
+weather_info :: proc(fields: []Field) -> (wi: Weather_Info, ok: bool) {
+	f, fok := find_field(fields, "DATA")
+	if !fok || len(f.data) < 19 {
+		return {}, false
+	}
+	d := f.data
+	return Weather_Info {
+			wind_speed = d[0],
+			trans_delta = d[3],
+			sun_glare = d[4],
+			sun_damage = d[5],
+			precip_begin_fade_in = d[6],
+			precip_end_fade_out = d[7],
+			thunder_begin_fade_in = d[8],
+			thunder_end_fade_out = d[9],
+			thunder_frequency = d[10],
+			flags = d[11],
+			lightning_color = {d[12], d[13], d[14]},
+			wind_direction = d[17],
+			wind_direction_range = d[18],
+		},
+		true
+}
+
+// weather_fog reads a WTHR's FNAM (32 bytes = 8 f32, in the order of Weather_Fog). ok=false
+// when absent/short. (Validated vs SovngardeDark: day/night far 22500, power 0.335, max 0.9.)
+weather_fog :: proc(fields: []Field) -> (Weather_Fog, bool) {
+	f, ok := find_field(fields, "FNAM")
+	if !ok || len(f.data) < 32 {
+		return {}, false
+	}
+	d := f.data
+	return Weather_Fog {
+			day_near = rf32(d, 0),
+			day_far = rf32(d, 4),
+			night_near = rf32(d, 8),
+			night_far = rf32(d, 12),
+			day_power = rf32(d, 16),
+			night_power = rf32(d, 20),
+			day_max = rf32(d, 24),
+			night_max = rf32(d, 28),
+		},
+		true
+}
+
+// weather_colors reads a WTHR's NAM0 colour table into `out` — one RGBA per (row, time of day),
+// row-major, 4 bytes per entry. Returns how many rows were populated (0 when NAM0 is absent);
+// the field is variable length, so callers iterate the returned count, not WTHR_COLOR_ROWS_MAX.
+// Rows are indexed by the WTHR_COLOR_* constants where known.
+weather_colors :: proc(
+	fields: []Field,
+	out: ^[WTHR_COLOR_ROWS_MAX][WTHR_TIMES][4]u8,
+) -> int {
+	f, ok := find_field(fields, "NAM0")
+	if !ok {
+		return 0
+	}
+	stride := WTHR_TIMES * 4
+	rows := min(len(f.data) / stride, WTHR_COLOR_ROWS_MAX)
+	for r in 0 ..< rows {
+		for t in 0 ..< WTHR_TIMES {
+			off := r * stride + t * 4
+			out[r][t] = {f.data[off], f.data[off + 1], f.data[off + 2], f.data[off + 3]}
+		}
+	}
+	return rows
+}
+
+// weather_imagespaces reads a WTHR's IMSP — the imagespace (IMGS) applied at each time of day,
+// same sunrise/day/sunset/night order as the colour table. ok=false when absent/short. Raw/local
+// until remapped. (Validated vs SovngardeDark: 16 bytes = 4 formIDs.)
+weather_imagespaces :: proc(fields: []Field) -> ([WTHR_TIMES]u32, bool) {
+	out: [WTHR_TIMES]u32
+	f, ok := find_field(fields, "IMSP")
+	if !ok || len(f.data) < WTHR_TIMES * 4 {
+		return out, false
+	}
+	for i in 0 ..< WTHR_TIMES {
+		out[i] = rd32(f.data, i * 4)
+	}
+	return out, true
+}

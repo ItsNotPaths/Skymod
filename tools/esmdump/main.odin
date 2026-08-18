@@ -1899,6 +1899,63 @@ forms_mode :: proc(db: ^gamedb.DB, sub: string) {
 	fmt.printfln("magic effects: %d, %d with a description", len(db.magic_effects), described)
 	fmt.printfln("quest aliases: %d (%d forced to a specific ref)", aliases, forced)
 
+	// The actor-identity layer + the actor-value bridge.
+	bonuses := 0
+	for _, r in db.races {
+		bonuses += r.info.bonus_count
+	}
+	gear := 0
+	for _, o in db.outfits {
+		gear += len(o)
+	}
+	indexed_avs := 0
+	for _, av in db.actor_value_info {
+		if av.has_index {indexed_avs += 1}
+	}
+	fmt.printfln("locations:     %d, %d with a parent", len(db.locations), count_parented(db))
+	fmt.printfln("weathers:      %d", len(db.weathers))
+	fmt.printfln("races:         %d, %d skill bonuses", len(db.races), bonuses)
+	fmt.printfln("classes:       %d · voice types: %d · outfits: %d (%d items)",
+		len(db.classes), len(db.voice_types), len(db.outfits), gear)
+	fmt.printfln("actor values:  %d AVIF (%d with an engine index)", len(db.actor_value_info), indexed_avs)
+
+	// The AV bridge is the load-bearing derivation — print the indices other records cite so a
+	// regression shows up as a wrong NAME here, not as silently mismatched gameplay numbers.
+	fmt.printfln("\nactor-value index spot check (cited by MGEF / RACE):")
+	for idx in ([]i32{0, 6, 7, 18, 19, 21, 24, 25, 26, 53, 163}) {
+		key, kok := gamedb.actor_value_key(db, idx)
+		disp, _ := gamedb.actor_value_display(db, idx)
+		fmt.printfln("    %3d  %-16q display=%q%s", idx, key, disp, "" if kok else "  (no AVIF record)")
+	}
+	for form, r in db.races {
+		if r.info.bonus_count < 4 {continue}
+		fmt.printfln("\nexample race 0x%08X %q (height M/F %.2f/%.2f):",
+			u64(form), gamedb.name_of(db, form), r.info.height_male, r.info.height_female)
+		for i in 0 ..< r.info.bonus_count {
+			key, _ := gamedb.actor_value_key(db, i32(r.info.bonuses[i].skill))
+			fmt.printfln("    +%d %s", r.info.bonuses[i].bonus, key)
+		}
+		break
+	}
+	for form, w in db.weathers {
+		// Prefer a fully-authored weather: NAM0 is variable (vanilla carries 17, 14 or 13 rows),
+		// so a short one would show empty sunlight/stars and prove nothing.
+		if w.color_rows < esm.WTHR_COLOR_ROWS_MAX {continue} // WTHR carries no FULL — identify by form
+		sun, _ := gamedb.weather_color(db, form, esm.WTHR_COLOR_SUNLIGHT, 1)
+		stars, _ := gamedb.weather_color(db, form, esm.WTHR_COLOR_STARS, 3)
+		fmt.printfln("\nexample weather 0x%08X %q: %v, %d colour rows, noon sunlight=%v night stars=%v",
+			u64(form), gamedb.name_of(db, form), gamedb.weather_classification(db, form),
+			w.color_rows, sun, stars)
+		break
+	}
+	for form, l in db.locations {
+		if l.parent == 0 {continue}
+		fmt.printfln("\nexample location 0x%08X %q -> parent 0x%08X %q (child=%v)",
+			u64(form), gamedb.name_of(db, form), u64(l.parent), gamedb.name_of(db, l.parent),
+			gamedb.location_is_child(db, form, l.parent))
+		break
+	}
+
 	// Worked examples — one populated entry per index, so the values can be eyeballed against the CK.
 	for form, set in db.keywords {
 		if len(set) < 3 {continue}
@@ -1945,6 +2002,15 @@ forms_mode :: proc(db: ^gamedb.DB, sub: string) {
 		}
 		break
 	}
+}
+
+// count_parented tallies locations that sit under another (the tree Location.IsChild walks).
+count_parented :: proc(db: ^gamedb.DB) -> int {
+	n := 0
+	for _, l in db.locations {
+		if l.parent != 0 {n += 1}
+	}
+	return n
 }
 
 // locks_mode surveys decoded XLOC lock data — validates the XLOC decoder + gamedb lock index against

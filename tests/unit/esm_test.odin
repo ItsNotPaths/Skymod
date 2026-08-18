@@ -1907,3 +1907,310 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 	testing.expect(t, !missing, "undefined alias id")
 	testing.expect_value(t, len(gamedb.quest_aliases_of(&db, 0x0000_0799)), 0) // unknown quest
 }
+
+// Actor identity: the records an NPC_ links out to. Before these were indexed, Actor_Base's
+// race/class/voice/outfit were remapped FormIDs pointing at nothing. Also covers LVLN routing
+// into the shared leveled-list table (LVLD/LVLF/LVLO — the same shape as LVLI/LVSP). Layouts
+// validated against Skyrim.esm via `esmdump --forms`.
+@(test)
+test_gamedb_actor_identity :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0D00)
+	field(&tes4, "HEDR", hedr[:])
+
+	// RACE 0x801: Conjuration(19) +10, Illusion(21) +5, then the 0xFF terminator.
+	race := make([dynamic]u8, 0, 256);defer delete(race)
+	field(&race, "FULL", transmute([]u8)string("Breton\x00"))
+	rd: [164]u8
+	rd[0] = 19;rd[1] = 10
+	rd[2] = 21;rd[3] = 5
+	rd[4] = esm.RACE_SKILL_NONE
+	for i in 5 ..< 14 {rd[i] = esm.RACE_SKILL_NONE if i % 2 == 0 else 0}
+	put_f32(rd[:], 16, 1.0);put_f32(rd[:], 20, 0.95) // height M/F
+	put_f32(rd[:], 24, 1.0);put_f32(rd[:], 28, 1.0) // weight M/F
+	field(&race, "DATA", rd[:])
+	races := make([dynamic]u8, 0, 320);defer delete(races)
+	record(&races, "RACE", 0, 0x0000_0801, race[:])
+
+	// CLAS 0x802: trains skill 20 to level 75, favours health over stamina.
+	clas := make([dynamic]u8, 0, 64);defer delete(clas)
+	cd: [36]u8
+	cd[4] = 20;cd[5] = 75 // training skill + level
+	cd[6] = 3;cd[7] = 1 // first two skill weights
+	put_f32(cd[:], 24, 0.1) // bleedout default
+	cd[32] = 3;cd[33] = 0;cd[34] = 2 // health / magicka / stamina weights
+	field(&clas, "DATA", cd[:])
+	clases := make([dynamic]u8, 0, 96);defer delete(clases)
+	record(&clases, "CLAS", 0, 0x0000_0802, clas[:])
+
+	// VTYP 0x803: a female voice type.
+	vtyp := make([dynamic]u8, 0, 32);defer delete(vtyp)
+	vd: [1]u8 = {esm.VTYP_FEMALE | esm.VTYP_ALLOW_DEFAULT_DIALOGUE}
+	field(&vtyp, "DNAM", vd[:])
+	vtyps := make([dynamic]u8, 0, 64);defer delete(vtyps)
+	record(&vtyps, "VTYP", 0, 0x0000_0803, vtyp[:])
+
+	// OTFT 0x804: one INAM packing two items (not one field per item).
+	otft := make([dynamic]u8, 0, 32);defer delete(otft)
+	od: [8]u8;put_u32(od[:], 0, 0x0000_0810);put_u32(od[:], 4, 0x0000_0811)
+	field(&otft, "INAM", od[:])
+	otfts := make([dynamic]u8, 0, 64);defer delete(otfts)
+	record(&otfts, "OTFT", 0, 0x0000_0804, otft[:])
+
+	// LVLN 0x805: the leveled-list shape, so it must land in leveled_lists.
+	lvln := make([dynamic]u8, 0, 64);defer delete(lvln)
+	ld: [1]u8 = {10};field(&lvln, "LVLD", ld[:])
+	lf: [1]u8 = {esm.LVLI_CALC_FROM_ALL_LEVELS};field(&lvln, "LVLF", lf[:])
+	lo: [12]u8;put_u16(lo[:], 0, 5);put_u32(lo[:], 4, 0x0000_0812);put_u16(lo[:], 8, 1)
+	field(&lvln, "LVLO", lo[:])
+	lvlns := make([dynamic]u8, 0, 96);defer delete(lvlns)
+	record(&lvlns, "LVLN", 0, 0x0000_0805, lvln[:])
+
+	// An NPC_ wiring all four links together.
+	npc := make([dynamic]u8, 0, 64);defer delete(npc)
+	field(&npc, "RNAM", u32_bytes(0x0000_0801))
+	field(&npc, "CNAM", u32_bytes(0x0000_0802))
+	field(&npc, "VTCK", u32_bytes(0x0000_0803))
+	field(&npc, "DOFT", u32_bytes(0x0000_0804))
+	npcs := make([dynamic]u8, 0, 96);defer delete(npcs)
+	record(&npcs, "NPC_", 0, 0x0000_0820, npc[:])
+
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("RACE"), 0, races[:])
+	group(&out, transmute([]u8)string("CLAS"), 0, clases[:])
+	group(&out, transmute([]u8)string("VTYP"), 0, vtyps[:])
+	group(&out, transmute([]u8)string("OTFT"), 0, otfts[:])
+	group(&out, transmute([]u8)string("LVLN"), 0, lvlns[:])
+	group(&out, transmute([]u8)string("NPC_"), 0, npcs[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	r, rok := gamedb.race_of(&db, 0x0000_0801)
+	testing.expect(t, rok, "race indexed")
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0801), "Breton")
+	testing.expect_value(t, r.info.bonus_count, 2) // the 0xFF terminator stops the count
+	testing.expect_value(t, r.info.bonuses[0].skill, u8(19))
+	testing.expect_value(t, r.info.bonuses[0].bonus, u8(10))
+	testing.expect_value(t, r.info.height_female, f32(0.95))
+
+	c, cok := gamedb.class_of(&db, 0x0000_0802)
+	testing.expect(t, cok, "class indexed")
+	testing.expect_value(t, c.info.training_skill, u8(20))
+	testing.expect_value(t, c.info.training_level, u8(75))
+	testing.expect_value(t, c.info.health_weight, u8(3))
+	testing.expect_value(t, c.info.stamina_weight, u8(2))
+	testing.expect_value(t, c.info.bleedout_default, f32(0.1))
+
+	vf, vok := gamedb.voice_type_flags(&db, 0x0000_0803)
+	testing.expect(t, vok, "voice type indexed")
+	testing.expect(t, vf & esm.VTYP_FEMALE != 0, "a female voice type")
+
+	gear := gamedb.outfit_items(&db, 0x0000_0804)
+	testing.expect_value(t, len(gear), 2) // one packed INAM, two items
+	testing.expect_value(t, gear[0], gamedb.Form_ID(0x0000_0810))
+	testing.expect_value(t, gear[1], gamedb.Form_ID(0x0000_0811))
+
+	// LVLN shares the leveled-list table with LVLI/LVSP.
+	ll, llok := gamedb.leveled_list_of(&db, 0x0000_0805)
+	testing.expect(t, llok, "LVLN indexed as a leveled list")
+	testing.expect_value(t, ll.chance_none, u8(10))
+	testing.expect_value(t, len(ll.entries), 1)
+	testing.expect_value(t, ll.entries[0].form, gamedb.Form_ID(0x0000_0812))
+
+	// The NPC_'s links now resolve to real records rather than dangling.
+	a, aok := gamedb.actor_base(&db, 0x0000_0820)
+	testing.expect(t, aok, "actor indexed")
+	testing.expect_value(t, a.race, gamedb.Form_ID(0x0000_0801))
+	testing.expect_value(t, a.outfit, gamedb.Form_ID(0x0000_0804))
+	bonuses, n := gamedb.actor_race_bonuses(&db, 0x0000_0820)
+	testing.expect_value(t, n, 2)
+	testing.expect_value(t, bonuses[0].bonus, u8(10))
+	testing.expect_value(t, len(gamedb.actor_outfit_items(&db, 0x0000_0820)), 2)
+}
+
+// AVIF: the actor-value bridge. MGEF/RACE/CLAS cite actor values by ENGINE INDEX while
+// worldstate keys its store by lower-case NAME — this joins them. The index comes from four
+// formID blocks DERIVED from Skyrim.esm (not file order, not one offset), so the fixture uses
+// the real base-game formIDs. Index 21 is the known trap: it's Illusion everywhere in the game,
+// but its record is still called AVMysticism.
+@(test)
+test_gamedb_actor_values :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0E00)
+	field(&tes4, "HEDR", hedr[:])
+
+	avifs := make([dynamic]u8, 0, 512);defer delete(avifs)
+	add_avif :: proc(out: ^[dynamic]u8, formid: u32, edid: string, full: string) {
+		body := make([dynamic]u8, 0, 64)
+		defer delete(body)
+		field(&body, "EDID", transmute([]u8)edid)
+		if full != "" {
+			field(&body, "FULL", transmute([]u8)full)
+		}
+		record(out, "AVIF", 0, formid, body[:])
+	}
+	add_avif(&avifs, 0x0000_03E8, "AVHealth\x00", "Health\x00") // block 3 → index 24
+	add_avif(&avifs, 0x0000_04B0, "AVAggression\x00", "") // block 1 → index 0
+	add_avif(&avifs, 0x0000_0458, "AVAlteration\x00", "Alteration\x00") // block 2 → index 18
+	add_avif(&avifs, 0x0000_045B, "AVMysticism\x00", "Illusion\x00") // block 2 → index 21
+	add_avif(&avifs, 0x0000_05DC, "AVParalysis\x00", "") // block 4 → index 53
+	add_avif(&avifs, 0x0000_064A, "AVReflectDamage\x00", "") // block 4 → index 163, the last AV
+
+	out := make([dynamic]u8, 0, 768);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("AVIF"), 0, avifs[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	// Index derivation: each block starts at a different enum position.
+	check :: proc(t: ^testing.T, db: ^gamedb.DB, index: i32, key: string) {
+		got, ok := gamedb.actor_value_key(db, index)
+		testing.expect(t, ok, "actor value index resolves")
+		testing.expect_value(t, got, key)
+	}
+	check(t, &db, 0, "aggression")
+	check(t, &db, 18, "alteration")
+	check(t, &db, 24, "health")
+	check(t, &db, 53, "paralysis")
+	check(t, &db, 163, "reflectdamage")
+	// The AVMysticism trap: the key is what the game calls it, not what the record is named.
+	check(t, &db, 21, "illusion")
+
+	// An index with no AVIF record (37 Voice Points is engine-only) resolves to nothing.
+	_, missing := gamedb.actor_value_key(&db, 37)
+	testing.expect(t, !missing, "an index with no AVIF record has no key")
+
+	// Display name prefers FULL, falling back to the key when the record carries none.
+	disp, dok := gamedb.actor_value_display(&db, 24)
+	testing.expect(t, dok, "display name resolves")
+	testing.expect_value(t, disp, "Health")
+	fallback, fok := gamedb.actor_value_display(&db, 53)
+	testing.expect(t, fok, "display falls back to the key")
+	testing.expect_value(t, fallback, "paralysis")
+
+	// Name → index, accepting the editor id's "AV" prefix or the bare name, case-insensitively.
+	idx, iok := gamedb.actor_value_index_of(&db, "Health")
+	testing.expect(t, iok, "name resolves to an index")
+	testing.expect_value(t, idx, i32(24))
+	idx2, iok2 := gamedb.actor_value_index_of(&db, "avalteration")
+	testing.expect(t, iok2, "the AV prefix is accepted")
+	testing.expect_value(t, idx2, i32(18))
+	_, unknown := gamedb.actor_value_index_of(&db, "NotAnActorValue")
+	testing.expect(t, !unknown, "unknown actor value")
+
+	av, avok := gamedb.actor_value_info(&db, 0x0000_045B)
+	testing.expect(t, avok, "AVIF indexed")
+	testing.expect_value(t, av.editor_id, "AVMysticism") // as authored
+	testing.expect_value(t, av.key, "illusion") // as the game means it
+	testing.expect(t, av.has_index, "a base-game AVIF carries an engine index")
+}
+
+// LCTN + WTHR — the last two records that `base_class()` gave a Papyrus class without any data
+// behind it. Location covers the parent tree IsChild walks; Weather covers the DATA
+// classification, FNAM fog, the VARIABLE-length NAM0 colour table and the per-time imagespaces.
+// Colour row indices were read off SkyrimClear_A: Stars is white only at night, Sunlight is warm
+// at sunrise/sunset.
+@(test)
+test_gamedb_location_and_weather :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0F00)
+	field(&tes4, "HEDR", hedr[:])
+
+	// A three-deep location chain: house → town → hold.
+	lctns := make([dynamic]u8, 0, 384);defer delete(lctns)
+	add_lctn :: proc(out: ^[dynamic]u8, formid: u32, name: string, parent: u32) {
+		body := make([dynamic]u8, 0, 64)
+		defer delete(body)
+		field(&body, "FULL", transmute([]u8)name)
+		if parent != 0 {
+			field(&body, "PNAM", u32_bytes(parent))
+		}
+		field(&body, "CNAM", u32_bytes(0x00FF_FF00))
+		record(out, "LCTN", 0, formid, body[:])
+	}
+	add_lctn(&lctns, 0x0000_0901, "Whiterun Hold\x00", 0)
+	add_lctn(&lctns, 0x0000_0902, "Whiterun\x00", 0x0000_0901)
+	add_lctn(&lctns, 0x0000_0903, "Breezehome\x00", 0x0000_0902)
+
+	// A weather: cloudy, with fog, a full 17-row colour table and 4 imagespaces.
+	wthr := make([dynamic]u8, 0, 512);defer delete(wthr)
+	wd: [19]u8
+	wd[0] = 5 // wind speed
+	wd[4] = 128 // sun glare
+	wd[11] = esm.WTHR_CLOUDY | esm.WTHR_PERMANENT_AURORA
+	field(&wthr, "DATA", wd[:])
+	fn: [32]u8
+	put_f32(fn[:], 4, 22500) // day far
+	put_f32(fn[:], 12, 22500) // night far
+	put_f32(fn[:], 24, 0.9) // day max
+	field(&wthr, "FNAM", fn[:])
+	nam0: [esm.WTHR_COLOR_ROWS_MAX * esm.WTHR_TIMES * 4]u8
+	set_color :: proc(b: []u8, row, time: int, c: [4]u8) {
+		off := (row * esm.WTHR_TIMES + time) * 4
+		for v, i in c {
+			b[off + i] = v
+		}
+	}
+	set_color(nam0[:], esm.WTHR_COLOR_SUNLIGHT, 1, {163, 150, 135, 0}) // warm white at noon
+	set_color(nam0[:], esm.WTHR_COLOR_SUNLIGHT, 0, {182, 112, 95, 0}) // orange at sunrise
+	set_color(nam0[:], esm.WTHR_COLOR_STARS, 3, {255, 255, 255, 0}) // white only at night
+	set_color(nam0[:], esm.WTHR_COLOR_AMBIENT, 1, {170, 192, 197, 0})
+	field(&wthr, "NAM0", nam0[:])
+	imsp: [16]u8
+	for i in 0 ..< 4 {put_u32(imsp[:], i * 4, u32(0x0000_0A10 + i))}
+	field(&wthr, "IMSP", imsp[:])
+	wthrs := make([dynamic]u8, 0, 640);defer delete(wthrs)
+	record(&wthrs, "WTHR", 0, 0x0000_0910, wthr[:])
+
+	out := make([dynamic]u8, 0, 1280);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("LCTN"), 0, lctns[:])
+	group(&out, transmute([]u8)string("WTHR"), 0, wthrs[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	// Locations: name, parent link, marker colour, and the tree walk.
+	l, lok := gamedb.location_of(&db, 0x0000_0903)
+	testing.expect(t, lok, "location indexed")
+	testing.expect_value(t, gamedb.name_of(&db, 0x0000_0903), "Breezehome")
+	testing.expect_value(t, l.parent, gamedb.Form_ID(0x0000_0902))
+	testing.expect(t, l.has_marker_color, "map marker tint present")
+	testing.expect(t, gamedb.location_is_child(&db, 0x0000_0903, 0x0000_0902), "direct parent")
+	testing.expect(t, gamedb.location_is_child(&db, 0x0000_0903, 0x0000_0901), "grandparent")
+	testing.expect(t, !gamedb.location_is_child(&db, 0x0000_0901, 0x0000_0903), "not upward")
+	testing.expect(t, !gamedb.location_is_child(&db, 0x0000_0903, 0x0000_0903), "not its own child")
+	root, rok := gamedb.location_of(&db, 0x0000_0901)
+	testing.expect(t, rok, "root location indexed")
+	testing.expect_value(t, root.parent, gamedb.Form_ID(0))
+
+	// Weather: classification, fog, colours, imagespaces.
+	w, wok := gamedb.weather_of(&db, 0x0000_0910)
+	testing.expect(t, wok, "weather indexed")
+	testing.expect_value(t, gamedb.weather_classification(&db, 0x0000_0910), gamedb.Weather_Class.Cloudy)
+	testing.expect_value(t, w.info.wind_speed, u8(5))
+	testing.expect_value(t, w.info.sun_glare, u8(128))
+	testing.expect(t, w.info.flags & esm.WTHR_PERMANENT_AURORA != 0, "aurora bit survives")
+	testing.expect(t, w.has_fog, "fog present")
+	testing.expect_value(t, w.fog.day_far, f32(22500))
+	testing.expect_value(t, w.fog.day_max, f32(0.9))
+	testing.expect_value(t, w.color_rows, esm.WTHR_COLOR_ROWS_MAX)
+
+	noon_sun, sok := gamedb.weather_color(&db, 0x0000_0910, esm.WTHR_COLOR_SUNLIGHT, 1)
+	testing.expect(t, sok, "noon sunlight colour")
+	testing.expect_value(t, noon_sun[0], u8(163))
+	night_stars, nok := gamedb.weather_color(&db, 0x0000_0910, esm.WTHR_COLOR_STARS, 3)
+	testing.expect(t, nok, "night stars colour")
+	testing.expect_value(t, night_stars[0], u8(255))
+	// Reading past the authored rows / times must fail rather than return garbage.
+	_, past := gamedb.weather_color(&db, 0x0000_0910, esm.WTHR_COLOR_ROWS_MAX, 0)
+	testing.expect(t, !past, "row past the table")
+	_, bad_time := gamedb.weather_color(&db, 0x0000_0910, 0, esm.WTHR_TIMES)
+	testing.expect(t, !bad_time, "time past the table")
+
+	testing.expect_value(t, w.imagespaces[0], gamedb.Form_ID(0x0000_0A10))
+	testing.expect_value(t, w.imagespaces[3], gamedb.Form_ID(0x0000_0A13))
+}
