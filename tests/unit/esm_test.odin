@@ -6,6 +6,7 @@ package unit_tests
 // field structural logic — REAL correctness is proven by walking the user's own
 // Skyrim.esm (tools/esmdump), where resolved refs must name real meshes.
 
+import "core:strings"
 import "core:encoding/endian"
 import "core:testing"
 import "../../src/formats/esm"
@@ -1296,6 +1297,386 @@ test_gamedb_global_value :: proc(t: ^testing.T) {
 	// A non-global form has none.
 	_, nok := gamedb.global_value(&db, 0x0000_0999)
 	testing.expect(t, !nok, "unknown form has no global value")
+}
+
+// GMST typed decode: the editor-id prefix ('f' 'i' 'b' 's') picks the value type, DATA carries it.
+// Settings are keyed by lower-cased name, and the numeric kinds coerce between each other the way
+// the engine reads them. Validated against the real game via `esmdump --gmst` (Skyrim.esm: 1,584
+// settings — 558 float, 96 int, 1 bool, 929 string; fJumpHeightMin = 76, iDaysToRespawnVendor = 2).
+// This plugin is NOT localized, so a string setting carries its text inline (the mod-ESP path).
+@(test)
+test_gamedb_game_setting :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	gmst_grp := make([dynamic]u8, 0, 256);defer delete(gmst_grp)
+
+	fset := make([dynamic]u8, 0, 32);defer delete(fset)
+	field(&fset, "EDID", transmute([]u8)string("fTestJumpHeight\x00"))
+	fdata: [4]u8;put_f32(fdata[:], 0, 76.0)
+	field(&fset, "DATA", fdata[:])
+	record(&gmst_grp, "GMST", 0, 0x0000_0710, fset[:])
+
+	iset := make([dynamic]u8, 0, 32);defer delete(iset)
+	field(&iset, "EDID", transmute([]u8)string("iTestRespawnDays\x00"))
+	idata: [4]u8;put_u32(idata[:], 0, 2)
+	field(&iset, "DATA", idata[:])
+	record(&gmst_grp, "GMST", 0, 0x0000_0711, iset[:])
+
+	bset := make([dynamic]u8, 0, 32);defer delete(bset)
+	field(&bset, "EDID", transmute([]u8)string("bTestEnabled\x00"))
+	bdata: [4]u8;put_u32(bdata[:], 0, 1)
+	field(&bset, "DATA", bdata[:])
+	record(&gmst_grp, "GMST", 0, 0x0000_0712, bset[:])
+
+	sset := make([dynamic]u8, 0, 32);defer delete(sset)
+	field(&sset, "EDID", transmute([]u8)string("sTestLabel\x00"))
+	field(&sset, "DATA", transmute([]u8)string("ARMOR RATING\x00"))
+	record(&gmst_grp, "GMST", 0, 0x0000_0713, sset[:])
+
+	// A later record with the SAME name overrides the earlier one — the path a mod takes to retune
+	// a setting. The previous string value has to be freed, so this branch is where a leak lives.
+	sover := make([dynamic]u8, 0, 32);defer delete(sover)
+	field(&sover, "EDID", transmute([]u8)string("sTestLabel\x00"))
+	field(&sover, "DATA", transmute([]u8)string("ARMOUR RATING\x00"))
+	record(&gmst_grp, "GMST", 0, 0x0000_0714, sover[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("GMST"), 0, gmst_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, len(db.settings), 4)
+	testing.expect_value(t, gamedb.setting_float(&db, "fTestJumpHeight"), f32(76.0))
+	testing.expect_value(t, gamedb.setting_int(&db, "iTestRespawnDays"), i32(2))
+	testing.expect_value(t, gamedb.setting_bool(&db, "bTestEnabled"), true)
+	testing.expect_value(t, gamedb.setting_string(&db, "sTestLabel"), "ARMOUR RATING") // last wins
+
+	// Names are case-insensitive — scripts spell them however they like.
+	testing.expect_value(t, gamedb.setting_float(&db, "FTESTJUMPHEIGHT"), f32(76.0))
+
+	// The numeric kinds coerce between each other; a float truncates toward zero on an int read.
+	testing.expect_value(t, gamedb.setting_float(&db, "iTestRespawnDays"), f32(2.0))
+	testing.expect_value(t, gamedb.setting_int(&db, "fTestJumpHeight"), i32(76))
+	testing.expect_value(t, gamedb.setting_float(&db, "bTestEnabled"), f32(1.0))
+
+	// An unknown name, and a kind mismatch on the string reader, both fall back to the default.
+	testing.expect_value(t, gamedb.setting_float(&db, "fNoSuchSetting", 3.5), f32(3.5))
+	testing.expect_value(t, gamedb.setting_string(&db, "fTestJumpHeight", "fallback"), "fallback")
+	testing.expect_value(t, gamedb.setting_bool(&db, "bNoSuchSetting", true), true)
+}
+
+// MESG decode: DNAM flags, FULL title, DESC body, ITXT buttons in record order, QNAM owner quest.
+// The two text fields sit in DIFFERENT string tables — DESC in DLSTRINGS, FULL and ITXT in plain
+// STRINGS. Validated against the real game via `esmdump --mesg` (571 records: 384 message box /
+// 187 notification, 354 titled, 121 buttons; PlayerWerewolfCureAreYouSure = "Werewolf Cure" with
+// Yes / No). This plugin is NOT localized, so every text field is inline (the mod-ESP path).
+@(test)
+test_gamedb_message :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	mesg_grp := make([dynamic]u8, 0, 256);defer delete(mesg_grp)
+
+	// 0x720: a message box with two buttons and an owning quest — the Werewolf Cure shape.
+	box := make([dynamic]u8, 0, 128);defer delete(box)
+	field(&box, "EDID", transmute([]u8)string("TestCureAreYouSure\x00"))
+	field(&box, "DESC", transmute([]u8)string("Cure your lycanthropy forever?\x00"))
+	field(&box, "FULL", transmute([]u8)string("Werewolf Cure\x00"))
+	inam: [4]u8
+	field(&box, "INAM", inam[:]) // icon slot; always 0 in Skyrim, and skipped by the decoder
+	dnam: [4]u8;put_u32(dnam[:], 0, 1) // bit 0 = message box
+	field(&box, "DNAM", dnam[:])
+	qnam: [4]u8;put_u32(qnam[:], 0, 0x0000_0900)
+	field(&box, "QNAM", qnam[:])
+	field(&box, "ITXT", transmute([]u8)string("Yes\x00"))
+	field(&box, "ITXT", transmute([]u8)string("No\x00"))
+	record(&mesg_grp, "MESG", 0, 0x0000_0720, box[:])
+
+	// 0x721: a corner notification — no buttons, no title, a display time, flags bit 0 clear.
+	note := make([dynamic]u8, 0, 64);defer delete(note)
+	field(&note, "EDID", transmute([]u8)string("TestNotify\x00"))
+	field(&note, "DESC", transmute([]u8)string("Your stamina is low.\x00"))
+	ndnam: [4]u8;put_u32(ndnam[:], 0, 2) // bit 1 = auto display, bit 0 clear = notification
+	field(&note, "DNAM", ndnam[:])
+	tnam: [4]u8;put_u32(tnam[:], 0, 10)
+	field(&note, "TNAM", tnam[:])
+	record(&mesg_grp, "MESG", 0, 0x0000_0721, note[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("MESG"), 0, mesg_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	m, ok := gamedb.message_of(&db, 0x0000_0720)
+	testing.expect(t, ok, "MESG box decoded")
+	testing.expect_value(t, m.title, "Werewolf Cure")
+	testing.expect_value(t, m.body, "Cure your lycanthropy forever?")
+	testing.expect_value(t, m.message_box, true)
+	testing.expect_value(t, m.auto_display, false)
+	testing.expect_value(t, m.quest, gamedb.Form_ID(0x0000_0900))
+	testing.expect_value(t, len(m.buttons), 2)
+	// Record order IS the return value of Message.Show, so the order has to survive.
+	testing.expect_value(t, m.buttons[0], "Yes")
+	testing.expect_value(t, m.buttons[1], "No")
+
+	n, nok := gamedb.message_of(&db, 0x0000_0721)
+	testing.expect(t, nok, "MESG notification decoded")
+	testing.expect_value(t, n.message_box, false)
+	testing.expect_value(t, n.auto_display, true)
+	testing.expect_value(t, n.title, "")
+	testing.expect_value(t, n.body, "Your stamina is low.")
+	testing.expect_value(t, n.display_time, u32(10))
+	testing.expect_value(t, len(n.buttons), 0)
+	testing.expect_value(t, n.quest, gamedb.Form_ID(0))
+
+	// A form that is not a MESG has no message.
+	_, bad := gamedb.message_of(&db, 0x0000_0999)
+	testing.expect(t, !bad, "unknown form has no message")
+}
+
+// PERK + AVIF perk-tree decode. Two halves: a PERK's identity and NNAM rank chain, and the
+// constellation nodes that trail an AVIF's actor-value identity. Validated against the real game
+// via `esmdump --perk` (375 perks / 347 playable / 42 hidden; 18 skills, 198 nodes, 195
+// connections; AVOneHanded's trunk is Armsman at 5 ranks branching to Bladesman, Hack and Slash,
+// Bone Breaker, Fighting Stance and Dual Flurry).
+@(test)
+test_gamedb_perk :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	// Three PERKs forming one rank chain: A -> B -> C. Every record reports num_ranks = 1, which is
+	// how the base game authors Armsman — the chain length is the real answer, not that field.
+	perk_grp := make([dynamic]u8, 0, 256);defer delete(perk_grp)
+	add_perk :: proc(grp: ^[dynamic]u8, formid: u32, edid, name: string, next: u32, playable, hidden: u8) {
+		p := make([dynamic]u8, 0, 128);defer delete(p)
+		field(&p, "EDID", transmute([]u8)strings.concatenate({edid, "\x00"}, context.temp_allocator))
+		field(&p, "FULL", transmute([]u8)strings.concatenate({name, "\x00"}, context.temp_allocator))
+		field(&p, "DESC", transmute([]u8)string("Swing harder.\x00"))
+		field(&p, "DATA", []u8{0, 0, 1, playable, hidden}) // trait, min level, ranks, playable, hidden
+		if next != 0 {
+			n: [4]u8;put_u32(n[:], 0, next)
+			field(&p, "NNAM", n[:])
+		}
+		// One entry, to prove the header DATA is taken from BEFORE the first PRKE and the 3-byte
+		// entry DATA that follows is not mistaken for it.
+		field(&p, "PRKE", []u8{0, 1, 0})
+		field(&p, "DATA", []u8{0, 0, 0})
+		field(&p, "PRKF", {})
+		record(grp, "PERK", 0, formid, p[:])
+	}
+	add_perk(&perk_grp, 0x0000_0A01, "TestArmsman00", "Armsman", 0x0000_0A02, 1, 0)
+	add_perk(&perk_grp, 0x0000_0A02, "TestArmsman20", "Armsman", 0x0000_0A03, 1, 0)
+	add_perk(&perk_grp, 0x0000_0A03, "TestArmsman40", "Armsman", 0, 1, 0)
+	add_perk(&perk_grp, 0x0000_0A04, "TestHelperPerk", "Helper", 0, 0, 1)
+
+	// An AVIF skill carrying a three-node tree: a root plus two perks. The root's grid/position are
+	// deliberately junk here, the way the Creation Kit leaves them, and must be zeroed on decode.
+	avif := make([dynamic]u8, 0, 256);defer delete(avif)
+	field(&avif, "EDID", transmute([]u8)string("AVTestSkill\x00"))
+	field(&avif, "DESC", transmute([]u8)string("A test skill.\x00"))
+	cn: [4]u8;put_u32(cn[:], 0, 7)
+	field(&avif, "CNAM", cn[:]) // the record's OWN CNAM — must NOT become a node connection
+	node :: proc(b: ^[dynamic]u8, perk, gx, gy: u32, h, v: f32, conns: []u32, index: u32) {
+		t4: [4]u8
+		put_u32(t4[:], 0, perk);field(b, "PNAM", t4[:])
+		put_u32(t4[:], 0, 1);field(b, "FNAM", t4[:])
+		put_u32(t4[:], 0, gx);field(b, "XNAM", t4[:])
+		put_u32(t4[:], 0, gy);field(b, "YNAM", t4[:])
+		put_f32(t4[:], 0, h);field(b, "HNAM", t4[:])
+		put_f32(t4[:], 0, v);field(b, "VNAM", t4[:])
+		put_u32(t4[:], 0, 0x0000_0B00);field(b, "SNAM", t4[:])
+		for c in conns {
+			put_u32(t4[:], 0, c);field(b, "CNAM", t4[:])
+		}
+		put_u32(t4[:], 0, index);field(b, "INAM", t4[:])
+	}
+	node(&avif, 0, 0xDEAD, 0xBEEF, 99, 99, {2}, 0) // root: junk placement, connects to node 2
+	node(&avif, 0x0000_0A01, 2, 0, 0.187, -0.04, {5}, 2)
+	node(&avif, 0x0000_0A04, 1, 1, -0.153, 0.52, {}, 5)
+	avif_grp := make([dynamic]u8, 0, 512);defer delete(avif_grp)
+	record(&avif_grp, "AVIF", 0, 0x0000_0B00, avif[:])
+
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("PERK"), 0, perk_grp[:])
+	group(&out, transmute([]u8)string("AVIF"), 0, avif_grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, len(db.perks), 4)
+	p, ok := gamedb.perk_of(&db, 0x0000_0A01)
+	testing.expect(t, ok, "PERK decoded")
+	testing.expect_value(t, p.name, "Armsman")
+	testing.expect_value(t, p.description, "Swing harder.")
+	testing.expect_value(t, p.playable, true)
+	testing.expect_value(t, p.hidden, false)
+	testing.expect_value(t, p.next_rank, gamedb.Form_ID(0x0000_0A02))
+	testing.expect_value(t, p.num_ranks, u8(1)) // as authored — and wrong, which is the point
+
+	// The chain is the real rank count, and it shortens as you walk down it.
+	testing.expect_value(t, gamedb.perk_ranks(&db, 0x0000_0A01), 3)
+	testing.expect_value(t, gamedb.perk_ranks(&db, 0x0000_0A02), 2)
+	testing.expect_value(t, gamedb.perk_ranks(&db, 0x0000_0A03), 1)
+	testing.expect_value(t, gamedb.perk_ranks(&db, 0x0000_0A04), 1) // outside any chain
+	testing.expect_value(t, gamedb.perk_ranks(&db, 0x0000_0FFF), 0) // unknown form
+
+	hp, hok := gamedb.perk_of(&db, 0x0000_0A04)
+	testing.expect(t, hok, "helper PERK decoded")
+	testing.expect_value(t, hp.playable, false)
+	testing.expect_value(t, hp.hidden, true)
+	testing.expect_value(t, hp.next_rank, gamedb.Form_ID(0))
+
+	tree := gamedb.perk_tree_of(&db, 0x0000_0B00)
+	testing.expect_value(t, len(tree), 3)
+	// The root keeps its connections but loses the junk placement.
+	testing.expect_value(t, tree[0].perk, gamedb.Form_ID(0))
+	testing.expect_value(t, tree[0].grid, [2]u32{0, 0})
+	testing.expect_value(t, tree[0].pos, [2]f32{0, 0})
+	testing.expect_value(t, len(tree[0].connections), 1)
+	testing.expect_value(t, tree[0].connections[0], u32(2))
+	// A real node keeps everything, and the record's own CNAM stayed out of it.
+	testing.expect_value(t, tree[1].perk, gamedb.Form_ID(0x0000_0A01))
+	testing.expect_value(t, tree[1].index, u32(2))
+	testing.expect_value(t, tree[1].grid, [2]u32{2, 0})
+	testing.expect_value(t, tree[1].pos, [2]f32{0.187, -0.04})
+	testing.expect_value(t, len(tree[1].connections), 1)
+	testing.expect_value(t, tree[1].connections[0], u32(5))
+	// A leaf has no connections.
+	testing.expect_value(t, tree[2].perk, gamedb.Form_ID(0x0000_0A04))
+	testing.expect_value(t, tree[2].index, u32(5))
+	testing.expect_value(t, len(tree[2].connections), 0)
+
+	// An actor value that is not a skill carries no tree.
+	testing.expect_value(t, len(gamedb.perk_tree_of(&db, 0x0000_0FFF)), 0)
+}
+
+// COBJ decode: CNTO ingredients, CNAM result, NAM1 yield, BNAM workbench, plus the by-bench
+// grouping a crafting menu reads. Validated against the real game via `esmdump --cobj` (601
+// recipes, 952 ingredient entries, 7 workbench keywords partitioning them exactly; Elsweyr Fondue
+// = Eidar Cheese Wheel + Moon Sugar + Ale, Solid Dwemer Metal smelts to 5 Dwarven Ingots).
+@(test)
+test_gamedb_recipe :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	FORGE :: u32(0x0000_0C01)
+	SMELTER :: u32(0x0000_0C02)
+
+	cnto :: proc(b: ^[dynamic]u8, item: u32, count: i32) {
+		e: [8]u8;put_u32(e[:], 0, item);put_u32(e[:], 4, transmute(u32)count)
+		field(b, "CNTO", e[:])
+	}
+	add_cobj :: proc(grp: ^[dynamic]u8, formid: u32, edid: string, ings: [][2]u32, result: u32, bench: u32, qty: u16) {
+		r := make([dynamic]u8, 0, 128);defer delete(r)
+		field(&r, "EDID", transmute([]u8)strings.concatenate({edid, "\x00"}, context.temp_allocator))
+		t4: [4]u8
+		put_u32(t4[:], 0, u32(len(ings)));field(&r, "COCT", t4[:])
+		for ing in ings {cnto(&r, ing[0], i32(ing[1]))}
+		field(&r, "CTDA", make([]u8, 32, context.temp_allocator)) // a condition we deliberately skip
+		if result != 0 {
+			put_u32(t4[:], 0, result);field(&r, "CNAM", t4[:])
+		}
+		put_u32(t4[:], 0, bench);field(&r, "BNAM", t4[:])
+		field(&r, "NAM1", []u8{u8(qty), u8(qty >> 8)})
+		record(grp, "COBJ", 0, formid, r[:])
+	}
+
+	grp := make([dynamic]u8, 0, 512);defer delete(grp)
+	add_cobj(&grp, 0x0000_0D01, "RecipeSteelIngot", {{0x0000_0E01, 1}, {0x0000_0E02, 1}}, 0x0000_0F01, FORGE, 1)
+	add_cobj(&grp, 0x0000_0D02, "RecipeDwarvenIngot", {{0x0000_0E03, 1}}, 0x0000_0F02, SMELTER, 5)
+	add_cobj(&grp, 0x0000_0D03, "RecipeBroken", {{0x0000_0E01, 2}}, 0, FORGE, 1) // no CNAM: makes nothing
+	add_cobj(&grp, 0x0000_0D04, "RecipeFree", {}, 0x0000_0F03, FORGE, 1) // no ingredients
+
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("COBJ"), 0, grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, len(db.recipes), 4)
+	r, ok := gamedb.recipe_of(&db, 0x0000_0D01)
+	testing.expect(t, ok, "COBJ decoded")
+	testing.expect_value(t, r.result, gamedb.Form_ID(0x0000_0F01))
+	testing.expect_value(t, r.bench, gamedb.Form_ID(FORGE))
+	testing.expect_value(t, r.quantity, u16(1))
+	testing.expect_value(t, len(r.ingredients), 2)
+	testing.expect_value(t, r.ingredients[0].item, gamedb.Form_ID(0x0000_0E01))
+	testing.expect_value(t, r.ingredients[0].count, i32(1))
+
+	// A yield above one survives, which is how the smelter works.
+	d, dok := gamedb.recipe_of(&db, 0x0000_0D02)
+	testing.expect(t, dok, "smelter recipe decoded")
+	testing.expect_value(t, d.quantity, u16(5))
+
+	// Both absences are real vanilla data, not decode failures.
+	b, bok := gamedb.recipe_of(&db, 0x0000_0D03)
+	testing.expect(t, bok, "resultless recipe still indexed")
+	testing.expect_value(t, b.result, gamedb.Form_ID(0))
+	f, fok := gamedb.recipe_of(&db, 0x0000_0D04)
+	testing.expect(t, fok, "ingredientless recipe still indexed")
+	testing.expect_value(t, len(f.ingredients), 0)
+
+	// The by-bench grouping is what a crafting menu opens with.
+	testing.expect_value(t, len(gamedb.recipes_for_bench(&db, gamedb.Form_ID(FORGE))), 3)
+	testing.expect_value(t, len(gamedb.recipes_for_bench(&db, gamedb.Form_ID(SMELTER))), 1)
+	testing.expect_value(t, len(gamedb.recipes_for_bench(&db, 0x0000_0FFF)), 0) // unused keyword
+
+	_, bad := gamedb.recipe_of(&db, 0x0000_0FFF)
+	testing.expect(t, !bad, "unknown form is not a recipe")
+}
+
+// A later plugin overriding a COBJ can MOVE it to another workbench. The old bench must drop it,
+// or the recipe shows on both. This is the one place the by-bench index is hand-maintained.
+@(test)
+test_gamedb_recipe_bench_override :: proc(t: ^testing.T) {
+	FORGE :: u32(0x0000_0C01)
+	SMELTER :: u32(0x0000_0C02)
+
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	cobj :: proc(grp: ^[dynamic]u8, formid, bench, result: u32) {
+		r := make([dynamic]u8, 0, 64);defer delete(r)
+		field(&r, "EDID", transmute([]u8)string("RecipeMoved\x00"))
+		t4: [4]u8
+		put_u32(t4[:], 0, 1);field(&r, "COCT", t4[:])
+		e: [8]u8;put_u32(e[:], 0, 0x0000_0E01);put_u32(e[:], 4, 1)
+		field(&r, "CNTO", e[:])
+		put_u32(t4[:], 0, result);field(&r, "CNAM", t4[:])
+		put_u32(t4[:], 0, bench);field(&r, "BNAM", t4[:])
+		field(&r, "NAM1", []u8{1, 0})
+		record(grp, "COBJ", 0, formid, r[:])
+	}
+	grp := make([dynamic]u8, 0, 256);defer delete(grp)
+	cobj(&grp, 0x0000_0D01, FORGE, 0x0000_0F01)   // first: on the forge
+	cobj(&grp, 0x0000_0D01, SMELTER, 0x0000_0F09) // same form, moved to the smelter
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("COBJ"), 0, grp[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, len(db.recipes), 1)
+	r, _ := gamedb.recipe_of(&db, 0x0000_0D01)
+	testing.expect_value(t, r.bench, gamedb.Form_ID(SMELTER))
+	testing.expect_value(t, r.result, gamedb.Form_ID(0x0000_0F09))
+	// The old bench let go, and the new one holds exactly one copy.
+	testing.expect_value(t, len(gamedb.recipes_for_bench(&db, gamedb.Form_ID(FORGE))), 0)
+	testing.expect_value(t, len(gamedb.recipes_for_bench(&db, gamedb.Form_ID(SMELTER))), 1)
 }
 
 // NPC_ base decode (4a item 5): ACBS stats + DNAM attributes/skills + linked race/class/voice/outfit

@@ -131,7 +131,7 @@ index_outfit :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 // file order (see esm.ACTOR_VALUE_BLOCKS). Only a plugin in load-order slot 0 (the base game)
 // can define an indexed actor value; a mod's AVIF is a form with no enum slot.
 @(private)
-index_actor_value :: proc(db: ^DB, rec: esm.Record) {
+index_actor_value :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
 	if !ok {
 		return
@@ -174,6 +174,10 @@ index_actor_value :: proc(db: ^DB, rec: esm.Record) {
 	if _, seen := db.actor_value_by_key[av.key]; !seen {
 		db.actor_value_by_key[strings.clone(av.key, db.allocator)] = rec.form_id
 	}
+
+	// The perk-tree nodes trail the identity in the same record. Only the 18 skills carry any, and
+	// the split lives in perks.odin — this hands over the fields it already parsed.
+	index_perk_tree(db, rec, fl, fm)
 }
 
 // index_description clones a record's DESC text, English-resolved. DESC is long-form text, so it

@@ -150,6 +150,46 @@ class_info :: proc(fields: []Field) -> (ci: Class_Info, ok: bool) {
 	return ci, true
 }
 
+// --- PERK ------------------------------------------------------------------------------
+
+// Perk_Header is a PERK's DATA block — the 5 bytes that sit before its first entry.
+Perk_Header :: struct {
+	trait:     bool,
+	min_level: u8,
+	num_ranks: u8,
+	playable:  bool,
+	hidden:    bool,
+}
+
+// perk_header decodes a PERK's header DATA. A PERK carries SEVERAL DATA subrecords — one header,
+// then one inside each PRKE/PRKF entry — so this takes the one before the first PRKE rather than
+// the first DATA it finds. VERIFIED against Skyrim.esm: 375 records, each with exactly one 5-byte
+// DATA (entry DATAs are 3, 4 or 8 bytes). Byte order is trait, min level, rank count, playable,
+// hidden. Validated on Armsman00 (playable, not hidden) and TG00Pickpockethelper (hidden).
+//
+// WARNING: num_ranks is authored inconsistently and must not be trusted. Armsman and Juggernaut
+// are five-rank chains whose every record reports 1, while the single-rank ApprenticeLocks25
+// reports 5. Across the base game 349 records say 1 and 26 say 5, which matches no real grouping.
+// The reliable rank count is the length of the NNAM chain — see gamedb.perk_ranks.
+perk_header :: proc(fields: []Field) -> (h: Perk_Header, ok: bool) {
+	for f in fields {
+		if f.type == "PRKE" {
+			break // entries start here, and every DATA past this point belongs to one
+		}
+		if f.type == "DATA" && len(f.data) >= 5 {
+			return Perk_Header {
+					trait = f.data[0] != 0,
+					min_level = f.data[1],
+					num_ranks = f.data[2],
+					playable = f.data[3] != 0,
+					hidden = f.data[4] != 0,
+				},
+				true
+		}
+	}
+	return {}, false
+}
+
 // --- AVIF (actor value information) ------------------------------------------------------
 
 // ACTOR_VALUE_COUNT is the size of Skyrim's ActorValue index space (0 Aggression … 163 Reflect

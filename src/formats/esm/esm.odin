@@ -90,8 +90,15 @@ Form_Map :: struct {
 
 // remap_form rewrites a plugin-local FormID into a global Form_ID. fm==nil passes the raw
 // value through unchanged (the tool/test single-file path).
+//
+// FormID 0 is Bethesda's null — "this optional link is empty", never a record. It is returned
+// unchanged rather than sent through the slot table, because its high byte would otherwise select
+// master 0 and hand back that master's slot. With every master present that slot is 0 and the
+// answer is right by accident; with a master MISSING it is INVALID_SLOT, so an absent link comes
+// back as 0xFFFFFFFE00000000 and every `!= 0` test downstream reads it as a real reference. A
+// missing master is routine in a modded load order, so the accident is not safe to rely on.
 remap_form :: proc(fm: ^Form_Map, local: u32) -> Form_ID {
-	if fm == nil {
+	if fm == nil || local == 0 {
 		return Form_ID(local)
 	}
 	return (Form_ID(fm.slot[local >> 24]) << 32) | Form_ID(local & 0x00FF_FFFF)

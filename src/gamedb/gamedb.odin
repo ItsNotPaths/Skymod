@@ -139,6 +139,12 @@ DB :: struct {
 	actor_value_by_index: map[i32]Form_ID, // engine ActorValue index -> its AVIF form
 	actor_value_by_key:   map[string]Form_ID, // canonical lower-case AV name -> its AVIF form (key owned)
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
+	settings:      map[string]Game_Setting, // lower-cased GMST editor id -> its value (key owned; a String value is owned too)
+	messages:      map[Form_ID]Message, // MESG formID -> its on-screen text and buttons (owned strings)
+	perks:         map[Form_ID]Perk, // PERK formID -> its identity and rank link (owned strings)
+	perk_trees:    map[Form_ID][]Perk_Node, // skill AVIF formID -> its constellation nodes (owned)
+	recipes:       map[Form_ID]Recipe, // COBJ formID -> its crafting recipe (owned ingredient list)
+	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
 	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
@@ -527,6 +533,12 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
 		actor_value_by_key   = make(map[string]Form_ID, 256, allocator),
 		global_values = make(map[Form_ID]f32, 1024, allocator),
+		settings      = make(map[string]Game_Setting, 2048, allocator),
+		messages      = make(map[Form_ID]Message, 1024, allocator),
+		perks         = make(map[Form_ID]Perk, 512, allocator),
+		perk_trees    = make(map[Form_ID][]Perk_Node, 32, allocator),
+		recipes       = make(map[Form_ID]Recipe, 1024, allocator),
+		recipes_by_bench = make(map[Form_ID][dynamic]Form_ID, 16, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
@@ -648,6 +660,33 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.leveled_lists)
 	delete(db.global_values) // plain f32 values — no owned data
+	for k, v in db.settings {
+		delete(k, db.allocator)
+		if text, is_text := v.(string); is_text {
+			delete(text, db.allocator)
+		}
+	}
+	delete(db.settings)
+	for _, m in db.messages {
+		free_message(db, m)
+	}
+	delete(db.messages)
+	for _, p in db.perks {
+		free_perk(db, p)
+	}
+	delete(db.perks)
+	for _, nodes in db.perk_trees {
+		free_perk_tree(db, nodes)
+	}
+	delete(db.perk_trees)
+	for _, r in db.recipes {
+		free_recipe(db, r)
+	}
+	delete(db.recipes)
+	for _, list in db.recipes_by_bench {
+		delete(list)
+	}
+	delete(db.recipes_by_bench)
 	for s in db.load_tips {
 		delete(s, db.allocator)
 	}
@@ -1120,9 +1159,17 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "OTFT":
 		index_outfit(db, rec, ctx.fm)
 	case s == "AVIF":
-		index_actor_value(db, rec)
+		index_actor_value(db, rec, ctx.fm) // identity + its perk-tree nodes
 	case s == "GLOB":
 		index_glob(db, rec) // its FLTV baseline value
+	case s == "GMST":
+		index_gmst(db, rec) // its typed DATA value, keyed by editor id
+	case s == "MESG":
+		index_message(db, rec, ctx.fm) // its title/body/button text
+	case s == "PERK":
+		index_perk(db, rec, ctx.fm) // its name/description/rank link (entries stay undecoded)
+	case s == "COBJ":
+		index_recipe(db, rec, ctx.fm) // its ingredients, result and workbench (conditions stay undecoded)
 	case s == "LSCR":
 		index_lscr(db, rec) // its DESC loading-tip text (we skip the NNAM 3D model)
 	case s == "NPC_":
@@ -1735,6 +1782,237 @@ index_glob :: proc(db: ^DB, rec: esm.Record) {
 	if v, _, vok := esm.global_value(fl); vok {
 		db.global_values[rec.form_id] = v
 	}
+}
+
+// Game_Setting is a GMST's resolved value. The record's editor-id prefix picks the variant, so a
+// consumer that knows the setting knows its variant ("fJumpHeightMin" is always the f32).
+Game_Setting :: union {
+	f32,
+	i32,
+	bool,
+	string, // owned by the DB
+}
+
+// index_gmst decodes a GMST into settings, keyed by its LOWER-CASED editor id. The name is the only
+// access path a consumer has (Game.GetGameSettingFloat("fJumpHeightMin")), and it is also what a
+// later plugin overriding the setting collides on — GMSTs override by name, so keying by name gets
+// load-order precedence for free (last write wins). A String setting's DATA resolves through the
+// PLAIN STRINGS table: verified against Skyrim.esm, 920 of its 929 string settings resolve there
+// and 0 in DLSTRINGS; the remaining 9 carry id 0 and are deliberately empty.
+@(private)
+index_gmst :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	name, kind, data, gok := esm.game_setting(fl)
+	if !gok {
+		return
+	}
+
+	value: Game_Setting
+	switch kind {
+	case 'f':
+		f, _ := esm.setting_number(data)
+		value = f
+	case 'i':
+		_, i := esm.setting_number(data)
+		value = i
+	case 'b':
+		_, i := esm.setting_number(data)
+		value = i != 0
+	case 's':
+		value = strings.clone(resolve_lstring(db, data, db.cur_strings), db.allocator)
+	case:
+		return // an unrecognized prefix declares no type — nothing to store
+	}
+
+	key := strings.to_lower(name, context.temp_allocator)
+	if old, existed := db.settings[key]; existed {
+		if text, is_text := old.(string); is_text {
+			delete(text, db.allocator) // the override replaces the previous plugin's string
+		}
+		db.settings[key] = value
+		return
+	}
+	db.settings[strings.clone(key, db.allocator)] = value
+}
+
+// Message is a MESG record — the text a `Message.Show` call puts on screen. Skyrim uses one record
+// type for two surfaces: with `message_box` set it is a modal with buttons, and without it a
+// corner notification. Verified against Skyrim.esm: 571 records, 384 message boxes and 186
+// notifications (1 record sets neither bit).
+Message :: struct {
+	title:        string,   // FULL, owned. "" when absent — 354 of the 571 carry one.
+	body:         string,   // DESC, owned. The message text itself.
+	buttons:      []string, // ITXT in record order, owned. Empty = the menu supplies one default button.
+	quest:        Form_ID,  // QNAM owning quest, remapped. 0 when absent (46 of 571 name one).
+	display_time: u32,      // TNAM seconds a notification stays up. 0 = absent, so the menu decides.
+	message_box:  bool,     // DNAM bit 0 — modal with buttons, rather than a corner notification.
+	auto_display: bool,     // DNAM bit 1 — the menu opens it without a script asking.
+}
+
+// free_message releases a Message's owned strings. Shared by destroy + the override path.
+@(private)
+free_message :: proc(db: ^DB, m: Message) {
+	delete(m.title, db.allocator)
+	delete(m.body, db.allocator)
+	for b in m.buttons {
+		delete(b, db.allocator)
+	}
+	delete(m.buttons, db.allocator)
+}
+
+// index_message decodes a MESG into messages. The two text fields sit in DIFFERENT string tables,
+// which is the whole reason this walks the subrecords itself: DESC is long text and resolves
+// through DLSTRINGS, while FULL and the ITXT button labels are short and resolve through plain
+// STRINGS. Verified against Skyrim.esm — 479 of 571 DESC ids resolve in DLSTRINGS and 0 in
+// STRINGS (91 carry id 0), while all 354 FULL and all 121 ITXT ids resolve in STRINGS and 0 in
+// DLSTRINGS. Validated on PlayerWerewolfCureAreYouSure (0x000F6092): title "Werewolf Cure", body
+// "Cast the witch's head into the flames to cure your lycanthropy forever?", buttons Yes / No.
+//
+// Buttons keep record order, because that order IS the return value of `Message.Show`. The 7 CTDA
+// conditions in the base game gate individual buttons; we keep every button and leave that
+// filtering to the menu, which is the layer that knows the game state.
+// INAM is skipped: it is an icon slot Skyrim never uses (571 of 571 are 0).
+@(private)
+index_message :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	if old, existed := db.messages[rec.form_id]; existed {
+		free_message(db, old) // override: free the previous plugin's clone
+	}
+
+	msg: Message
+	buttons := make([dynamic]string, 0, 4, db.allocator)
+	for f in fl {
+		switch f.type {
+		case "FULL":
+			msg.title = strings.clone(resolve_lstring(db, f, db.cur_strings), db.allocator)
+		case "DESC":
+			msg.body = strings.clone(resolve_lstring(db, f, db.cur_dlstrings), db.allocator)
+		case "ITXT":
+			append(&buttons, strings.clone(resolve_lstring(db, f, db.cur_strings), db.allocator))
+		case "DNAM":
+			if len(f.data) >= 1 {
+				msg.message_box = f.data[0] & 0x01 != 0
+				msg.auto_display = f.data[0] & 0x02 != 0
+			}
+		case "TNAM":
+			if len(f.data) >= 4 {
+				msg.display_time = u32(f.data[0]) | u32(f.data[1]) << 8 | u32(f.data[2]) << 16 | u32(f.data[3]) << 24
+			}
+		case "QNAM":
+			if len(f.data) >= 4 {
+				local := u32(f.data[0]) | u32(f.data[1]) << 8 | u32(f.data[2]) << 16 | u32(f.data[3]) << 24
+				msg.quest = esm.remap_form(fm, local)
+			}
+		}
+	}
+	msg.buttons = buttons[:]
+	db.messages[rec.form_id] = msg
+}
+
+// message_of returns a MESG's decoded text. Borrowed — the DB owns the strings. ok=false when the
+// form is not an indexed message.
+message_of :: proc(db: ^DB, form: Form_ID) -> (Message, bool) {
+	if db == nil {
+		return {}, false
+	}
+	m, ok := db.messages[form]
+	return m, ok
+}
+
+// setting_of looks a game setting up by name. Names are case-insensitive — a script spells a
+// setting however it likes, and the store is keyed lower-cased. Shared by the typed readers below.
+@(private)
+setting_of :: proc(db: ^DB, name: string) -> (Game_Setting, bool) {
+	if db == nil {
+		return nil, false
+	}
+	v, ok := db.settings[strings.to_lower(name, context.temp_allocator)]
+	return v, ok
+}
+
+// setting_float returns a game setting's value as an f32, coercing an Int or Bool setting the way
+// the engine does. `def` comes back for an unknown name or a String setting.
+setting_float :: proc(db: ^DB, name: string, def: f32 = 0) -> f32 {
+	v, ok := setting_of(db, name)
+	if !ok {
+		return def
+	}
+	switch t in v {
+	case f32:
+		return t
+	case i32:
+		return f32(t)
+	case bool:
+		return t ? 1 : 0
+	case string:
+		return def
+	}
+	return def
+}
+
+// setting_int returns a game setting's value as an i32. A Float setting truncates, as the engine
+// does. `def` comes back for an unknown name or a String setting.
+setting_int :: proc(db: ^DB, name: string, def: i32 = 0) -> i32 {
+	v, ok := setting_of(db, name)
+	if !ok {
+		return def
+	}
+	switch t in v {
+	case i32:
+		return t
+	case f32:
+		return i32(t)
+	case bool:
+		return t ? 1 : 0
+	case string:
+		return def
+	}
+	return def
+}
+
+// setting_bool returns a game setting's value as a bool — non-zero is true for the numeric kinds.
+// `def` comes back for an unknown name or a String setting.
+setting_bool :: proc(db: ^DB, name: string, def: bool = false) -> bool {
+	v, ok := setting_of(db, name)
+	if !ok {
+		return def
+	}
+	switch t in v {
+	case bool:
+		return t
+	case i32:
+		return t != 0
+	case f32:
+		return t != 0
+	case string:
+		return def
+	}
+	return def
+}
+
+// setting_string returns a String game setting's text, already resolved through STRINGS. Borrowed
+// — the DB owns it. `def` comes back for an unknown name or a non-String setting.
+setting_string :: proc(db: ^DB, name: string, def: string = "") -> string {
+	v, ok := setting_of(db, name)
+	if !ok {
+		return def
+	}
+	if text, is_text := v.(string); is_text {
+		return text
+	}
+	return def
 }
 
 // index_lscr decodes a LoadScreen's DESC — the loading-tip text the load screen shows. LSCR DESC lives

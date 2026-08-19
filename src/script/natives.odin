@@ -31,6 +31,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)
 
+	register(reg, "Message", "Show", n_message_show)
+
 	register_math(reg) // Math.* — pure callstatic leaves
 	register_quest(reg) // Quest.* — the quest-state store
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
@@ -127,6 +129,30 @@ n_trace :: proc(c: ^Call, args: []Value) -> Value {
 n_notification :: proc(c: ^Call, args: []Value) -> Value {
 	log.infof("[notification] %s", arg_str(args, 0))
 	return nil
+}
+
+// ── Message ──────────────────────────────────────────────────────────────────
+
+// n_message_show resolves the receiving MESG and puts it on screen. Papyrus returns the index of
+// the button the player picked, so a script branches on it.
+//
+// The messagebox menu does not exist yet (`docs/menus.md` lists `messagebox.swf` as P1), so there
+// is nothing to pick a button WITH. Until it lands this logs the resolved text and returns 0 — the
+// first button, which the base game authors as the "carry on" choice on the records that matter
+// (OghmaInfinium button 0 is "(Do not read)"). Point this at the menu when it exists: show
+// `m.buttons` and return the chosen index.
+n_message_show :: proc(c: ^Call, args: []Value) -> Value {
+	m, ok := gamedb.message_of(c.db, c.self)
+	if !ok {
+		log.warnf("[message] Show on 0x%X: not an indexed MESG", c.self)
+		return i32(0)
+	}
+	if m.message_box {
+		log.infof("[message] box %q: %s  buttons=%v", m.title, m.body, m.buttons)
+	} else {
+		log.infof("[message] %s", m.body)
+	}
+	return i32(0) // the first button, until the menu can return a real choice
 }
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────

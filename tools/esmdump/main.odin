@@ -11,6 +11,10 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --cells <substr> # interior cells matching
 //   odin run tools/esmdump -- <plugin.esm> --cell <edid>    # one cell's placed refs
 //   odin run tools/esmdump -- <plugin.esm> --forms [edid]   # keyword/link/faction/magic/alias survey
+//   odin run tools/esmdump -- <plugin.esm> --gmst [substr] # game-setting (GMST) survey
+//   odin run tools/esmdump -- <plugin.esm> --mesg [substr] # message (MESG) survey
+//   odin run tools/esmdump -- <plugin.esm> --perk [skill] # perk records + AVIF perk-tree survey
+//   odin run tools/esmdump -- <plugin.esm> --cobj [bench] # crafting recipe (COBJ) survey
 //   odin run tools/esmdump -- <plugin.esm> --worlds         # worldspace survey (cells/refs/land)
 //   odin run tools/esmdump -- <plugin.esm> --world <edid>   # one worldspace's tallies
 //   odin run tools/esmdump -- <plugin.esm> --world-load <edid> # raw-walk ref→model resolution
@@ -86,6 +90,26 @@ main :: proc() {
 		len(db.base_models),
 	)
 
+	if len(os.args) >= 3 && os.args[2] == "--gmst" {
+		filter := len(os.args) >= 4 ? os.args[3] : ""
+		gmst_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--mesg" {
+		filter := len(os.args) >= 4 ? os.args[3] : ""
+		mesg_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--perk" {
+		filter := len(os.args) >= 4 ? os.args[3] : ""
+		perk_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--cobj" {
+		filter := len(os.args) >= 4 ? os.args[3] : ""
+		cobj_survey(path, filter)
+		return
+	}
 	if len(os.args) >= 4 && os.args[2] == "--cells" {
 		list_cells(&db, os.args[3])
 		return
@@ -2216,6 +2240,255 @@ loadorder_mode :: proc(dir: string) {
 			fmt.printfln("  world %-20s 0x%08X  (%d cells)", name, wfid, len(gamedb.cells_of(&db, wfid)))
 		} else {
 			fmt.printfln("  world %-20s (not found)", name)
+		}
+	}
+}
+
+// gmst_survey reports the game settings by kind, and lists the ones matching `filter`.
+// build_localized builds ONE plugin with its localized string tables attached. The tables matter
+// for any record whose text is an lstring id: without them a GMST string or a MESG body decodes to
+// noise. Mirrors what the app does — loose Data/Strings first, then the archive that carries them.
+// The caller destroys the returned DB and frees `owned`.
+build_localized :: proc(path: string) -> (db: gamedb.DB, owned: [3][]u8) {
+	bytes, rerr := os.read_entire_file(path, context.allocator)
+	if rerr != nil {
+		fmt.eprintfln("failed to read: %s", path)
+		os.exit(1)
+	}
+
+	dir := filepath.dir(path)
+	stem := filepath.stem(filepath.base(path))
+	v: vfs.VFS
+	defer vfs.destroy(&v)
+	vfs.mount_loose(&v, dir)
+	infos, derr := os.read_all_directory_by_path(dir, context.temp_allocator)
+	if derr == nil {
+		for fi in infos {
+			lower := strings.to_lower(fi.name, context.temp_allocator)
+			if !strings.has_suffix(lower, ".bsa") {continue}
+			// Only the archives that can hold this plugin's tables: the shared Interface
+			// archive, or the plugin's own (a Creation Club plugin ships its own).
+			if strings.contains(lower, "interface") ||
+			   strings.has_prefix(lower, strings.to_lower(stem, context.temp_allocator)) {
+				ap, _ := filepath.join({dir, fi.name}, context.temp_allocator)
+				vfs.mount_archive(&v, ap)
+			}
+		}
+	}
+	spath := strings.concatenate({"Strings/", stem, "_English.STRINGS"}, context.temp_allocator)
+	dlpath := strings.concatenate({"Strings/", stem, "_English.DLSTRINGS"}, context.temp_allocator)
+	sbytes, _ := vfs.read(&v, spath, context.allocator)
+	dlbytes, _ := vfs.read(&v, dlpath, context.allocator)
+	fmt.printfln("string tables: STRINGS %d bytes, DLSTRINGS %d bytes", len(sbytes), len(dlbytes))
+
+	inputs := []gamedb.Plugin_Input {
+		{name = filepath.base(path), data = bytes, strings_data = sbytes, dlstrings_data = dlbytes},
+	}
+	order := gamedb.resolve_load_order(inputs, context.allocator)
+	defer delete(order, context.allocator)
+	return gamedb.build_plugins(order), {bytes, sbytes, dlbytes}
+}
+
+gmst_survey :: proc(path: string, filter: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	floats, ints, bools, texts, empty := 0, 0, 0, 0, 0
+	for _, val in db.settings {
+		switch t in val {
+		case f32:
+			floats += 1
+		case i32:
+			ints += 1
+		case bool:
+			bools += 1
+		case string:
+			texts += 1
+			if t == "" {empty += 1}
+		}
+	}
+	fmt.printfln(
+		"settings: %d total — %d float, %d int, %d bool, %d string (%d empty)",
+		len(db.settings), floats, ints, bools, texts, empty,
+	)
+
+	if filter == "" {
+		return
+	}
+	names := make([dynamic]string, 0, 64, context.temp_allocator)
+	needle := strings.to_lower(filter, context.temp_allocator)
+	for name in db.settings {
+		if strings.contains(name, needle) {append(&names, name)}
+	}
+	slice.sort(names[:])
+	fmt.printfln("matching %q: %d", filter, len(names))
+	for name in names {
+		fmt.printfln("  %-44s %v", name, db.settings[name])
+	}
+}
+
+// mesg_survey reports the MESG messages: how many are modal boxes vs corner notifications, how
+// many carry a title, buttons or an owning quest, and the button-count spread. `filter` lists the
+// fully resolved records whose title or body contains it.
+mesg_survey :: proc(path: string, filter: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	boxes, notes, titled, quested, timed, empty_body, total_buttons := 0, 0, 0, 0, 0, 0, 0
+	spread := make(map[int]int, 16, context.temp_allocator)
+	for _, m in db.messages {
+		if m.message_box {boxes += 1} else {notes += 1}
+		if m.title != "" {titled += 1}
+		if m.quest != 0 {quested += 1}
+		if m.display_time != 0 {timed += 1}
+		if m.body == "" {empty_body += 1}
+		total_buttons += len(m.buttons)
+		spread[len(m.buttons)] += 1
+	}
+	fmt.printfln(
+		"messages: %d total — %d message box, %d notification; %d titled, %d with an owning quest, %d timed, %d with no body",
+		len(db.messages), boxes, notes, titled, quested, timed, empty_body,
+	)
+	counts := make([dynamic]int, 0, 16, context.temp_allocator)
+	for n in spread {append(&counts, n)}
+	slice.sort(counts[:])
+	fmt.printfln("buttons: %d total", total_buttons)
+	for n in counts {
+		fmt.printfln("  %d buttons: %d records", n, spread[n])
+	}
+
+	if filter == "" {
+		return
+	}
+	needle := strings.to_lower(filter, context.temp_allocator)
+	shown := 0
+	for form, m in db.messages {
+		if !strings.contains(strings.to_lower(m.title, context.temp_allocator), needle) &&
+		   !strings.contains(strings.to_lower(m.body, context.temp_allocator), needle) {
+			continue
+		}
+		shown += 1
+		kind := m.message_box ? "box" : "notification"
+		fmt.printfln("  0x%08X [%s] title=%q", form, kind, m.title)
+		fmt.printfln("      body=%q", m.body)
+		for b, i in m.buttons {
+			fmt.printfln("      btn[%d]=%q", i, b)
+		}
+		if m.quest != 0 {fmt.printfln("      quest=0x%08X", m.quest)}
+		if m.display_time != 0 {fmt.printfln("      time=%ds", m.display_time)}
+	}
+	fmt.printfln("matching %q: %d", filter, shown)
+}
+
+// perk_survey reports the PERK records and the AVIF perk trees. With `filter` it prints one skill's
+// whole constellation — every node with its perk, placement and connections — which is the form the
+// stats menu consumes.
+perk_survey :: proc(path: string, filter: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	playable, hidden, traits, chained, named := 0, 0, 0, 0, 0
+	for _, p in db.perks {
+		if p.playable {playable += 1}
+		if p.hidden {hidden += 1}
+		if p.trait {traits += 1}
+		if p.next_rank != 0 {chained += 1}
+		if p.name != "" {named += 1}
+	}
+	fmt.printfln(
+		"perks: %d records — %d playable, %d hidden, %d traits, %d named, %d linked to a next rank",
+		len(db.perks), playable, hidden, traits, named, chained,
+	)
+
+	// Every tree, and the nodes/connections in it. Roots carry no perk.
+	trees, nodes, roots, conns := 0, 0, 0, 0
+	for _, t in db.perk_trees {
+		trees += 1
+		nodes += len(t)
+		for n in t {
+			if n.perk == 0 {roots += 1}
+			conns += len(n.connections)
+		}
+	}
+	fmt.printfln("perk trees: %d skills — %d nodes (%d roots), %d connections", trees, nodes, roots, conns)
+
+	if filter == "" {
+		return
+	}
+	needle := strings.to_lower(filter, context.temp_allocator)
+	for avif, tree in db.perk_trees {
+		info, iok := gamedb.actor_value_info(&db, avif)
+		if !iok {continue}
+		if !strings.contains(strings.to_lower(info.editor_id, context.temp_allocator), needle) {continue}
+		fmt.printfln("\n0x%08X %s — %d nodes", avif, info.editor_id, len(tree))
+		for n in tree {
+			label := "(root)"
+			ranks := 0
+			if p, pok := gamedb.perk_of(&db, n.perk); pok {
+				label = p.name != "" ? p.name : "(unnamed)"
+				ranks = gamedb.perk_ranks(&db, n.perk)
+			}
+			fmt.printfln(
+				"  idx=%d perk=0x%08X %s ranks=%d grid=(%d,%d) pos=(%.3f,%.3f) -> %v",
+				n.index, n.perk, label, ranks, n.grid.x, n.grid.y, n.pos.x, n.pos.y, n.connections,
+			)
+		}
+	}
+}
+
+// cobj_survey reports the crafting recipes grouped by workbench — the shape a crafting menu reads.
+// `filter` prints one bench's rows in full, with ingredient and result names resolved.
+cobj_survey :: proc(path: string, filter: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	noresult, noingredients, ingredients, listed := 0, 0, 0, 0
+	qty := make(map[u16]int, 8, context.temp_allocator)
+	for _, r in db.recipes {
+		if r.result == 0 {noresult += 1}
+		if len(r.ingredients) == 0 {noingredients += 1}
+		ingredients += len(r.ingredients)
+		qty[r.quantity] += 1
+	}
+	fmt.printfln(
+		"recipes: %d — %d ingredient entries, %d making nothing, %d needing nothing",
+		len(db.recipes), ingredients, noresult, noingredients,
+	)
+	fmt.print("yields:")
+	qk := make([dynamic]u16, 0, 8, context.temp_allocator)
+	for k in qty {append(&qk, k)}
+	slice.sort(qk[:])
+	for k in qk {fmt.printf(" %d(x%d)", k, qty[k])}
+	fmt.println()
+
+	fmt.printfln("workbenches: %d", len(db.recipes_by_bench))
+	for bench, list in db.recipes_by_bench {
+		listed += len(list)
+		fmt.printfln("  0x%08X %-40s %d recipes", bench, gamedb.keyword_editor_id(&db, bench), len(list))
+	}
+	fmt.printfln("grouped total: %d (matches record count: %v)", listed, listed == len(db.recipes))
+
+	if filter == "" {
+		return
+	}
+	needle := strings.to_lower(filter, context.temp_allocator)
+	for bench, list in db.recipes_by_bench {
+		if !strings.contains(strings.to_lower(gamedb.keyword_editor_id(&db, bench), context.temp_allocator), needle) {
+			continue
+		}
+		fmt.printfln("\n%s — %d recipes", gamedb.keyword_editor_id(&db, bench), len(list))
+		for form, i in list {
+			if i >= 12 {fmt.printfln("  … %d more", len(list) - 12);break}
+			r, _ := gamedb.recipe_of(&db, form)
+			fmt.printf("  0x%08X makes %dx %s  <-", form, r.quantity, gamedb.name_of(&db, r.result))
+			for ing in r.ingredients {
+				fmt.printf(" %dx %s,", ing.count, gamedb.name_of(&db, ing.item))
+			}
+			fmt.println()
 		}
 	}
 }

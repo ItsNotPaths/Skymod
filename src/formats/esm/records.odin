@@ -70,6 +70,38 @@ global_value :: proc(fields: []Field) -> (value: f32, kind: u8, ok: bool) {
 	return 0, kind, false
 }
 
+// game_setting decodes a GMST's name and declared type, and hands back its DATA field undecoded.
+// A game setting declares its own type through the first character of its editor id: 'f' float,
+// 'i' int, 'b' bool, 's' string. VERIFIED against Skyrim.esm — 1,584 GMSTs, every DATA exactly 4
+// bytes (558 'f', 96 'i', 929 's', 1 'b'). A bool is stored as an int. A string's DATA is a
+// STRINGS id in a localized plugin ("sOr" -> id 75392 -> "or") and an inline zstring otherwise, so
+// the caller resolves that one against its own string table — which is why DATA comes back raw.
+// ok=false when the record has no EDID or no DATA, or a numeric setting's DATA is short.
+game_setting :: proc(fields: []Field) -> (name: string, kind: u8, data: Field, ok: bool) {
+	name = editor_id(fields)
+	if name == "" {
+		return "", 0, {}, false
+	}
+	f, fok := find_field(fields, "DATA")
+	if !fok {
+		return "", 0, {}, false
+	}
+	kind = name[0]
+	if kind != 's' && len(f.data) < 4 {
+		return "", 0, {}, false
+	}
+	return name, kind, f, true
+}
+
+// setting_number reads a numeric GMST's DATA as both an f32 and an i32 — the same 4 bytes under
+// the two readings its kind selects between ('f' takes the float, 'i' and 'b' the int).
+setting_number :: proc(data: Field) -> (value: f32, integer: i32) {
+	if len(data.data) < 4 {
+		return 0, 0
+	}
+	return rf32(data.data, 0), i32(rd32(data.data, 0))
+}
+
 // lstring_id reads a localized-string subrecord's STRINGS id — its first 4 bytes as a u32. ok=false
 // when the field is too short. For any lstring-typed subrecord in a LOCALIZED plugin (CNAM journal
 // text, NNAM objective text, DESC, …); a non-localized plugin carries the text inline instead.
@@ -247,6 +279,15 @@ formid_list :: proc(fields: []Field, tag: string, allocator := context.allocator
 // Thin alias over formid_list — order is significant (script GetAt / random-item selection).
 form_list_members :: proc(fields: []Field, allocator := context.allocator) -> []u32 {
 	return formid_list(fields, "LNAM", allocator)
+}
+
+// field_f32 reads a subrecord's leading f32. Companion to field_u32 (records_forms.odin), for the
+// fixed-width subrecords a record repeats in order — an AVIF perk node's HNAM/VNAM, for instance.
+field_f32 :: proc(f: Field) -> (f32, bool) {
+	if len(f.data) < 4 {
+		return 0, false
+	}
+	return rf32(f.data, 0), true
 }
 
 // subrecord_formid reads a single-formID subrecord's leading u32 (RNAM race, CNAM class, VTCK voice,
