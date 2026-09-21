@@ -15,6 +15,7 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --mesg [substr] # message (MESG) survey
 //   odin run tools/esmdump -- <plugin.esm> --perk [skill] # perk records + AVIF perk-tree survey
 //   odin run tools/esmdump -- <plugin.esm> --cobj [bench] # crafting recipe (COBJ) survey
+//   odin run tools/esmdump -- <plugin.esm> --ctda [edid]  # decoded conditions on PERK / COBJ
 //   odin run tools/esmdump -- <plugin.esm> --worlds         # worldspace survey (cells/refs/land)
 //   odin run tools/esmdump -- <plugin.esm> --world <edid>   # one worldspace's tallies
 //   odin run tools/esmdump -- <plugin.esm> --world-load <edid> # raw-walk ref→model resolution
@@ -35,6 +36,7 @@ import "core:thread"
 import "../../src/formats/dds"
 import "../../src/formats/esm"
 import "../../src/formats/nif"
+import "../../src/conditions"
 import "../../src/gamedb"
 import "../../src/vfs"
 
@@ -108,6 +110,11 @@ main :: proc() {
 	if len(os.args) >= 3 && os.args[2] == "--cobj" {
 		filter := len(os.args) >= 4 ? os.args[3] : ""
 		cobj_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--ctda" {
+		filter := len(os.args) >= 4 ? os.args[3] : ""
+		ctda_survey(path, filter)
 		return
 	}
 	if len(os.args) >= 4 && os.args[2] == "--cells" {
@@ -2489,6 +2496,66 @@ cobj_survey :: proc(path: string, filter: string) {
 				fmt.printf(" %dx %s,", ing.count, gamedb.name_of(&db, ing.item))
 			}
 			fmt.println()
+		}
+	}
+}
+
+// ctda_survey reports the decoded conditions on the record types that carry them today, and how
+// much of that is answerable with the functions implemented in src/conditions.
+ctda_survey :: proc(path: string, filter: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	tally :: proc(all: ^map[u16]int, impl: ^int, tot: ^int, conds: []gamedb.Condition, ors: ^int) {
+		for c in conds {
+			all[c.function] += 1
+			tot^ += 1
+			if c.or_next {ors^ += 1}
+			if conditions.name_of(c.function) != "" {impl^ += 1}
+		}
+	}
+	pfn := make(map[u16]int, 32, context.temp_allocator)
+	cfn := make(map[u16]int, 32, context.temp_allocator)
+	ptot, pimpl, pors := 0, 0, 0
+	ctot, cimpl, cors := 0, 0, 0
+	for _, p in db.perks {tally(&pfn, &pimpl, &ptot, p.take_conditions, &pors)}
+	for _, r in db.recipes {tally(&cfn, &cimpl, &ctot, r.conditions, &cors)}
+
+	report :: proc(label: string, fn: map[u16]int, tot, impl, ors: int) {
+		fmt.printfln(
+			"%s: %d conditions over %d functions — %d answerable (%.0f%%), %d OR-joined",
+			label, tot, len(fn), impl, tot > 0 ? 100.0 * f64(impl) / f64(tot) : 0, ors,
+		)
+		Pair3 :: struct {f: u16, n: int}
+		ps := make([dynamic]Pair3, 0, 32, context.temp_allocator)
+		for f, n in fn {append(&ps, Pair3{f, n})}
+		slice.sort_by(ps[:], proc(a, b: Pair3) -> bool {return a.n > b.n})
+		for p, i in ps {
+			if i >= 6 {break}
+			nm := conditions.name_of(p.f)
+			if nm == "" {nm = "(not implemented)"}
+			fmt.printfln("    fn %d %s — %d", p.f, nm, p.n)
+		}
+	}
+	report("PERK take-gate", pfn, ptot, pimpl, pors)
+	report("COBJ", cfn, ctot, cimpl, cors)
+
+	if filter == "" {
+		return
+	}
+	needle := strings.to_lower(filter, context.temp_allocator)
+	for form, p in db.perks {
+		if !strings.contains(strings.to_lower(p.name, context.temp_allocator), needle) {continue}
+		if len(p.take_conditions) == 0 {continue}
+		fmt.printfln("\n0x%08X %s — %d take-conditions", form, p.name, len(p.take_conditions))
+		for c in p.take_conditions {
+			nm := conditions.name_of(c.function)
+			if nm == "" {nm = "?"}
+			fmt.printfln(
+				"  fn %d %s  param1=0x%X  op=%v  value=%v  or_next=%v  run_on=%v",
+				c.function, nm, c.param1, c.op, c.value, c.or_next, c.run_on,
+			)
 		}
 	}
 }
