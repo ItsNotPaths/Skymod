@@ -7,10 +7,8 @@ package gamedb
 // the reason to index at all — a crafting menu opens knowing its station and needs that station's
 // rows, which is what recipes_for_bench answers.
 //
-// NOT decoded: the CTDA conditions that gate a recipe. They carry the perk, quest or item
-// requirement that decides whether a row is offered — Steel Smithing for steel armor, and so on.
-// Conditions are a subsystem of their own and nothing in the engine evaluates them yet, so a menu
-// built on this index lists every recipe its bench owns. Filter here once CTDA lands.
+// Conditions ARE decoded, into Recipe.conditions. Evaluating them is src/conditions — hand a
+// recipe's list to conditions.all to decide whether to offer the row.
 
 import "../formats/esm"
 
@@ -20,12 +18,16 @@ Recipe :: struct {
 	result:      Form_ID,         // CNAM created object, remapped. 0 on a recipe that makes nothing.
 	bench:       Form_ID,         // BNAM workbench KEYWORD — the station whose menu lists this.
 	quantity:    u16,             // NAM1 how many the recipe yields. 583 of the 601 make one.
+	// conditions decide whether the row is offered — the smithing perk, and whether the tempering
+	// target is enchanted. Owned. 931 across the base game over just 6 functions.
+	conditions:  []Condition,
 }
 
 // free_recipe releases a Recipe's owned ingredient list.
 @(private)
 free_recipe :: proc(db: ^DB, r: Recipe) {
 	delete(r.ingredients, db.allocator)
+	delete(r.conditions, db.allocator)
 }
 
 // index_recipe decodes a COBJ. The field order is fixed across the base game — EDID, COCT, the CNTO
@@ -59,6 +61,7 @@ index_recipe :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if q, qok := esm.find_field(fl, "NAM1"); qok && len(q.data) >= 2 {
 		r.quantity = u16(q.data[0]) | u16(q.data[1]) << 8
 	}
+	r.conditions = index_conditions(db, fl, fm)
 	raw := esm.container_contents(fl, context.allocator) // walk has no temp reset — explicit free
 	defer if raw != nil {delete(raw, context.allocator)}
 	r.ingredients = make([]Content_Entry, len(raw), db.allocator)

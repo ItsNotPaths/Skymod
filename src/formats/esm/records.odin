@@ -281,6 +281,124 @@ form_list_members :: proc(fields: []Field, allocator := context.allocator) -> []
 	return formid_list(fields, "LNAM", allocator)
 }
 
+// --- CTDA (conditions) ------------------------------------------------------------------
+//
+// One 32-byte block asking a question about the game state. Records use it to gate almost
+// everything: which recipe appears, which perk can be taken, which dialogue line is offered.
+// VERIFIED against Skyrim.esm — 83,759 conditions, every one exactly 32 bytes.
+// The full census and the plan for evaluating these live in docs/conditions.md.
+
+// Condition_Op is the comparison a condition applies, from the top 3 bits of byte 0. Equality is
+// 84% of every condition in the base game.
+Condition_Op :: enum u8 {
+	Equal              = 0,
+	NotEqual           = 1,
+	Greater            = 2,
+	GreaterOrEqual     = 3,
+	Less               = 4,
+	LessOrEqual        = 5,
+}
+
+// Condition_Run_On names WHICH object the function is asked about. Subject is 92% of the base game.
+// Only Reference reads the condition's reference form — verified: byte 24 is nonzero for 2,671 of
+// the 2,682 Reference conditions and for none of the other 81,077.
+Condition_Run_On :: enum u32 {
+	Subject      = 0,
+	Target       = 1,
+	Reference    = 2,
+	CombatTarget = 3,
+	LinkedRef    = 4,
+	QuestAlias   = 5,
+	PackageData  = 6,
+	Unknown7     = 7,
+}
+
+// Condition is one decoded CTDA. Fixed size, no owned data.
+//
+// `or_next` is flag bit 0x01, and it joins this condition to the NEXT one as an OR. A list is an
+// AND by default; 11,460 conditions in the base game set this bit, so a reader that ignores it
+// silently inverts those lists.
+//
+// param1/param2 are RAW (plugin-local) unless the caller remaps them, because whether a parameter
+// is even a formID depends on the function — function 448's is a PERK, while function 277's is an
+// actor value index. See gamedb.condition_param1_is_form.
+Condition :: struct {
+	function:  u16,
+	op:        Condition_Op,
+	or_next:   bool,
+	value:     f32,
+	param1:    u32,
+	param2:    u32,
+	run_on:    Condition_Run_On,
+	reference: u32, // set only when run_on == .Reference
+}
+
+// conditions collects a record's CTDA blocks in order. Order matters: the OR runs are positional.
+// `stop_at`, when given, ends the scan at the first field with that tag — PERK needs it, because
+// the conditions before its first PRKE gate whether the perk can be TAKEN while the ones after
+// gate whether an entry's effect APPLIES. Returns a freshly allocated slice the caller frees; nil
+// when the record carries none.
+conditions :: proc(fields: []Field, allocator := context.allocator, stop_at := "") -> []Condition {
+	n := 0
+	for f in fields {
+		if stop_at != "" && f.type == stop_at {
+			break
+		}
+		if f.type == "CTDA" && len(f.data) >= 32 {
+			n += 1
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	out := make([]Condition, n, allocator)
+	i := 0
+	for f in fields {
+		if stop_at != "" && f.type == stop_at {
+			break
+		}
+		if f.type != "CTDA" || len(f.data) < 32 {
+			continue
+		}
+		b := f.data
+		run_on := Condition_Run_On(rd32(b, 20))
+		c := Condition {
+			op       = Condition_Op(b[0] >> 5),
+			or_next  = b[0] & 0x01 != 0,
+			value    = rf32(b, 4),
+			function = rd16(b, 8),
+			param1   = rd32(b, 12),
+			param2   = rd32(b, 16),
+			run_on   = run_on,
+		}
+		if run_on == .Reference {
+			c.reference = rd32(b, 24)
+		}
+		out[i] = c
+		i += 1
+	}
+	return out
+}
+
+// condition_holds applies a condition's operator to a value the function returned.
+condition_holds :: proc(c: Condition, got: f32) -> bool {
+	switch c.op {
+	case .Equal:
+		return got == c.value
+	case .NotEqual:
+		return got != c.value
+	case .Greater:
+		return got > c.value
+	case .GreaterOrEqual:
+		return got >= c.value
+	case .Less:
+		return got < c.value
+	case .LessOrEqual:
+		return got <= c.value
+	}
+	return true // an operator the format does not define — do not hide content over it
+}
+
 // field_f32 reads a subrecord's leading f32. Companion to field_u32 (records_forms.odin), for the
 // fixed-width subrecords a record repeats in order — an AVIF perk node's HNAM/VNAM, for instance.
 field_f32 :: proc(f: Field) -> (f32, bool) {
