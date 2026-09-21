@@ -40,6 +40,18 @@ for pkg in "${pkgs[@]}"; do
     fi
 done
 
+# src/transpile must stay liftable into its own repo: core:* and formats/pex, nothing else
+# (docs/papyrus-transpiler.md, "The detachable contract").
+echo "==> transpile detachability"
+bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/transpile/*.odin \
+       | grep -vE '^(core:|\.\./formats/pex$)' || true)"
+if [ -n "$bad" ]; then
+    echo "  src/transpile imports outside its contract:" >&2
+    echo "$bad" | sed 's/^/    /' >&2
+    exit 1
+fi
+echo "  clean"
+
 echo "==> odin test (tests/unit)"
 # Unlike `odin check`, `odin test` LINKS a real binary, and the tests' import graph
 # reaches render -> vendor:sdl3 (via assetdb/world), which emits -lSDL3. Resolve it
