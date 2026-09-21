@@ -123,6 +123,7 @@ World_State :: struct {
 	actor_values:    map[Form_ID]map[string]f32,   // actor FormID -> (AV name, lower+owned -> value)
 	factions:        map[Form_ID]map[Form_ID]i32,  // actor FormID -> (faction FormID -> rank); presence = membership
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
+	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
@@ -143,6 +144,7 @@ init :: proc(ws: ^World_State) {
 	ws.actor_values = make(map[Form_ID]map[string]f32)
 	ws.factions = make(map[Form_ID]map[Form_ID]i32)
 	ws.relationships = make(map[Form_ID]map[Form_ID]i32)
+	ws.perks = make(map[Form_ID]map[Form_ID]bool)
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.player.level = 1 // default until real leveling / save round-trip sets it
 }
@@ -171,6 +173,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.actor_values)
 	delete(ws.factions)
 	delete(ws.relationships)
+	delete(ws.perks)
 	delete(ws.scene_dirty)
 	ws^ = {}
 }
@@ -203,6 +206,9 @@ free_stores :: proc(ws: ^World_State) {
 		delete(inner)
 	}
 	for _, &inner in ws.relationships {
+		delete(inner)
+	}
+	for _, &inner in ws.perks {
 		delete(inner)
 	}
 }
@@ -577,6 +583,40 @@ faction_remove :: proc(ws: ^World_State, actor, faction: Form_ID) {
 faction_remove_all :: proc(ws: ^World_State, actor: Form_ID) {
 	if inner, ok := &ws.factions[actor]; ok {
 		clear(inner)
+	}
+}
+
+// ── perk store (actor FormID -> the perks it has taken) ────────────────────────────────────────
+// Overlay-only, and the whole truth: a perk is never baseline data. An NPC_ gets its perks from its
+// PERK entries at load and the player takes them at the stats menu, so presence in this set IS
+// having the perk. Backs Actor.AddPerk / HasPerk / RemovePerk and CTDA function 448.
+
+@(private)
+perk_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]bool {
+	if _, ok := ws.perks[actor]; !ok {
+		ws.perks[actor] = make(map[Form_ID]bool)
+	}
+	return &ws.perks[actor]
+}
+
+// perk_add gives actor a perk. Taking a perk twice is a no-op, not a second rank — Skyrim models
+// ranks as separate PERK records linked by NNAM, so rank 2 is its own form.
+perk_add :: proc(ws: ^World_State, actor, perk: Form_ID) {
+	inner := perk_upsert(ws, actor)
+	inner^[perk] = true
+}
+
+// perk_has reports whether actor has taken perk.
+perk_has :: proc(ws: ^World_State, actor, perk: Form_ID) -> bool {
+	if inner, ok := ws.perks[actor]; ok {
+		return inner[perk]
+	}
+	return false
+}
+
+perk_remove :: proc(ws: ^World_State, actor, perk: Form_ID) {
+	if inner, ok := &ws.perks[actor]; ok {
+		delete_key(inner, perk)
 	}
 }
 

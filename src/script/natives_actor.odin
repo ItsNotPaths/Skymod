@@ -18,6 +18,12 @@ register_actor :: proc(reg: ^Registry) {
 	register(reg, "Actor", "RestoreActorValue", n_mod_av) // Restore = add (no max to clamp to)
 	register(reg, "Actor", "GetActorValuePercentage", n_get_av_pct)
 
+	// Perks. The store IS the whole truth — a perk is never baseline data, so presence in the
+	// overlay set means having it. Also backs CTDA function 448 (src/conditions).
+	register(reg, "Actor", "AddPerk", n_add_perk)
+	register(reg, "Actor", "RemovePerk", n_remove_perk)
+	register(reg, "Actor", "HasPerk", n_has_perk)
+
 	// Faction membership + rank.
 	register(reg, "Actor", "IsInFaction", n_is_in_faction)
 	register(reg, "Actor", "SetFactionRank", n_set_faction_rank)
@@ -113,4 +119,20 @@ n_get_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
 n_set_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.rel_set(c.ws, c.self, arg_form(args, 0), arg_i32(args, 1, 0))
 	return nil
+}
+
+// ── perks ───────────────────────────────────────────────────────────────────
+
+n_add_perk :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.perk_add(c.ws, c.self, arg_form(args, 0))
+	return nil
+}
+
+n_remove_perk :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.perk_remove(c.ws, c.self, arg_form(args, 0))
+	return nil
+}
+
+n_has_perk :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.perk_has(c.ws, c.self, arg_form(args, 0))
 }
