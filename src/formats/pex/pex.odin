@@ -60,6 +60,7 @@ Var :: struct {
 Instruction :: struct {
 	op:   Opcode,
 	args: []Value, // fixed args followed by resolved var-args (call* opcodes)
+	line: u16,     // source line from the debug table; 0 when absent
 }
 
 Function :: struct {
@@ -147,22 +148,31 @@ parse :: proc(data: []u8, allocator := context.allocator) -> (p: Pex, ok: bool) 
 		p.string_table[i] = read_wstring(&r)
 	}
 
-	// Debug info — optional; we don't keep it (line tables are PEX→source aids),
-	// but we must walk it to land the cursor on the user-flag table.
+	// Debug info — optional. We KEEP the per-instruction line table: it marks the original
+	// statement boundaries, which is the transpiler's best structuring hint (docs/papyrus-
+	// transpiler.md). Every authored function carries one; GotoState/GetState don't, because
+	// the compiler generates them.
+	lines: map[Debug_Key][]u16
+	defer delete(lines)
 	p.has_debug = read_u8(&r) != 0
 	if p.has_debug {
 		_ = read_u64(&r) // modification time
 		n_fn := int(read_u16(&r))
+		lines = make(map[Debug_Key][]u16, n_fn, context.temp_allocator)
 		for _ in 0 ..< n_fn {
-			_ = read_u16(&r) // object name
-			_ = read_u16(&r) // state name
-			_ = read_u16(&r) // function name
-			_ = read_u8(&r)  // function type
+			key := Debug_Key {
+				object = tbl(&p, read_u16(&r)),
+				state  = tbl(&p, read_u16(&r)),
+				fn     = tbl(&p, read_u16(&r)),
+			}
+			_ = read_u8(&r) // function type
 			n_instr := int(read_u16(&r))
-			for _ in 0 ..< n_instr {
-				_ = read_u16(&r) // source line number
+			v := make([]u16, n_instr, context.temp_allocator)
+			for i in 0 ..< n_instr {
+				v[i] = read_u16(&r)
 			}
 			if !r.ok {return p, false}
+			lines[key] = v
 		}
 	}
 
@@ -182,7 +192,36 @@ parse :: proc(data: []u8, allocator := context.allocator) -> (p: Pex, ok: bool) 
 		if !r.ok {return p, false}
 	}
 
+	attach_lines(&p, lines)
 	return p, r.ok
+}
+
+// Debug_Key identifies one function in the debug line table. The names alias the string table,
+// so the same spelling the object carries.
+Debug_Key :: struct {
+	object: string,
+	state:  string,
+	fn:     string,
+}
+
+// attach_lines folds the debug line table back onto each instruction.
+@(private)
+attach_lines :: proc(p: ^Pex, lines: map[Debug_Key][]u16) {
+	if len(lines) == 0 {
+		return
+	}
+	for &o in p.objects {
+		for &st in o.states {
+			for &f in st.functions {
+				v := lines[Debug_Key{o.name, st.name, f.name}] or_continue
+				for &ins, i in f.instructions {
+					if i < len(v) {
+						ins.line = v[i]
+					}
+				}
+			}
+		}
+	}
 }
 
 @(private)
