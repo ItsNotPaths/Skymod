@@ -81,7 +81,7 @@ Slow_Snap :: struct {
 	stream, phys, render, acquire: f64,
 }
 
-// Fixed simulation tick (docs/short-term-plan.md §E). Logic and physics advance in whole
+// Fixed simulation tick (docs/shipped.md §E). Logic and physics advance in whole
 // TICK_DT steps; rendering runs at whatever rate the display gives us and interpolates on
 // `alpha`. Jolt's solver is not timestep-independent, so a varying step made a 144 Hz machine
 // and a 60 Hz machine converge differently — the step has to be constant.

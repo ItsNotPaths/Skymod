@@ -107,7 +107,7 @@ World :: struct {
 	obj_pair:  ^jolt.ObjectLayerPairFilter,
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
 
-	// Render interpolation for the fixed tick (docs/short-term-plan.md §E). `prev` is the
+	// Render interpolation for the fixed tick (docs/shipped.md §E). `prev` is the
 	// pre-step pose of every body awake over the last step; `alpha` is how far the render
 	// frame sits into the step that hasn't run yet. body_transform blends the two so a
 	// 144 Hz display doesn't judder on a 60 Hz sim. body_position stays exact — it is what

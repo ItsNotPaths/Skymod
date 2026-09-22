@@ -6,7 +6,7 @@ package main
 // moves; physics before draw; cull_begin before any draw pass; shadow before scene) — keep
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
-// RATE. The frame runs at display rate; the SIMULATION does not (docs/short-term-plan.md §E).
+// RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
 // game_tick — scene select, locomotion, physics, traversal — runs 0..MAX_TICKS_PER_FRAME times
 // per frame at a constant TICK_DT, and everything else (input, aiming, streaming, picking,
 // drawing) runs once per frame around it. What the frame draws is the last tick's state blended
