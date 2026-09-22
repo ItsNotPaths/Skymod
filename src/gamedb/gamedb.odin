@@ -168,6 +168,7 @@ DB :: struct {
 	ltex_grass:    map[Form_ID]Form_ID, // LTEX formID -> its GRAS grass-type formID (GNAM)
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
+	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
@@ -750,6 +751,10 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.grasses)
 	delete(db.form_kinds)
+	for _, fs in db.form_scripts {
+		esm.free_form_scripts(fs, db.allocator)
+	}
+	delete(db.form_scripts)
 	for _, qb in db.quest_baseline {
 		free_quest_baseline(db, qb)
 	}
@@ -1081,6 +1086,12 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	// override. Absent from base_class → stays Unknown (object-ref / unclassified).
 	if k, ok := base_class(s); ok {
 		db.form_kinds[rec.form_id] = k
+	}
+
+	// Which scripts the form carries, likewise independent of what else we index off it — VMAD sits
+	// on 22 different signatures, cutting across base forms, placed refs, quests and magic effects.
+	if carries_scripts(s) {
+		index_scripts(db, rec, ctx.fm)
 	}
 
 	switch {

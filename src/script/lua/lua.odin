@@ -26,7 +26,7 @@ import "core:strings"
 import lua "vendor:lua/5.4"
 import script ".."
 
-// HOLE(script, blocker): VMAD is decoded by nothing, so the engine never learns which scripts a form carries. Every one of the 14,026 transpiled files is unreachable.
+// HOLE(script, blocker): nothing LOADS a script file. gamedb now knows which scripts each form carries (gamedb.form_scripts, decoded from VMAD), but no one turns a name into a loaded chunk in this VM.
 // HOLE(script, blocker): no event dispatch — nothing calls OnActivate, OnInit, OnUpdate or any other handler. This VM is reached only by the dev REPL (app/game_frame.odin repl_eval).
 // HOLE(script, blocker): no scheduler — nothing ticks a script, so a delayed or resumed body has no home. docs/script-rewrite.md notes both rewrite routes need this same piece.
 // HOLE(script, gap): no per-ref form objects — Lua sees Class.Fn(args) with self taken from the VM context, so ref:Method() cannot be written.

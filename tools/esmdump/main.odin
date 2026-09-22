@@ -86,10 +86,11 @@ main :: proc() {
 		if c.interior {interior += 1}
 	}
 	fmt.printfln(
-		"indexed: %d cells (%d interior), %d base-form models",
+		"indexed: %d cells (%d interior), %d base-form models, %d forms carrying scripts",
 		len(db.cells),
 		interior,
 		len(db.base_models),
+		len(db.form_scripts),
 	)
 
 	if len(os.args) >= 3 && os.args[2] == "--gmst" {
@@ -110,6 +111,10 @@ main :: proc() {
 	if len(os.args) >= 3 && os.args[2] == "--cobj" {
 		filter := len(os.args) >= 4 ? os.args[3] : ""
 		cobj_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--vmad" {
+		vmad_survey(path)
 		return
 	}
 	if len(os.args) >= 3 && os.args[2] == "--ctda" {
@@ -2238,8 +2243,9 @@ loadorder_mode :: proc(dir: string) {
 		if c.interior {interior += 1} else {exterior += 1}
 	}
 	fmt.printfln(
-		"indexed: %d worldspaces, %d cells (%d interior / %d exterior), %d base models, %d refs",
+		"indexed: %d worldspaces, %d cells (%d interior / %d exterior), %d base models, %d refs, %d scripted forms",
 		len(db.worlds), len(db.cells), interior, exterior, len(db.base_models), len(db.ref_by_id),
+		len(db.form_scripts),
 	)
 	// DLC worldspaces only resolvable once their plugin is remapped into global space.
 	for name in ([?]string{"Tamriel", "DLC2SolstheimWorld", "DLC1HunterHQWorld", "SoulCairn"}) {

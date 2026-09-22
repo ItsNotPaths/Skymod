@@ -2595,3 +2595,280 @@ test_gamedb_location_and_weather :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.imagespaces[0], gamedb.Form_ID(0x0000_0A10))
 	testing.expect_value(t, w.imagespaces[3], gamedb.Form_ID(0x0000_0A13))
 }
+
+// --- VMAD (records_scripts.odin) ---
+//
+// Synthetic, like the rest of this file: the REAL proof is `esmdump --vmad`, which decodes every
+// VMAD in the user's own plugins and must report failed=0. These guard the branches that corpus
+// run would not catch if one were broken — the objFormat-1 field order (only 6 records in 1,326
+// mod plugins use it), the pre-version-4 layout with no status bytes, and a truncated field.
+
+@(private = "file")
+vm_put_u16 :: proc(b: ^[dynamic]u8, v: u16) {
+	t: [2]u8
+	endian.put_u16(t[:], .Little, v)
+	append(b, ..t[:])
+}
+
+@(private = "file")
+vm_put_u32 :: proc(b: ^[dynamic]u8, v: u32) {
+	t: [4]u8
+	endian.put_u32(t[:], .Little, v)
+	append(b, ..t[:])
+}
+
+@(private = "file")
+vm_put_f32 :: proc(b: ^[dynamic]u8, v: f32) {vm_put_u32(b, transmute(u32)v)}
+
+// A VMAD string: u16 length then the bytes, with NO terminator.
+@(private = "file")
+vm_put_str :: proc(b: ^[dynamic]u8, s: string) {
+	vm_put_u16(b, u16(len(s)))
+	append(b, ..transmute([]u8)s)
+}
+
+// An 8-byte object value, written in whichever field order objFormat selects.
+@(private = "file")
+vm_put_obj :: proc(b: ^[dynamic]u8, obj_format: i16, form: u32, alias: i16) {
+	if obj_format == 1 {
+		vm_put_u32(b, form)
+		vm_put_u16(b, u16(alias))
+		vm_put_u16(b, 0)
+	} else {
+		vm_put_u16(b, 0)
+		vm_put_u16(b, u16(alias))
+		vm_put_u32(b, form)
+	}
+}
+
+// decode_vmad wants the record's field list, so wrap the VMAD bytes in one.
+@(private = "file")
+vm_decode :: proc(
+	rec_type: string,
+	vmad: []u8,
+	fm: ^esm.Form_Map = nil,
+) -> (
+	esm.Form_Scripts,
+	bool,
+) {
+	body := make([dynamic]u8, 0, len(vmad) + 8, context.temp_allocator)
+	field(&body, "VMAD", vmad)
+	fl, _, ok := esm.fields(esm.Record{type = rec_type, data = body[:]}, context.temp_allocator)
+	if !ok {
+		return {}, false
+	}
+	return esm.decode_vmad(rec_type, fl, fm)
+}
+
+@(test)
+test_esm_vmad_properties :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 128, context.temp_allocator)
+	vm_put_u16(&v, 5) // version
+	vm_put_u16(&v, 2) // objFormat
+	vm_put_u16(&v, 1) // scriptCount
+	vm_put_str(&v, "TrapBearScript")
+	append(&v, 0) // status: declared on this record
+	vm_put_u16(&v, 6) // propCount
+
+	vm_put_str(&v, "Target");append(&v, u8(1), u8(1));vm_put_obj(&v, 2, 0x0001_2345, -1)
+	vm_put_str(&v, "Label");append(&v, u8(2), u8(1));vm_put_str(&v, "north gate")
+	vm_put_str(&v, "Charges");append(&v, u8(3), u8(1));vm_put_u32(&v, 3)
+	vm_put_str(&v, "Delay");append(&v, u8(4), u8(1));vm_put_f32(&v, 1.5)
+	vm_put_str(&v, "Armed");append(&v, u8(5), u8(1));append(&v, 1)
+	vm_put_str(&v, "Levels");append(&v, u8(13), u8(1))
+	vm_put_u32(&v, 3) // array count
+	vm_put_u32(&v, 10);vm_put_u32(&v, 20);vm_put_u32(&v, 30)
+
+	fs, ok := vm_decode("ACTI", v[:])
+	testing.expect(t, ok, "decode VMAD")
+	defer esm.free_form_scripts(fs)
+
+	testing.expect_value(t, len(fs.scripts), 1)
+	s := fs.scripts[0]
+	testing.expect_value(t, s.name, "TrapBearScript")
+	testing.expect(t, !esm.script_attach_removed(s), "status 0 is not a removal")
+	testing.expect_value(t, len(s.props), 6)
+
+	testing.expect_value(t, s.props[0].kind, esm.Prop_Kind.Object)
+	obj := s.props[0].value.(esm.Prop_Object)
+	testing.expect_value(t, obj.form, esm.Form_ID(0x0001_2345))
+	testing.expect_value(t, obj.alias, i16(-1)) // names the form directly
+
+	testing.expect_value(t, s.props[1].value.(string), "north gate")
+	testing.expect_value(t, s.props[2].value.(i32), i32(3))
+	testing.expect_value(t, s.props[3].value.(f32), f32(1.5))
+	testing.expect_value(t, s.props[4].value.(bool), true)
+
+	levels := s.props[5].value.([]i32)
+	testing.expect_value(t, len(levels), 3)
+	testing.expect_value(t, levels[0], i32(10))
+	testing.expect_value(t, levels[2], i32(30))
+}
+
+// objFormat 1 puts the formID FIRST and objFormat 2 puts it last. Both must land on the same
+// form, or every property on a format-1 record silently points at the wrong thing.
+@(test)
+test_esm_vmad_object_formats :: proc(t: ^testing.T) {
+	build :: proc(obj_format: i16) -> []u8 {
+		v := make([dynamic]u8, 0, 64, context.temp_allocator)
+		vm_put_u16(&v, 5)
+		vm_put_u16(&v, u16(obj_format))
+		vm_put_u16(&v, 1)
+		vm_put_str(&v, "S")
+		append(&v, 0)
+		vm_put_u16(&v, 1)
+		vm_put_str(&v, "Ref");append(&v, u8(1), u8(1))
+		vm_put_obj(&v, obj_format, 0x0004_00FF, 7)
+		return v[:]
+	}
+
+	for format in ([]i16{1, 2}) {
+		fs, ok := vm_decode("ACTI", build(format))
+		testing.expect(t, ok, "decode VMAD")
+		defer esm.free_form_scripts(fs)
+
+		obj := fs.scripts[0].props[0].value.(esm.Prop_Object)
+		testing.expect_value(t, obj.form, esm.Form_ID(0x0004_00FF))
+		testing.expect_value(t, obj.alias, i16(7))
+	}
+}
+
+// Before version 4 there is no status byte on a script or a property. Reading one anyway shifts
+// every following byte, so this is the branch that must not rot.
+@(test)
+test_esm_vmad_version_below_4 :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 64, context.temp_allocator)
+	vm_put_u16(&v, 2) // version 2: no status bytes anywhere
+	vm_put_u16(&v, 1)
+	vm_put_u16(&v, 1)
+	vm_put_str(&v, "OldScript")
+	vm_put_u16(&v, 1) // propCount — straight after the name
+	vm_put_str(&v, "Count");append(&v, 3) // kind, and no status byte
+	vm_put_u32(&v, 42)
+
+	fs, ok := vm_decode("ACTI", v[:])
+	testing.expect(t, ok, "decode a version-2 VMAD")
+	defer esm.free_form_scripts(fs)
+
+	testing.expect_value(t, fs.scripts[0].name, "OldScript")
+	testing.expect_value(t, fs.scripts[0].props[0].name, "Count")
+	testing.expect_value(t, fs.scripts[0].props[0].value.(i32), i32(42))
+}
+
+// A quest carries its stage fragments and its per-alias scripts after the script list. The alias
+// block restates its own version and objFormat, so it is decoded on its own terms.
+@(test)
+test_esm_vmad_quest_fragments :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 128, context.temp_allocator)
+	vm_put_u16(&v, 5)
+	vm_put_u16(&v, 2)
+	vm_put_u16(&v, 1)
+	vm_put_str(&v, "MQ101QuestScript")
+	append(&v, 0)
+	vm_put_u16(&v, 0) // no properties
+
+	// fragment tail: QUST names its file AFTER the count
+	append(&v, 2) // fragment-block version
+	vm_put_u16(&v, 2) // fragmentCount
+	vm_put_str(&v, "QF_MQ101_0003372B")
+	vm_put_u16(&v, 10);vm_put_u16(&v, 0);vm_put_u32(&v, 0) // stage 10, unknown, log entry
+	append(&v, 1);vm_put_str(&v, "QF_MQ101_0003372B");vm_put_str(&v, "Fragment_0")
+	vm_put_u16(&v, 20);vm_put_u16(&v, 0);vm_put_u32(&v, 0)
+	append(&v, 1);vm_put_str(&v, "QF_MQ101_0003372B");vm_put_str(&v, "Fragment_3")
+
+	vm_put_u16(&v, 1) // aliasCount
+	vm_put_obj(&v, 2, 0x0003_372B, 4) // owner: this quest, alias id 4
+	vm_put_u16(&v, 5) // the alias block's own version …
+	vm_put_u16(&v, 2) // … and its own objFormat
+	vm_put_u16(&v, 1) // one script on the alias
+	vm_put_str(&v, "MQ101PlayerAliasScript")
+	append(&v, 0)
+	vm_put_u16(&v, 0)
+
+	fs, ok := vm_decode("QUST", v[:])
+	testing.expect(t, ok, "decode a QUST VMAD")
+	defer esm.free_form_scripts(fs)
+
+	testing.expect_value(t, fs.frag_file, "QF_MQ101_0003372B")
+	testing.expect_value(t, len(fs.fragments), 2)
+	testing.expect_value(t, fs.fragments[0].index, u16(10)) // the quest STAGE
+	testing.expect_value(t, fs.fragments[0].function, "Fragment_0")
+	testing.expect_value(t, fs.fragments[1].index, u16(20))
+	testing.expect_value(t, fs.fragments[1].function, "Fragment_3")
+
+	testing.expect_value(t, len(fs.aliases), 1)
+	testing.expect_value(t, fs.aliases[0].owner.alias, i16(4))
+	testing.expect_value(t, len(fs.aliases[0].scripts), 1)
+	testing.expect_value(t, fs.aliases[0].scripts[0].name, "MQ101PlayerAliasScript")
+}
+
+// A script a placed reference marks REMOVED (status 3) drops what it would inherit from its base
+// form. Nothing else in the record distinguishes it, so the status byte has to survive decoding.
+@(test)
+test_esm_vmad_removed_attachment :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 32, context.temp_allocator)
+	vm_put_u16(&v, 5)
+	vm_put_u16(&v, 2)
+	vm_put_u16(&v, 1)
+	vm_put_str(&v, "defaultDisableHavokOnLoad")
+	append(&v, 3) // inherited from the base form, removed here
+	vm_put_u16(&v, 0)
+
+	fs, ok := vm_decode("REFR", v[:])
+	testing.expect(t, ok, "decode VMAD")
+	defer esm.free_form_scripts(fs)
+	testing.expect(t, esm.script_attach_removed(fs.scripts[0]), "status 3 is a removal")
+}
+
+// Truncation must fail cleanly rather than read past the field or hand back a half-built result.
+@(test)
+test_esm_vmad_truncated :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 32, context.temp_allocator)
+	vm_put_u16(&v, 5)
+	vm_put_u16(&v, 2)
+	vm_put_u16(&v, 2) // claims two scripts …
+	vm_put_str(&v, "First")
+	append(&v, 0)
+	vm_put_u16(&v, 0) // … and then stops
+
+	_, ok := vm_decode("ACTI", v[:])
+	testing.expect(t, !ok, "a truncated VMAD fails to decode")
+
+	// A count no remaining byte could satisfy must be rejected before it is allocated for.
+	big := make([dynamic]u8, 0, 32, context.temp_allocator)
+	vm_put_u16(&big, 5)
+	vm_put_u16(&big, 2)
+	vm_put_u16(&big, 1)
+	vm_put_str(&big, "S")
+	append(&big, 0)
+	vm_put_u16(&big, 1)
+	vm_put_str(&big, "Huge");append(&big, u8(13), u8(1))
+	vm_put_u32(&big, 0xFFFF_FFF0) // an array of four billion ints
+
+	_, big_ok := vm_decode("ACTI", big[:])
+	testing.expect(t, !big_ok, "an impossible array count is rejected")
+}
+
+// Object properties are FormIDs and must remap into global space like every other ref, or a
+// script handed a property from a mod plugin would address the wrong plugin's form.
+@(test)
+test_esm_vmad_remaps_forms :: proc(t: ^testing.T) {
+	v := make([dynamic]u8, 0, 64, context.temp_allocator)
+	vm_put_u16(&v, 5)
+	vm_put_u16(&v, 2)
+	vm_put_u16(&v, 1)
+	vm_put_str(&v, "S")
+	append(&v, 0)
+	vm_put_u16(&v, 1)
+	vm_put_str(&v, "Ref");append(&v, u8(1), u8(1))
+	vm_put_obj(&v, 2, 0x0100_0042, -1) // master index 1, local form 0x42
+
+	fm: esm.Form_Map
+	fm.slot[1] = 9 // that master sits in global slot 9
+	fs, ok := vm_decode("ACTI", v[:], &fm)
+	testing.expect(t, ok, "decode VMAD")
+	defer esm.free_form_scripts(fs)
+
+	obj := fs.scripts[0].props[0].value.(esm.Prop_Object)
+	testing.expect_value(t, obj.form, esm.Form_ID(9) << 32 | 0x42)
+}

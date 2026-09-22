@@ -1,0 +1,135 @@
+package gamedb
+
+// Which scripts a form carries — the index over esm VMAD (src/formats/esm/records_scripts.odin).
+// This is the link that makes a transpiled Papyrus script reachable: the record says a form runs
+// `TrapBearScript`, and the runtime loads the file of that name.
+//
+// Indexed for the record types that carry scripts AND have something to dispatch on. INFO, SCEN
+// and PACK carry plenty (INFO is the single largest source) but dialogue, scenes and AI packages
+// do not exist yet, so indexing them would only hold memory. `esmdump --vmad` still surveys them.
+
+import "base:runtime"
+import "core:strings"
+import "../formats/esm"
+
+// carries_scripts reports whether a record signature is one we index VMAD for. Measured over
+// Skyrim.esm, the DLC and 1,326 mod plugins: 22 signatures carry a VMAD at all, and these are the
+// ones whose forms something can dispatch to today.
+carries_scripts :: proc(s: string) -> bool {
+	switch s {
+	case "REFR", "ACHR", "QUST", "NPC_", "MGEF", "PERK", "PHZD", "TACT":
+		return true
+	}
+	return is_base_type(s) // ACTI, CONT, DOOR, FURN, MISC, WEAP, ARMO, BOOK, KEYM, FLOR, INGR, LIGH …
+}
+
+// index_scripts records a form's VMAD. A later plugin overriding the record replaces the WHOLE
+// attachment list rather than merging into it, because the Creation Kit rewrites the full list on
+// every override and marks what it dropped (see esm.Script_Attach status).
+@(private)
+index_scripts :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	fs, decoded := esm.decode_vmad(rec.type, fl, fm, db.allocator)
+	if !decoded {
+		return // no VMAD, or a malformed one — decode_vmad leaves nothing to free
+	}
+	if old, had := db.form_scripts[rec.form_id]; had {
+		esm.free_form_scripts(old, db.allocator)
+	}
+	db.form_scripts[rec.form_id] = fs
+}
+
+// form_scripts returns the scripts attached to one form exactly as its own record declares them,
+// with no base-form inheritance applied. For a placed reference use effective_scripts instead.
+form_scripts :: proc(db: ^DB, form: Form_ID) -> []esm.Script_Attach {
+	if db == nil {
+		return nil
+	}
+	return db.form_scripts[form].scripts
+}
+
+// form_fragments returns a form's compiler-generated fragments — a quest's stage snippets, a
+// perk entry's — and the generated script file they live on. Empty for everything else.
+form_fragments :: proc(db: ^DB, form: Form_ID) -> (file: string, fragments: []esm.Script_Fragment) {
+	if db == nil {
+		return "", nil
+	}
+	fs := db.form_scripts[form]
+	return fs.frag_file, fs.fragments
+}
+
+// quest_alias_scripts returns the scripts a quest attaches to one of its aliases, addressed by the
+// alias id the quest's own records use. Vanilla hangs most behaviour here rather than on base
+// forms — 2,529 alias scripts in Skyrim.esm alone.
+quest_alias_scripts :: proc(db: ^DB, quest: Form_ID, alias: i16) -> []esm.Script_Attach {
+	if db == nil {
+		return nil
+	}
+	for a in db.form_scripts[quest].aliases {
+		if a.owner.alias == alias {
+			return a.scripts
+		}
+	}
+	return nil
+}
+
+// effective_scripts resolves what a PLACED REFERENCE actually runs: its base form's scripts, plus
+// the ones the reference declares itself, minus any the reference marks removed. A ref's own
+// attachment wins over the base's of the same name, which is what "inherited and modified" means.
+//
+// Names fold case, because Papyrus identifiers do. The result is a fresh slice the caller owns;
+// the Script_Attach values inside it stay owned by the DB.
+effective_scripts :: proc(
+	db: ^DB,
+	ref: Form_ID,
+	base: Form_ID,
+	allocator := context.allocator,
+) -> []esm.Script_Attach {
+	if db == nil {
+		return nil
+	}
+	own := db.form_scripts[ref].scripts
+	inherited := db.form_scripts[base].scripts
+	if len(own) == 0 {
+		return clone_attachments(inherited, allocator) // nothing to override or remove
+	}
+
+	out := make([dynamic]esm.Script_Attach, 0, len(own) + len(inherited), allocator)
+	for a in own {
+		if !esm.script_attach_removed(a) {
+			append(&out, a)
+		}
+	}
+	for a in inherited {
+		if !attach_named(own, a.name) {
+			append(&out, a) // the reference says nothing about this one, so it inherits
+		}
+	}
+	return out[:]
+}
+
+@(private)
+clone_attachments :: proc(list: []esm.Script_Attach, allocator: runtime.Allocator) -> []esm.Script_Attach {
+	if len(list) == 0 {
+		return nil
+	}
+	out := make([]esm.Script_Attach, len(list), allocator)
+	copy(out, list)
+	return out
+}
+
+@(private)
+attach_named :: proc(list: []esm.Script_Attach, name: string) -> bool {
+	for a in list {
+		if strings.equal_fold(a.name, name) {
+			return true
+		}
+	}
+	return false
+}
