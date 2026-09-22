@@ -44,7 +44,7 @@ done
 # (docs/papyrus-transpiler.md, "The detachable contract").
 echo "==> transpile detachability"
 bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/transpile/*.odin \
-       | grep -vE '^(core:|\.\./formats/pex$)' || true)"
+       | grep -vE '^(core:|base:|\.\./formats/pex$)' || true)"
 if [ -n "$bad" ]; then
     echo "  src/transpile imports outside its contract:" >&2
     echo "$bad" | sed 's/^/    /' >&2

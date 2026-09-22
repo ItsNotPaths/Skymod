@@ -10,6 +10,11 @@ package transpile
 // local cleanups that need no control-flow analysis). T2 (temp inlining) and T3 (if/while
 // recovery) are not built — see the doc for the measurements that rank them.
 
+// HOLE(script, blocker): nothing creates the __states/__autoprop/__overridden subtables this emitter indexes into — rt.class never learns which states exist, so 640 multi-state objects index nil at load.
+// HOLE(script): the __overridden marker omits the state qualifier its lookup key carries, so OnActivate@Busy is indistinguishable from the default-state one.
+// HOLE(script): a whole-script override emits no marker, so a missing hand-written file has nothing to fail on.
+// HOLE(script): source_file is written raw into a comment — a newline in an untrusted PEX header injects Lua.
+
 import "core:strings"
 import "../formats/pex"
 
@@ -18,6 +23,12 @@ DEFAULT_RUNTIME :: "skymod.rt"
 Options :: struct {
 	runtime:       string, // module the chunk requires; "" means DEFAULT_RUNTIME
 	line_comments: bool,   // annotate each statement with its source line
+	// no_inline stops at T1: one statement per instruction, temps left standing. A debugging
+	// aid — diff it against the inlined form when T2 is the suspect.
+	no_inline:     bool,
+	// overrides names the functions written by hand. An overridden function gets a mark
+	// instead of a body; an overridden script produces nothing at all.
+	overrides:     ^Overrides,
 }
 
 Stats :: struct {
@@ -32,6 +43,11 @@ Stats :: struct {
 	max_locals:   int, // Lua 5.4 caps a function at 200
 	dropped_cast: int, // T1: self-casts removed
 	bare_calls:   int, // T1: calls whose result went to ::NoneVar
+	inlined:      int, // T2: definitions folded into their reader
+	overridden:   int, // functions left to a hand-written override
+	// script_overridden means the whole script is hand-written and `source` is empty. The
+	// caller must not write a file for it.
+	script_overridden: bool,
 }
 
 // transpile renders one parsed script as a Lua chunk. The returned string is owned by the
@@ -49,6 +65,11 @@ transpile :: proc(
 	if e.opt.runtime == "" {
 		e.opt.runtime = DEFAULT_RUNTIME
 	}
+	e.script = script_stem(p.source_file)
+	if overrides_has_script(e.opt.overrides, e.script) {
+		e.stats.script_overridden = true
+		return "", e.stats
+	}
 	strings.builder_init(&e.sb, allocator)
 	emit_file(&e, p)
 	return strings.to_string(e.sb), e.stats
@@ -56,9 +77,14 @@ transpile :: proc(
 
 @(private)
 Emitter :: struct {
-	sb:    strings.Builder,
-	opt:   Options,
-	stats: Stats,
+	sb:       strings.Builder,
+	opt:      Options,
+	stats:    Stats,
+	script:   string, // source-file stem, the override key's first field
+	// T2 expansion state, live only while a function body is being written.
+	fn:       ^pex.Function,
+	dropped:  []bool, // instruction folded into its reader
+	block_lo: []int,  // per instruction, the index its basic block starts at
 }
 
 @(private)
@@ -113,12 +139,12 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 		sbprint(e, "}\n")
 	}
 
-	for pr in o.properties {
-		emit_property(e, o.name, pr)
+	for &pr in o.properties {
+		emit_property(e, o.name, &pr)
 	}
-	for st in o.states {
-		for f in st.functions {
-			emit_function(e, o.name, st.name, f.name, f)
+	for &st in o.states {
+		for &f in st.functions {
+			emit_function(e, o.name, st.name, f.name, &f)
 		}
 	}
 
@@ -133,7 +159,7 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 PROP_AUTO :: 0x4
 
 @(private)
-emit_property :: proc(e: ^Emitter, obj: string, pr: pex.Property) {
+emit_property :: proc(e: ^Emitter, obj: string, pr: ^pex.Property) {
 	if pr.flags & PROP_AUTO != 0 {
 		write_mangled(e, obj)
 		sbprint(e, ".__autoprop[")
@@ -147,18 +173,29 @@ emit_property :: proc(e: ^Emitter, obj: string, pr: pex.Property) {
 	if pr.has_reader {
 		name := strings.concatenate({"__propget_", pr.name})
 		defer delete(name)
-		emit_function(e, obj, "", name, pr.reader)
+		emit_function(e, obj, "", name, &pr.reader)
 	}
 	if pr.has_writer {
 		name := strings.concatenate({"__propset_", pr.name})
 		defer delete(name)
-		emit_function(e, obj, "", name, pr.writer)
+		emit_function(e, obj, "", name, &pr.writer)
 	}
 }
 
 @(private)
-emit_function :: proc(e: ^Emitter, obj, state, name: string, f: pex.Function) {
+emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 	e.stats.functions += 1
+
+	// A hand-written function gets a mark, not a body. The runtime fails at load when an
+	// override is marked but never supplied — otherwise a missing one is a silent hole.
+	if overrides_has_fn(e.opt.overrides, e.script, obj, state, name) {
+		e.stats.overridden += 1
+		write_mangled(e, obj)
+		sbprint(e, ".__overridden[")
+		write_lua_string(e, name)
+		sbprint(e, "] = true\n")
+		return
+	}
 
 	if f.is_native {
 		e.stats.natives += 1
@@ -219,7 +256,7 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: pex.Function) {
 }
 
 @(private)
-emit_body :: proc(e: ^Emitter, f: pex.Function) {
+emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
 	n := len(f.instructions)
 	// One slot past the end: a jump may fall off the bottom of the function.
 	labels := make([]bool, n + 1)
@@ -230,10 +267,19 @@ emit_body :: proc(e: ^Emitter, f: pex.Function) {
 		}
 	}
 
+	dropped, block_lo := plan_inline(f^, labels, e.opt.no_inline)
+	defer delete(dropped)
+	defer delete(block_lo)
+	e.fn, e.dropped, e.block_lo = f, dropped, block_lo
+	defer {e.fn, e.dropped, e.block_lo = nil, nil, nil}
+
 	for ins, i in f.instructions {
 		if labels[i] {
 			sbprintf(e, "\t::L%d::\n", i)
 			e.stats.labels += 1
+		}
+		if dropped[i] {
+			continue // folded into its reader
 		}
 		if emit_stmt(e, i, ins) {
 			e.stats.statements += 1

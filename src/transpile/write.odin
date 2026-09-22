@@ -3,6 +3,10 @@ package transpile
 // Output primitives: everything that turns a PEX value or name into Lua text. All of these
 // write straight into the builder, so no intermediate string is ever allocated.
 
+// HOLE(script, blocker): a member variable emits as a bare identifier, so it lands in _G — shared by every instance, shared across scripts reusing a name, invisible to saving. All 14,026 files.
+// HOLE(script): PEX Null emits `nil`, against the None-sentinel rule (script-runtime-decisions section 2).
+// HOLE(script): mangling is not injective — `::temp0` and an authored `__temp0` collide.
+
 import "core:fmt"
 import "core:math"
 import "core:strings"

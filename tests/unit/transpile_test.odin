@@ -148,7 +148,8 @@ test_transpile_emits_t0 :: proc(t: ^testing.T) {
 	defer pex.destroy(&p)
 	testing.expect(t, pok, "fixture parses")
 
-	src, st := transpile.transpile(&p)
+	// no_inline pins the T0 shape: one statement per instruction, temps left standing.
+	src, st := transpile.transpile(&p, transpile.Options{no_inline = true})
 	defer delete(src)
 
 	has :: proc(t: ^testing.T, src, want: string) {
@@ -178,7 +179,7 @@ test_transpile_t1_cleanups :: proc(t: ^testing.T) {
 	p, _ := pex.parse(data)
 	defer pex.destroy(&p)
 
-	src, st := transpile.transpile(&p)
+	src, st := transpile.transpile(&p, transpile.Options{no_inline = true})
 	defer delete(src)
 
 	// A void call loses its assignment and becomes a statement.
@@ -206,7 +207,10 @@ test_transpile_keeps_debug_lines :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.instructions[0].line, u16(10))
 	testing.expect_value(t, f.instructions[4].line, u16(14))
 
-	src, st := transpile.transpile(&p, transpile.Options{line_comments = true})
+	// no_inline keeps one statement per instruction, so each line lands where it was read.
+	// With T2 on, instruction 0 folds into instruction 2 and its line goes with it.
+	opt := transpile.Options{line_comments = true, no_inline = true}
+	src, st := transpile.transpile(&p, opt)
 	defer delete(src)
 	testing.expect(t, strings.contains(src, "-- :10"), "first statement carries its line")
 	testing.expect_value(t, st.with_lines, 1)
@@ -231,4 +235,201 @@ test_transpile_callstatic :: proc(t: ^testing.T) {
 	)
 	testing.expect_value(t, st.labels, 0) // nothing jumps
 	testing.expect_value(t, st.statements, 2)
+}
+
+@(test)
+test_transpile_t2_inlines_temp :: proc(t: ^testing.T) {
+	data := build_transpile_pex()
+	defer delete(data)
+	p, _ := pex.parse(data)
+	defer pex.destroy(&p)
+
+	src, st := transpile.transpile(&p)
+	defer delete(src)
+
+	// The comparison folds into the jump that reads it, and its temp disappears.
+	testing.expectf(
+		t,
+		strings.contains(src, "if not (end_ >= 0) then goto L5 end"),
+		"temp not folded into its reader:\n%s",
+		src,
+	)
+	testing.expect(t, !strings.contains(src, "__temp0 = end_"), "definition removed")
+	testing.expect_value(t, st.inlined, 1)
+	testing.expect_value(t, st.statements, 3) // one fewer than the T0 shape
+}
+
+// A temp read by a LATER block must keep its definition. Folding it would leave the second
+// reader with no value — the condition `exposed` exists to catch.
+@(private = "file")
+build_escaping_temp_pex :: proc() -> []u8 {
+	b := make([dynamic]u8)
+
+	tw32(&b, pex.MAGIC)
+	append(&b, 3, 2)
+	tw16(&b, 1)
+	tw64(&b, 0)
+	tws(&b, "Esc.psc");tws(&b, "u");tws(&b, "m")
+
+	tw16(&b, 9)
+	tws(&b, "Esc")        // 0
+	tws(&b, "ScriptObject") // 1
+	tws(&b, "")           // 2
+	tws(&b, "Run")        // 3
+	tws(&b, "Bool")       // 4
+	tws(&b, "Int")        // 5
+	tws(&b, "n")          // 6
+	tws(&b, "::temp0")    // 7
+	tws(&b, "::temp1")    // 8
+
+	append(&b, 0) // no debug
+	tw16(&b, 0) // user flags
+
+	tw16(&b, 1)
+	tw16(&b, 0);tw32(&b, 0);tw16(&b, 1);tw16(&b, 2);tw32(&b, 0);tw16(&b, 2)
+	tw16(&b, 0);tw16(&b, 0) // vars, props
+	tw16(&b, 1);tw16(&b, 2);tw16(&b, 1);tw16(&b, 3) // one state, one function "Run"
+
+	tw16(&b, 4);tw16(&b, 2);tw32(&b, 0);append(&b, 0) // -> Bool, doc, flags
+	tw16(&b, 1);tw16(&b, 6);tw16(&b, 5) // param n: Int
+	tw16(&b, 2);tw16(&b, 7);tw16(&b, 4);tw16(&b, 8);tw16(&b, 4) // locals ::temp0, ::temp1
+	tw16(&b, 4) // instructions
+
+	//  0  CmpGe ::temp0 n 0
+	//  1  JmpF  ::temp0 2      -- block ends; target is 1+2 = 3
+	//  2  Assign ::temp1 true
+	//  3  Assign ::temp1 ::temp0   -- LABEL: reads ::temp0 from another block
+	append(&b, u8(pex.Opcode.CmpGe));ti(&b, 7);ti(&b, 6);tn(&b, 0)
+	append(&b, u8(pex.Opcode.JmpF));ti(&b, 7);tn(&b, 2)
+	append(&b, u8(pex.Opcode.Assign));ti(&b, 8);tb(&b, true)
+	append(&b, u8(pex.Opcode.Assign));ti(&b, 8);ti(&b, 7)
+
+	return b[:]
+}
+
+@(test)
+test_transpile_t2_keeps_escaping_temp :: proc(t: ^testing.T) {
+	data := build_escaping_temp_pex()
+	defer delete(data)
+	p, pok := pex.parse(data)
+	defer pex.destroy(&p)
+	testing.expect(t, pok, "fixture parses")
+
+	src, st := transpile.transpile(&p)
+	defer delete(src)
+
+	testing.expectf(
+		t,
+		strings.contains(src, "__temp0 = n >= 0"),
+		"a temp read by a later block must keep its definition:\n%s",
+		src,
+	)
+	testing.expect(t, strings.contains(src, "__temp1 = __temp0"), "the later read still resolves")
+	testing.expect_value(t, st.inlined, 0)
+}
+
+// ── override registry ───────────────────────────────────────────────────────
+
+@(test)
+test_overrides_parse :: proc(t: ^testing.T) {
+	text := `
+# a comment line
+trapfireplate.TrapFirePlate.removeMyHazard   # trailing comment
+AudioRepeater                                 # whole script, mixed case
+
+`
+	ov, bad, ok := transpile.overrides_parse(text)
+	defer transpile.overrides_destroy(&ov)
+	testing.expect(t, ok, "parses")
+	testing.expect_value(t, bad, 0)
+	testing.expect_value(t, len(ov.functions), 1)
+	testing.expect_value(t, len(ov.scripts), 1)
+	// Papyrus folds case, so a lookup must too.
+	testing.expect(t, transpile.overrides_has_script(&ov, "audiorepeater"), "lower")
+	testing.expect(t, transpile.overrides_has_script(&ov, "AUDIOREPEATER"), "upper")
+	testing.expect(t, !transpile.overrides_has_script(&ov, "trapfireplate"), "fn is not a script")
+}
+
+// A malformed entry must fail loudly. Dropping it silently would transpile a function a human
+// meant to write by hand.
+@(test)
+test_overrides_reject_malformed :: proc(t: ^testing.T) {
+	ov, bad, ok := transpile.overrides_parse("good\na.b.c.d\n")
+	defer transpile.overrides_destroy(&ov)
+	testing.expect(t, !ok, "four-part key rejected")
+	testing.expect_value(t, bad, 2)
+
+	ov2, bad2, ok2 := transpile.overrides_parse("a..c\n")
+	defer transpile.overrides_destroy(&ov2)
+	testing.expect(t, !ok2, "empty object rejected")
+	testing.expect_value(t, bad2, 1)
+}
+
+@(test)
+test_transpile_function_override :: proc(t: ^testing.T) {
+	data := build_transpile_pex()
+	defer delete(data)
+	p, _ := pex.parse(data)
+	defer pex.destroy(&p)
+
+	// The fixture's source file is Test.psc, its object Test, its function Doit.
+	ov, _, ok := transpile.overrides_parse("test.Test.Doit")
+	defer transpile.overrides_destroy(&ov)
+	testing.expect(t, ok, "registry parses")
+
+	src, st := transpile.transpile(&p, transpile.Options{overrides = &ov})
+	defer delete(src)
+
+	testing.expect(t, strings.contains(src, `Test.__overridden["Doit"] = true`), "mark emitted")
+	testing.expect(t, !strings.contains(src, "function(self, end_)"), "body not emitted")
+	testing.expect_value(t, st.overridden, 1)
+	testing.expect_value(t, st.statements, 0) // nothing left to emit
+}
+
+@(test)
+test_transpile_script_override :: proc(t: ^testing.T) {
+	data := build_transpile_pex()
+	defer delete(data)
+	p, _ := pex.parse(data)
+	defer pex.destroy(&p)
+
+	ov, _, _ := transpile.overrides_parse("TEST   # stem of Test.psc, case folded")
+	defer transpile.overrides_destroy(&ov)
+
+	src, st := transpile.transpile(&p, transpile.Options{overrides = &ov})
+	defer delete(src)
+
+	testing.expect_value(t, st.script_overridden, true)
+	testing.expect_value(t, len(src), 0) // caller must write no file
+	testing.expect_value(t, st.objects, 0)
+}
+
+// A script may define the same function name in the default state AND a named state. They are
+// different functions, so an override key that ignores state would hit both. 269 latent
+// functions in the base game sit in a named state; 53 collide by name with a default sibling.
+@(test)
+test_overrides_state_qualifier :: proc(t: ^testing.T) {
+	ov, bad, ok := transpile.overrides_parse("dun.Dun.OnActivate@Busy\nother.Other.Run")
+	defer transpile.overrides_destroy(&ov)
+	testing.expect(t, ok, "parses")
+	testing.expect_value(t, bad, 0)
+	testing.expect_value(t, len(ov.functions), 2)
+
+	has :: proc(o: ^transpile.Overrides, script, object, state, fn: string) -> bool {
+		return transpile.Key {
+			script = strings.to_lower(script, context.temp_allocator),
+			object = strings.to_lower(object, context.temp_allocator),
+			state  = strings.to_lower(state, context.temp_allocator),
+			fn     = strings.to_lower(fn, context.temp_allocator),
+		} in o.functions
+	}
+	testing.expect(t, has(&ov, "dun", "Dun", "Busy", "OnActivate"), "named state hits")
+	testing.expect(t, !has(&ov, "dun", "Dun", "", "OnActivate"), "default state does NOT hit")
+	testing.expect(t, has(&ov, "other", "Other", "", "Run"), "unqualified = default state")
+
+	// A state qualifier on a whole-script entry is meaningless.
+	ov2, bad2, ok2 := transpile.overrides_parse("wholescript@Busy")
+	defer transpile.overrides_destroy(&ov2)
+	testing.expect(t, !ok2, "rejected")
+	testing.expect_value(t, bad2, 1)
 }

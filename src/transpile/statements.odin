@@ -1,9 +1,14 @@
 package transpile
 
-// One PEX instruction becomes one Lua statement (tier T0), minus the two T1 drops.
+// One PEX instruction becomes one Lua statement (tier T0), minus the T1 drops and the T2
+// definitions folded into their reader.
 //
 // Every engine-facing operation goes through the `rt` table. The transpiler never decides
 // what `rt` does — see the contract table in docs/papyrus-transpiler.md.
+
+// HOLE(script, blocker): rt.cast carries no target type — f.locals[].type_name is discarded, so the runtime cannot tell Float from Bool from String. Papyrus conditions are cast-then-JmpF, so this inverts branches.
+// HOLE(script): rt.array discards the element type.
+// HOLE(script): CmpEq emits Lua `==` but Papyrus string comparison folds case.
 
 import "../formats/pex"
 
@@ -11,15 +16,11 @@ import "../formats/pex"
 // nothing and returns false.
 @(private)
 emit_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) -> bool {
-	#partial switch ins.op {
-	case .Nop:
-		return false
-	case .Cast:
-		// A value cast to its own type is the compiler's short-circuit padding.
-		if same_ident(arg(ins, 0), arg(ins, 1)) {
-			e.stats.dropped_cast += 1
-			return false
+	if is_noop(ins) {
+		if ins.op == .Cast {
+			e.stats.dropped_cast += 1 // compiler padding around a short-circuit
 		}
+		return false
 	}
 
 	sbprint(e, "\t")
@@ -33,72 +34,38 @@ emit_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) -> bool {
 
 @(private)
 write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
-	switch ins.op {
-	case .Nop: // dropped by emit_stmt
-
-	case .IAdd, .FAdd:
-		write_binary(e, ins, "+")
-	case .ISub, .FSub:
-		write_binary(e, ins, "-")
-	case .IMul, .FMul:
-		write_binary(e, ins, "*")
-	case .FDiv:
-		write_binary(e, ins, "/")
-	// Papyrus integer division truncates toward zero. Lua's // rounds down, so -7/2 would
-	// give -4 where Papyrus gives -3.
-	case .IDiv:
-		write_assign_call(e, arg(ins, 0), "rt.idiv", {arg(ins, 1), arg(ins, 2)})
-	case .IMod:
-		write_assign_call(e, arg(ins, 0), "rt.imod", {arg(ins, 1), arg(ins, 2)})
-
-	case .Not:
-		write_value(e, arg(ins, 0))
-		sbprint(e, " = not ")
-		write_value(e, arg(ins, 1))
-	case .INeg, .FNeg:
-		write_value(e, arg(ins, 0))
-		sbprint(e, " = -")
-		write_value(e, arg(ins, 1))
-	case .Assign:
+	// Anything T2 could fold renders as `dest = <expression>`, so the expression half is
+	// shared with the inliner.
+	if inlinable_op(ins.op) {
 		write_value(e, arg(ins, 0))
 		sbprint(e, " = ")
-		write_value(e, arg(ins, 1))
-	case .Cast:
-		write_assign_call(e, arg(ins, 0), "rt.cast", {arg(ins, 1)})
+		write_rhs(e, idx, ins)
+		return
+	}
 
-	case .CmpEq:
-		write_binary(e, ins, "==")
-	case .CmpLt:
-		write_binary(e, ins, "<")
-	case .CmpLe:
-		write_binary(e, ins, "<=")
-	case .CmpGt:
-		write_binary(e, ins, ">")
-	case .CmpGe:
-		write_binary(e, ins, ">=")
-
+	#partial switch ins.op {
 	case .Jmp:
 		t, _ := jump_target(idx, ins)
 		sbprintf(e, "goto L%d", t)
 	case .JmpT:
 		t, _ := jump_target(idx, ins)
 		sbprint(e, "if ")
-		write_value(e, arg(ins, 0))
+		write_read(e, arg(ins, 0), idx)
 		sbprintf(e, " then goto L%d end", t)
 	case .JmpF:
 		t, _ := jump_target(idx, ins)
 		sbprint(e, "if not ")
-		write_value(e, arg(ins, 0))
+		write_read(e, arg(ins, 0), idx)
 		sbprintf(e, " then goto L%d end", t)
 
 	// callmethod <name> <self> <dest> <args...>
 	case .CallMethod:
 		write_call_dest(e, arg(ins, 2))
 		sbprint(e, "rt.call(")
-		write_value(e, arg(ins, 1))
+		write_read(e, arg(ins, 1), idx)
 		sbprint(e, ", ")
 		write_lua_string(e, ident_of(arg(ins, 0)))
-		write_rest(e, ins, 3)
+		write_rest(e, ins, 3, idx)
 		sbprint(e, ")")
 
 	// callstatic <class> <name> <dest> <args...>
@@ -108,7 +75,7 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		write_lua_string(e, ident_of(arg(ins, 0)))
 		sbprint(e, ", ")
 		write_lua_string(e, ident_of(arg(ins, 1)))
-		write_rest(e, ins, 3)
+		write_rest(e, ins, 3, idx)
 		sbprint(e, ")")
 
 	// callparent <name> <dest> <args...>
@@ -116,7 +83,7 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		write_call_dest(e, arg(ins, 1))
 		sbprint(e, "rt.parent(self, ")
 		write_lua_string(e, ident_of(arg(ins, 0)))
-		write_rest(e, ins, 2)
+		write_rest(e, ins, 2, idx)
 		sbprint(e, ")")
 
 	// A bare `return` may not sit mid-block in Lua, so every one gets its own block.
@@ -126,81 +93,176 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 			sbprint(e, "do return end")
 		} else {
 			sbprint(e, "do return ")
-			write_value(e, v)
+			write_read(e, v, idx)
 			sbprint(e, " end")
 		}
-
-	case .StrCat:
-		write_assign_call(e, arg(ins, 0), "rt.concat", {arg(ins, 1), arg(ins, 2)})
 
 	// propget <name> <obj> <dest> / propset <name> <obj> <value>
 	case .PropGet:
 		write_value(e, arg(ins, 2))
 		sbprint(e, " = rt.get(")
-		write_value(e, arg(ins, 1))
+		write_read(e, arg(ins, 1), idx)
 		sbprint(e, ", ")
 		write_lua_string(e, ident_of(arg(ins, 0)))
 		sbprint(e, ")")
 	case .PropSet:
 		sbprint(e, "rt.set(")
-		write_value(e, arg(ins, 1))
+		write_read(e, arg(ins, 1), idx)
 		sbprint(e, ", ")
 		write_lua_string(e, ident_of(arg(ins, 0)))
 		sbprint(e, ", ")
-		write_value(e, arg(ins, 2))
+		write_read(e, arg(ins, 2), idx)
 		sbprint(e, ")")
 
 	// Papyrus arrays are zero-based, so every access goes through a helper.
 	case .ArrayCreate:
-		write_assign_call(e, arg(ins, 0), "rt.array", {arg(ins, 1)})
-	case .ArrayLength:
-		write_assign_call(e, arg(ins, 0), "rt.alen", {arg(ins, 1)})
+		write_assign_call(e, arg(ins, 0), "rt.array", {arg(ins, 1)}, idx)
 	case .ArrayGetElement:
-		write_assign_call(e, arg(ins, 0), "rt.aget", {arg(ins, 1), arg(ins, 2)})
+		write_assign_call(e, arg(ins, 0), "rt.aget", {arg(ins, 1), arg(ins, 2)}, idx)
 	case .ArraySetElement:
 		sbprint(e, "rt.aset(")
-		write_value(e, arg(ins, 0))
+		write_read(e, arg(ins, 0), idx)
 		sbprint(e, ", ")
-		write_value(e, arg(ins, 1))
+		write_read(e, arg(ins, 1), idx)
 		sbprint(e, ", ")
-		write_value(e, arg(ins, 2))
+		write_read(e, arg(ins, 2), idx)
 		sbprint(e, ")")
 	// arrayfind <array> <dest> <value> <start>
 	case .ArrayFindElement:
 		write_assign_call(
-			e, arg(ins, 1), "rt.afind", {arg(ins, 0), arg(ins, 2), arg(ins, 3)},
+			e, arg(ins, 1), "rt.afind", {arg(ins, 0), arg(ins, 2), arg(ins, 3)}, idx,
 		)
 	case .ArrayRFindElement:
 		write_assign_call(
-			e, arg(ins, 1), "rt.arfind", {arg(ins, 0), arg(ins, 2), arg(ins, 3)},
+			e, arg(ins, 1), "rt.arfind", {arg(ins, 0), arg(ins, 2), arg(ins, 3)}, idx,
 		)
 	}
 }
 
+// write_rhs renders the value half of an assignment — the piece T2 folds into a reader.
 @(private)
-write_binary :: proc(e: ^Emitter, ins: pex.Instruction, op: string) {
-	write_value(e, arg(ins, 0))
-	sbprint(e, " = ")
-	write_value(e, arg(ins, 1))
-	sbprint(e, " ")
-	sbprint(e, op)
-	sbprint(e, " ")
-	write_value(e, arg(ins, 2))
+write_rhs :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
+	#partial switch ins.op {
+	case .IAdd, .FAdd:
+		write_binary(e, ins, "+", idx)
+	case .ISub, .FSub:
+		write_binary(e, ins, "-", idx)
+	case .IMul, .FMul:
+		write_binary(e, ins, "*", idx)
+	case .FDiv:
+		write_binary(e, ins, "/", idx)
+	case .CmpEq:
+		write_binary(e, ins, "==", idx)
+	case .CmpLt:
+		write_binary(e, ins, "<", idx)
+	case .CmpLe:
+		write_binary(e, ins, "<=", idx)
+	case .CmpGt:
+		write_binary(e, ins, ">", idx)
+	case .CmpGe:
+		write_binary(e, ins, ">=", idx)
+
+	// Papyrus integer division truncates toward zero. Lua's // rounds down, so -7/2 would
+	// give -4 where Papyrus gives -3.
+	case .IDiv:
+		write_call(e, "rt.idiv", {arg(ins, 1), arg(ins, 2)}, idx)
+	case .IMod:
+		write_call(e, "rt.imod", {arg(ins, 1), arg(ins, 2)}, idx)
+	case .StrCat:
+		write_call(e, "rt.concat", {arg(ins, 1), arg(ins, 2)}, idx)
+	case .Cast:
+		write_call(e, "rt.cast", {arg(ins, 1)}, idx)
+	case .ArrayLength:
+		write_call(e, "rt.alen", {arg(ins, 1)}, idx)
+
+	case .Not:
+		sbprint(e, "not ")
+		write_read(e, arg(ins, 1), idx)
+	case .INeg, .FNeg:
+		sbprint(e, "-")
+		write_read(e, arg(ins, 1), idx)
+	case .Assign:
+		write_read(e, arg(ins, 1), idx)
+	}
+}
+
+// write_read renders one value in a READ position. When T2 folded the instruction that
+// defined it, the definition's expression goes here instead.
+@(private)
+write_read :: proc(e: ^Emitter, v: pex.Value, at: int) {
+	if v.kind == .Identifier {
+		if def, ok := find_def(e, v.str, at); ok {
+			ins := e.fn.instructions[def]
+			paren := needs_parens(ins.op)
+			if paren {
+				sbprint(e, "(")
+			}
+			write_rhs(e, def, ins)
+			if paren {
+				sbprint(e, ")")
+			}
+			e.stats.inlined += 1
+			return
+		}
+	}
+	write_value(e, v)
+}
+
+// find_def looks back through the current block for the folded definition of `name`. A live
+// write to the name ends the search — that value was not folded.
+@(private)
+find_def :: proc(e: ^Emitter, name: string, at: int) -> (def: int, ok: bool) {
+	if e.fn == nil || e.dropped == nil || at <= 0 || at >= len(e.fn.instructions) {
+		return 0, false
+	}
+	for k := at - 1; k >= e.block_lo[at]; k -= 1 {
+		ins := e.fn.instructions[k]
+		if e.dropped[k] {
+			if d, dok := dest_ident(ins); dok && d == name {
+				return k, true
+			}
+			continue
+		}
+		if writes_name(ins, name) {
+			return 0, false
+		}
+	}
+	return 0, false
 }
 
 @(private)
-write_assign_call :: proc(e: ^Emitter, dest: pex.Value, fn: string, args: []pex.Value) {
-	write_value(e, dest)
-	sbprint(e, " = ")
+write_binary :: proc(e: ^Emitter, ins: pex.Instruction, op: string, idx: int) {
+	write_read(e, arg(ins, 1), idx)
+	sbprint(e, " ")
+	sbprint(e, op)
+	sbprint(e, " ")
+	write_read(e, arg(ins, 2), idx)
+}
+
+@(private)
+write_call :: proc(e: ^Emitter, fn: string, args: []pex.Value, idx: int) {
 	sbprint(e, fn)
 	sbprint(e, "(")
 	for a, i in args {
 		if i > 0 {
 			sbprint(e, ", ")
 		}
-		write_value(e, a)
+		write_read(e, a, idx)
 	}
 	sbprint(e, ")")
+}
+
+@(private)
+write_assign_call :: proc(
+	e: ^Emitter,
+	dest: pex.Value,
+	fn: string,
+	args: []pex.Value,
+	idx: int,
+) {
+	write_value(e, dest)
+	sbprint(e, " = ")
+	write_call(e, fn, args, idx)
 }
 
 // write_call_dest writes the `dest = ` prefix, or nothing when the call's result goes to the
@@ -217,9 +279,9 @@ write_call_dest :: proc(e: ^Emitter, dest: pex.Value) {
 
 // write_rest writes the variadic call arguments that follow the fixed prefix.
 @(private)
-write_rest :: proc(e: ^Emitter, ins: pex.Instruction, from: int) {
+write_rest :: proc(e: ^Emitter, ins: pex.Instruction, from: int, idx: int) {
 	for i in from ..< len(ins.args) {
 		sbprint(e, ", ")
-		write_value(e, ins.args[i])
+		write_read(e, ins.args[i], idx)
 	}
 }
