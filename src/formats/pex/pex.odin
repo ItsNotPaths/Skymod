@@ -2,9 +2,10 @@ package pex
 
 // PEX (compiled Papyrus) reader — Phase 4 scripting, the script registry's first
 // deliverable (see the phase4-scripting-plan memory + docs/saves.md lineage).
-// Target: Skyrim Legendary Edition `.pex` — BIG-ENDIAN, magic 0xFA57C0DE,
-// major 3 / minor 1 / game 1. (Fallout 4 `.pex` are little-endian minor 2 with
-// extra debug tables — out of scope.)
+// Target: Skyrim `.pex`, both editions — BIG-ENDIAN, magic 0xFA57C0DE, major 3,
+// game 1. The minor version does not identify the edition: LE's Misc.bsa is 3.1, LE's
+// DLC and all of SE are 3.2, and the layout is the same. (Fallout 4 `.pex` are
+// little-endian with extra debug tables — out of scope.)
 //
 // This is a pure structural reader, no engine deps: header → string table →
 // (optional) debug info → user flags → objects {variables, properties, states →
@@ -385,7 +386,7 @@ free_function :: proc(f: ^Function) {
 }
 
 // ── Reader (big-endian) ──────────────────────────────────────────────────────
-// Mirrors formats/nif's Reader idiom; flips endianness to .Big (Skyrim LE PEX).
+// Mirrors formats/nif's Reader idiom; flips endianness to .Big (Skyrim PEX).
 
 Reader :: struct {
 	data: []u8,

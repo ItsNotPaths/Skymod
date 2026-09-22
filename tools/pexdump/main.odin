@@ -11,16 +11,19 @@ package main
 //   odin run tools/pexdump -- <archive.bsa> --sigs    # + dump every native signature
 //   odin run tools/pexdump -- <archive.bsa> --top N   # top-N call targets (default 40)
 //   odin run tools/pexdump -- <archive.bsa> --dis <script>  # disassemble one script's bytecode
+//   odin run tools/pexdump -- --emit-manifest <LE root> <SE root>  # regenerate the native manifest
 //
 // No SDL — pure formats code, runs headless.
 
 import "core:fmt"
 import "core:os"
+import "core:path/filepath"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "../../src/formats/bsa"
 import "../../src/formats/pex"
+import "../../src/installer"
 
 main :: proc() {
 	if len(os.args) < 2 {
@@ -32,8 +35,8 @@ main :: proc() {
 	for a, i in os.args {
 		if a == "--dis" && i + 1 < len(os.args) {dis_name = os.args[i + 1]}
 	}
-	if slice.contains(os.args, "--emit-manifest") {
-		emit_manifest(path) // generates src/script/natives_manifest.odin on stdout
+	if path == "--emit-manifest" {
+		emit_manifest(os.args[2:]) // generates src/script/natives_manifest.odin on stdout
 	} else if dis_name != "" {
 		dis_mode(path, dis_name)
 	} else if strings.has_suffix(strings.to_lower(path, context.temp_allocator), ".bsa") {
@@ -56,41 +59,34 @@ Mentry :: struct {
 	nparams:   int,
 	is_global: bool,
 	latent:    bool,
+	editions:  bit_set[installer.Edition],
 }
 
-emit_manifest :: proc(path: string) {
-	arc, ok := bsa.open(path)
-	if !ok {
-		fmt.eprintfln("failed to open BSA: %s", path)
+emit_manifest :: proc(roots: []string) {
+	seen := make(map[string]Mentry) // lower "class.fn" -> first declaration seen (heap-owned strings)
+	have: bit_set[installer.Edition]
+	mismatches := 0
+	for root in roots {
+		ed, _ := installer.detect_edition(root)
+		if ed == .Unknown {
+			fmt.eprintfln("not a Skyrim install (no TESV.exe or SkyrimSE.exe): %s", root)
+			os.exit(1)
+		}
+		have += {ed}
+		// Heap, not temp: scan_natives frees temp per file.
+		pattern, _ := filepath.join({root, "Data", "*.bsa"})
+		bsas, _ := filepath.glob(pattern)
+		for path in bsas {
+			mismatches += scan_natives(path, ed, &seen)
+		}
+	}
+	if have != {.LE, .SE} {
+		fmt.eprintln("emit-manifest needs one LE root and one SE root, or the edition tags are wrong")
 		os.exit(1)
 	}
-	defer bsa.close(&arc)
-
-	seen := make(map[string]Mentry) // lower "class.fn" -> canonical entry (heap-owned strings)
-	for e in arc.entries {
-		lower := strings.to_lower(e.path, context.temp_allocator)
-		if !strings.has_prefix(lower, "scripts\\") || !strings.has_suffix(lower, ".pex") {
-			continue
-		}
-		data, xok := bsa.extract(&arc, e, context.temp_allocator)
-		if !xok {free_all(context.temp_allocator);continue}
-		p, pok := pex.parse(data, context.temp_allocator)
-		if !pok {free_all(context.temp_allocator);continue}
-
-		for s in pex.collect_signatures(&p, context.temp_allocator) {
-			if !s.is_native {continue}
-			k := strings.to_lower(fmt.tprintf("%s.%s", s.class, s.fn), context.temp_allocator)
-			if k in seen {continue}
-			seen[strings.clone(k)] = Mentry {
-				class     = strings.clone(s.class),
-				fn        = strings.clone(s.fn),
-				ret       = strings.clone(s.ret),
-				nparams   = s.nparams,
-				is_global = s.is_global,
-				latent    = pex.is_latent(s.class, s.fn),
-			}
-		}
-		free_all(context.temp_allocator)
+	if mismatches > 0 {
+		fmt.eprintfln("emit-manifest: %d natives are declared differently by LE and SE", mismatches)
+		os.exit(1)
 	}
 
 	list := make([dynamic]Mentry, 0, len(seen))
@@ -105,10 +101,11 @@ emit_manifest :: proc(path: string) {
 	fmt.eprintfln("emit-manifest: %d distinct natives", len(list))
 	fmt.println("package script")
 	fmt.println()
-	fmt.println("// GENERATED — DO NOT EDIT BY HAND. The native API surface declared by base-game")
-	fmt.println("// scripts (Skyrim - Misc.bsa): identifier + type names only (facts — proc names")
-	fmt.println("// aren't copyrightable), bodies reimplemented in natives.odin. Regenerate with:")
-	fmt.println("//   odin run tools/pexdump -- \"<...>/Skyrim - Misc.bsa\" --emit-manifest > src/script/natives_manifest.odin")
+	fmt.println("// GENERATED — DO NOT EDIT BY HAND. The native API surface declared by the base-game")
+	fmt.println("// scripts of LE and SE together: identifier + type names only (facts — proc names")
+	fmt.println("// aren't copyrightable), bodies reimplemented in natives.odin. A trailing comment")
+	fmt.println("// marks a native only one edition declares. Regenerate with:")
+	fmt.println("//   odin run tools/pexdump -- --emit-manifest <LE root> <SE root> > src/script/natives_manifest.odin")
 	fmt.println()
 	fmt.println("@(rodata)")
 	fmt.println("native_manifest := []Manifest_Entry{")
@@ -117,9 +114,57 @@ emit_manifest :: proc(path: string) {
 		// directive opener); identifiers carry no quotes, so manual quoting is safe.
 		fmt.print("\t{")
 		fmt.printf("\"%s\", \"%s\", \"%s\", %d, %v, %v", e.class, e.fn, e.ret, e.nparams, e.is_global, e.latent)
-		fmt.println("},")
+		fmt.print("},")
+		if e.editions != {.LE, .SE} {
+			fmt.printf(" // %v only", e.editions == {.LE} ? "LE" : "SE")
+		}
+		fmt.println()
 	}
 	fmt.println("}")
+}
+
+// scan_natives adds every native one archive declares to `seen`, tagged with its edition.
+// Returns how many disagree in signature with an earlier declaration.
+scan_natives :: proc(path: string, ed: installer.Edition, seen: ^map[string]Mentry) -> (mismatches: int) {
+	arc, ok := bsa.open(path)
+	if !ok {
+		fmt.eprintfln("failed to open BSA: %s", path)
+		os.exit(1)
+	}
+	defer bsa.close(&arc)
+
+	for e in arc.entries {
+		defer free_all(context.temp_allocator)
+		lower := strings.to_lower(e.path, context.temp_allocator)
+		if !strings.has_prefix(lower, "scripts\\") || !strings.has_suffix(lower, ".pex") {continue}
+		data, xok := bsa.extract(&arc, e, context.temp_allocator)
+		if !xok {continue}
+		p, pok := pex.parse(data, context.temp_allocator)
+		if !pok {continue}
+
+		for s in pex.collect_signatures(&p, context.temp_allocator) {
+			if !s.is_native {continue}
+			k := strings.to_lower(fmt.tprintf("%s.%s", s.class, s.fn), context.temp_allocator)
+			if prev, found := &seen[k]; found {
+				prev.editions += {ed}
+				if !strings.equal_fold(prev.ret, s.ret) || prev.nparams != s.nparams || prev.is_global != s.is_global {
+					fmt.eprintfln("signature mismatch: %s.%s (%s)", s.class, s.fn, path)
+					mismatches += 1
+				}
+				continue
+			}
+			seen[strings.clone(k)] = Mentry {
+				class     = strings.clone(s.class),
+				fn        = strings.clone(s.fn),
+				ret       = strings.clone(s.ret),
+				nparams   = s.nparams,
+				is_global = s.is_global,
+				latent    = pex.is_latent(s.class, s.fn),
+				editions  = {ed},
+			}
+		}
+	}
+	return
 }
 
 // ── single .pex ──────────────────────────────────────────────────────────────

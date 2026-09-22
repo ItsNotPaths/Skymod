@@ -9,7 +9,8 @@ package main
 //   odin run tools/pex2lua -- <...> --no-inline                 # stop at T1 (diff vs T2)
 //   odin run tools/pex2lua -- <...> --overrides <file>          # hand-written Lua registry
 //
-// The corpus harness: point it at Skyrim - Misc.bsa, then check every emitted file with
+// The corpus harness: point it at SE's Skyrim - Misc.bsa (LE splits the same corpus over
+// Misc + the three DLC archives), then check every emitted file with
 // `luac -p`. Whole-corpus numbers live in docs/papyrus-transpiler.md.
 //
 // No SDL — pure formats code, runs headless.

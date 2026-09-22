@@ -1,9 +1,10 @@
 package script
 
-// GENERATED — DO NOT EDIT BY HAND. The native API surface declared by base-game
-// scripts (Skyrim - Misc.bsa): identifier + type names only (facts — proc names
-// aren't copyrightable), bodies reimplemented in natives.odin. Regenerate with:
-//   odin run tools/pexdump -- "<...>/Skyrim - Misc.bsa" --emit-manifest > src/script/natives_manifest.odin
+// GENERATED — DO NOT EDIT BY HAND. The native API surface declared by the base-game
+// scripts of LE and SE together: identifier + type names only (facts — proc names
+// aren't copyrightable), bodies reimplemented in natives.odin. A trailing comment
+// marks a native only one edition declares. Regenerate with:
+//   odin run tools/pexdump -- --emit-manifest <LE root> <SE root> > src/script/natives_manifest.odin
 
 @(rodata)
 native_manifest := []Manifest_Entry{
@@ -68,6 +69,7 @@ native_manifest := []Manifest_Entry{
 	{"Actor", "ForceTargetDirection", "NONE", 3, false, false},
 	{"Actor", "ForceTargetSpeed", "NONE", 1, false, false},
 	{"Actor", "GetActorValue", "float", 1, false, false},
+	{"Actor", "GetActorValueMax", "Float", 1, false, false}, // SE only
 	{"Actor", "GetActorValuePercentage", "float", 1, false, false},
 	{"Actor", "GetBaseActorValue", "float", 1, false, false},
 	{"Actor", "GetBribeAmount", "int", 0, false, false},
@@ -76,6 +78,7 @@ native_manifest := []Manifest_Entry{
 	{"Actor", "GetCrimeFaction", "Faction", 0, false, false},
 	{"Actor", "GetCurrentPackage", "Package", 0, false, false},
 	{"Actor", "GetDialogueTarget", "Actor", 0, false, false},
+	{"Actor", "GetEquippedArmorInSlot", "Armor", 1, false, false}, // SE only
 	{"Actor", "GetEquippedItemType", "int", 1, false, false},
 	{"Actor", "GetEquippedShield", "Armor", 0, false, false},
 	{"Actor", "GetEquippedShout", "Shout", 0, false, false},
@@ -99,6 +102,7 @@ native_manifest := []Manifest_Entry{
 	{"Actor", "GetSitState", "int", 0, false, false},
 	{"Actor", "GetSleepState", "int", 0, false, false},
 	{"Actor", "GetVoiceRecoveryTime", "float", 0, false, false},
+	{"Actor", "GetWarmthRating", "Float", 0, false, false}, // SE only
 	{"Actor", "HasAssociation", "bool", 2, false, false},
 	{"Actor", "HasFamilyRelationship", "bool", 1, false, false},
 	{"Actor", "HasLOS", "bool", 1, false, false},
@@ -131,6 +135,7 @@ native_manifest := []Manifest_Entry{
 	{"Actor", "IsInKillMove", "bool", 0, false, false},
 	{"Actor", "IsIntimidated", "bool", 0, false, false},
 	{"Actor", "IsOnMount", "bool", 0, false, false},
+	{"Actor", "IsOverEncumbered", "Bool", 0, false, false}, // SE only
 	{"Actor", "IsPlayersLastRiddenHorse", "bool", 0, false, false},
 	{"Actor", "IsPlayerTeammate", "bool", 0, false, false},
 	{"Actor", "IsRunning", "bool", 0, false, false},
@@ -159,7 +164,9 @@ native_manifest := []Manifest_Entry{
 	{"Actor", "RestoreActorValue", "NONE", 2, false, false},
 	{"Actor", "Resurrect", "NONE", 0, false, false},
 	{"Actor", "SendAssaultAlarm", "NONE", 0, false, false},
+	{"Actor", "SendLycanthropyStateChanged", "None", 1, false, false}, // SE only
 	{"Actor", "SendTrespassAlarm", "NONE", 1, false, false},
+	{"Actor", "SendVampirismStateChanged", "None", 1, false, false}, // SE only
 	{"Actor", "SetActorValue", "NONE", 2, false, false},
 	{"Actor", "SetAlert", "NONE", 1, false, false},
 	{"Actor", "SetAllowFlying", "NONE", 1, false, false},
@@ -242,6 +249,7 @@ native_manifest := []Manifest_Entry{
 	{"Alias", "UnregisterForTrackedStatsEvent", "None", 0, false, false},
 	{"Alias", "UnregisterForUpdate", "None", 0, false, false},
 	{"Alias", "UnregisterForUpdateGameTime", "None", 0, false, false},
+	{"Armor", "GetWarmthRating", "Float", 0, false, false}, // SE only
 	{"Cell", "GetActorOwner", "ActorBase", 0, false, false},
 	{"Cell", "GetFactionOwner", "Faction", 0, false, false},
 	{"Cell", "IsAttached", "bool", 0, false, false},
@@ -437,6 +445,7 @@ native_manifest := []Manifest_Entry{
 	{"LeveledItem", "Revert", "NONE", 0, false, false},
 	{"LeveledSpell", "AddForm", "NONE", 2, false, false},
 	{"LeveledSpell", "Revert", "NONE", 0, false, false},
+	{"Light", "GetWarmthRating", "Float", 0, false, false}, // SE only
 	{"Location", "GetKeywordData", "float", 1, false, false},
 	{"Location", "GetRefTypeAliveCount", "int", 1, false, false},
 	{"Location", "GetRefTypeDeadCount", "int", 1, false, false},
@@ -491,6 +500,7 @@ native_manifest := []Manifest_Entry{
 	{"ObjectReference", "ForceAddRagdollToWorld", "NONE", 0, false, false},
 	{"ObjectReference", "ForceRemoveRagdollFromWorld", "NONE", 0, false, false},
 	{"ObjectReference", "GetActorOwner", "ActorBase", 0, false, false},
+	{"ObjectReference", "GetAllItemsCount", "Int", 0, false, false}, // SE only
 	{"ObjectReference", "GetAngleX", "float", 0, false, false},
 	{"ObjectReference", "GetAngleY", "float", 0, false, false},
 	{"ObjectReference", "GetAngleZ", "float", 0, false, false},
@@ -532,6 +542,7 @@ native_manifest := []Manifest_Entry{
 	{"ObjectReference", "Is3DLoaded", "bool", 0, false, false},
 	{"ObjectReference", "IsActivateChild", "bool", 1, false, false},
 	{"ObjectReference", "IsActivationBlocked", "bool", 0, false, false},
+	{"ObjectReference", "IsContainerEmpty", "Bool", 0, false, false}, // SE only
 	{"ObjectReference", "IsDeleted", "bool", 0, false, false},
 	{"ObjectReference", "IsDisabled", "bool", 0, false, false},
 	{"ObjectReference", "IsFurnitureInUse", "bool", 1, false, false},
@@ -560,6 +571,7 @@ native_manifest := []Manifest_Entry{
 	{"ObjectReference", "PushActorAway", "NONE", 2, false, false},
 	{"ObjectReference", "RemoveAllInventoryEventFilters", "NONE", 0, false, false},
 	{"ObjectReference", "RemoveAllItems", "NONE", 3, false, false},
+	{"ObjectReference", "RemoveAllStolenItems", "None", 1, false, false}, // SE only
 	{"ObjectReference", "RemoveDependentAnimatedObjectReference", "bool", 1, false, false},
 	{"ObjectReference", "RemoveInventoryEventFilter", "NONE", 1, false, false},
 	{"ObjectReference", "RemoveItem", "NONE", 4, false, false},
@@ -572,6 +584,7 @@ native_manifest := []Manifest_Entry{
 	{"ObjectReference", "SetAnimationVariableBool", "NONE", 2, false, false},
 	{"ObjectReference", "SetAnimationVariableFloat", "NONE", 2, false, false},
 	{"ObjectReference", "SetAnimationVariableInt", "NONE", 2, false, false},
+	{"ObjectReference", "SetContainerAllowStolenItems", "None", 1, false, false}, // SE only
 	{"ObjectReference", "SetDestroyed", "NONE", 1, false, false},
 	{"ObjectReference", "SetFactionOwner", "NONE", 1, false, false},
 	{"ObjectReference", "SetLockLevel", "NONE", 1, false, false},

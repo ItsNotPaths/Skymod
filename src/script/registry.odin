@@ -10,7 +10,7 @@ package script
 // Writes go through the Phase-3 worldstate overlay (set_disabled/set_moved/…);
 // reads resolve baseline (gamedb) ⊕ overlay. Forms are the wide Form_ID :: u64.
 //
-// The full declared API surface (the 674 base-game natives) is
+// The full declared API surface (the 686 natives LE and SE declare together) is
 // auto-stubbed from the generated native_manifest: an unimplemented-but-declared call
 // type-checks, logs once, and returns the zero of its declared type — it never crashes.
 // Only the call-frequency hot set (see natives.odin) has real bodies; the long tail
