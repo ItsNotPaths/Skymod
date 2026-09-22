@@ -40,6 +40,9 @@ for pkg in "${pkgs[@]}"; do
     fi
 done
 
+echo "==> architecture skeleton (docs/skeleton.md)"
+"$ROOT/build/skeleton.sh"
+
 # src/transpile must stay liftable into its own repo: core:* and formats/pex, nothing else
 # (docs/papyrus-transpiler.md, "The detachable contract").
 echo "==> transpile detachability"

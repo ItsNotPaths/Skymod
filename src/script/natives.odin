@@ -11,9 +11,12 @@ import "core:log"
 import "../gamedb"
 import smath "../math"
 // HOLE(audio, blocker): Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
+// HOLE(audio, blocker): the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
 // HOLE(vfx, blocker): EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // HOLE(animation, blocker): PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
+// HOLE(animation, blocker): the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 // HOLE(ai, blocker): Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
+// HOLE(ai, blocker): the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 // HOLE(magic, blocker): Cast/AddSpell/RemoveSpell — MGEF records indexed, the subsystem that applies them is not.
 
 import "../worldstate"
