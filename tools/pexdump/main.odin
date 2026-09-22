@@ -55,6 +55,7 @@ Mentry :: struct {
 	ret:       string,
 	nparams:   int,
 	is_global: bool,
+	latent:    bool,
 }
 
 emit_manifest :: proc(path: string) {
@@ -86,6 +87,7 @@ emit_manifest :: proc(path: string) {
 				ret       = strings.clone(s.ret),
 				nparams   = s.nparams,
 				is_global = s.is_global,
+				latent    = pex.is_latent(s.class, s.fn),
 			}
 		}
 		free_all(context.temp_allocator)
@@ -114,7 +116,7 @@ emit_manifest :: proc(path: string) {
 		// Braces are emitted via plain print (fmt's format strings treat '{' as a
 		// directive opener); identifiers carry no quotes, so manual quoting is safe.
 		fmt.print("\t{")
-		fmt.printf("\"%s\", \"%s\", \"%s\", %d, %v", e.class, e.fn, e.ret, e.nparams, e.is_global)
+		fmt.printf("\"%s\", \"%s\", \"%s\", %d, %v, %v", e.class, e.fn, e.ret, e.nparams, e.is_global, e.latent)
 		fmt.println("},")
 	}
 	fmt.println("}")

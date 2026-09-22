@@ -100,9 +100,13 @@ test_registry_unimplemented_and_unknown :: proc(t: ^testing.T) {
 	old := context.logger
 	context.logger = log.nil_logger()
 
-	// Declared-but-unimplemented returns None (nil) and does not crash.
+	// Declared-but-unimplemented returns its declared type's zero; None only for objects.
 	r1 := script.call(&reg, "Actor", "GetActorValue", &c, []script.Value{"Health"})
-	testing.expect(t, r1 == nil, "unimplemented -> None")
+	testing.expect_value(t, r1.(f32), f32(0))
+	testing.expect_value(t, script.call(&reg, "Actor", "CanFlyHere", &c, nil).(bool), false)
+	testing.expect(t, script.call(&reg, "Actor", "GetCombatTarget", &c, nil) == nil, "object stub -> None")
+	testing.expect(t, reg.declared["utility.wait"].latent, "Wait is latent")
+	testing.expect(t, !reg.declared["actor.canflyhere"].latent, "CanFlyHere is not latent")
 
 	// Unknown native (not in the manifest) also returns None (logs an error).
 	r2 := script.call(&reg, "TotallyNotAClass", "Nope", &c, nil)

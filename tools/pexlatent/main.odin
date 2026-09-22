@@ -29,12 +29,14 @@ import "core:strings"
 import "../../src/formats/bsa"
 import "../../src/formats/pex"
 
-// Latent natives in the LE base API (CK-documented suspension points). Static calls
-// are matched as class.fn; instance calls by method name alone (receiver typing is
-// irrelevant to suspension). The "wait"-substring report at the end sanity-checks
-// this set against the corpus.
-LATENT_STATIC := []string{"utility.wait", "utility.waitmenumode", "utility.waitgametime", "debug.centeroncellandwait"}
-LATENT_METHOD := []string{"playanimationandwait", "pathtoreference", "waitforanimationevent", "sendstoryeventandwait"}
+// The latent set is pex.LATENT_GLOBALS / LATENT_METHODS. The "wait"-substring report
+// at the end sanity-checks it against the corpus.
+is_latent_method_name :: proc(name: string) -> bool {
+	for k in pex.LATENT_METHODS {
+		if k[strings.index_byte(k, '.') + 1:] == name {return true}
+	}
+	return false
+}
 
 REGISTER_FNS := []string{"registerforupdate", "registerforsingleupdate", "registerforupdategametime", "registerforsingleupdategametime"}
 
@@ -232,7 +234,7 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			name := strings.to_lower(ins.args[1].str, context.temp_allocator)
 			tgt := fmt.tprintf("%s.%s", cls, name)
 			tally_wait_name(c, tgt, name)
-			if slice.contains(LATENT_STATIC, tgt) {
+			if slice.contains(pex.LATENT_GLOBALS, tgt) {
 				n.direct_sites += 1
 				if in_loop(loops, idx) {n.sites_loop += 1}
 				if len(ins.args) > 3 && (ins.args[3].kind == .Float || ins.args[3].kind == .Integer) {
@@ -245,7 +247,7 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			if len(ins.args) < 3 {continue}
 			name := strings.to_lower(ins.args[0].str, context.temp_allocator)
 			tally_wait_name(c, name, name)
-			if slice.contains(LATENT_METHOD, name) {
+			if is_latent_method_name(name) {
 				n.direct_sites += 1
 				if in_loop(loops, idx) {n.sites_loop += 1}
 				continue

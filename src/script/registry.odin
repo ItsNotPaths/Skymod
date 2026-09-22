@@ -10,13 +10,11 @@ package script
 // Writes go through the Phase-3 worldstate overlay (set_disabled/set_moved/…);
 // reads resolve baseline (gamedb) ⊕ overlay. Forms are the wide Form_ID :: u64.
 //
-// The full declared API surface (the 674 base-game natives) is auto-stubbed from
-// the generated native_manifest: an unimplemented-but-declared call type-checks,
-// logs once, and returns None — it never crashes. Only the call-frequency hot set
-// (see natives.odin) has real bodies; the long tail stays stubbed until needed.
-
-// HOLE(script, blocker): 594 of 674 natives are auto-stubbed and every stub returns None whatever its declared type — a bool stub reads TRUTHY in Lua and inverts its caller's guard. 6,101 call sites consume one. Return Manifest_Entry.ret's zero instead.
-// HOLE(script, blocker): Manifest_Entry has no `latent` field, so conversion cannot refuse what it cannot identify. The list lives as 8 hand-written names in tools/pexlatent.
+// The full declared API surface (the 674 base-game natives) is
+// auto-stubbed from the generated native_manifest: an unimplemented-but-declared call
+// type-checks, logs once, and returns the zero of its declared type — it never crashes.
+// Only the call-frequency hot set (see natives.odin) has real bodies; the long tail
+// stays stubbed until needed.
 
 import "base:runtime"
 import "core:log"
@@ -48,6 +46,7 @@ Manifest_Entry :: struct {
 	ret:       string,
 	nparams:   int,
 	is_global: bool,
+	latent:    bool, // suspends the caller (pex.LATENT_GLOBALS / LATENT_METHODS)
 }
 
 // Key is a lower-cased "class.fn" (Papyrus identifiers are case-insensitive, so
@@ -100,7 +99,7 @@ register :: proc(reg: ^Registry, class, fn: string, impl: Native) {
 }
 
 // call dispatches one native invocation. Three outcomes: implemented → invoke;
-// declared-but-unimplemented → log once + return None; unknown → log an error
+// declared-but-unimplemented → log once + return the declared type's zero; unknown → log an error
 // (a real bug — a call to something the base game never declared).
 call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Value {
 	c.reg = reg
@@ -111,11 +110,23 @@ call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Valu
 	if e, ok := reg.declared[k]; ok {
 		if k not_in reg.warned {
 			reg.warned[key_own(class, fn, reg.allocator)] = true
-			log.warnf("script: unimplemented native %s.%s -> None", e.class, e.fn)
+			log.warnf("script: unimplemented native %s.%s -> %s zero", e.class, e.fn, e.ret)
 		}
-		return nil
+		return zero_of(e.ret)
 	}
 	log.errorf("script: unknown native %s.%s (not in the declared manifest)", class, fn)
+	return nil
+}
+
+// zero_of is a stub's return. Object types stay None, which is their real zero;
+// a None for bool would reach Lua as the truthy None sentinel.
+zero_of :: proc(type_name: string) -> Value {
+	switch strings.to_lower(type_name, context.temp_allocator) {
+	case "bool":   return false
+	case "int":    return i32(0)
+	case "float":  return f32(0)
+	case "string": return ""
+	}
 	return nil
 }
 

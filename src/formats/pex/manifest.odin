@@ -21,6 +21,24 @@ Signature :: struct {
 	is_native: bool,
 }
 
+// Natives that suspend the calling script (CK-documented), lower "class.fn".
+// Globals are called statically; methods are matched by name, since receiver typing
+// does not change whether a call suspends.
+LATENT_GLOBALS := []string{"utility.wait", "utility.waitmenumode", "utility.waitgametime", "debug.centeroncellandwait"}
+LATENT_METHODS := []string{
+	"objectreference.playanimationandwait",
+	"actor.pathtoreference",
+	"objectreference.waitforanimationevent",
+	"keyword.sendstoryeventandwait",
+}
+
+is_latent :: proc(class, fn: string) -> bool {
+	key := strings.to_lower(strings.concatenate({class, ".", fn}, context.temp_allocator), context.temp_allocator)
+	for k in LATENT_GLOBALS {if k == key {return true}}
+	for k in LATENT_METHODS {if k == key {return true}}
+	return false
+}
+
 // collect_signatures emits one Signature per named function across every object
 // and state. Strings ALIAS the Pex string table — valid only while `p` lives; the
 // caller must clone anything it keeps past destroy(p). (pexdump uses these only
