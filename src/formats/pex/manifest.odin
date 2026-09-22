@@ -21,9 +21,10 @@ Signature :: struct {
 	is_native: bool,
 }
 
-// Natives that suspend the calling script (CK-documented), lower "class.fn".
-// Globals are called statically; methods are matched by name, since receiver typing
-// does not change whether a call suspends.
+// Natives that suspend the calling script, lower "class.fn". Globals are called
+// statically; methods are matched by name, since receiver typing does not change
+// whether a call suspends.
+// HOLE(script, gap): 8 of the 19 natives docs/natives-classified.tsv marks blocking; Message.Show, Quest.Start, Sound.PlayAndWait and 8 more are missing, so the manifest's latent flag and every pexlatent closure count undercount.
 LATENT_GLOBALS := []string{"utility.wait", "utility.waitmenumode", "utility.waitgametime", "debug.centeroncellandwait"}
 LATENT_METHODS := []string{
 	"objectreference.playanimationandwait",
