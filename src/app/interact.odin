@@ -21,6 +21,9 @@ import "../input"
 import "../physics"
 import "../render"
 
+// HOLE(ui, gap): the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
+// HOLE(dialogue, blocker): activating an actor logs a line. No topic tree, no voice, no menu.
+
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a
 // normal tap-to-collect never trips it.

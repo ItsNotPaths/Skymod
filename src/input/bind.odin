@@ -1,5 +1,6 @@
 package input
 
+// HOLE(input, gap): bindings are editable only by hand in settings.txt — there is no rebind screen.
 // Binding text <-> parsed gesture, the human-facing grammar that lives in settings.txt
 // and that the (later) rebind UI edits as railed text. Grammar for a Button action:
 //

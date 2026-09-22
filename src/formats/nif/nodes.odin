@@ -119,7 +119,10 @@ walk_node :: proc(
 	}
 	// The ROOT node's own local transform is the object's base placement, which the REFR
 	// transform supersedes — so ignore it (start its children at the parent/identity frame).
-	// Nearly every mesh's root is identity, so this is a no-op there; it matters for the rare
+	// HOLE(animation, blocker): no .hkx reader exists (src/formats has none), so even with a skeleton there is no clip data to sample.
+// HOLE(animation, gap): IDLE and ANIO are decoded by nothing — no idle graph, so nothing could choose which clip to play.
+// HOLE(animation, blocker): node transforms are read once and baked — no skeleton, no clip sampling, nothing plays a .hkx. Actors T-pose and every animated prop is frozen.
+// Nearly every mesh's root is identity, so this is a no-op there; it matters for the rare
 	// mesh that bakes a rotation onto the root (e.g. Clutter\CounterSet\CounterCornerIn01, root
 	// Rz+90 — applying it sent its corner the wrong way).
 	world := parent_world if is_root else parent_world * transform_to_mat4(info.transform)

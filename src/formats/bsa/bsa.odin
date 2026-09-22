@@ -48,7 +48,7 @@ FILE_REC      :: 16 // file record (both versions): u64 hash, u32 size, u32 offs
 // per-file `compressed` bool then says whether a given file uses it.
 Compression :: enum {
 	Zlib, // LE (v104)
-	LZ4,  // SE (v105) — not yet implemented (see decompress_lz4)
+	LZ4,  // SE (v105) — decompress_lz4 (frame + raw block)
 }
 
 // Entry is one indexed file: its path as stored in the archive (e.g.

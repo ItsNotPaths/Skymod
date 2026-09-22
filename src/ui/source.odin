@@ -29,10 +29,23 @@ EMBED_LOADING_MENU :: #load("lua/loading_menu.lua", string)
 @(private = "file")
 EMBED_HUD :: #load("lua/hud.lua", string)
 
+// Three screens exist: main menu, loading, HUD. Everything a player opens does not.
+//
+// HOLE(ui, blocker): no inventory screen — items can be added to a store but never seen, equipped or dropped.
+// HOLE(ui, blocker): no dialogue screen — no topic list, no response, no exit.
+// HOLE(ui, blocker): no container / barter screen — the two-pane transfer both looting and trading need.
+// HOLE(ui, gap): no journal — quest stages and objectives are tracked in worldstate and shown nowhere.
+// HOLE(ui, gap): no map — no world map, no local map, no fast-travel target.
+// HOLE(ui, gap): no magic screen — no spell list, no favourites, no equip slots.
+// HOLE(ui, gap): no crafting screen, which is also why CTDA-FN 659 cannot know which item is selected.
+// HOLE(ui, gap): no skills or level-up screen — worldstate.player_level is a constant 1.
+// HOLE(ui, gap): no console UI — the dev REPL is driven from app code, not a screen.
+//
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in
 // order — they install the constructor globals (container/text/button/box/bar/…).
 FRAMEWORK := [?]string{"lib/ui.lua", "widget/button.lua", "widget/box.lua", "widget/bar.lua", "widget/prompt.lua"}
 
+// HOLE(mods, gap): the app writes these to content/baseui/lua and loads them from disk, NOT through the VFS — so a mod cannot override the engine's own UI Lua.
 // EMBEDDED_FILES is every built-in UI lua file carried in the binary: the framework + the screens.
 // The app synthesizes these to content/baseui/lua each boot (the built-in UI mod).
 EMBEDDED_FILES := [?]string {

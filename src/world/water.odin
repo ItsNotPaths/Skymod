@@ -14,6 +14,8 @@ package world
 // Interiors are skipped for now (no grid footprint to size the quad to); flooded-dungeon
 // water is a later pass.
 
+// HOLE(world, gap): interiors get no water at all (no grid footprint to size the quad to), so every flooded dungeon is dry.
+
 import "../gamedb"
 import smath "../math"
 import "../render"

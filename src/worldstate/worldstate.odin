@@ -20,6 +20,8 @@ import smath "../math"
 // alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
 Form_ID :: u64
 
+// HOLE(world, blocker): no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour / GetCurrentGameTime have nothing to read.
+
 // Ref_Field mirrors Skyrim's ChangeForm `changeFlags`: which fields of a ref diverge from the
 // ESM. Every field has a set_* writer below; Inventory is tracked by the `inventories` store
 // instead (kept here so the on-disk bit layout stays stable). Open/Locked record state today —
@@ -34,6 +36,8 @@ Ref_Field :: enum u8 {
 	Dead,      // actor life-state
 	Deleted,   // ESM ref destroyed (streaming must suppress the baseline)
 }
+
+// HOLE(combat, blocker): `Dead` is a flag a script sets. Nothing computes it — there is no health value anywhere in the engine, no damage application, no hostility and no death path.
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as
@@ -496,6 +500,7 @@ inv_count :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	return 0
 }
 
+// HOLE(records, gap): the ESM baseline contents of a container are never indexed, so every inventory count here is a DELTA from an unknown start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
 // inv_clear empties owner's inventory overlay (RemoveAllItems' local half).
 inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
 	if inner, ok := &ws.inventories[owner]; ok {

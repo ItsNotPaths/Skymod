@@ -10,6 +10,12 @@ package script
 import "core:log"
 import "../gamedb"
 import smath "../math"
+// HOLE(audio, blocker): Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
+// HOLE(vfx, blocker): EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
+// HOLE(animation, blocker): PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
+// HOLE(ai, blocker): Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
+// HOLE(magic, blocker): Cast/AddSpell/RemoveSpell — MGEF records indexed, the subsystem that applies them is not.
+
 import "../worldstate"
 
 register_builtins :: proc(reg: ^Registry) {

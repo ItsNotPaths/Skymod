@@ -14,6 +14,7 @@ import "../input"
 input_frame :: proc(p: ^Platform) -> input.Frame {
 	f: input.Frame
 	f.now_ms = f64(sdl.GetTicks())
+	// HOLE(input, gap): the device never flips to .Gamepad — SDL pad polling is not wired, so a controller does nothing and the prompts always show keyboard art.
 	f.device = .Key_Mouse // TODO(input wave): flip to .Gamepad on pad activity
 
 	nkeys: c.int

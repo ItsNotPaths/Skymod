@@ -72,6 +72,7 @@ parse_fonts :: proc(file: []u8, allocator := context.allocator) -> []Font {
 	return out[:]
 }
 
+// HOLE(assets, gap): ZWS (lzma) SWFs fail outright — only raw and CWS (zlib) are read, so any lzma-packed menu asset is unreadable.
 // swf_body returns the uncompressed tag-body region (everything after the 8-byte signature header),
 // decompressing CWS (zlib). ZWS (lzma) is not yet supported.
 swf_body :: proc(file: []u8, allocator := context.allocator) -> ([]u8, bool) {

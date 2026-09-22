@@ -15,6 +15,9 @@ package script
 // logs once, and returns None — it never crashes. Only the call-frequency hot set
 // (see natives.odin) has real bodies; the long tail stays stubbed until needed.
 
+// HOLE(script, blocker): 594 of 674 natives are auto-stubbed and every stub returns None whatever its declared type — a bool stub reads TRUTHY in Lua and inverts its caller's guard. 6,101 call sites consume one. Return Manifest_Entry.ret's zero instead.
+// HOLE(script, blocker): Manifest_Entry has no `latent` field, so conversion cannot refuse what it cannot identify. The list lives as 8 hand-written names in tools/pexlatent.
+
 import "base:runtime"
 import "core:log"
 import "core:strings"

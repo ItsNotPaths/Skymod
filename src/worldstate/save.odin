@@ -17,6 +17,9 @@ package worldstate
 // zstd whole-section compression (§3.3) is deferred — Odin core ships no zstd; CBOR is stored raw
 // for now (the framing is compression-ready: just wrap each section's bytes before the CRC).
 
+// HOLE(save, gap): CBOR is stored raw — Odin core ships no zstd, so a save is several times larger than it needs to be. The framing is already compression-ready.
+// HOLE(save, gap): one flat quicksave slot and no per-character folders, so a second character overwrites the first.
+
 import "core:encoding/cbor"
 import "core:hash"
 import "core:os"

@@ -14,6 +14,7 @@ EFFECT_VERT_SPV :: #load("shaders/effect.vert.spv")
 EFFECT_FRAG_SPV :: #load("shaders/effect.frag.spv")
 HIGHLIGHT_FRAG_SPV :: #load("shaders/highlight.frag.spv")
 
+// HOLE(render, blocker): no skinned pipeline — Mesh_Vertex carries no bone indices or weights, and nif/nodes.odin pulls a skin partition for its TRIANGLES only, drawing the mesh in bind pose. No actor, creature, armour or banner can ever move.
 // Mesh_Vertex is the general vertex: position + normal + diffuse UV + tangent. The tangent
 // (xyz + w = bitangent handedness ±1) is the authored NIF tangent (or a derived fallback) for
 // tangent-space normal mapping; the fragment shader builds B = cross(N,T)·w.
@@ -265,6 +266,8 @@ make_highlight_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	return sdl.CreateGPUGraphicsPipeline(r.device, info)
 }
 
+// HOLE(vfx, blocker): the FX pipeline draws static additive geometry only — there is no particle system anywhere in src, so every emitter in a NIF is dropped. No fire, smoke, dust, magic or weather precipitation.
+// HOLE(vfx, gap): no decals — blood, scorch marks and impact hits have no surface to project onto.
 // make_effect_pipeline builds the FX pipeline: effect.vert (UV-scroll, 1 uniform buffer) +
 // effect.frag (1 sampler). ADDITIVE blend (SRC_ALPHA→ONE, the canonical Skyrim FX alpha)
 // with depth test but no depth WRITE, so flowing water / fire / light beams glow over the
