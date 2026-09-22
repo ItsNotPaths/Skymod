@@ -32,13 +32,16 @@ camera_forward :: proc(c: Camera) -> smath.Vec3 {
 	return {cp * math.cos(c.yaw), cp * math.sin(c.yaw), math.sin(c.pitch)}
 }
 
-// camera_update applies mouse look (when captured) and WASD/QE motion. `move` is
-// per-axis input in [-1,1]: x=forward, y=right, z=up. `look` is mouse delta px.
-camera_update :: proc(c: ^Camera, move: smath.Vec3, look: [2]f32, fast: bool, dt: f32) {
+// camera_look applies mouse look. `look` is mouse delta px. Aiming is not simulation — it
+// runs every rendered frame, never on the fixed tick, or the view quantizes to 60 Hz.
+camera_look :: proc(c: ^Camera, look: [2]f32) {
 	c.yaw -= look.x * LOOK_SENSITIVITY
-	c.pitch -= look.y * LOOK_SENSITIVITY
-	c.pitch = clamp(c.pitch, -PITCH_LIMIT, PITCH_LIMIT)
+	c.pitch = clamp(c.pitch - look.y * LOOK_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
+}
 
+// camera_fly moves the free camera. `move` is per-axis input in [-1,1]: x=forward, y=right,
+// z=up. No solver, so it runs at render rate and needs no interpolation.
+camera_fly :: proc(c: ^Camera, move: smath.Vec3, fast: bool, dt: f32) {
 	fwd := camera_forward(c^)
 	right := smath.normalize3(smath.cross3(fwd, {0, 0, 1}))
 	up := smath.Vec3{0, 0, 1}
@@ -46,6 +49,12 @@ camera_update :: proc(c: ^Camera, move: smath.Vec3, look: [2]f32, fast: bool, dt
 	c.pos += smath.scale3(fwd, move.x * step)
 	c.pos += smath.scale3(right, move.y * step)
 	c.pos += smath.scale3(up, move.z * step)
+}
+
+// camera_update is look + fly together, for the standalone test harnesses that have no tick loop.
+camera_update :: proc(c: ^Camera, move: smath.Vec3, look: [2]f32, fast: bool, dt: f32) {
+	camera_look(c, look)
+	camera_fly(c, move, fast, dt)
 }
 
 // camera_ray builds a world-space ray (origin at the eye) through a screen point given in

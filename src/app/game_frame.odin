@@ -5,6 +5,12 @@ package main
 // ordering constraints (scene select before locomotion so the capsule re-homes before it
 // moves; physics before draw; cull_begin before any draw pass; shadow before scene) — keep
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
+//
+// RATE. The frame runs at display rate; the SIMULATION does not (docs/short-term-plan.md §E).
+// game_tick — scene select, locomotion, physics, traversal — runs 0..MAX_TICKS_PER_FRAME times
+// per frame at a constant TICK_DT, and everything else (input, aiming, streaming, picking,
+// drawing) runs once per frame around it. What the frame draws is the last tick's state blended
+// forward by g.tick.alpha.
 
 import "core:log"
 import "core:math"
@@ -66,13 +72,25 @@ game_frame :: proc(g: ^Game) {
 		frame_overlay(g)
 		context.logger = g.logging.logger // re-read: the overlay's persist button adds a sink
 	}
-	frame_scene_select(g)
-	frame_locomotion(g)
+	frame_active_scene(g)
+	frame_look(g)
 	frame_debug_verbs(g)
+
+	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
+	// hand the loop a backlog it would spend the next several frames grinding through.
+	g.tick.accum += min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
+	for g.tick.accum >= TICK_DT {
+		g.tick.accum -= TICK_DT
+		g.tick.total += 1
+		g.prof.ticks += 1
+		game_tick(g)
+	}
+	g.tick.alpha = g.tick.accum / TICK_DT
+	if g.cur_phys != nil {physics.set_render_alpha(g.cur_phys, g.tick.alpha)}
+
+	frame_camera(g)
 	frame_persistence(g)
 	frame_stream(g)
-	frame_physics(g)
-	frame_traversal(g)
 	frame_inspect(g)
 	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
@@ -101,6 +119,17 @@ game_frame :: proc(g: ^Game) {
 	free_all(context.temp_allocator)
 }
 
+// game_tick is ONE fixed simulation step — everything whose outcome must not depend on the
+// display rate. Ordered as the frame used to be: scene select re-homes the capsule before it
+// moves, physics steps the world it moved in, traversal reads the position it ended at.
+@(private = "file")
+game_tick :: proc(g: ^Game) {
+	frame_scene_select(g)
+	tick_locomotion(g)
+	frame_physics(g)
+	frame_traversal(g)
+}
+
 // frame_diag emits the periodic memory/cache/leak probe + the frame-time profile (every ~3s).
 // Runs regardless of overlay visibility (it's a background crash trail, not a panel). Run with
 // --persist-logs to keep the trail across a crash: climbing RSS/cache = a leak; flat RSS at
@@ -126,8 +155,9 @@ frame_diag :: proc(g: ^Game) {
 	if g.prof.frames > 0 {
 		inv := 1.0 / f64(g.prof.frames)
 		log.infof(
-			"prof: frame=%.2fms stream=%.2f phys=%.2f render=%.2f (avg/%d frames)",
+			"prof: frame=%.2fms stream=%.2f phys=%.2f render=%.2f (avg/%d frames, %d sim ticks)",
 			g.prof.frame * inv, g.prof.stream * inv, g.prof.phys * inv, g.prof.render * inv, g.prof.frames,
+			g.prof.ticks,
 		)
 		// Render breakdown (ms): acquire = GPU-bound stall; the rest are CPU draw-submission
 		// per pass. If acquire ≫ passes, we're GPU-bound (fix = fewer/cheaper draws + verts);
@@ -249,12 +279,11 @@ frame_overlay :: proc(g: ^Game) {
 	}
 }
 
-// frame_scene_select decides which scene the player inhabits this frame + whether it's a
-// full-screen interior (the streamer is paused there), applies pending script scene-ops, and
-// re-homes the player capsule if the active physics world changed. Runs BEFORE locomotion so
-// the capsule re-homes into the active world before it's moved.
+// frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
+// interior (the streamer is paused there). Pure — no side effects — so the frame can call it
+// even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
 @(private = "file")
-frame_scene_select :: proc(g: ^Game) {
+frame_active_scene :: proc(g: ^Game) {
 	// The experimental open-interiors path keeps its own debug walk-in (`entered`); the base
 	// path is driven by the Traversal door navigator.
 	if g.interiors_on {
@@ -264,6 +293,14 @@ frame_scene_select :: proc(g: ^Game) {
 		g.fr.in_interior = g.trav.mode == .Interior
 		g.fr.active_scene = traversal_scene(&g.trav)
 	}
+}
+
+// frame_scene_select resolves the active scene, applies pending script scene-ops, and re-homes
+// the player capsule if the active physics world changed. First thing in the tick, so the
+// capsule re-homes into the active world before it's moved.
+@(private = "file")
+frame_scene_select :: proc(g: ^Game) {
+	frame_active_scene(g)
 	// Live pretty toggle: apply to the exterior + whichever scene we draw this frame (draw
 	// reads scene.pretty each frame, so this takes effect immediately).
 	g.scene.pretty = g.pretty
@@ -289,38 +326,55 @@ frame_scene_select :: proc(g: ^Game) {
 	}
 }
 
-// frame_locomotion reads input (minus whatever ImGui captured) and moves the player: capsule
-// walk (mouse look + camera-relative WASD, Shift sprint, Space jump) in whichever world the
-// capsule is homed to, or free-fly when no-clip / no capsule.
+// frame_look applies mouse look and latches what ImGui captured this frame. Aiming is not
+// simulation: it runs every rendered frame so the view can't quantize to the tick rate. The
+// tick reads the yaw it leaves behind to build the move direction.
 @(private = "file")
-frame_locomotion :: proc(g: ^Game) {
+frame_look :: proc(g: ^Game) {
 	g.fr.mouse_cap, g.fr.kb_cap = render.ui_capturing(&g.r)
-	move, look := g.p.input.move, g.p.input.look
-	if g.fr.kb_cap {move = {}}
-	if g.fr.mouse_cap {look = {}}
+	if !g.fr.mouse_cap {camera_look(&g.cam, g.p.input.look)}
+}
 
-	if input.fired(&g.imgr, "NoClip") {g.noclip = !g.noclip}
-	if g.char_ok && !g.noclip {
-		g.cam.yaw -= look.x * LOOK_SENSITIVITY
-		g.cam.pitch = clamp(g.cam.pitch - look.y * LOOK_SENSITIVITY, -PITCH_LIMIT, PITCH_LIMIT)
-		cy, sy := math.cos(g.cam.yaw), math.sin(g.cam.yaw)
-		dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
-		mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-		speed := SPRINT_SPEED if g.p.input.fast else RUN_SPEED
-		hv: [2]f32
-		if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
-		physics.character_move(g.cur_phys, &g.character, hv, move.z > 0.5, min(g.p.dt, f32(1.0 / 30.0)))
-		g.cam.pos = physics.character_position(&g.character) + {0, 0, EYE_HEIGHT}
-	} else {
-		camera_update(&g.cam, move, look, g.p.input.fast, g.p.dt)
-		if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)} // keep the body under the free camera
+// tick_locomotion walks the player capsule one fixed tick: camera-relative WASD at the current
+// yaw, Shift sprint, Space jump, in whichever world the capsule is homed to. Free-fly moves in
+// frame_camera instead — no solver, so it has nothing to keep deterministic.
+@(private = "file")
+tick_locomotion :: proc(g: ^Game) {
+	if !g.char_ok || g.noclip {
+		return
 	}
+	move := g.p.input.move
+	if g.fr.kb_cap {move = {}}
+	cy, sy := math.cos(g.cam.yaw), math.sin(g.cam.yaw)
+	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
+	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
+	speed := SPRINT_SPEED if g.p.input.fast else RUN_SPEED
+	hv: [2]f32
+	if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
+	physics.character_move(g.cur_phys, &g.character, hv, move.z > 0.5, TICK_DT)
+}
+
+// frame_camera puts the eye where this frame should see it: the capsule's position blended
+// across the tick the frame sits inside (walking looks smooth above 60 fps), or the free-fly
+// camera flown at render rate.
+@(private = "file")
+frame_camera :: proc(g: ^Game) {
+	if g.char_ok && !g.noclip {
+		g.cam.pos = physics.character_render_position(&g.character, g.tick.alpha) + {0, 0, EYE_HEIGHT}
+		return
+	}
+	move := g.p.input.move
+	if g.fr.kb_cap {move = {}}
+	camera_fly(&g.cam, move, g.p.input.fast, g.p.dt)
+	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)} // keep the body under the free camera
 }
 
 // frame_debug_verbs handles the physics-verification keys: G drop-test ball, K hitbox
 // wireframe toggle, H clutter shove.
 @(private = "file")
 frame_debug_verbs :: proc(g: ^Game) {
+	if input.fired(&g.imgr, "NoClip") {g.noclip = !g.noclip}
+
 	// Drop-test: G spawns a falling ball at the camera (physics verification). Exterior only —
 	// the markers read positions from `phys`, so a ball dropped inside an interior (a
 	// different world) wouldn't track; gate it to the exterior to avoid the confusion.
@@ -414,9 +468,10 @@ frame_stream :: proc(g: ^Game) {
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE
-// world (streamed exterior, or the interior cell) then advance THAT world's sim. dt clamped
-// so a hitch can't explode the step. Interiors prebuild their bodies on entry (enter_interior),
-// so sync_physics here is a no-op for them; the exterior keeps building as cells stream in.
+// world (streamed exterior, or the interior cell) then advance THAT world's sim by one fixed
+// TICK_DT — never a real dt, so the solver converges the same on every machine. Interiors
+// prebuild their bodies on entry (enter_interior), so sync_physics here is a no-op for them;
+// the exterior keeps building as cells stream in.
 @(private = "file")
 frame_physics :: proc(g: ^Game) {
 	t_phys := time.tick_now()
@@ -436,7 +491,7 @@ frame_physics :: proc(g: ^Game) {
 			ms_opt = time.duration_milliseconds(time.tick_since(ts))
 		}
 		ts = time.tick_now()
-		physics.step(g.cur_phys, min(g.p.dt, f32(1.0 / 30.0)))
+		physics.step(g.cur_phys, TICK_DT)
 		ms_step := time.duration_milliseconds(time.tick_since(ts))
 		ts = time.tick_now()
 		world.capture_settles(g.fr.active_scene) // overlay: snapshot clutter that just came to rest (3c)
@@ -468,10 +523,20 @@ frame_traversal :: proc(g: ^Game) {
 	hit := traversal_nearest_door(&g.trav, g.cam.pos)
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
 		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
-			g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
+			player_teleport(g, np, nyaw, 0)
 			traversal_finish_load(g, kind)
 		}
 	}
+}
+
+// player_teleport moves the player outright — camera AND capsule. Both must move: frame_camera
+// reads the eye position back off the capsule, so setting only the camera snaps straight back
+// next frame. A crossing that also swaps physics world leaves the capsule to frame_scene_select
+// (which re-creates it in the new world at this camera position); setting it here first is
+// harmless there and is what carries the same-world case, a city gate.
+player_teleport :: proc(g: ^Game, pos: smath.Vec3, yaw, pitch: f32) {
+	g.cam.pos, g.cam.yaw, g.cam.pitch = pos, yaw, pitch
+	if g.char_ok {physics.character_set_position(&g.character, pos)}
 }
 
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
@@ -634,10 +699,9 @@ frame_render :: proc(g: ^Game) {
 			t_near := time.tick_now()
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
-			// Drop-test markers: a box at each falling ball's live physics position.
+			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
 			for b in g.drops {
-				bp := physics.body_position(&g.phys, b)
-				render.draw_mesh(&g.r, g.drop_marker, vp, smath.translate({bp.x, bp.y, bp.z}), {})
+				render.draw_mesh(&g.r, g.drop_marker, vp, physics.body_transform(&g.phys, b), {})
 			}
 			t_objdraw := time.tick_now()
 			world.draw_object_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.wind, g.elapsed) // baked per-quad distant objects

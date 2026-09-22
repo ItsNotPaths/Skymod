@@ -66,6 +66,7 @@ Game_Up :: struct {
 // "what's eating fps": which phase's average grows as the session runs. frames = denominator.
 Frame_Profile :: struct {
 	frames:                      int,
+	ticks:                       int, // fixed sim ticks over the window — ≈60/s when the sim keeps up
 	stream, phys, render, frame: f64, // accumulated ms
 	// Per-pass CPU command-recording times (subset of render). `acquire` is the swapchain
 	// acquire — it BLOCKS when the GPU is behind, so a high acquire with low pass times means
@@ -78,6 +79,26 @@ Frame_Profile :: struct {
 // frame end, so a >SLOW_FRAME_MS frame can be attributed to its phase (which ate the hitch).
 Slow_Snap :: struct {
 	stream, phys, render, acquire: f64,
+}
+
+// Fixed simulation tick (docs/short-term-plan.md §E). Logic and physics advance in whole
+// TICK_DT steps; rendering runs at whatever rate the display gives us and interpolates on
+// `alpha`. Jolt's solver is not timestep-independent, so a varying step made a 144 Hz machine
+// and a 60 Hz machine converge differently — the step has to be constant.
+TICK_HZ :: 60
+TICK_DT :: f32(1) / f32(TICK_HZ)
+
+// MAX_TICKS_PER_FRAME caps catch-up after a hitch. Past this the backlog is dropped (the sim
+// runs slow for a moment) rather than spiralling — each catch-up tick costs more than the
+// frame it is trying to make up.
+MAX_TICKS_PER_FRAME :: 5
+
+// Tick is the fixed-step clock: how much real time is still unsimulated, and how far past the
+// last completed tick the frame being drawn sits.
+Tick :: struct {
+	accum: f32, // unsimulated seconds carried into the next frame; always < TICK_DT after the loop
+	alpha: f32, // accum/TICK_DT — what physics + the camera interpolate on
+	total: u64, // ticks since session start: the logic clock script deadlines will count in
 }
 
 // Per-frame derived state, recomputed at the top of every game_frame and shared between the
@@ -199,6 +220,7 @@ Game :: struct {
 	portal_yaw_off: f32,
 
 	// frame accounting
+	tick:        Tick, // fixed-step sim clock (see Tick); game_frame drives it
 	elapsed:     f32, // advances the wind/effects phase
 	diag_t:      f32, // throttle for the periodic memory/cache diagnostic log
 	prof:        Frame_Profile,

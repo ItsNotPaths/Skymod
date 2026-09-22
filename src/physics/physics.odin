@@ -106,6 +106,21 @@ World :: struct {
 	bp_iface:  ^jolt.BroadPhaseLayerInterface,
 	obj_pair:  ^jolt.ObjectLayerPairFilter,
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
+
+	// Render interpolation for the fixed tick (docs/short-term-plan.md §E). `prev` is the
+	// pre-step pose of every body awake over the last step; `alpha` is how far the render
+	// frame sits into the step that hasn't run yet. body_transform blends the two so a
+	// 144 Hz display doesn't judder on a 60 Hz sim. body_position stays exact — it is what
+	// logic reads. alpha returns to 1 (the live pose) at the end of every step.
+	prev:      map[Body]Pose,
+	awake:     [dynamic]Body, // scratch for the active-body query
+	alpha:     f32,
+}
+
+// Pose is a body's position + orientation, the interpolation endpoint kept in World.prev.
+Pose :: struct {
+	pos: [3]f32,
+	rot: jolt.Quat,
 }
 
 @(private) g_inited := false
@@ -183,6 +198,8 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 }
 
 world_destroy :: proc(w: ^World) {
+	delete(w.prev)
+	delete(w.awake)
 	if w.system != nil {jolt.PhysicsSystem_Destroy(w.system)}
 	if w.jobs != nil {jolt.JobSystem_Destroy(w.jobs)}
 	// The layer-filter tables are owned by Jolt's interface registry for the process's
@@ -192,8 +209,40 @@ world_destroy :: proc(w: ^World) {
 
 // step advances the simulation by `dt` seconds using `collision_steps` sub-steps
 // (1 is fine for 60Hz). Jolt manages its own per-step temp allocator internally.
+// `dt` MUST be constant — Jolt's solver is not timestep-independent, so a varying step makes
+// two machines converge differently. Callers drive it from the fixed tick.
 step :: proc(w: ^World, dt: f32, collision_steps := 1) {
+	snapshot_awake(w)
 	jolt.PhysicsSystem_Update(w.system, dt, i32(collision_steps), w.jobs)
+	w.alpha = 1 // between ticks, every read is the live pose
+}
+
+// snapshot_awake records the pre-step pose of the awake bodies — the only ones that can move,
+// so the only ones needing a "from" end for the render blend. Rebuilt each step, so a body that
+// falls asleep during the step keeps its blend for exactly the one frame it needs it and is then
+// read live.
+@(private)
+snapshot_awake :: proc(w: ^World) {
+	clear(&w.prev)
+	n := int(jolt.PhysicsSystem_GetNumActiveBodies(w.system, .Rigid))
+	if n == 0 {
+		return
+	}
+	resize(&w.awake, n)
+	jolt.PhysicsSystem_GetActiveBodies(w.system, .Rigid, &w.awake[0], u32(n))
+	for b in w.awake {
+		p: jolt.RVec3
+		q: jolt.Quat
+		jolt.BodyInterface_GetPositionAndRotation(w.bodies, b, &p, &q)
+		w.prev[b] = {from_rvec(p), q}
+	}
+}
+
+// set_render_alpha sets how far the frame about to be drawn sits past the last completed step:
+// 0 = the pose that step started from, 1 = the live pose. The app writes the fixed-tick
+// accumulator remainder here once per frame, after its tick loop and before it draws.
+set_render_alpha :: proc(w: ^World, alpha: f32) {
+	w.alpha = clamp(alpha, 0, 1)
 }
 
 // profile_next_frame / profile_dump drive Jolt's built-in hierarchical profiler (the lib must be
@@ -555,6 +604,7 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 }
 
 remove_body :: proc(w: ^World, b: Body) {
+	delete_key(&w.prev, b) // Jolt recycles BodyIDs; a stale blend endpoint would pose the next body wrong
 	jolt.BodyInterface_RemoveAndDestroyBody(w.bodies, b)
 }
 
@@ -563,7 +613,8 @@ set_velocity :: proc(w: ^World, b: Body, v: [3]f32) {
 	jolt.BodyInterface_SetLinearVelocity(w.bodies, b, &vv)
 }
 
-// body_position returns a body's centre-of-mass in world space.
+// body_position returns a body's centre-of-mass in world space — the EXACT simulated value,
+// never interpolated. Logic reads this; rendering reads body_transform.
 body_position :: proc(w: ^World, b: Body) -> [3]f32 {
 	p: jolt.RVec3
 	jolt.BodyInterface_GetCenterOfMassPosition(w.bodies, b, &p)
@@ -588,21 +639,36 @@ deactivate :: proc(w: ^World, b: Body) {
 	jolt.BodyInterface_DeactivateBody(w.bodies, b)
 }
 
-// body_transform returns a body's world transform (position + orientation, no scale) as a
-// 4×4 matrix — translation in column 3, matching the engine's render matrices. For drawing a
-// dynamic body (e.g. a tumbling cube) at its live pose.
+// body_transform returns a body's RENDER transform (position + orientation, no scale) as a
+// 4×4 matrix — translation in column 3, matching the engine's render matrices. Blended toward
+// the pose the last step started from by set_render_alpha, so a body drawn between fixed ticks
+// moves smoothly. At alpha 1 (during the tick, and for any body that was asleep) it is the
+// live pose exactly.
 body_transform :: proc(w: ^World, b: Body) -> matrix[4, 4]f32 {
 	p: jolt.RVec3
 	q: jolt.Quat
 	jolt.BodyInterface_GetPositionAndRotation(w.bodies, b, &p, &q)
-	x, y, z, ww := f32(imag(q)), f32(jmag(q)), f32(kmag(q)), f32(real(q))
+	pos, rot := from_rvec(p), q
+	if w.alpha < 1 {
+		if from, blend := w.prev[b]; blend {
+			pos = from.pos + (pos - from.pos) * w.alpha
+			rot = linalg.quaternion_slerp(from.rot, rot, w.alpha)
+		}
+	}
+	return pose_matrix(pos, rot)
+}
+
+// pose_matrix builds the 4×4 from a position + unit quaternion.
+@(private)
+pose_matrix :: proc(pos: [3]f32, q: jolt.Quat) -> matrix[4, 4]f32 {
+	x, y, z, w := f32(imag(q)), f32(jmag(q)), f32(kmag(q)), f32(real(q))
 	xx, yy, zz := x * x, y * y, z * z
 	xy, xz, yz := x * y, x * z, y * z
-	wx, wy, wz := ww * x, ww * y, ww * z
+	wx, wy, wz := w * x, w * y, w * z
 	return matrix[4, 4]f32{
-		1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy), f32(p.x),
-		2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx), f32(p.y),
-		2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy), f32(p.z),
+		1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy), pos.x,
+		2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx), pos.y,
+		2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy), pos.z,
 		0, 0, 0, 1,
 	}
 }
@@ -614,6 +680,7 @@ body_transform :: proc(w: ^World, b: Body) -> matrix[4, 4]f32 {
 Character :: struct {
 	cv:    ^jolt.CharacterVirtual,
 	vel_z: f32, // accumulated vertical velocity (gravity + jump), units/s
+	prev:  [3]f32, // feet position before the last character_move — the render-blend "from" end
 }
 
 // JUMP_SPEED: initial upward velocity on a hop (tune; ~Skyrim-ish at our gravity/scale).
@@ -655,7 +722,7 @@ character_create :: proc(w: ^World, feet: [3]f32, radius: f32, half_h: f32) -> (
 	cv := jolt.CharacterVirtual_Create(&s, &p, &r, 0, w.system)
 	jolt.Shape_Destroy(cast(^jolt.Shape)rts) // CharacterVirtual holds its own ref
 	if cv == nil {return {}, false}
-	return Character{cv = cv}, true
+	return Character{cv = cv, prev = feet}, true
 }
 
 character_destroy :: proc(c: ^Character) {
@@ -663,11 +730,13 @@ character_destroy :: proc(c: ^Character) {
 	c^ = {}
 }
 
-// character_move advances the character one frame: `horiz` = desired world XY velocity
+// character_move advances the character one fixed tick: `horiz` = desired world XY velocity
 // (units/s), `jump` requests a hop when grounded; gravity is integrated internally. The
 // CharacterVirtual collides-and-slides against the world (incl. its own sweep, so no
-// tunneling), so call it once per frame with the frame dt.
+// tunneling). Call it once per TICK with the tick dt, not per rendered frame — the camera
+// reads character_render_position to fill the gap between ticks.
 character_move :: proc(w: ^World, c: ^Character, horiz: [2]f32, jump: bool, dt: f32) {
+	c.prev = character_position(c)
 	grounded := jolt.CharacterBase_GetGroundState(cast(^jolt.CharacterBase)c.cv) == .OnGround
 	if grounded {
 		// Grounded: DON'T accumulate gravity. The old code left vel_z at -gravity·dt every grounded
@@ -700,6 +769,15 @@ character_set_position :: proc(c: ^Character, feet: [3]f32) {
 	p := to_rvec(feet)
 	jolt.CharacterVirtual_SetPosition(c.cv, &p)
 	c.vel_z = 0
+	c.prev = feet // a teleport has nothing to blend from — land there outright
+}
+
+// character_render_position is where to draw the eye between fixed ticks: the last two move
+// results blended by `alpha` (1 = the live position). Rendering off character_position instead
+// makes the camera step in 60 Hz jerks on a faster display.
+character_render_position :: proc(c: ^Character, alpha: f32) -> [3]f32 {
+	cur := character_position(c)
+	return c.prev + (cur - c.prev) * clamp(alpha, 0, 1)
 }
 
 character_on_ground :: proc(c: ^Character) -> bool {

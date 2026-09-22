@@ -101,7 +101,7 @@ frame_interact :: proc(g: ^Game) {
 			if g.interiors_on {break}
 			hit := Door_Hit{tp_door = tgt.tp_door, tp_pos = tgt.tp_pos, tp_rot = tgt.tp_rot, ok = true}
 			if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
-				g.cam.pos, g.cam.yaw, g.cam.pitch = np, nyaw, 0
+				player_teleport(g, np, nyaw, 0)
 				traversal_finish_load(g, kind)
 			}
 		case tgt.dyn_body != 0:
