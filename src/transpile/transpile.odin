@@ -10,7 +10,6 @@ package transpile
 // local cleanups that need no control-flow analysis). T2 (temp inlining) and T3 (if/while
 // recovery) are not built — see the doc for the measurements that rank them.
 
-// HOLE(script, blocker): nothing creates the __states/__autoprop/__overridden subtables this emitter indexes into — rt.class never learns which states exist, so 640 multi-state objects index nil at load.
 // HOLE(script): the __overridden marker omits the state qualifier its lookup key carries, so OnActivate@Busy is indistinguishable from the default-state one.
 // HOLE(script): a whole-script override emits no marker, so a missing hand-written file has nothing to fail on.
 // HOLE(script): source_file is written raw into a comment — a newline in an untrusted PEX header injects Lua.
@@ -81,6 +80,7 @@ Emitter :: struct {
 	opt:      Options,
 	stats:    Stats,
 	script:   string, // source-file stem, the override key's first field
+	obj:      ^pex.Object, // the object being written
 	// T2 expansion state, live only while a function body is being written.
 	fn:       ^pex.Function,
 	dropped:  []bool, // instruction folded into its reader
@@ -102,6 +102,7 @@ emit_file :: proc(e: ^Emitter, p: ^pex.Pex) {
 @(private)
 emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 	e.stats.objects += 1
+	e.obj = o
 
 	sbprint(e, "local ")
 	write_mangled(e, o.name)
@@ -129,7 +130,7 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 		sbprint(e, ".__vars = {\n")
 		for v in o.variables {
 			sbprint(e, "\t[")
-			write_lua_string(e, v.name)
+			write_key(e, v.name)
 			sbprint(e, "] = { type = ")
 			write_lua_string(e, v.type_name)
 			sbprint(e, ", default = ")
@@ -141,6 +142,14 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 
 	for &pr in o.properties {
 		emit_property(e, o.name, &pr)
+	}
+	// rt.class creates the default tables; a named state's table exists only if declared here.
+	for st in o.states {
+		if st.name == "" {continue}
+		write_mangled(e, o.name)
+		sbprint(e, ".__states[")
+		write_key(e, st.name)
+		sbprint(e, "] = {}\n")
 	}
 	for &st in o.states {
 		for &f in st.functions {
@@ -163,9 +172,9 @@ emit_property :: proc(e: ^Emitter, obj: string, pr: ^pex.Property) {
 	if pr.flags & PROP_AUTO != 0 {
 		write_mangled(e, obj)
 		sbprint(e, ".__autoprop[")
-		write_lua_string(e, pr.name)
+		write_key(e, pr.name)
 		sbprint(e, "] = ")
-		write_lua_string(e, pr.auto_var)
+		write_key(e, pr.auto_var)
 		sbprint(e, "\n")
 		return
 	}
@@ -192,7 +201,7 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 		e.stats.overridden += 1
 		write_mangled(e, obj)
 		sbprint(e, ".__overridden[")
-		write_lua_string(e, name)
+		write_key(e, name)
 		sbprint(e, "] = true\n")
 		return
 	}
@@ -299,10 +308,10 @@ write_slot :: proc(e: ^Emitter, obj, state, fn: string) {
 		sbprint(e, ".__fn[")
 	} else {
 		sbprint(e, ".__states[")
-		write_lua_string(e, state)
+		write_key(e, state)
 		sbprint(e, "][")
 	}
-	write_lua_string(e, fn)
+	write_key(e, fn)
 	sbprint(e, "]")
 }
 

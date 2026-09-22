@@ -3,7 +3,6 @@ package transpile
 // Output primitives: everything that turns a PEX value or name into Lua text. All of these
 // write straight into the builder, so no intermediate string is ever allocated.
 
-// HOLE(script, blocker): a member variable emits as a bare identifier, so it lands in _G — shared by every instance, shared across scripts reusing a name, invisible to saving. All 14,026 files.
 // HOLE(script): PEX Null emits `nil`, against the None-sentinel rule (script-runtime-decisions section 2).
 // HOLE(script): mangling is not injective — `::temp0` and an authored `__temp0` collide.
 
@@ -32,10 +31,10 @@ sbprintf :: proc(e: ^Emitter, format: string, args: ..any) {
 }
 
 // write_mangled renders a Papyrus identifier as a legal Lua one. Papyrus emits names Lua
-// rejects outright — `::temp8`, `::NoneVar`, `::State`.
+// rejects outright — `::temp8`, `::NoneVar`.
 @(private)
 write_mangled :: proc(e: ^Emitter, name: string) {
-	if name == "self" || len(name) == 0 {
+	if is_self(name) || len(name) == 0 {
 		sbprint(e, len(name) == 0 ? "_" : "self")
 		return
 	}
@@ -105,13 +104,36 @@ write_lua_float :: proc(e: ^Emitter, f: f32) {
 	}
 }
 
+// write_key writes a table key that Papyrus looks up case-insensitively (a function, state,
+// member or property name), lowercased so the runtime can fold the incoming name once.
+@(private)
+write_key :: proc(e: ^Emitter, s: string) {
+	lower := strings.to_lower(s)
+	defer delete(lower)
+	write_lua_string(e, lower)
+}
+
+// write_ident renders a name in a value position. A local or parameter stays a Lua local.
+// Anything else is a member of the instance, including one an ancestor script declares
+// (`::pGhostFXShader_var` on dunForelhostGhostAmbushScript) and the compiler's `::State`.
+@(private)
+write_ident :: proc(e: ^Emitter, name: string) {
+	if is_self(name) || e.fn == nil || is_declared(e.fn^, name) {
+		write_mangled(e, name)
+		return
+	}
+	sbprint(e, "self.vars[")
+	write_key(e, name)
+	sbprint(e, "]")
+}
+
 @(private)
 write_value :: proc(e: ^Emitter, v: pex.Value) {
 	switch v.kind {
 	case .Null:
 		sbprint(e, "nil")
 	case .Identifier:
-		write_mangled(e, v.str)
+		write_ident(e, v.str)
 	case .String:
 		write_lua_string(e, v.str)
 	case .Integer:
@@ -134,6 +156,12 @@ arg :: proc(ins: pex.Instruction, i: int) -> pex.Value {
 @(private)
 ident_of :: proc(v: pex.Value) -> string {
 	return v.kind == .Identifier || v.kind == .String ? v.str : ""
+}
+
+// is_self folds case: LE scripts spell the receiver `Self` 960 times.
+@(private)
+is_self :: proc(name: string) -> bool {
+	return strings.equal_fold(name, "self")
 }
 
 @(private)

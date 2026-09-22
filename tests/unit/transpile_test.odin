@@ -67,7 +67,7 @@ T_METHOD :: 9 // "Foo"
 //   0  CmpGe      ::temp0 end 0
 //   1  Cast       ::temp0 ::temp0     -- self-cast, T1 drops it
 //   2  JmpF       ::temp0 3           -- relative: target is 2+3 = 5, one PAST the end
-//   3  CallMethod Foo self ::NoneVar  -- void sink, T1 makes it a bare statement
+//   3  CallMethod Foo Test ::NoneVar  -- void sink, T1 makes it a bare statement
 //   4  Return     true
 @(private = "file")
 build_transpile_pex :: proc() -> []u8 {
@@ -157,7 +157,7 @@ test_transpile_emits_t0 :: proc(t: ^testing.T) {
 	}
 
 	has(t, src, `local Test = rt.class("Test", "ScriptObject")`)
-	has(t, src, `Test.__fn["Doit"] = function(self, end_)`) // reserved word mangled
+	has(t, src, `Test.__fn["doit"] = function(self, end_)`) // reserved word mangled, key folded
 	has(t, src, "local __temp0, __NoneVar")
 	has(t, src, "__temp0 = end_ >= 0")
 	// A jump offset is relative to its own index: 2 + 3 = 5, one past the last instruction.
@@ -183,7 +183,8 @@ test_transpile_t1_cleanups :: proc(t: ^testing.T) {
 	defer delete(src)
 
 	// A void call loses its assignment and becomes a statement.
-	testing.expect(t, strings.contains(src, `rt.call(Test, "Foo")`), "bare call")
+	// `Test` is no local or parameter, so it resolves as a member of the instance.
+	testing.expect(t, strings.contains(src, `rt.call(self.vars["test"], "Foo")`), "bare call")
 	testing.expect(t, !strings.contains(src, "__NoneVar = rt.call"), "no sink assignment")
 	testing.expect_value(t, st.bare_calls, 1)
 
@@ -328,6 +329,77 @@ test_transpile_t2_keeps_escaping_temp :: proc(t: ^testing.T) {
 	testing.expect_value(t, st.inlined, 0)
 }
 
+// build_member_pex writes a named state "Busy" holding one function that reads a member:
+//
+//   0  CallMethod Foo Self ::NoneVar   -- LE spells the receiver `Self`
+//   1  Cast       ::temp0 ::Count_var  -- member read, cast to the Bool local
+//   2  Return     ::temp0
+@(private = "file")
+build_member_pex :: proc() -> []u8 {
+	b := make([dynamic]u8)
+
+	tw32(&b, pex.MAGIC)
+	append(&b, 3, 1)
+	tw16(&b, 1)
+	tw64(&b, 0)
+	tws(&b, "Mem.psc");tws(&b, "u");tws(&b, "m")
+
+	tw16(&b, 12)
+	tws(&b, "Mem")          // 0
+	tws(&b, "ScriptObject") // 1
+	tws(&b, "")             // 2
+	tws(&b, "Run")          // 3
+	tws(&b, "Bool")         // 4
+	tws(&b, "Int")          // 5
+	tws(&b, "::temp0")      // 6
+	tws(&b, "::NoneVar")    // 7
+	tws(&b, "Foo")          // 8
+	tws(&b, "Self")         // 9
+	tws(&b, "::Count_var")  // 10
+	tws(&b, "Busy")         // 11
+
+	append(&b, 0) // no debug
+	tw16(&b, 0) // user flags
+
+	tw16(&b, 1)
+	tw16(&b, 0);tw32(&b, 0);tw16(&b, 1);tw16(&b, 2);tw32(&b, 0);tw16(&b, 2)
+	tw16(&b, 1);tw16(&b, 10);tw16(&b, 5);tw32(&b, 0);tn(&b, 3) // var ::Count_var: Int = 3
+	tw16(&b, 0) // props
+	tw16(&b, 1);tw16(&b, 11);tw16(&b, 1);tw16(&b, 3) // state Busy, one function "Run"
+
+	tw16(&b, 4);tw16(&b, 2);tw32(&b, 0);append(&b, 0) // -> Bool, doc, flags
+	tw16(&b, 0) // params
+	tw16(&b, 2);tw16(&b, 6);tw16(&b, 4);tw16(&b, 7);tw16(&b, 2) // locals ::temp0 Bool, ::NoneVar
+	tw16(&b, 3) // instructions
+
+	append(&b, u8(pex.Opcode.CallMethod));ti(&b, 8);ti(&b, 9);ti(&b, 7);tn(&b, 0)
+	append(&b, u8(pex.Opcode.Cast));ti(&b, 6);ti(&b, 10)
+	append(&b, u8(pex.Opcode.Return));ti(&b, 6)
+
+	return b[:]
+}
+
+@(test)
+test_transpile_members_states_casts :: proc(t: ^testing.T) {
+	data := build_member_pex()
+	defer delete(data)
+	p, pok := pex.parse(data)
+	defer pex.destroy(&p)
+	testing.expect(t, pok, "fixture parses")
+
+	src, _ := transpile.transpile(&p)
+	defer delete(src)
+
+	has :: proc(t: ^testing.T, src, want: string) {
+		testing.expectf(t, strings.contains(src, want), "missing %q in:\n%s", want, src)
+	}
+	has(t, src, `["::count_var"] = { type = "Int", default = 3 }`)
+	has(t, src, `Mem.__states["busy"] = {}`)
+	has(t, src, `Mem.__states["busy"]["run"] = function(self)`)
+	has(t, src, `rt.call(self, "Foo")`)
+	has(t, src, `rt.cast(self.vars["::count_var"], "bool")`)
+}
+
 // ── override registry ───────────────────────────────────────────────────────
 
 @(test)
@@ -380,7 +452,7 @@ test_transpile_function_override :: proc(t: ^testing.T) {
 	src, st := transpile.transpile(&p, transpile.Options{overrides = &ov})
 	defer delete(src)
 
-	testing.expect(t, strings.contains(src, `Test.__overridden["Doit"] = true`), "mark emitted")
+	testing.expect(t, strings.contains(src, `Test.__overridden["doit"] = true`), "mark emitted")
 	testing.expect(t, !strings.contains(src, "function(self, end_)"), "body not emitted")
 	testing.expect_value(t, st.overridden, 1)
 	testing.expect_value(t, st.statements, 0) // nothing left to emit

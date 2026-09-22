@@ -168,7 +168,7 @@ operands_are_safe :: proc(f: pex.Function, ins: pex.Instruction) -> bool {
 		if m == d || is_name_slot(ins.op, m) || a.kind != .Identifier {
 			continue
 		}
-		if a.str == "self" {
+		if is_self(a.str) {
 			continue // never reassigned
 		}
 		if !is_declared(f, a.str) {

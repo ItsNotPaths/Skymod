@@ -6,10 +6,10 @@ package transpile
 // Every engine-facing operation goes through the `rt` table. The transpiler never decides
 // what `rt` does — see the contract table in docs/papyrus-transpiler.md.
 
-// HOLE(script, blocker): rt.cast carries no target type — f.locals[].type_name is discarded, so the runtime cannot tell Float from Bool from String. Papyrus conditions are cast-then-JmpF, so this inverts branches.
 // HOLE(script): rt.array discards the element type.
 // HOLE(script): CmpEq emits Lua `==` but Papyrus string comparison folds case.
 
+import "core:strings"
 import "../formats/pex"
 
 // emit_stmt writes one statement and reports whether anything was written. A T1 drop writes
@@ -170,8 +170,14 @@ write_rhs :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		write_call(e, "rt.imod", {arg(ins, 1), arg(ins, 2)}, idx)
 	case .StrCat:
 		write_call(e, "rt.concat", {arg(ins, 1), arg(ins, 2)}, idx)
+	// The target type is the destination's declared type; Papyrus conditions are
+	// cast-then-JmpF, so without it the runtime cannot tell a Bool test from an Int one.
 	case .Cast:
-		write_call(e, "rt.cast", {arg(ins, 1)}, idx)
+		sbprint(e, "rt.cast(")
+		write_read(e, arg(ins, 1), idx)
+		sbprint(e, ", ")
+		write_key(e, dest_type(e, arg(ins, 0)))
+		sbprint(e, ")")
 	case .ArrayLength:
 		write_call(e, "rt.alen", {arg(ins, 1)}, idx)
 
@@ -184,6 +190,20 @@ write_rhs :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 	case .Assign:
 		write_read(e, arg(ins, 1), idx)
 	}
+}
+
+// dest_type is the declared type of a cast's destination: a local or parameter, else a member
+// of this object. "" for a member only an ancestor declares, whose type this file cannot see.
+@(private)
+dest_type :: proc(e: ^Emitter, v: pex.Value) -> string {
+	if e.fn != nil {
+		for l in e.fn.locals {if l.name == v.str {return l.type_name}}
+		for p in e.fn.params {if p.name == v.str {return p.type_name}}
+	}
+	for m in e.obj.variables {
+		if strings.equal_fold(m.name, v.str) {return m.type_name}
+	}
+	return ""
 }
 
 // write_read renders one value in a READ position. When T2 folded the instruction that
