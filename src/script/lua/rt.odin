@@ -3,6 +3,7 @@ package script_lua
 // The engine half of `skymod.rt`, the runtime every converted script requires. rt.lua is the
 // language half; these are the few things it cannot do without the registry or gamedb.
 
+// HOLE(script, gap): gamedb classifies ~16 record kinds; any other base form (LVLI, MESG, SOUN, STAT…) resolves as ObjectReference, so LeveledItem.AddForm or Message.Show cannot be reached. Measured: scriptrun hits it on HearthFires' planter LVLI.
 // HOLE(script, gap): rt.lua never checks a class's __overridden marks, so an override the registry names but nobody supplied is silently missing instead of failing at load.
 
 import "core:c"

@@ -562,6 +562,14 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		log.info("menu: New Game")
 	}
 
+	// Start-game-enabled quests get their scripts. OnInit fires on a new game only: instances are
+	// not saved yet, so on a Continue it would re-run side effects the save already holds.
+	if g.repl_ok {
+		new_game := boot_choice != .Continue
+		n := slua.start_quests(&g.repl.vm, &g.db, new_game)
+		log.infof("scripts: %d start-game quest script instance(s)%s", n, ", OnInit fired" if new_game else "")
+	}
+
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
 
 	// Full-load screen: pump the decode pool + cook collision behind the loading screen until the

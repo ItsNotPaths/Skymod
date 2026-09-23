@@ -7,6 +7,7 @@
 local native, class_of, is_a, warn, script_layers = __native, __class_of, __is_a, __warn, __script_layers
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
+local sethook, gethook = debug.sethook, debug.gethook
 
 local rt = { None = None }
 
@@ -142,6 +143,15 @@ Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
 
 local instances = {} -- ref -> lowercase script name -> instance
 
+-- A member with no initializer is Null in the file; Papyrus gives it its type's zero.
+local zeros = { int = 0, float = 0.0, bool = false, string = "" }
+local function type_default(t, v)
+  if v ~= nil then return v end
+  local z = zeros[low(t)]
+  if z == nil then return None end
+  return z
+end
+
 -- rt.instance attaches a script to a form: member defaults from every class in the chain, then
 -- the plugin's property values (lowercase property name -> value) over their backing members.
 function rt.instance(form, script, props)
@@ -158,9 +168,10 @@ function rt.instance(form, script, props)
   end
   local vars = {}
   for i = #chain - 1, 0, -1 do
-    for k, v in pairs(chain[i].__vars) do vars[k] = v.default end
+    for k, v in pairs(chain[i].__vars) do vars[k] = type_default(v.type, v.default) end
   end
   for name, value in pairs(props or {}) do
+    if type(value) == "table" and getmetatable(value) == nil then rt.as_array(value) end
     for i = 0, #chain - 1 do
       local backer = chain[i].__autoprop[name]
       if backer then
@@ -196,6 +207,9 @@ end
 
 local Array = { __name = "array" }
 local function is_array(v) return getmetatable(v) == Array end
+
+-- rt.as_array marks a 0-based table (a plugin's array property) as a Papyrus array.
+function rt.as_array(t) return setmetatable(t, Array) end
 
 local function to_int(v)
   local ty = type(v)
@@ -293,11 +307,8 @@ end
 -- ── arrays ──────────────────────────────────────────────────────────────────
 -- A Papyrus array never holds nil: None is stored as the sentinel, so `#a` and ipairs stay exact.
 
-local defaults = { int = 0, float = 0.0, bool = false, string = "" }
-
 function rt.array(n, elem)
-  local d = defaults[elem]
-  if d == nil then d = None end
+  local d = type_default(elem)
   local a = setmetatable({}, Array)
   for i = 0, n - 1 do a[i] = d end
   return a
@@ -414,10 +425,35 @@ function rt.parent(self, class, name, ...)
   return None
 end
 
--- rt.event runs a handler if the instance has one. Missing handlers are the norm, so no warning.
+-- Instructions one handler run may take. A Papyrus poll loop (`while !ready; Wait(1)`) spins
+-- forever while Wait returns at once; the budget stops that handler instead of freezing the game.
+local BUDGET = 1000000
+local function over_budget() error("instruction budget exceeded", 2) end
+
+-- rt.event runs a handler if the instance has one, isolated: an error or a runaway loop ends this
+-- handler only, with a warning. Missing handlers are the norm, so they are silent.
 function rt.event(inst, name, ...)
   local f = lookup(inst.class, state_of(inst), low(name))
-  if f then return f(inst, ...) end
+  if not f then return end
+  local hook, mask, count = gethook()
+  sethook(over_budget, "", BUDGET)
+  local ok, err = pcall(f, inst, ...)
+  if hook then sethook(hook, mask, count) else sethook() end
+  if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
+end
+
+-- rt.attach gives a form its scripts: every instance first, so siblings can find each other, then
+-- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }.
+function rt.attach(form, list, init)
+  local made = {}
+  for _, s in ipairs(list) do
+    local inst = rt.instance(form, s.name, s.props)
+    if inst then made[#made] = inst end
+  end
+  if init then
+    for _, inst in ipairs(made) do rt.event(inst, "OnInit") end
+  end
+  return #made
 end
 
 -- ── properties ──────────────────────────────────────────────────────────────
@@ -425,6 +461,13 @@ end
 local function find_prop(recv, lp, kind)
   local inst = recv
   if not is_instance(inst) then
+    -- an engine class's own property (GlobalVariable.Value), self being the ref
+    local c = rt.load(class_of(recv))
+    while c do
+      local f = c.__fn[kind .. lp]
+      if f then return recv, nil, f end
+      c = parent_of(c)
+    end
     for _, i in pairs(instances[recv] or {}) do
       if find_prop(i, lp, kind) then
         inst = i
