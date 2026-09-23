@@ -7,7 +7,7 @@ package main
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
 // RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
-// game_tick — scene select, locomotion, physics, traversal — runs 0..MAX_TICKS_PER_FRAME times
+// game_tick — scene select, locomotion, physics, traversal, scripts — runs 0..MAX_TICKS_PER_FRAME times
 // per frame at a constant TICK_DT, and everything else (input, aiming, streaming, picking,
 // drawing) runs once per frame around it. What the frame draws is the last tick's state blended
 // forward by g.tick.alpha.
@@ -93,7 +93,6 @@ game_frame :: proc(g: ^Game) {
 	frame_stream(g)
 	frame_inspect(g)
 	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
-	frame_scripts(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 
 	g.elapsed += g.p.dt
@@ -129,6 +128,7 @@ game_tick :: proc(g: ^Game) {
 	tick_locomotion(g)
 	frame_physics(g)
 	frame_traversal(g)
+	tick_scripts(g)
 }
 
 // frame_diag emits the periodic memory/cache/leak probe + the frame-time profile (every ~3s).
@@ -468,18 +468,15 @@ frame_stream :: proc(g: ^Game) {
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
 }
 
-// frame_scripts gives the refs of every cell that loaded this frame their scripts. It runs after the
-// streamer and after any door crossing, so both exterior cells and a new interior are drained.
+// tick_scripts is the one place script handlers run: refs of cells that loaded since the last tick
+// get their scripts (and OnInit), then queued events run.
 @(private = "file")
-frame_scripts :: proc(g: ^Game) {
-	drain :: proc(g: ^Game, s: ^world.Scene) {
-		if g.repl_ok {
-			for cell in s.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
-		}
-		clear(&s.loaded_cells)
+tick_scripts :: proc(g: ^Game) {
+	if g.repl_ok {
+		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
+		slua.drain(&g.repl.vm)
 	}
-	drain(g, &g.scene)
-	if g.trav.mode == .Interior {drain(g, &g.trav.interior)}
+	clear(&g.loaded_cells)
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE

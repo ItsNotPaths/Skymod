@@ -530,7 +530,7 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	apply_overlay(st.scene, resident) // baseline ⊕ overlay (disabled/moved/scaled) before collision builds
 	if lod == 0 {
 		acquire_chunk_assets(st.scene, resident) // D1: pin this chunk's instance + grass models
-		append(&st.scene.loaded_cells, cid)
+		note_loaded(st.scene, cid)
 		for inst in resident.instances {
 			enqueue_model(st, inst.model_path)
 		}

@@ -1039,6 +1039,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 		t.interior.dynamic_clutter = true // movable clutter → dynamic bodies (Phase 3b); interiors only
 	}
 	t.interior.ws = t.ws // baseline ⊕ overlay: moved clutter reappears where it settled (Phase 3c)
+	t.interior.loaded_cells = t.ext_scene.loaded_cells // outlives this scene: an undrained cell is not lost
 	world.load_cell(&t.interior, t.db, cell_id, t.progress, t.progress_user) // reports decode progress to the load screen
 	// Build all of the interior's static collision NOW (load_cell resolved every model
 	// synchronously, so sync_physics can cook them immediately): the player lands on a solid

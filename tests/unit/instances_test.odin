@@ -2,7 +2,8 @@ package unit_tests
 
 // Script instances at runtime (src/script/lua/instances.odin + rt.attach): plugin property values
 // reach a script's members, OnInit fires on every instance, a runaway handler is stopped by the
-// instruction budget without stopping the next one, and placed refs start at the right time.
+// instruction budget without stopping the next one, placed refs start at the right time, and sent
+// events run only when the queue drains.
 // Hermetic: a temp scripts dir, no game files.
 
 import "core:os"
@@ -64,6 +65,18 @@ return C
 COUNT_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Count", nil)
 C.__fn["oninit"] = function(self) __inits = (__inits or 0) + 1 end
+return C
+`
+
+@(private = "file")
+LEVER_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Lever", nil)
+C.__fn["onactivate"] = function(self, who)
+  __acts = (__acts or 0) + 1
+  __who = who
+  rt.send(self.form, "Again")
+end
+C.__fn["again"] = function(self) __again = true end
 return C
 `
 
@@ -157,4 +170,24 @@ test_refs_start_at_game_start_or_cell_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 2)
 	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 0)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 3, tostring(__inits))`), "OnInit ran once per ref")
+}
+
+// A sent event waits for the drain, reaches the handler with its args, and an event a handler sends
+// runs on the next drain. An event for a form with no scripts is dropped.
+@(test)
+test_send_runs_on_drain :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_events", {{"lever.lua", LEVER_LUA}})
+	defer fixture_destroy(&f)
+
+	LEVER :: script.Form_ID(0x500)
+	testing.expect_value(t, slua.attach(&f.vm, LEVER, []esm.Script_Attach{{name = "Lever"}}, false), 1)
+	slua.send(&f.vm, LEVER, "OnActivate", script.PLAYER)
+	slua.send(&f.vm, script.Form_ID(0x999), "OnActivate", script.PLAYER)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == nil)`), "nothing runs before the drain")
+
+	testing.expect_value(t, slua.drain(&f.vm), 1)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == 1 and __who === ref(0x14) and not __again)`), "OnActivate ran by the player")
+	testing.expect_value(t, slua.drain(&f.vm), 1)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__again)`), "a handler's event ran on the next drain")
 }

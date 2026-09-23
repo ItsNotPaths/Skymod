@@ -20,6 +20,8 @@ import smath "../math"
 import "../input"
 import "../physics"
 import "../render"
+import "../script"
+import slua "../script/lua"
 
 // HOLE(ui, gap): the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
 // HOLE(dialogue, blocker): activating an actor logs a line. No topic tree, no voice, no menu.
@@ -85,6 +87,7 @@ frame_interact :: proc(g: ^Game) {
 				g.interact.pressing = false
 			}
 		} else {
+			send_activate(g, g.interact.press_form)
 			collect_stub(g, g.interact.press_form)
 			g.interact.pressing = false
 		}
@@ -94,6 +97,7 @@ frame_interact :: proc(g: ^Game) {
 	// 3) A fresh Activate edge: dispatch on what the crosshair is on.
 	if input.fired(&g.imgr, "Activate") && g.fr.act.present {
 		tgt := g.fr.act
+		if tgt.dyn_body == 0 {send_activate(g, tgt.form)} // a physics item activates on tap, above
 		switch {
 		case tgt.kind == .Door:
 			// Cross straight from the picked door's XTEL — no proximity "nearest door" scan. (Open-
@@ -116,6 +120,12 @@ frame_interact :: proc(g: ^Game) {
 			log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(tgt), activate_kind_tag[tgt.kind])
 		}
 	}
+}
+
+// send_activate queues the target's OnActivate, by the player. It runs at the next game_tick.
+@(private = "file")
+send_activate :: proc(g: ^Game, form: Form_ID) {
+	if g.repl_ok {slua.send(&g.repl.vm, form, "OnActivate", script.PLAYER)}
 }
 
 // grab_begin lifts the pressed item into a telekinesis grab at a comfortable default reach.

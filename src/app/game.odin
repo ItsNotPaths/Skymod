@@ -200,6 +200,7 @@ Game :: struct {
 	repl:         slua.Repl,
 	repl_ok:      bool,
 	scripts_init: bool, // a new game: refs run OnInit when they first load (not on a Continue)
+	loaded_cells: [dynamic]Form_ID, // cells resident since the last tick; every scene appends here
 	console:      tools.Console,
 	insp:         tools.Inspector,
 
@@ -477,6 +478,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	worldstate.init(&g.ws)
 	g.up.ws = true
 	g.scene.ws = &g.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
+	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
 	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.ws))
@@ -585,6 +587,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 // every step. Replaces run_game's old declaration-order-is-load-bearing defer stack.
 game_teardown :: proc(g: ^Game) {
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
+	delete(g.loaded_cells)
 	if g.up.sreg {script.destroy(&g.sreg)}
 	if g.char_ok {physics.character_destroy(&g.character)} // may be homed in an interior world — before traversal
 	delete(g.drops)

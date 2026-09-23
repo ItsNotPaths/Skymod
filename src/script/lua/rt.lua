@@ -442,6 +442,26 @@ function rt.event(inst, name, ...)
   if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
 end
 
+-- rt.send queues an event for every script on `form`; rt.drain runs the queue, once per tick. An
+-- event sent while the queue drains runs on the next drain, as Papyrus queues it too.
+local queue = {}
+
+function rt.send(form, name, ...)
+  if not instances[form] then return end
+  queue[#queue] = { form = form, name = name, args = table.pack(...) }
+end
+
+function rt.drain()
+  local q = queue
+  queue = {}
+  for _, e in ipairs(q) do
+    for _, inst in pairs(instances[e.form] or {}) do
+      rt.event(inst, e.name, table.unpack(e.args, 0, e.args.n - 1))
+    end
+  end
+  return #q
+end
+
 -- rt.attach gives a form its scripts: every instance first, so siblings can find each other, then
 -- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }. A form that
 -- already has instances keeps them, so a cell that loads again does not re-run OnInit.

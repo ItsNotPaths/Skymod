@@ -24,13 +24,7 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
 
-	lua.getglobal(L, "require")
-	lua.pushstring(L, "skymod.rt")
-	if lua.pcall(L, 1, 1, 0) != 0 {
-		log.errorf("lua: require skymod.rt: %s", to_string(L, -1))
-		return 0
-	}
-	lua.getfield(L, -1, "attach")
+	if !push_rt_fn(L, "attach") {return 0}
 	push_ref(L, form)
 	lua.createtable(L, c.int(len(scripts)), 0)
 	n := 0

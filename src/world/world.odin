@@ -302,9 +302,10 @@ Scene :: struct {
 	// find_resident validates each hit against the chunk map and falls back to a scan on a stale/missing
 	// entry, so correctness never depends on perfect upkeep at the (duplicated) chunk load/unload sites.
 	resident: map[Form_ID]Resident_Ref,
-	// Cells that became resident at full detail since the app last drained this list: their refs
-	// get their scripts. world never touches the script VM.
-	loaded_cells: [dynamic]Form_ID,
+	// Borrowed list the scene appends each cell to when it becomes resident at full detail, so the
+	// app can give its refs their scripts (world never touches the script VM). Owned outside every
+	// scene, so a scene destroyed before the app drains it loses nothing. nil = nobody listens.
+	loaded_cells: ^[dynamic]Form_ID,
 }
 
 // Resident_Ref locates a resident instance: its owning cell + index into that chunk's `instances`.
@@ -406,7 +407,6 @@ scene_destroy :: proc(s: ^Scene) {
 	clear_water_lod(s) // release the baked distant-water meshes
 	delete(s.water_quads)
 	delete(s.resident)
-	delete(s.loaded_cells)
 	assetdb.cache_destroy(&s.cache)
 	s^ = {}
 }
@@ -582,7 +582,7 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
-	append(&s.loaded_cells, cell_form_id)
+	note_loaded(s, cell_form_id)
 	return n
 }
 
@@ -596,6 +596,12 @@ load_worldspace :: proc(s: ^Scene, db: ^gamedb.DB, world_form_id: Form_ID) -> in
 	}
 	log.infof("world: worldspace 0x%08X → %d cells, %d instances", world_form_id, len(cells), total)
 	return total
+}
+
+// note_loaded tells whoever listens that a cell is now resident at full detail.
+@(private)
+note_loaded :: proc(s: ^Scene, cell: Form_ID) {
+	if s.loaded_cells != nil {append(s.loaded_cells, cell)}
 }
 
 @(private)
