@@ -13,9 +13,8 @@ package script_lua
 //
 // None is a single sentinel userdata (Papyrus None is a runtime value, not nil):
 // its metatable ABSORBS any method call — logs once, returns None — so None
-// propagates through call chains like the vanilla null-object. It is truthy in Lua
-// (all userdata are), which is exactly why the transpiler must emit explicit
-// `~= None`; the console user types `~= None` too.
+// propagates through call chains like the vanilla null-object. The patched Lua makes
+// it falsy (`if x` is false for None) and `None == nil` true, so it reads as Papyrus.
 
 import "core:c"
 import "core:fmt"
@@ -52,7 +51,7 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.pushlightuserdata(L, vm)
 	lua.pushcclosure(L, ref_tostring, 1)
 	lua.setfield(L, -2, "__tostring")
-	lua.pushcfunction(L, ref_eq)
+	lua.pushcfunction(L, papyrus_eq)
 	lua.setfield(L, -2, "__eq")
 	lua.pushstring(L, "ref")
 	lua.setfield(L, -2, "__name")
@@ -73,11 +72,14 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.setfield(L, -2, "__index")
 	lua.pushcfunction(L, none_tostring)
 	lua.setfield(L, -2, "__tostring")
+	lua.pushcfunction(L, papyrus_eq)
+	lua.setfield(L, -2, "__eq")
 	lua.pushstring(L, "None")
 	lua.setfield(L, -2, "__name")
 	lua.pop(L, 1)
 	lua.newuserdatauv(L, 1, 0) // 1-byte payload (unused) — identity is the pointer
 	lua.L_setmetatable(L, NONE_MT)
+	lua.setfalsy(L, -1, 1) // `if x` is false for None (build/lua-03-falsy-userdata.patch)
 	lua.setfield(L, lua.REGISTRYINDEX, NONE_VALUE_KEY) // stash the one None
 
 	// ── globals: ref(formid) constructor + None ───────────────────────────────
@@ -208,14 +210,28 @@ tcstr :: proc(format: string, args: ..any) -> cstring {
 	return strings.clone_to_cstring(fmt.tprintf(format, ..args), context.temp_allocator)
 }
 
-// ref_eq → form identity. The cache already makes `==` hold for equal forms (one
-// userdata each); this is the belt-and-suspenders path if two ever coexist.
+// papyrus_eq is `==` for refs and None, the Papyrus rule: a ref, a script instance (its .form)
+// and None/nil each reduce to a form (None is 0), and equal forms are equal. The patched VM
+// consults __eq across types, so `ref == inst` and `None == nil` both land here.
 @(private)
-ref_eq :: proc "c" (L: ^lua.State) -> c.int {
-	a, aok := ref_form(L, 1)
-	b, bok := ref_form(L, 2)
+papyrus_eq :: proc "c" (L: ^lua.State) -> c.int {
+	a, aok := papyrus_form(L, 1)
+	b, bok := papyrus_form(L, 2)
 	lua.pushboolean(L, b32(aok && bok && a == b))
 	return 1
+}
+
+@(private)
+papyrus_form :: proc "contextless" (L: ^lua.State, idx: c.int) -> (form: script.Form_ID, ok: bool) {
+	if lua.isnoneornil(L, idx) || is_none(L, idx) {
+		return 0, true
+	}
+	if lua.type(L, idx) == .TABLE {
+		lua.getfield(L, idx, "form")
+		defer lua.pop(L, 1)
+		return ref_form(L, -1)
+	}
+	return ref_form(L, idx)
 }
 
 // ref_ctor is the `ref(formid)` global: wrap an integer Form_ID as a ref (bare-hex

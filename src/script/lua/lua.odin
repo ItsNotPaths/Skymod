@@ -86,6 +86,9 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 	// Ref + None userdata metatables and the `ref()`/`None` globals — push_value
 	// marshals a Form_ID into a ref, so the metatables must exist before any call.
 	setup_ref_system(vm)
+	if !setup_rt(vm) {
+		return false
+	}
 
 	return do_string(vm, PRELUDE)
 }
