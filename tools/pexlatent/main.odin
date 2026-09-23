@@ -38,6 +38,13 @@ is_latent_method_name :: proc(name: string) -> bool {
 	return false
 }
 
+// A latent-named method call whose receiver type is known; it counts once the class
+// hierarchy is (Scene.Start is not Quest.Start).
+Typed_Site :: struct {
+	recv, fn: string, // lower, cloned
+	in_loop:  bool,
+}
+
 REGISTER_FNS := []string{"registerforupdate", "registerforsingleupdate", "registerforupdategametime", "registerforsingleupdategametime"}
 
 Node :: struct {
@@ -49,6 +56,7 @@ Node :: struct {
 	n_instr:      int,
 	n_locals:     int,    // max over bodies — captured-state-size proxy
 	direct_sites: int,    // latent native call sites in this body
+	typed_sites:  [dynamic]Typed_Site, // resolved to direct_sites by count_typed_sites
 	sites_loop:   int,    // ...of those, inside a backward-jump span (poll loop)
 	const_waits:  int,    // Utility.Wait* with a literal duration
 	edge_keys:    [dynamic]string, // resolved callee keys (cloned), linked later
@@ -66,6 +74,7 @@ Corpus :: struct {
 	parents:    map[string]string,         // class -> parent class (lower, cloned)
 	classes:    map[string]bool,           // every object/class name seen (lower, cloned)
 	wait_names: map[string]int,            // call targets containing "wait" (sanity)
+	by_native:  map[string]int,            // direct latent sites per native ("?.fn" = receiver unknown)
 	scripts:    int,
 	parsed:     int,
 	objects:    int,
@@ -102,8 +111,10 @@ main :: proc() {
 	c.parents = make(map[string]string)
 	c.classes = make(map[string]bool)
 	c.wait_names = make(map[string]int)
+	c.by_native = make(map[string]int)
 
 	for p in paths {scan_bsa(&c, p)}
+	count_typed_sites(&c)
 	link(&c)
 	propagate(&c)
 	find_cycles(&c)
@@ -235,8 +246,7 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			tgt := fmt.tprintf("%s.%s", cls, name)
 			tally_wait_name(c, tgt, name)
 			if slice.contains(pex.LATENT_GLOBALS, tgt) {
-				n.direct_sites += 1
-				if in_loop(loops, idx) {n.sites_loop += 1}
+				count_site(c, n, tgt, in_loop(loops, idx))
 				if len(ins.args) > 3 && (ins.args[3].kind == .Float || ins.args[3].kind == .Integer) {
 					n.const_waits += 1
 				}
@@ -247,11 +257,6 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			if len(ins.args) < 3 {continue}
 			name := strings.to_lower(ins.args[0].str, context.temp_allocator)
 			tally_wait_name(c, name, name)
-			if is_latent_method_name(name) {
-				n.direct_sites += 1
-				if in_loop(loops, idx) {n.sites_loop += 1}
-				continue
-			}
 			if name == "gotostate" {c.gotostate_calls += 1;continue}
 			if slice.contains(REGISTER_FNS, name) {c.register_calls += 1;continue}
 			// resolve the receiver's static type: param/local, then member/property/self
@@ -268,7 +273,16 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			if t == "" {
 				if s, ok := syms[recv]; ok {t = s}
 			}
-			if t != "" && !strings.contains(t, "[") {
+			typed := t != "" && !strings.contains(t, "[")
+			if is_latent_method_name(name) {
+				if typed {
+					append(&n.typed_sites, Typed_Site{strings.clone(t), strings.clone(name), in_loop(loops, idx)})
+				} else {
+					count_site(c, n, fmt.tprintf("?.%s", name), in_loop(loops, idx))
+					continue
+				}
+			}
+			if typed {
 				add_edge(n, fmt.tprintf("%s.%s", t, name))
 			} else {
 				add_name_edge(n, name)
@@ -280,6 +294,28 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			parent := strings.to_lower(o.parent, context.temp_allocator)
 			if parent != "" {
 				add_edge(n, fmt.tprintf("%s.%s", parent, name))
+			}
+		}
+	}
+}
+
+count_site :: proc(c: ^Corpus, n: ^Node, native: string, loop: bool) {
+	n.direct_sites += 1
+	if loop {n.sites_loop += 1}
+	if native not_in c.by_native {c.by_native[strings.clone(native)] = 0}
+	c.by_native[native] += 1
+}
+
+// count_typed_sites walks each typed receiver up the class chain to the declaring class.
+count_typed_sites :: proc(c: ^Corpus) {
+	for &n in c.nodes {
+		for s in n.typed_sites {
+			for cls, ok := s.recv, true; ok; cls, ok = c.parents[cls] {
+				key := fmt.tprintf("%s.%s", cls, s.fn)
+				if slice.contains(pex.LATENT_METHODS, key) {
+					count_site(c, &n, key, s.in_loop)
+					break
+				}
 			}
 		}
 	}
@@ -494,6 +530,16 @@ report :: proc(c: ^Corpus, top_n: int) {
 	fmt.printfln("  member variables: %d total, avg %.1f/object; %d are ::auto-prop backers (refilled from gamedb, not persisted) -> avg %.1f persistable vars/object",
 		c.member_vars, f64(c.member_vars) / f64(max(c.objects, 1)), c.autoprop_vars,
 		f64(c.member_vars - c.autoprop_vars) / f64(max(c.objects, 1)))
+	fmt.println()
+
+	fmt.printfln("direct latent sites by native:")
+	{
+		Pair :: struct {k: string, v: int}
+		prs := make([dynamic]Pair, context.temp_allocator)
+		for k, v in c.by_native {append(&prs, Pair{k, v})}
+		slice.sort_by(prs[:], proc(a, b: Pair) -> bool {return a.v > b.v})
+		for pr in prs {fmt.printfln("  %6d  %s", pr.v, pr.k)}
+	}
 	fmt.println()
 
 	fmt.printfln("call targets containing 'wait' (latent-set sanity check):")
