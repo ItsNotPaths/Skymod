@@ -41,9 +41,9 @@ Form_Bridge :: struct {
 	resolve:  proc(user: rawptr, uuid: string, filename: string) -> (slot: u32, ok: bool),
 }
 
-// Ref_Field (8 values) backs bit_set onto a single byte; the save lowers `live` through u8. If a
-// 9th field ever widens the backing integer this assert fires (a loud, correct compile error).
-#assert(size_of(bit_set[Ref_Field]) == 1)
+// Ref_Field (9 values) backs bit_set onto a u16; the save lowers `live` through it into a u32. If a
+// 17th field ever widens the backing integer this assert fires (a loud, correct compile error).
+#assert(size_of(bit_set[Ref_Field]) == 2)
 
 // Save_Manifest is the small, body-free header the load menu reads (§4.2). Numbers only — no owned
 // strings — so reading it allocates nothing and can't leak; the location NAME is resolved from
@@ -176,7 +176,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		deltas[i] = Saved_Delta {
 			form_id  = fid,
 			cell     = d.cell,
-			live     = u32(transmute(u8)d.live),
+			live     = u32(transmute(u16)d.live),
 			world    = mat_to_array(d.world),
 			pos      = d.pos,
 			scale    = d.scale,
@@ -346,7 +346,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		if !kok {continue} // keyed on a missing mod → drop
 		cell, _ := rf(remap, have_remap, d.cell)
 		e := upsert(ws, fid, cell)
-		e.live = transmute(bit_set[Ref_Field])u8(d.live)
+		e.live = transmute(bit_set[Ref_Field])u16(d.live)
 		e.world = array_to_mat(d.world)
 		e.pos = d.pos
 		e.scale = d.scale

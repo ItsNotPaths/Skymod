@@ -5,11 +5,14 @@ package main
 // door" scan. One tap does the obvious thing per target kind; a press-and-hold on a physics item
 // lifts it into a telekinesis grab you steer with the mouse (aim) and wheel (reach).
 //
-//   Door       → cross it (go_through, straight from the picked door's XTEL — no proximity scan).
+//   Door       → cross it (go_through, straight from the door's XTEL — no proximity scan).
 //   Phys item  → TAP: collect into the pack (stubbed — no player inventory yet, just a log).
 //                HOLD: grab it and float it in front of you; release to drop.
 //   Container  → open (stubbed — no container/inventory UI yet, just a log).
 //   Other      → activate (stubbed — dialogue/loot menus hook in here later).
+//
+// Every activation, a key press or a script's Activate, goes through activate(): OnActivate to the
+// ref's scripts, then the default action above unless a script called BlockActivation.
 //
 // Auto-load doors (invisible cave/dungeon markers) are NOT handled here — the ray never hits them,
 // so they stay proximity-fired in frame_traversal, exactly as before.
@@ -22,6 +25,7 @@ import "../physics"
 import "../render"
 import "../script"
 import slua "../script/lua"
+import "../worldstate"
 
 // HOLE(ui, gap): the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
 // HOLE(dialogue, blocker): activating an actor logs a line. No topic tree, no voice, no menu.
@@ -87,45 +91,64 @@ frame_interact :: proc(g: ^Game) {
 				g.interact.pressing = false
 			}
 		} else {
-			send_activate(g, g.interact.press_form)
-			collect_stub(g, g.interact.press_form)
+			activate(g, g.interact.press_form, script.PLAYER)
 			g.interact.pressing = false
 		}
 		return
 	}
 
-	// 3) A fresh Activate edge: dispatch on what the crosshair is on.
+	// 3) A fresh Activate edge on what the crosshair is on. An unblocked physics item waits to learn
+	//    tap (activate) from hold (grab); anything else activates now.
 	if input.fired(&g.imgr, "Activate") && g.fr.act.present {
 		tgt := g.fr.act
-		if tgt.dyn_body == 0 {send_activate(g, tgt.form)} // a physics item activates on tap, above
-		switch {
-		case tgt.kind == .Door:
-			// Cross straight from the picked door's XTEL — no proximity "nearest door" scan. (Open-
-			// interiors mode has its own walk-in, so we leave doors to it there and do nothing here.)
-			if g.interiors_on {break}
-			hit := Door_Hit{tp_door = tgt.tp_door, tp_pos = tgt.tp_pos, tp_rot = tgt.tp_rot, ok = true}
-			if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
-				player_teleport(g, np, nyaw, 0)
-				traversal_finish_load(g, kind)
-			}
-		case tgt.dyn_body != 0:
-			// A movable physics item: begin a press so the release/hold resolves to collect vs grab.
+		if tgt.dyn_body != 0 && !worldstate.activation_blocked(&g.ws, tgt.form) {
 			g.interact.pressing = true
 			g.interact.press_body = tgt.dyn_body
 			g.interact.press_form = tgt.form
 			g.interact.held_s = 0
-		case tgt.kind == .Container:
-			log.infof("activate: open container %q — container/inventory UI not built yet (stub)", interact_subject(tgt))
-		case:
-			log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(tgt), activate_kind_tag[tgt.kind])
+		} else {
+			activate(g, tgt.form, script.PLAYER)
 		}
 	}
 }
 
-// send_activate queues the target's OnActivate, by the player. It runs at the next game_tick.
-@(private = "file")
-send_activate :: proc(g: ^Game, form: Form_ID) {
-	if g.repl_ok {slua.send(&g.repl.vm, form, "OnActivate", script.PLAYER)}
+// HOLE(ai, gap): only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate.
+// HOLE(script, gap): a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
+
+// activate is the one activation path, for the Activate key and for a script's Activate: OnActivate
+// is queued for the ref's scripts (it runs at the next tick, after the default action, as in
+// Papyrus), then the default action runs unless a script blocked it. `default_only` sends no event
+// and ignores the block (abDefaultProcessingOnly).
+activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
+	if !default_only {
+		if g.repl_ok {slua.send(&g.repl.vm, form, "OnActivate", by)}
+		if worldstate.activation_blocked(&g.ws, form) {return}
+	}
+	if by != script.PLAYER {return}
+	ref, ok := gamedb.ref_by_formid(&g.db, form)
+	if !ok {return}
+	switch kind := Activate_Kind.Door if ref.has_tp else classify_base(&g.db, ref.base); kind {
+	case .Door:
+		// Open-interiors mode has its own walk-in, so doors are left to it there.
+		if g.interiors_on {break}
+		hit := Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}
+		if np, nyaw, tk := go_through(&g.trav, hit); tk != .None {
+			player_teleport(g, np, nyaw, 0)
+			traversal_finish_load(g, tk)
+		}
+	case .Item:
+		log.infof("collect: pick up %q (0x%08X) — player inventory not built yet (stub)", interact_subject(g, form), u32(form))
+	case .Container:
+		log.infof("activate: open container %q — container/inventory UI not built yet (stub)", interact_subject(g, form))
+	case .None, .Actor, .Activator, .Flora, .Book:
+		log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])
+	}
+}
+
+// tick_activations runs the activations scripts requested since the last tick.
+tick_activations :: proc(g: ^Game) {
+	for a in g.ws.activations {activate(g, a.target, a.by, a.default_only)}
+	clear(&g.ws.activations)
 }
 
 // grab_begin lifts the pressed item into a telekinesis grab at a comfortable default reach.
@@ -155,18 +178,9 @@ grab_update :: proc(g: ^Game) {
 	physics.kick(g.fr.active_scene.phys, g.interact.body, vel) // wakes + sets velocity
 }
 
-// collect_stub is the tap-to-pick-up path: it belongs in the player's inventory, which doesn't exist
-// yet, so for now it just logs (the item stays in the world). Real pickup (remove the ref + add the
-// base item to the pack) hooks in here once inventory lands.
+// interact_subject is a ref's display name for a log line, or a placeholder when it's unnamed.
 @(private = "file")
-collect_stub :: proc(g: ^Game, form: Form_ID) {
+interact_subject :: proc(g: ^Game, form: Form_ID) -> string {
 	name := gamedb.name_of(&g.db, form)
-	if name == "" {name = "(unnamed)"}
-	log.infof("collect: pick up %q (0x%08X) — player inventory not built yet (stub)", name, u32(form))
-}
-
-// interact_subject is the target's display name for a log line, or a placeholder when it's unnamed.
-@(private = "file")
-interact_subject :: proc(t: Activation_Target) -> string {
-	return t.name if t.name != "" else "(unnamed)"
+	return name if name != "" else "(unnamed)"
 }

@@ -3,11 +3,12 @@ package unit_tests
 // Script instances at runtime (src/script/lua/instances.odin + rt.attach): plugin property values
 // reach a script's members, OnInit fires on every instance, a runaway handler is stopped by the
 // instruction budget without stopping the next one, placed refs start at the right time, and sent
-// events run only when the queue drains.
+// events run only when the queue drains, and load/attach transitions follow the attached cells.
 // Hermetic: a temp scripts dir, no game files.
 
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/gamedb"
@@ -77,6 +78,18 @@ C.__fn["onactivate"] = function(self, who)
   rt.send(self.form, "Again")
 end
 C.__fn["again"] = function(self) __again = true end
+return C
+`
+
+@(private = "file")
+WATCH_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Watch", nil)
+__log = {}
+for _, e in ipairs({ "OnCellAttach", "OnLoad", "OnCellLoad", "OnUnload", "OnCellDetach" }) do
+  C.__fn[string.lower(e)] = function(self)
+    __log[#__log] = (self.form === ref(0x201) and "a:" or "b:") .. e
+  end
+end
 return C
 `
 
@@ -190,4 +203,55 @@ test_send_runs_on_drain :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == 1 and __who === ref(0x14) and not __again)`), "OnActivate ran by the player")
 	testing.expect_value(t, slua.drain(&f.vm), 1)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__again)`), "a handler's event ran on the next drain")
+}
+
+// A cell attaching sends OnCellAttach to every scripted ref, OnLoad to the enabled ones, then
+// OnCellLoad. Enabling a ref in an attached cell loads it; the cell detaching unloads, then
+// detaches. Is3DLoaded follows the same state.
+@(test)
+test_transitions_follow_attached_cells :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_transitions", {{"watch.lua", WATCH_LUA}})
+	defer fixture_destroy(&f)
+	trans: slua.Transitions
+	defer slua.transitions_destroy(&trans)
+
+	CELL :: gamedb.Form_ID(0x100)
+	SCRIPTED :: gamedb.Form_ID(0xB)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[SCRIPTED] = {scripts = []esm.Script_Attach{{name = "Watch"}}}
+	refs := []gamedb.Ref {
+		{form_id = 0x201, cell_form_id = CELL, base = SCRIPTED},
+		{form_id = 0x202, cell_form_id = CELL, base = SCRIPTED, disabled = true},
+		{form_id = 0x204, cell_form_id = CELL, base = 0xC},
+	}
+	f.db.cell_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.cell_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	for r in refs {
+		append(&f.db.cell_refs[CELL], r)
+		f.db.ref_by_id[r.form_id] = r
+	}
+	slua.attach_cell(&f.vm, &f.db, CELL, false)
+
+	loaded :: proc(f: ^Fixture, form: script.Form_ID) -> bool {
+		c := script.Call{self = form, ws = &f.ws, db = &f.db}
+		b, _ := script.call(&f.reg, "ObjectReference", "Is3DLoaded", &c, nil).(bool)
+		return b
+	}
+	step :: proc(t: ^testing.T, f: ^Fixture, trans: ^slua.Transitions, now: []script.Form_ID, want: string) {
+		slua.tick_transitions(&f.vm, &f.db, &f.ws, trans, now)
+		slua.drain(&f.vm)
+		check := strings.concatenate({`local got = table.concat(__log, ","); __log = {}; assert(got == "`, want, `", got)`}, context.temp_allocator)
+		ok := slua.do_string(&f.vm, check)
+		testing.expectf(t, ok, "events after attached = %v", now)
+	}
+
+	step(t, &f, &trans, {CELL}, "a:OnCellAttach,b:OnCellAttach,a:OnLoad,a:OnCellLoad,b:OnCellLoad")
+	testing.expect(t, loaded(&f, 0x201) && !loaded(&f, 0x202), "Is3DLoaded: enabled yes, disabled no")
+	step(t, &f, &trans, {CELL}, "")
+	worldstate.set_disabled(&f.ws, 0x202, CELL, false)
+	step(t, &f, &trans, {CELL}, "b:OnLoad")
+	step(t, &f, &trans, {}, "a:OnUnload,a:OnCellDetach,b:OnUnload,b:OnCellDetach")
+	testing.expect(t, !loaded(&f, 0x201), "Is3DLoaded: no once detached")
 }

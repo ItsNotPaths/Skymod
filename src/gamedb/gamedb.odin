@@ -11,6 +11,7 @@ package gamedb
 
 import "base:runtime"
 import "core:log"
+import "core:math"
 import "core:strings"
 import "../formats/esm"
 import strtab "../formats/strings"
@@ -97,8 +98,11 @@ Quest_Baseline :: struct {
 	aliases:            []Quest_Alias,
 }
 
+// CELL_SIZE is the side of one exterior cell in world units: the grid step.
+CELL_SIZE :: f32(4096)
+
 // Cell is one cell's identity. Exterior cells carry their worldspace + grid (each
-// grid step is 4096 units); interior cells have world_form_id 0 and has_grid false.
+// grid step is CELL_SIZE); interior cells have world_form_id 0 and has_grid false.
 Cell :: struct {
 	form_id:       Form_ID,
 	editor_id:     string, // owned by the DB
@@ -893,6 +897,17 @@ base_size :: proc(db: ^DB, base_form_id: Form_ID) -> f32 {
 ref_by_formid :: proc(db: ^DB, form_id: Form_ID) -> (Ref, bool) {
 	r, ok := db.ref_by_id[form_id]
 	return r, ok
+}
+
+// ref_attach_cell is the cell a ref loads and unloads with: its own cell, except an exterior
+// persistent ref, which sits in the worldspace's persistent cell and goes with the grid cell under
+// its position (as the streamer places it). 0 when that grid cell does not exist.
+ref_attach_cell :: proc(db: ^DB, r: Ref) -> Form_ID {
+	c, ok := db.cells[r.cell_form_id]
+	if !ok || c.interior || c.has_grid {return r.cell_form_id}
+	gx, gy := i32(math.floor(r.pos.x / CELL_SIZE)), i32(math.floor(r.pos.y / CELL_SIZE))
+	cell, _ := cell_at(db, c.world_form_id, gx, gy)
+	return cell
 }
 
 // cell_terrain returns a cell's LAND heightmap (a row-major esm.LAND_GRID² grid of

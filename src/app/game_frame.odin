@@ -469,14 +469,29 @@ frame_stream :: proc(g: ^Game) {
 }
 
 // tick_scripts is the one place script handlers run: refs of cells that loaded since the last tick
-// get their scripts (and OnInit), then queued events run.
+// get their scripts (and OnInit), load/attach transitions are sent, activations scripts requested
+// run, then every queued event runs.
 @(private = "file")
 tick_scripts :: proc(g: ^Game) {
+	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
 	if g.repl_ok {
 		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
-		slua.drain(&g.repl.vm)
+		slua.tick_transitions(&g.repl.vm, &g.db, &g.ws, &g.trans, attached_cells(g.fr.active_scene))
 	}
 	clear(&g.loaded_cells)
+	tick_activations(g)
+	if g.repl_ok {slua.drain(&g.repl.vm)}
+}
+
+// attached_cells lists the cells attached to the player's scene: the active scene's full-detail
+// chunks. The warm exterior kept behind an interior is not the active scene, so it detaches.
+@(private = "file")
+attached_cells :: proc(s: ^world.Scene) -> []Form_ID {
+	cells := make([dynamic]Form_ID, context.temp_allocator)
+	for cid, &c in s.chunks {
+		if c.lod == 0 {append(&cells, cid)}
+	}
+	return cells[:]
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE

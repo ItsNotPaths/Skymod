@@ -26,6 +26,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "Disable", n_disable)
 	register(reg, "ObjectReference", "Enable", n_enable)
 	register(reg, "ObjectReference", "IsDisabled", n_is_disabled)
+	register(reg, "ObjectReference", "Is3DLoaded", n_is_3d_loaded)
 	register(reg, "ObjectReference", "SetScale", n_set_scale)
 	register(reg, "ObjectReference", "GetScale", n_get_scale)
 	register(reg, "ObjectReference", "Delete", n_delete)
@@ -34,6 +35,9 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "Lock", n_lock)
 	register(reg, "ObjectReference", "IsLocked", n_is_locked)
 	register(reg, "ObjectReference", "SetOpen", n_set_open)
+	register(reg, "ObjectReference", "Activate", n_activate)
+	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
+	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
 
 	// Game / Debug — the top globals (callstatic), self is unused (0).
 	register(reg, "Game", "GetPlayer", n_get_player)
@@ -64,13 +68,40 @@ n_enable :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
-	if d, ok := worldstate.get(c.ws, c.self); ok && .Disabled in d.live {
-		return d.disabled
+	return !ref_enabled(c.ws, c.db, c.self)
+}
+
+// n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
+n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
+	r, ok := gamedb.ref_by_formid(c.db, c.self)
+	return ok && gamedb.ref_attach_cell(c.db, r) in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
+}
+
+// ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline
+// (the REFR flag, a deletion, or its enable parent).
+ref_enabled :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, form: Form_ID) -> bool {
+	if d, ok := worldstate.get(ws, form); ok && .Disabled in d.live {
+		return !d.disabled
 	}
-	if r, ok := gamedb.ref_by_formid(c.db, c.self); ok {
-		return r.disabled // baseline REFR "Initially Disabled"
-	}
-	return false
+	r, ok := gamedb.ref_by_formid(db, form)
+	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
+}
+
+// n_activate queues the activation for the app's next tick. It returns whether default processing
+// will run: false when blocked, unless abDefaultProcessingOnly ignores the block.
+n_activate :: proc(c: ^Call, args: []Value) -> Value {
+	default_only := arg_bool(args, 1, false)
+	worldstate.request_activation(c.ws, c.self, arg_form(args, 0), default_only)
+	return default_only || !worldstate.activation_blocked(c.ws, c.self)
+}
+
+n_block_activation :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_activation_blocked(c.ws, c.self, ref_cell(c, c.self), arg_bool(args, 0, true))
+	return nil
+}
+
+n_is_activation_blocked :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.activation_blocked(c.ws, c.self)
 }
 
 n_set_scale :: proc(c: ^Call, args: []Value) -> Value {

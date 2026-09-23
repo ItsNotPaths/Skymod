@@ -431,3 +431,58 @@ test_registry_quest :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Quest", "IsStageDone", &c, {i32(30)}).(bool), false)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsCompleted", &c, nil).(bool), false)
 }
+
+// BlockActivation sets the flag the engine reads before its default action; unblocking clears it,
+// and the read-back native sees both.
+@(test)
+test_registry_block_activation :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+
+	form := script.Form_ID(0x0001_2345)
+	c := script.Call{self = form, ws = &ws, db = &db}
+	is_blocked :: proc(reg: ^script.Registry, c: ^script.Call) -> bool {
+		b, _ := script.call(reg, "ObjectReference", "IsActivationBlocked", c, nil).(bool)
+		return b
+	}
+
+	testing.expect(t, !is_blocked(&reg, &c), "a baseline ref is not blocked")
+	script.call(&reg, "ObjectReference", "BlockActivation", &c, nil) // abBlocked defaults to true
+	testing.expect(t, worldstate.activation_blocked(&ws, form), "BlockActivation() blocks")
+	testing.expect(t, is_blocked(&reg, &c), "IsActivationBlocked reads it")
+	script.call(&reg, "ObjectReference", "BlockActivation", &c, []script.Value{false})
+	testing.expect(t, !is_blocked(&reg, &c), "BlockActivation(false) unblocks")
+}
+
+// Activate queues the request for the app's next tick. It returns whether default processing will
+// run: false on a blocked ref, true again when abDefaultProcessingOnly ignores the block.
+@(test)
+test_registry_activate_queues :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+
+	lever := script.Form_ID(0x0001_2345)
+	c := script.Call{self = lever, ws = &ws, db = &db}
+	activate :: proc(reg: ^script.Registry, c: ^script.Call, args: []script.Value) -> bool {
+		b, _ := script.call(reg, "ObjectReference", "Activate", c, args).(bool)
+		return b
+	}
+
+	testing.expect(t, activate(&reg, &c, {script.PLAYER}), "an unblocked ref will process")
+	script.call(&reg, "ObjectReference", "BlockActivation", &c, nil)
+	testing.expect(t, !activate(&reg, &c, {script.PLAYER}), "a blocked ref will not")
+	testing.expect(t, activate(&reg, &c, {script.PLAYER, true}), "default-only ignores the block")
+
+	testing.expect_value(t, len(ws.activations), 3)
+	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = script.PLAYER, default_only = true})
+}

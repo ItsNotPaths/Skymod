@@ -9,7 +9,6 @@ import lua "../../../vendor/lua"
 import script ".."
 
 // HOLE(script, gap): only OnActivate has a sender; OnHit, OnDeath, OnContainerChanged, OnItemAdded and OnTriggerEnter are never sent.
-// HOLE(script, gap): no transitions — OnLoad, OnUnload, OnCellAttach and OnCellDetach never fire.
 
 // send queues `event` for every script on `form`. Args are refs (Form_ID), i32, f32, bool or string.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {

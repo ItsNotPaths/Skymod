@@ -12,7 +12,6 @@ package main
 // as before.
 
 import "../gamedb"
-import smath "../math"
 import "../physics"
 import "../render"
 import "../world"
@@ -52,9 +51,7 @@ activate_kind_tag := [Activate_Kind]string {
 // activatable is targeted (the HUD shows just the reticle). `name` is the object's own FULL name;
 // `dest` is a door's destination place name ("Riverwood Trader"). `form` is the targeted REFR, for
 // the activate action / future menus. `dyn_body` is the movable-clutter physics body carrying the
-// target (0 = static/none) — non-zero means it can be picked up / manoeuvred (frame_interact). The
-// `tp_*` fields mirror the picked door's XTEL so a crosshair Activate can go_through it directly,
-// with no proximity "nearest door" scan.
+// target (0 = static/none) — non-zero means it can be picked up / manoeuvred (frame_interact).
 Activation_Target :: struct {
 	present:  bool,
 	kind:     Activate_Kind,
@@ -62,10 +59,7 @@ Activation_Target :: struct {
 	dest:     string,
 	locked:   bool,
 	form:     gamedb.Form_ID,
-	dyn_body: physics.Body,   // movable-clutter body under the crosshair (0 = not grabbable)
-	tp_door:  gamedb.Form_ID, // Door only: destination door (XTEL) for go_through
-	tp_pos:   smath.Vec3,     // Door only: arrival landing position
-	tp_rot:   smath.Vec3,     // Door only: arrival facing
+	dyn_body: physics.Body, // movable-clutter body under the crosshair (0 = not grabbable)
 }
 
 // classify_base maps a base form to an activation kind from the gamedb type indexes. Door is handled
@@ -122,11 +116,7 @@ resolve_activation :: proc(g: ^Game) -> Activation_Target {
 	if inst.has_tp {
 		// A load door with a mesh (manual door / city gate). Its destination place name is the prompt
 		// subject ("Open Riverwood Trader"). Auto/cave markers have no mesh → never picked → no prompt.
-		// Carry its XTEL so Activate can cross it straight from the crosshair (frame_interact → go_through).
 		t.dest = door_dest_label(&g.trav, gamedb.Form_ID(inst.tp_door))
-		t.tp_door = gamedb.Form_ID(inst.tp_door)
-		t.tp_pos = inst.tp_pos
-		t.tp_rot = inst.tp_rot
 	}
 	// Only surface a prompt for something worth naming: a door always (it has a destination), else
 	// an object with an actual FULL name. Unnamed clutter/activators show nothing (just the reticle).

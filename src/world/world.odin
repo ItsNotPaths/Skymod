@@ -174,8 +174,7 @@ instance_shape_world :: proc(s: ^Scene, inst: ^Instance, iworld, sh_local: smath
 	return iworld * sh_local
 }
 
-// CELL_SIZE is the side of one exterior cell in world units.
-CELL_SIZE :: f32(4096)
+CELL_SIZE :: gamedb.CELL_SIZE
 
 // Conservative half-extent added to a chunk's instance-position bounds so culling
 // never clips a tall/wide mesh whose origin sits near a cell edge.

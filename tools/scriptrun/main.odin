@@ -2,7 +2,7 @@ package main
 
 // Headless script run (dev harness, not shipped): load an install's plugins, give every quest and
 // persistent ref its scripts, fire OnInit, and report what the scripts tried to do — the new-game
-// script start without a window. --cell also loads one cell's refs (hex form id), or every cell.
+// script start without a window. --cell also loads and attaches one cell (hex form id), or every cell.
 //
 //   odin run tools/scriptrun -- <Skyrim root> <scripts dir> [--cell <formid>|all]
 //
@@ -49,17 +49,24 @@ main :: proc() {
 	made := slua.start_game(&vm, &db, true)
 	took := time.since(start)
 	start = time.now()
+	cells := cells_arg(&db)
 	cell_made := 0
-	for cell in cells_arg(&db) {
+	for cell in cells {
 		cell_made += slua.attach_cell(&vm, &db, cell, true)
 		free_all(context.temp_allocator)
 	}
 	cell_took := time.since(start)
+	start = time.now()
+	trans: slua.Transitions
+	slua.tick_transitions(&vm, &db, &ws, &trans, cells)
+	events := slua.drain(&vm)
+	trans_took := time.since(start)
 	context.logger = log.create_console_logger(.Info)
 
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
-	fmt.printfln("errors %d, distinct warnings %d, stubbed natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
+	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
+	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)
 	for m, n in tally.by_msg {append(&rows, Row{m, n})}

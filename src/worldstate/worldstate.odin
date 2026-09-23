@@ -35,6 +35,7 @@ Ref_Field :: enum u8 {
 	Inventory, // container / corpse contents
 	Dead,      // actor life-state
 	Deleted,   // ESM ref destroyed (streaming must suppress the baseline)
+	Activation_Blocked, // BlockActivation: no default action on Activate. The bit is the whole state (a baseline ref is never blocked)
 }
 
 // HOLE(combat, blocker): `Dead` is a flag a script sets. Nothing computes it — there is no health value anywhere in the engine, no damage application, no hostility and no death path.
@@ -134,6 +135,20 @@ World_State :: struct {
 	// one fixed frame point and re-applies each to the resident scene. The world's own *_ref verbs
 	// apply live at call time and DON'T enqueue. Ordered; a form may repeat (drain is idempotent).
 	scene_dirty:     [dynamic]Form_ID,
+	// Activations a script requested (ObjectReference.Activate). The app runs them at the next tick,
+	// through the same path as the player's Activate key, and clears the list. Never saved.
+	activations:     [dynamic]Activation,
+	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
+	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
+	// transition step keeps it; Is3DLoaded reads it. Never saved.
+	attached:        map[Form_ID][dynamic]Form_ID,
+}
+
+// Activation is one request to activate `target` by `by`. `default_only` skips OnActivate and ignores
+// BlockActivation (Papyrus abDefaultProcessingOnly).
+Activation :: struct {
+	target, by:   Form_ID,
+	default_only: bool,
 }
 
 init :: proc(ws: ^World_State) {
@@ -150,6 +165,8 @@ init :: proc(ws: ^World_State) {
 	ws.relationships = make(map[Form_ID]map[Form_ID]i32)
 	ws.perks = make(map[Form_ID]map[Form_ID]bool)
 	ws.scene_dirty = make([dynamic]Form_ID)
+	ws.activations = make([dynamic]Activation)
+	ws.attached = make(map[Form_ID][dynamic]Form_ID)
 	ws.player.level = 1 // default until real leveling / save round-trip sets it
 }
 
@@ -179,6 +196,11 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.relationships)
 	delete(ws.perks)
 	delete(ws.scene_dirty)
+	delete(ws.activations)
+	for _, &refs in ws.attached {
+		delete(refs)
+	}
+	delete(ws.attached)
 	ws^ = {}
 }
 
@@ -221,6 +243,11 @@ free_stores :: proc(ws: ^World_State) {
 // overlay (script natives) so the app's per-frame drain re-applies the change to the resident scene.
 mark_scene_dirty :: proc(ws: ^World_State, form_id: Form_ID) {
 	append(&ws.scene_dirty, form_id)
+}
+
+// request_activation queues a script's Activate for the app's next tick.
+request_activation :: proc(ws: ^World_State, target, by: Form_ID, default_only: bool) {
+	append(&ws.activations, Activation{target, by, default_only})
 }
 
 // pending_scene returns the queued dirty forms (drain-and-apply, then clear_scene_dirty).
@@ -303,6 +330,22 @@ set_disabled :: proc(ws: ^World_State, form_id, cell: Form_ID, disabled: bool) {
 	d := upsert(ws, form_id, cell)
 	d.live += {.Disabled}
 	d.disabled = disabled
+}
+
+// set_activation_blocked records BlockActivation: while set, activating the ref only sends its
+// scripts OnActivate; the engine's default action (open, take, talk) does not run.
+set_activation_blocked :: proc(ws: ^World_State, form_id, cell: Form_ID, blocked: bool) {
+	if blocked {
+		upsert(ws, form_id, cell).live += {.Activation_Blocked}
+	} else if d, ok := &ws.ref_deltas[form_id]; ok {
+		d.live -= {.Activation_Blocked}
+	}
+}
+
+// activation_blocked reports whether a script blocked the ref's default activation.
+activation_blocked :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	d, ok := ws.ref_deltas[form_id]
+	return ok && .Activation_Blocked in d.live
 }
 
 // set_open records an Open delta (door/container open-state).
