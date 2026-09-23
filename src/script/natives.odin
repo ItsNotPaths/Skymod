@@ -19,6 +19,21 @@ import smath "../math"
 // HOLE(ai, blocker): the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 // HOLE(magic, blocker): Cast/AddSpell/RemoveSpell — MGEF records indexed, the subsystem that applies them is not.
 
+// Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
+// read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
+// HOLE(combat): no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime.
+// HOLE(ai): no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, ActorBase.SetOutfit, SetAllowFlyingMountLandingRequests.
+// HOLE(dialogue): no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
+// HOLE(magic): no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
+// HOLE(physics): no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
+// HOLE(world): no read for Cell.SetPublic, Cell.Reset.
+// HOLE(render): no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
+// HOLE(animation): no read for SetSittingRotation.
+// HOLE(save): no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
+// HOLE(assets): no read for RequestModel (queued; nothing says the model loaded).
+// HOLE(ui): no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
+// HOLE(script): no read for AdvanceSkill (skill XP), AddPerkPoints, the four SetINI*.
+
 import "../worldstate"
 
 register_builtins :: proc(reg: ^Registry) {
