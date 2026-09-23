@@ -88,18 +88,30 @@ Corpus :: struct {
 	gotostate_calls: int,
 	multi_state_objects: int,
 	states_total:   int,
+	guards:         Guards,
+	decls:          bool, // collect_decls: guards and shapes resolve calls through it
+	shapes:         []Shape_Row, // per node, --shapes only
+	effects:        []Effects,   // per node, --callers only
+	call_sites:     [dynamic]Call_Site,
 }
 
 main :: proc() {
 	if len(os.args) < 2 {
-		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N]")
+		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N] [--guards out.tsv] [--shapes out.tsv [--callers out.tsv]]")
 		os.exit(2)
 	}
 	top_n := 30
+	guards_out, shapes_out, callers_out := "", "", ""
 	paths := make([dynamic]string)
 	for i in 1 ..< len(os.args) {
 		if os.args[i] == "--top" && i + 1 < len(os.args) {
 			if v, ok := strconv.parse_int(os.args[i + 1]); ok {top_n = v}
+		} else if os.args[i] == "--guards" && i + 1 < len(os.args) {
+			guards_out = os.args[i + 1]
+		} else if os.args[i] == "--shapes" && i + 1 < len(os.args) {
+			shapes_out = os.args[i + 1]
+		} else if os.args[i] == "--callers" && i + 1 < len(os.args) {
+			callers_out = os.args[i + 1]
 		} else if strings.has_suffix(strings.to_lower(os.args[i], context.temp_allocator), ".bsa") {
 			append(&paths, os.args[i])
 		}
@@ -112,18 +124,37 @@ main :: proc() {
 	c.classes = make(map[string]bool)
 	c.wait_names = make(map[string]int)
 	c.by_native = make(map[string]int)
+	c.guards.on = guards_out != ""
+	if c.guards.on || callers_out != "" {c.guards.natives = load_natives_tsv()}
+	c.decls = c.guards.on || shapes_out != ""
 
-	for p in paths {scan_bsa(&c, p)}
+	for p in paths {scan_bsa(&c, p, scan_object)}
 	count_typed_sites(&c)
 	link(&c)
 	propagate(&c)
 	find_cycles(&c)
 	report(&c, top_n)
+	if c.guards.on {
+		resolve_guards(&c)
+		write_guards_tsv(&c, guards_out)
+		guard_report(&c)
+	}
+	if shapes_out != "" {
+		c.shapes = make([]Shape_Row, len(c.nodes))
+		if callers_out != "" {c.effects = make([]Effects, len(c.nodes))}
+		for p in paths {scan_bsa(&c, p, shapes_object)}
+		write_shapes_tsv(&c, shapes_out)
+		shape_report(&c)
+		if callers_out != "" {
+			write_callers_tsv(&c, callers_out)
+			callers_report(&c)
+		}
+	}
 }
 
 // ── corpus scan ──────────────────────────────────────────────────────────────
 
-scan_bsa :: proc(c: ^Corpus, path: string) {
+scan_bsa :: proc(c: ^Corpus, path: string, visit: proc(c: ^Corpus, p: ^pex.Pex, o: ^pex.Object)) {
 	arc, ok := bsa.open(path)
 	if !ok {
 		fmt.eprintfln("failed to open BSA: %s", path)
@@ -143,7 +174,7 @@ scan_bsa :: proc(c: ^Corpus, path: string) {
 		if !pok {free_all(context.temp_allocator);continue}
 		c.parsed += 1
 		for &o in p.objects {
-			scan_object(c, &p, &o)
+			visit(c, &p, &o)
 		}
 		free_all(context.temp_allocator)
 	}
@@ -161,36 +192,44 @@ scan_object :: proc(c: ^Corpus, p: ^pex.Pex, o: ^pex.Object) {
 		}
 	}
 
-	// Object-level symbol table: member vars + properties + self (receiver typing).
-	syms := make(map[string]string, len(o.variables) + len(o.properties) + 1, context.temp_allocator)
-	syms["self"] = class
+	syms := object_syms(o, class)
 	c.member_vars += len(o.variables)
 	for &v in o.variables {
 		if strings.has_prefix(v.name, "::") {c.autoprop_vars += 1}
-		syms[strings.to_lower(v.name, context.temp_allocator)] = strings.to_lower(v.type_name, context.temp_allocator)
-	}
-	for &pr in o.properties {
-		syms[strings.to_lower(pr.name, context.temp_allocator)] = strings.to_lower(pr.type_name, context.temp_allocator)
 	}
 
+	if c.decls {collect_decls(c, o)}
 	named_states := 0
 	for &st in o.states {
 		if st.name != "" {named_states += 1}
 		for &f in st.functions {
 			if f.is_native || len(f.instructions) == 0 {continue}
-			scan_function(c, o, class, syms, &f)
+			scan_function(c, o, class, syms, &f, st.name)
 		}
 	}
 	c.states_total += named_states
 	if named_states > 1 || (named_states == 1 && o.auto_state == "") {c.multi_state_objects += 1}
 	// property handlers can contain code too — rare, but walk them for completeness
 	for &pr in o.properties {
-		if pr.has_reader {scan_function(c, o, class, syms, &pr.reader)}
-		if pr.has_writer {scan_function(c, o, class, syms, &pr.writer)}
+		if pr.has_reader {scan_function(c, o, class, syms, &pr.reader, "")}
+		if pr.has_writer {scan_function(c, o, class, syms, &pr.writer, "")}
 	}
 }
 
-scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[string]string, f: ^pex.Function) {
+// object_syms: member vars + properties + self, lower name -> lower type (receiver typing).
+object_syms :: proc(o: ^pex.Object, class: string) -> map[string]string {
+	syms := make(map[string]string, len(o.variables) + len(o.properties) + 1, context.temp_allocator)
+	syms["self"] = class
+	for &v in o.variables {
+		syms[strings.to_lower(v.name, context.temp_allocator)] = strings.to_lower(v.type_name, context.temp_allocator)
+	}
+	for &pr in o.properties {
+		syms[strings.to_lower(pr.name, context.temp_allocator)] = strings.to_lower(pr.type_name, context.temp_allocator)
+	}
+	return syms
+}
+
+scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[string]string, f: ^pex.Function, state: string) {
 	if len(f.instructions) == 0 {return}
 	fn := strings.to_lower(f.name, context.temp_allocator)
 	if fn == "" {fn = "<prop>"}
@@ -216,26 +255,12 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 	n.n_locals = max(n.n_locals, len(f.locals))
 	if fn == "onupdate" || fn == "onupdategametime" {c.onupdate_defs += 1}
 
-	// Backward-jump spans (loops). Offsets are relative instruction counts.
-	Loop :: struct {lo, hi: int}
-	loops := make([dynamic]Loop, context.temp_allocator)
-	for ins, idx in f.instructions {
-		off_arg := -1
-		#partial switch ins.op {
-		case .Jmp:
-			off_arg = 0
-		case .JmpT, .JmpF:
-			off_arg = 1
-		}
-		if off_arg >= 0 && off_arg < len(ins.args) && ins.args[off_arg].kind == .Integer {
-			t := idx + int(ins.args[off_arg].i)
-			if t <= idx {append(&loops, Loop{t, idx})}
-		}
-	}
+	loops := find_loops(f)
 	in_loop :: proc(loops: [dynamic]Loop, i: int) -> bool {
 		for l in loops {if l.lo <= i && i <= l.hi {return true}}
 		return false
 	}
+	if c.guards.on {scan_guards(c, o, syms, f, ni, state, loops[:])}
 
 	for ins, idx in f.instructions {
 		#partial switch ins.op {
@@ -259,20 +284,7 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			tally_wait_name(c, name, name)
 			if name == "gotostate" {c.gotostate_calls += 1;continue}
 			if slice.contains(REGISTER_FNS, name) {c.register_calls += 1;continue}
-			// resolve the receiver's static type: param/local, then member/property/self
-			recv := strings.to_lower(ins.args[1].str, context.temp_allocator)
-			t := ""
-			for &pv in f.params {
-				if strings.equal_fold(pv.name, recv) {t = strings.to_lower(pv.type_name, context.temp_allocator);break}
-			}
-			if t == "" {
-				for &lv in f.locals {
-					if strings.equal_fold(lv.name, recv) {t = strings.to_lower(lv.type_name, context.temp_allocator);break}
-				}
-			}
-			if t == "" {
-				if s, ok := syms[recv]; ok {t = s}
-			}
+			t := var_type(f, syms, ins.args[1].str)
 			typed := t != "" && !strings.contains(t, "[")
 			if is_latent_method_name(name) {
 				if typed {
@@ -297,6 +309,28 @@ scan_function :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[strin
 			}
 		}
 	}
+}
+
+// var_type is a name's static type, lower: param/local, then member/property/self.
+var_type :: proc(f: ^pex.Function, syms: map[string]string, name: string) -> string {
+	for &pv in f.params {
+		if strings.equal_fold(pv.name, name) {return strings.to_lower(pv.type_name, context.temp_allocator)}
+	}
+	for &lv in f.locals {
+		if strings.equal_fold(lv.name, name) {return strings.to_lower(lv.type_name, context.temp_allocator)}
+	}
+	return syms[strings.to_lower(name, context.temp_allocator)] or_else ""
+}
+
+Loop :: struct {lo, hi: int}
+
+// find_loops: backward-jump spans.
+find_loops :: proc(f: ^pex.Function) -> [dynamic]Loop {
+	loops := make([dynamic]Loop, context.temp_allocator)
+	for ins, idx in f.instructions {
+		if t, ok := jump_target(ins, idx); ok && t <= idx {append(&loops, Loop{t, idx})}
+	}
+	return loops
 }
 
 count_site :: proc(c: ^Corpus, n: ^Node, native: string, loop: bool) {
@@ -473,6 +507,12 @@ find_cycles :: proc(c: ^Corpus) {
 	}
 }
 
+is_fragment :: proc(class: string) -> bool {
+	return strings.has_prefix(class, "qf_") || strings.has_prefix(class, "tif_") ||
+	       strings.has_prefix(class, "sf_") || strings.contains(class, "_qf_") ||
+	       strings.contains(class, "_tif_") || strings.contains(class, "_sf_")
+}
+
 // ── report ───────────────────────────────────────────────────────────────────
 
 report :: proc(c: ^Corpus, top_n: int) {
@@ -480,11 +520,6 @@ report :: proc(c: ^Corpus, top_n: int) {
 	direct, direct_sites, in_loop, const_w := 0, 0, 0, 0
 	lat_o, lat_c, cyc, ev_lat, frag_lat := 0, 0, 0, 0, 0
 	locals_sum, locals_max := 0, 0
-	is_fragment :: proc(class: string) -> bool {
-		return strings.has_prefix(class, "qf_") || strings.has_prefix(class, "tif_") ||
-		       strings.has_prefix(class, "sf_") || strings.contains(class, "_qf_") ||
-		       strings.contains(class, "_tif_") || strings.contains(class, "_sf_")
-	}
 	for &n in c.nodes {
 		if n.direct_sites > 0 {
 			direct += 1
