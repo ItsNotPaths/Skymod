@@ -133,7 +133,7 @@ faction_memberships :: proc(fields: []Field, allocator := context.allocator) -> 
 	i := 0
 	for f in fields {
 		if f.type == "SNAM" && len(f.data) >= 8 {
-			out[i] = Faction_Membership{faction = rd32(f.data, 0), rank = transmute(i8)f.data[4]}
+			out[i] = Faction_Membership{faction = rd32(f.data, 0), rank = cast(i8)f.data[4]}
 			i += 1
 		}
 	}
@@ -190,7 +190,7 @@ faction_relations :: proc(fields: []Field, allocator := context.allocator) -> []
 		if f.type == "XNAM" && len(f.data) >= 12 {
 			out[i] = Faction_Relation {
 				faction  = rd32(f.data, 0),
-				modifier = transmute(i32)rd32(f.data, 4),
+				modifier = cast(i32)rd32(f.data, 4),
 				combat   = Combat_Reaction(rd32(f.data, 8)),
 			}
 			i += 1
@@ -505,18 +505,18 @@ magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) 
 	return Magic_Effect_Info {
 			flags        = rd32(d, 0),
 			base_cost    = rf32(d, 4),
-			magic_skill  = transmute(i32)rd32(d, 12),
-			resist_av    = transmute(i32)rd32(d, 16),
+			magic_skill  = cast(i32)rd32(d, 12),
+			resist_av    = cast(i32)rd32(d, 16),
 			skill_level  = rd32(d, 40),
 			area         = rd32(d, 44),
 			casting_time = rf32(d, 48),
 			archetype    = Effect_Archetype(rd32(d, 64)),
-			primary_av   = transmute(i32)rd32(d, 68),
+			primary_av   = cast(i32)rd32(d, 68),
 			projectile   = rd32(d, 72),
 			explosion    = rd32(d, 76),
 			cast_type    = Cast_Type(rd32(d, 80)),
 			delivery     = Delivery(rd32(d, 84)),
-			second_av    = transmute(i32)rd32(d, 88),
+			second_av    = cast(i32)rd32(d, 88),
 		},
 		true
 }

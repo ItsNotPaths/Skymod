@@ -176,12 +176,12 @@ object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
 	if !fok || len(f.data) < 12 {
 		return 0, false
 	}
-	x1 := f32(transmute(i16)rd16(f.data, 0))
-	y1 := f32(transmute(i16)rd16(f.data, 2))
-	z1 := f32(transmute(i16)rd16(f.data, 4))
-	x2 := f32(transmute(i16)rd16(f.data, 6))
-	y2 := f32(transmute(i16)rd16(f.data, 8))
-	z2 := f32(transmute(i16)rd16(f.data, 10))
+	x1 := f32(cast(i16)rd16(f.data, 0))
+	y1 := f32(cast(i16)rd16(f.data, 2))
+	z1 := f32(cast(i16)rd16(f.data, 4))
+	x2 := f32(cast(i16)rd16(f.data, 6))
+	y2 := f32(cast(i16)rd16(f.data, 8))
+	z2 := f32(cast(i16)rd16(f.data, 10))
 	dx, dy, dz := x2 - x1, y2 - y1, z2 - z1
 	return 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz), true
 }
@@ -243,7 +243,7 @@ container_contents :: proc(fields: []Field, allocator := context.allocator) -> [
 	i := 0
 	for f in fields {
 		if f.type == "CNTO" && len(f.data) >= 8 {
-			out[i] = Content_Item{item = rd32(f.data, 0), count = transmute(i32)rd32(f.data, 4)}
+			out[i] = Content_Item{item = rd32(f.data, 0), count = cast(i32)rd32(f.data, 4)}
 			i += 1
 		}
 	}
@@ -648,11 +648,11 @@ land_heights :: proc(fields: []Field, allocator := context.allocator) -> ([]f32,
 	out := make([]f32, LAND_GRID * LAND_GRID, allocator)
 	col0 := offset
 	for y in 0 ..< LAND_GRID {
-		col0 += f32(transmute(i8)grad[y * LAND_GRID]) // first column: delta from previous row
+		col0 += f32(cast(i8)grad[y * LAND_GRID]) // first column: delta from previous row
 		h := col0
 		out[y * LAND_GRID] = h
 		for x in 1 ..< LAND_GRID {
-			h += f32(transmute(i8)grad[y * LAND_GRID + x]) // delta from previous cell in row
+			h += f32(cast(i8)grad[y * LAND_GRID + x]) // delta from previous cell in row
 			out[y * LAND_GRID + x] = h
 		}
 	}

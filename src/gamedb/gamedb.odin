@@ -1437,7 +1437,7 @@ index_world :: proc(db: ^DB, rec: esm.Record) {
 	defer if backing != nil {delete(backing)}
 
 	edid := esm.editor_id(fl)
-	if old, ok := db.worlds[rec.form_id]; ok {
+	if old, had := db.worlds[rec.form_id]; had {
 		delete(old, db.allocator) // override: free the previous clone
 	}
 	db.worlds[rec.form_id] = strings.clone(edid, db.allocator)
@@ -1449,7 +1449,7 @@ index_world :: proc(db: ^DB, rec: esm.Record) {
 	}
 	// Default water height — the level a child cell's XCLW sentinel resolves to. WRLD
 	// precedes its CELL children in the walk, so it's recorded before any cell reads it.
-	if wh, ok := esm.world_water_height(fl); ok && abs(wh) <= esm.WATER_MAX_PLAUSIBLE {
+	if wh, wok := esm.world_water_height(fl); wok && abs(wh) <= esm.WATER_MAX_PLAUSIBLE {
 		db.world_water[rec.form_id] = wh
 	}
 }
@@ -1474,7 +1474,7 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	// Resolve the cell's water height once, here: a real XCLW wins; the WATER_NONE
 	// sentinel (FLT_MAX) falls back to the worldspace default (the ocean at sea level —
 	// most exterior cells use this); no XCLW at all (interiors, border cells) = no water.
-	if h, ok := esm.cell_water_height(fl); ok {
+	if h, hok := esm.cell_water_height(fl); hok {
 		if h == esm.WATER_NONE {
 			if def, dok := db.world_water[ctx.world_form_id]; dok {
 				cell.water_height = def
@@ -1484,7 +1484,7 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		}
 		// else: a non-FLT_MAX "no water" marker (e.g. 0xCF000000) → leave WATER_NONE.
 	}
-	if wt, ok := esm.cell_water_type(fl); ok {
+	if wt, tok := esm.cell_water_type(fl); tok {
 		cell.water_type = esm.remap_form(ctx.fm, wt) // XCWT references a WATR form
 	}
 	if gx, gy, gok := esm.cell_grid(fl); gok {
@@ -1753,7 +1753,7 @@ index_gras :: proc(db: ^DB, rec: esm.Record) {
 		return
 	}
 	density, _ := esm.grass_density(fl)
-	if old, ok := db.grasses[rec.form_id]; ok {
+	if old, had := db.grasses[rec.form_id]; had {
 		delete(old.model, db.allocator) // override: free the previous model clone
 	}
 	db.grasses[rec.form_id] = Grass{model = strings.clone(model, db.allocator), density = density}
@@ -2238,7 +2238,7 @@ index_txst :: proc(db: ^DB, rec: esm.Record) {
 	defer if backing != nil {delete(backing)}
 
 	if path := esm.texture_set_diffuse(fl); path != "" {
-		if old, ok := db.txst_diffuse[rec.form_id]; ok {
+		if old, had := db.txst_diffuse[rec.form_id]; had {
 			delete(old, db.allocator) // override: free the previous path clone
 		}
 		db.txst_diffuse[rec.form_id] = strings.clone(path, db.allocator)
@@ -2256,7 +2256,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 
 	model := esm.model_path(fl)
 	if model != "" {
-		if old, ok := db.base_models[rec.form_id]; ok {
+		if old, had := db.base_models[rec.form_id]; had {
 			delete(old, db.allocator) // override: free the previous clone
 		}
 		db.base_models[rec.form_id] = strings.clone(model, db.allocator)
@@ -2266,7 +2266,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	// Prebaked distant-LOD meshes (STAT MNAM): clone the populated slots so the LOD rings load
 	// Skyrim's own low-poly meshes instead of decimating at runtime.
 	if lods, n := esm.lod_model_paths(fl); n > 0 {
-		if old, ok := db.base_lod[rec.form_id]; ok {
+		if old, had := db.base_lod[rec.form_id]; had {
 			for s in old {
 				if s != "" {
 					delete(s, db.allocator) // override: free the previous LOD clones
@@ -2281,11 +2281,11 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		}
 		db.base_lod[rec.form_id] = arr
 	}
-	if radius, ok := esm.object_bounds(fl); ok {
+	if radius, rok := esm.object_bounds(fl); rok {
 		db.base_radius[rec.form_id] = radius
 	}
 	// Carriable items (WEAP/ARMO/ALCH/…) carry a gold value + weight; static-world types don't.
-	if value, weight, ok := esm.item_value_weight(rec.type, fl); ok {
+	if value, weight, vok := esm.item_value_weight(rec.type, fl); vok {
 		db.base_value[rec.form_id] = value
 		db.base_weight[rec.form_id] = weight
 	}
