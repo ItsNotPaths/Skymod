@@ -120,16 +120,53 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 	return false
 }
 
-// drain runs every queued event. Call once per game_tick. Returns how many events ran.
+// The script phase of a tick is tick_begin, then whatever the engine runs for scripts (the app's
+// activations), then tick_end (docs/script-api.md section 3).
+
+// tick_begin advances the script clocks, gives the refs of `loaded` cells their scripts (and OnInit),
+// then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.
+tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, loaded, attached: []script.Form_ID, dt: f32) {
+	advance_clocks(vm, dt)
+	for cell in loaded {attach_cell(vm, db, cell)}
+	tick_transitions(vm, db, ws, t, attached)
+	tick_updates(vm, ws, dt)
+	tick_items(vm, db, ws)
+}
+
+// tick_end runs every queued event, then OnTick. Returns how many events ran.
+tick_end :: proc(vm: ^VM, dt: f32) -> int {
+	ran := drain(vm)
+	call_rt(vm, "tick", f64(dt))
+	return ran
+}
+
+// drain runs every queued event. Returns how many events ran.
 drain :: proc(vm: ^VM) -> int {
+	return call_rt(vm, "drain")
+}
+
+// TIME_SCALE is Skyrim's default game seconds per real second. Game clocks run at it until the
+// game clock exists (the world hole in worldstate.odin).
+TIME_SCALE :: 20
+
+// advance_clocks moves every script clock field by one tick.
+@(private = "file")
+advance_clocks :: proc(vm: ^VM, dt: f32) {
+	call_rt(vm, "advance", f64(dt), f64(dt) * TIME_SCALE / 3600)
+}
+
+// call_rt calls skymod.rt[name] with number arguments and returns its result as an int.
+@(private = "file")
+call_rt :: proc(vm: ^VM, name: cstring, args: ..f64) -> int {
 	L := vm.L
 	vm.host_context = context
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
 
-	if !push_rt_fn(L, "drain") {return 0}
-	if lua.pcall(L, 0, 1, 0) != 0 {
-		log.errorf("lua: rt.drain: %s", to_string(L, -1))
+	if !push_rt_fn(L, name) {return 0}
+	for a in args {lua.pushnumber(L, lua.Number(a))}
+	if lua.pcall(L, i32(len(args)), 1, 0) != 0 {
+		log.errorf("lua: rt.%s: %s", name, to_string(L, -1))
 		return 0
 	}
 	return int(lua.tointeger(L, -1))

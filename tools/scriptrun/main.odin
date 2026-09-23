@@ -67,9 +67,8 @@ main :: proc() {
 	start = time.now()
 	updates := 0
 	for _ in 0 ..< UPDATE_TICKS {
-		slua.tick_updates(&vm, &ws, 1.0 / 60)
-		slua.tick_items(&vm, &db, &ws)
-		updates += slua.drain(&vm)
+		slua.tick_begin(&vm, &db, &ws, &trans, nil, cells, 1.0 / 60)
+		updates += slua.tick_end(&vm, 1.0 / 60)
 		free_all(context.temp_allocator)
 	}
 	update_took := time.since(start)

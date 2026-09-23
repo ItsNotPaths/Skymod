@@ -67,8 +67,20 @@ rt.loader = function(lname)
   return cls
 end
 
+-- A function assigned to a class goes into its method table, so hand-written code can say
+-- `function C:OnTick()`. Converted code fills `__fn` directly.
+local Class = {
+  __newindex = function(cls, k, v)
+    if type(v) == "function" then
+      cls.__fn[low(k)] = v
+    else
+      rawset(cls, k, v)
+    end
+  end,
+}
+
 function rt.class(name, parent)
-  local cls = {
+  local cls = setmetatable({
     __name = name,
     __parent = parent and low(parent),
     __fn = {},
@@ -76,7 +88,7 @@ function rt.class(name, parent)
     __vars = {},
     __autoprop = {},
     __cache = {},
-  }
+  }, Class)
   classes[low(name)] = cls
   return cls
 end
@@ -126,6 +138,47 @@ local function is_subclass(cls, lname)
   return false
 end
 
+-- defines reports whether `lname` is a function anywhere in the chain, in any state.
+local function defines(cls, lname)
+  local c = cls
+  while c do
+    if c.__fn[lname] then return true end
+    for _, st in pairs(c.__states) do
+      if st[lname] then return true end
+    end
+    c = parent_of(c)
+  end
+  return false
+end
+
+-- ── field types ─────────────────────────────────────────────────────────────
+-- Hand-written scripts declare `__vars` entries with these (docs/script-api.md section 2). Each
+-- returns the { type, default } shape the transpiler emits.
+
+local function field(t) return function(v) return { type = t, default = v } end end
+rt.bool, rt.int, rt.float, rt.string = field("Bool"), field("Int"), field("Float"), field("String")
+rt.timer, rt.stopwatch = field("Timer"), field("Stopwatch")
+rt.gametimer, rt.gamestopwatch = field("GameTimer"), field("GameStopwatch")
+function rt.form(t) return { type = t } end
+function rt.array_of(elem) return { type = elem .. "[]" } end
+
+-- A vec3 is a position or an Euler rotation. In `__vars` the value itself declares the field.
+local Vec3 = { __name = "vec3" }
+function rt.vec3(x, y, z) return setmetatable({ x = x or 0.0, y = y or 0.0, z = z or 0.0 }, Vec3) end
+local function is_vec3(v) return getmetatable(v) == Vec3 end
+local function copy_vec3(v) return rt.vec3(v.x, v.y, v.z) end
+
+-- Clocks: the engine moves them every tick (rt.advance). Sign is the direction, game marks game time.
+local clock_kinds = {
+  timer = { sign = -1 },
+  stopwatch = { sign = 1 },
+  gametimer = { sign = -1, game = true },
+  gamestopwatch = { sign = 1, game = true },
+}
+
+-- Keys an instance keeps for itself, so no field may use them.
+local reserved = { form = true, class = true, vars = true, base = true }
+
 -- ── instances ───────────────────────────────────────────────────────────────
 
 local Instance = {
@@ -141,6 +194,8 @@ end
 Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
 
 local instances = {} -- ref -> lowercase script name -> instance
+local clocked = {}   -- instances whose class declares a clock field
+local ticking = {}   -- { inst, phase } for each instance whose class defines OnTick, oldest first
 
 -- snapshot copies a member's start value; an array is copied so writes into it show as changes.
 local function snapshot(vars)
@@ -157,12 +212,25 @@ local function snapshot(vars)
 end
 
 -- A member with no initializer is Null in the file; Papyrus gives it its type's zero.
-local zeros = { int = 0, float = 0.0, bool = false, string = "" }
+local zeros = {
+  int = 0, float = 0.0, bool = false, string = "",
+  timer = 0.0, stopwatch = 0.0, gametimer = 0.0, gamestopwatch = 0.0,
+}
 local function type_default(t, v)
+  if is_vec3(v) then return copy_vec3(v) end
   if v ~= nil then return v end
   local z = zeros[low(t)]
   if z == nil then return None end
   return z
+end
+
+local function clock_fields(specs)
+  local list = {}
+  for k, s in pairs(specs) do
+    local kind = clock_kinds[low(s.type)]
+    if kind then list[#list] = { name = k, sign = kind.sign, game = kind.game } end
+  end
+  return list
 end
 
 -- rt.instance attaches a script to a form: member defaults from every class in the chain, then
@@ -179,9 +247,18 @@ function rt.instance(form, script, props)
     chain[#chain] = c
     c = parent_of(c)
   end
-  local vars = {}
+  local specs = {}
   for i = #chain - 1, 0, -1 do
-    for k, v in pairs(chain[i].__vars) do vars[k] = type_default(v.type, v.default) end
+    for k, v in pairs(chain[i].__vars) do specs[k] = is_vec3(v) and { type = "Vec3", default = v } or v end
+  end
+  local vars = {}
+  for k, s in pairs(specs) do vars[k] = type_default(s.type, s.default) end
+  if cls.__clocks == nil then
+    cls.__clocks = clock_fields(specs)
+    cls.__ticks = defines(cls, "ontick")
+    for k in pairs(specs) do
+      if reserved[k] then warn(cls.__name .. ": field '" .. k .. "' uses a reserved name") end
+    end
   end
   for name, value in pairs(props or {}) do
     if type(value) == "table" and getmetatable(value) == nil then rt.as_array(value) end
@@ -200,6 +277,8 @@ function rt.instance(form, script, props)
     instances[form] = per
   end
   per[low(script)] = inst
+  if #cls.__clocks > 0 then clocked[#clocked] = inst end
+  if cls.__ticks then ticking[#ticking] = { inst = inst, phase = #ticking } end
   return inst
 end
 
@@ -423,6 +502,26 @@ function rt.call(recv, name, ...)
   return None
 end
 
+-- Hand-written code reads and writes fields as `self.x` and calls as `self:Name()`. A read that is
+-- no field becomes a call through rt.call; a write to an undeclared field is an error, so a typo
+-- cannot make a member that is never saved. Converted code uses `vars` and rt.call directly.
+local methods = {} -- name -> caller, shared by every instance
+Instance.__index = function(inst, k)
+  local v = inst.vars[k]
+  if not rawequal(v, nil) then return v end -- None == nil in Papyrus equality
+  local m = methods[k]
+  if not m then
+    m = function(self, ...) return rt.call(self, k, ...) end
+    methods[k] = m
+  end
+  return m
+end
+Instance.__newindex = function(inst, k, v)
+  if rawequal(inst.vars[k], nil) then error("no field '" .. tostring(k) .. "' on " .. tostring(inst), 2) end
+  if v == nil then v = None end
+  inst.vars[k] = v
+end
+
 function rt.static(class, name, ...)
   local cls = rt.load(class)
   local f = cls and lookup(cls, nil, low(name))
@@ -478,6 +577,32 @@ function rt.drain()
   return #q
 end
 
+-- rt.advance moves every clock field: real clocks by `dt` seconds, game clocks by `game_dt` hours.
+-- Once per tick, before any handler of that tick runs. A clock a script set to None stays None.
+function rt.advance(dt, game_dt)
+  for _, inst in ipairs(clocked) do
+    local vars = inst.vars
+    for _, c in ipairs(inst.class.__clocks) do
+      local v = vars[c.name]
+      if type(v) == "number" then vars[c.name] = v + c.sign * (c.game and game_dt or dt) end
+    end
+  end
+end
+
+-- rt.tick calls OnTick on the ticking instances that are due, once per tick after the queue drains.
+-- A `TickRate` field (seconds) thins the calls to every n ticks; each instance is offset by its
+-- place in the list, so equal rates do not all land on one tick.
+local ticks = 0
+function rt.tick(dt)
+  for i = 0, #ticking - 1 do
+    local t = ticking[i]
+    local rate = t.inst.vars.TickRate
+    local every = rate and math.max(1, math.floor(rate / dt + 0.5)) or 1
+    if (ticks + t.phase) % every == 0 then rt.event(t.inst, "OnTick") end
+  end
+  ticks = ticks + 1
+end
+
 -- rt.attach gives a form its scripts: every instance first, so siblings can find each other, then
 -- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }. A form that
 -- already has instances keeps them, so a cell that loads again does not re-run OnInit.
@@ -509,7 +634,7 @@ end
 
 -- rt.save_vars calls emit(form) for every form with scripts, then emit(form, script, member,
 -- value, length) for each member that differs from its start value. An array arrives as a
--- 0-based table of forms and scalars with its length.
+-- 0-based table of forms and scalars with its length, a vec3 as three floats.
 function rt.save_vars(emit)
   for form, per in pairs(instances) do
     emit(form)
@@ -520,6 +645,8 @@ function rt.save_vars(emit)
             local out = {}
             for i = 0, #v - 1 do out[i] = form_of(v[i]) end
             emit(form, script, name, out, #v)
+          elseif is_vec3(v) then
+            emit(form, script, name, { v.x, v.y, v.z }, 3)
           else
             emit(form, script, name, form_of(v))
           end
@@ -533,13 +660,18 @@ end
 function rt.restore_var(form, script, name, value)
   local inst = instances[form] and instances[form][script]
   if not inst then return end
-  if type(value) == "table" then rt.as_array(value) end
+  if type(value) == "table" then
+    value = is_vec3(inst.base[name]) and rt.vec3(value[0], value[1], value[2]) or rt.as_array(value)
+  end
   inst.vars[name] = value
 end
 
 -- rt.reset drops every instance and queued event: a loaded save rebuilds them.
 function rt.reset()
   instances = {}
+  clocked = {}
+  ticking = {}
+  ticks = 0
   queue = {}
 end
 

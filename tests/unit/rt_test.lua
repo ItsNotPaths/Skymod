@@ -112,3 +112,56 @@ assert(rt.aget(a, 2) == 5 and rt.afind(a, 5, 0) == 2 and rt.arfind(a, 0, -1) == 
 assert(rt.aget(a, 3) == None, "out of range reads None")
 local objs = rt.array(2, "actor")
 assert(objs[0] == None and #objs == 2, "object slots hold None, not nil")
+
+-- hand-written classes (docs/script-api.md): short forms, typed fields, clocks, OnTick
+files.lever = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Lever", "ObjectReference")
+  C.__vars = {
+    pulled = rt.bool(false), sw = rt.stopwatch(0.0), cd = rt.gametimer(1.0),
+    pos = rt.vec3(1, 2, 3), TickRate = rt.float(0.5), calls = rt.int(0), fired = rt.int(0),
+  }
+  function C:OnActivate() self.pulled = true; self.sw = 0.0 end
+  function C:OnTick()
+    self.calls = self.calls + 1
+    if not self.pulled or self.sw < 1 then return end
+    self.fired = self.fired + 1
+    self.pulled = false
+  end
+  function C:Pos() return self.pos end
+  return C
+]]
+local lever = rt.instance(ref(0x2000), "Lever")
+local other = rt.instance(ref(0x2001), "Lever")
+assert(lever.pulled == false and lever.TickRate == 0.5, "fields read by name")
+assert(lever:Pos().y == 2, "a method defined with `function C:Name()`")
+assert(lever:IsDisabled() == false, "a native through `self:Name()`")
+lever.pos.x = 9
+assert(other.pos.x == 1, "each instance gets its own vec3")
+assert(not pcall(function() lever.pulld = true end), "a write to an undeclared field errors")
+
+rt.event(lever, "OnActivate")
+for _ = 1, 120 do
+  rt.advance(1 / 60, 0.01)
+  rt.tick(1 / 60)
+end
+assert(lever.calls == 4, "TickRate 0.5 runs OnTick every 30 ticks")
+assert(lever.fired == 1 and not lever.pulled, "fires once the stopwatch passes 1 s")
+assert(math.abs(lever.sw - 2) < 1e-9 and math.abs(lever.cd - -0.2) < 1e-9, "clocks move every tick")
+other.sw = nil
+rt.advance(1 / 60, 0)
+assert(other.sw == None and lever.sw > 2, "a clock set to None stops, the others keep moving")
+
+local saved = {}
+rt.save_vars(function(form, _, name, value, n)
+  if name and form == ref(0x2000) then saved[name] = { value = value, n = n } end
+end)
+assert(saved.pos.n == 3 and saved.pos.value[0] == 9, "a vec3 saves as three floats")
+assert(saved.TickRate == nil and saved.fired.value == 1, "only changed fields are saved")
+rt.restore_var(ref(0x2000), "lever", "pos", { 4, 5, 6 })
+assert(lever:Pos().x == 4 and lever.pos.z == 6, "a saved vec3 comes back as a vec3")
+
+rt.reset()
+rt.advance(1 / 60, 0)
+rt.tick(1 / 60)
+assert(lever.calls == 4 and lever.sw > 2 and lever.sw < 2.02, "a reset drops ticking and clocked instances")

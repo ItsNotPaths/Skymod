@@ -470,21 +470,17 @@ frame_stream :: proc(g: ^Game) {
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
 }
 
-// tick_scripts is the one place script handlers run: refs of cells that loaded since the last tick
-// get their scripts (and OnInit), load/attach transitions are sent, due OnUpdate timers and moved
-// items are sent, activations scripts requested run, then every queued event runs.
+// tick_scripts is the one place script handlers run: the script phase (slua.tick_begin), the
+// activations scripts requested, then every queued event and OnTick (slua.tick_end).
 @(private = "file")
 tick_scripts :: proc(g: ^Game) {
 	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
 	if g.repl_ok {
-		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell)}
-		slua.tick_transitions(&g.repl.vm, &g.db, &g.ws, &g.trans, attached_cells(g.fr.active_scene))
-		slua.tick_updates(&g.repl.vm, &g.ws, TICK_DT)
-		slua.tick_items(&g.repl.vm, &g.db, &g.ws)
+		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, g.loaded_cells[:], attached_cells(g.fr.active_scene), TICK_DT)
 	}
 	clear(&g.loaded_cells)
 	tick_activations(g)
-	if g.repl_ok {slua.drain(&g.repl.vm)}
+	if g.repl_ok {slua.tick_end(&g.repl.vm, TICK_DT)}
 }
 
 // attached_cells lists the cells attached to the player's scene: the active scene's full-detail
