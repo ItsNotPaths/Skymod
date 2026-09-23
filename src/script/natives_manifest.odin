@@ -438,7 +438,7 @@ native_manifest := []Manifest_Entry{
 	{"Ingredient", "LearnEffect", "NONE", 1, false, false},
 	{"Ingredient", "LearnNextEffect", "int", 0, false, false},
 	{"Keyword", "SendStoryEvent", "None", 5, false, false},
-	{"Keyword", "SendStoryEventAndWait", "bool", 5, false, true},
+	{"Keyword", "SendStoryEventAndWait", "bool", 5, false, false},
 	{"LeveledActor", "AddForm", "NONE", 2, false, false},
 	{"LeveledActor", "Revert", "NONE", 0, false, false},
 	{"LeveledItem", "AddForm", "NONE", 3, false, false},
