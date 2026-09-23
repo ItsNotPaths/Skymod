@@ -152,23 +152,30 @@ REF_CLASS_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 // stable slice. .Unknown's entry is unused (class_chain routes it to REF_CLASS_CHAIN). Together with
 // the gamedb form→kind map this replaces the fixed chain with a per-form one (the record decoder).
 KIND_CHAIN := [gamedb.Form_Kind][2]string {
-	.Unknown     = {"ObjectReference", "Form"}, // unused — Unknown uses REF_CLASS_CHAIN
-	.Quest       = {gamedb.class_name(.Quest), "Form"},
-	.Global      = {gamedb.class_name(.Global), "Form"},
-	.Faction     = {gamedb.class_name(.Faction), "Form"},
-	.ActorBase   = {gamedb.class_name(.ActorBase), "Form"},
-	.Weapon      = {gamedb.class_name(.Weapon), "Form"},
-	.Potion      = {gamedb.class_name(.Potion), "Form"},
-	.Ingredient  = {gamedb.class_name(.Ingredient), "Form"},
-	.Scroll      = {gamedb.class_name(.Scroll), "Form"},
-	.Spell       = {gamedb.class_name(.Spell), "Form"},
-	.Enchantment = {gamedb.class_name(.Enchantment), "Form"},
-	.Keyword     = {gamedb.class_name(.Keyword), "Form"},
-	.FormList    = {gamedb.class_name(.FormList), "Form"},
-	.MagicEffect = {gamedb.class_name(.MagicEffect), "Form"},
-	.Location    = {gamedb.class_name(.Location), "Form"},
-	.Weather     = {gamedb.class_name(.Weather), "Form"},
-	.Cell_       = {gamedb.class_name(.Cell_), "Form"},
+	.Unknown            = {"ObjectReference", "Form"}, // unused — Unknown uses REF_CLASS_CHAIN
+	.Quest              = {gamedb.class_name(.Quest), "Form"},
+	.Global             = {gamedb.class_name(.Global), "Form"},
+	.Faction            = {gamedb.class_name(.Faction), "Form"},
+	.ActorBase          = {gamedb.class_name(.ActorBase), "Form"},
+	.Weapon             = {gamedb.class_name(.Weapon), "Form"},
+	.Potion             = {gamedb.class_name(.Potion), "Form"},
+	.Ingredient         = {gamedb.class_name(.Ingredient), "Form"},
+	.Scroll             = {gamedb.class_name(.Scroll), "Form"},
+	.Spell              = {gamedb.class_name(.Spell), "Form"},
+	.Enchantment        = {gamedb.class_name(.Enchantment), "Form"},
+	.Keyword            = {gamedb.class_name(.Keyword), "Form"},
+	.FormList           = {gamedb.class_name(.FormList), "Form"},
+	.MagicEffect        = {gamedb.class_name(.MagicEffect), "Form"},
+	.Location           = {gamedb.class_name(.Location), "Form"},
+	.Weather            = {gamedb.class_name(.Weather), "Form"},
+	.Cell_              = {gamedb.class_name(.Cell_), "Form"},
+	.Sound              = {gamedb.class_name(.Sound), "Form"},
+	.VisualEffect       = {gamedb.class_name(.VisualEffect), "Form"},
+	.EffectShader       = {gamedb.class_name(.EffectShader), "Form"},
+	.Scene              = {gamedb.class_name(.Scene), "Form"},
+	.ImageSpaceModifier = {gamedb.class_name(.ImageSpaceModifier), "Form"},
+	.LeveledItem        = {gamedb.class_name(.LeveledItem), "Form"},
+	.Message            = {gamedb.class_name(.Message), "Form"},
 }
 
 // class_chain picks the method-resolution order for a form's kind. Unknown (object

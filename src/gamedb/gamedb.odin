@@ -64,19 +64,26 @@ Form_Kind :: enum u8 {
 	Global,  // GLOB
 	Faction, // FACT
 	// base-object / form-subtype classes (chain {Class, Form})
-	ActorBase,   // NPC_
-	Weapon,      // WEAP
-	Potion,      // ALCH
-	Ingredient,  // INGR
-	Scroll,      // SCRL
-	Spell,       // SPEL
-	Enchantment, // ENCH
-	Keyword,     // KYWD
-	FormList,    // FLST
-	MagicEffect, // MGEF
-	Location,    // LCTN
-	Weather,     // WTHR
-	Cell_,       // CELL (trailing _ : `Cell` is the record struct above)
+	ActorBase,          // NPC_
+	Weapon,             // WEAP
+	Potion,             // ALCH
+	Ingredient,         // INGR
+	Scroll,             // SCRL
+	Spell,              // SPEL
+	Enchantment,        // ENCH
+	Keyword,            // KYWD
+	FormList,           // FLST
+	MagicEffect,        // MGEF
+	Location,           // LCTN
+	Weather,            // WTHR
+	Cell_,              // CELL (trailing _ : `Cell` is the record struct above)
+	Sound,              // SOUN
+	VisualEffect,       // RFCT
+	EffectShader,       // EFSH
+	Scene,              // SCEN
+	ImageSpaceModifier, // IMAD
+	LeveledItem,        // LVLI
+	Message,            // MESG
 }
 
 // Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
@@ -451,6 +458,20 @@ base_class :: proc(s: string) -> (Form_Kind, bool) {
 		return .Location, true
 	case "WTHR":
 		return .Weather, true
+	case "SOUN":
+		return .Sound, true
+	case "RFCT":
+		return .VisualEffect, true
+	case "EFSH":
+		return .EffectShader, true
+	case "SCEN":
+		return .Scene, true
+	case "IMAD":
+		return .ImageSpaceModifier, true
+	case "LVLI":
+		return .LeveledItem, true
+	case "MESG":
+		return .Message, true
 	}
 	return .Unknown, false
 }
@@ -494,6 +515,20 @@ class_name :: proc "contextless" (kind: Form_Kind) -> string {
 		return "Weather"
 	case .Cell_:
 		return "Cell"
+	case .Sound:
+		return "Sound"
+	case .VisualEffect:
+		return "VisualEffect"
+	case .EffectShader:
+		return "EffectShader"
+	case .Scene:
+		return "Scene"
+	case .ImageSpaceModifier:
+		return "ImageSpaceModifier"
+	case .LeveledItem:
+		return "LeveledItem"
+	case .Message:
+		return "Message"
 	}
 	return "ObjectReference"
 }

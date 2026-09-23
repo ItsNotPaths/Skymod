@@ -86,6 +86,9 @@ main :: proc() {
 	for r in rows[:min(len(rows), 40)] {
 		fmt.printfln("%6d  %s", r.n, r.msg)
 	}
+	for r in rows[min(len(rows), 40):] {
+		if strings.contains(r.msg, "unknown native") {fmt.printfln("%6d  %s", r.n, r.msg)}
+	}
 }
 
 // cells_arg reads --cell: one hex form id, or every cell with refs or actors.
