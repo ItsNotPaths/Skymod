@@ -84,6 +84,8 @@ Form_Kind :: enum u8 {
 	ImageSpaceModifier, // IMAD
 	LeveledItem,        // LVLI
 	Message,            // MESG
+	Ref_Alias,          // a quest's reference alias (an alias handle, not a record)
+	Location_Alias,     // a quest's location alias
 }
 
 // Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
@@ -183,6 +185,8 @@ DB :: struct {
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
+	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
+	alias_targets:  map[Form_ID]bool,    // refs a Forced or Unique_Actor alias fill can hold
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
 	actor_ref_index: map[Form_ID]Ref_Loc, // build-time only: ACHR formID -> its slot in actor_refs (override dedup); emptied after build
@@ -529,6 +533,10 @@ class_name :: proc "contextless" (kind: Form_Kind) -> string {
 		return "LeveledItem"
 	case .Message:
 		return "Message"
+	case .Ref_Alias:
+		return "ReferenceAlias"
+	case .Location_Alias:
+		return "LocationAlias"
 	}
 	return "ObjectReference"
 }
@@ -650,6 +658,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	db.ref_index = nil
 	delete(db.actor_ref_index)
 	db.actor_ref_index = nil
+	index_alias_targets(&db)
 	log.infof(
 		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
 		len(db.base_models),
@@ -800,6 +809,8 @@ destroy :: proc(db: ^DB) {
 		free_quest_baseline(db, qb)
 	}
 	delete(db.quest_baseline)
+	delete(db.unique_refs)
+	delete(db.alias_targets)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}

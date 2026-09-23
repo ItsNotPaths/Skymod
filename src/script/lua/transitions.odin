@@ -10,6 +10,7 @@ import "../../gamedb"
 import "../../worldstate"
 
 // HOLE(script, gap): OnAttachedToCell and OnDetachedFromCell never fire; nothing moves a ref from one cell to another yet.
+// HOLE(script, gap): a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
 
 // Transitions is what the tick remembers between ticks, besides ws.attached: the scripted refs
 // whose OnLoad fired without an OnUnload yet, and the exterior persistent refs by the grid cell
@@ -112,7 +113,10 @@ index_persistent :: proc(db: ^gamedb.DB, t: ^Transitions) {
 	}
 }
 
+// has_scripts reports whether a ref's events can reach a script: its own, or an alias's that a
+// static fill puts it in.
 @(private)
 has_scripts :: proc(db: ^gamedb.DB, r: gamedb.Ref) -> bool {
-	return !r.deleted && (len(gamedb.form_scripts(db, r.form_id)) > 0 || len(gamedb.form_scripts(db, r.base)) > 0)
+	if r.deleted {return false}
+	return len(gamedb.form_scripts(db, r.form_id)) > 0 || len(gamedb.form_scripts(db, r.base)) > 0 || r.form_id in db.alias_targets
 }

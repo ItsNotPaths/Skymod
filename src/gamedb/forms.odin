@@ -508,6 +508,38 @@ quest_alias_forced_ref :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Form_ID, bo
 	return a.target, true
 }
 
+// unique_actor_ref returns the placed actor of a unique NPC_, what a Unique_Actor alias fill holds.
+unique_actor_ref :: proc(db: ^DB, base: Form_ID) -> (Form_ID, bool) {
+	r, ok := db.unique_refs[base]
+	return r, ok
+}
+
+// index_alias_targets indexes each unique NPC_'s placed actor, then every ref a Forced or
+// Unique_Actor fill names. Runs once every plugin is walked.
+@(private)
+index_alias_targets :: proc(db: ^DB) {
+	db.unique_refs = make(map[Form_ID]Form_ID, 1024, db.allocator)
+	db.alias_targets = make(map[Form_ID]bool, 4096, db.allocator)
+	for _, refs in db.actor_refs {
+		for r in refs {
+			a, ok := db.actors[r.base]
+			if !ok || a.flags & esm.ACBS_UNIQUE == 0 || r.deleted {continue}
+			if prev, seen := db.unique_refs[r.base]; seen && prev < r.form_id {continue}
+			db.unique_refs[r.base] = r.form_id
+		}
+	}
+	for _, qb in db.quest_baseline {
+		for a in qb.aliases {
+			#partial switch a.fill {
+			case .Forced:
+				db.alias_targets[a.target] = true
+			case .Unique_Actor:
+				if r, ok := db.unique_refs[a.target]; ok {db.alias_targets[r] = true}
+			}
+		}
+	}
+}
+
 // --- LCTN / WTHR ---------------------------------------------------------------------------
 
 // index_location decodes an LCTN: its display name, the location that contains it (PNAM), its

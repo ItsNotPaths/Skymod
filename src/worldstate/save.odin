@@ -93,6 +93,10 @@ Saved_Filter :: struct {
 	container, filter: Form_ID,
 }
 
+Saved_Alias :: struct {
+	alias, form: Form_ID,
+}
+
 // Saved_Global is one coarse world fact (id→value).
 Saved_Global :: struct {
 	id:    Form_ID,
@@ -170,6 +174,7 @@ Save_Body :: struct {
 	relationships: []Saved_Rel,
 	updates:       []Saved_Update,
 	item_filters:  []Saved_Filter,
+	aliases:       []Saved_Alias,
 	player:        Player_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -272,6 +277,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for form, u in ws.updates {
 		append(&updates, Saved_Update{form, u})
 	}
+	aliases := make([dynamic]Saved_Alias, 0, len(ws.aliases), context.temp_allocator)
+	for alias, form in ws.aliases {
+		append(&aliases, Saved_Alias{alias, form})
+	}
 	filters := make([dynamic]Saved_Filter, 0, len(ws.item_filters), context.temp_allocator)
 	for container, list in ws.item_filters {
 		for f in list {append(&filters, Saved_Filter{container, f})}
@@ -288,6 +297,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		relationships = rels[:],
 		updates       = updates[:],
 		item_filters  = filters[:],
+		aliases       = aliases[:],
 		player        = ws.player,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -351,12 +361,18 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 			}
 		}
 	}
-	// rf remaps one Form_ID's slot half. ok=false ⇒ the owning mod is missing (caller drops the entry).
-	// When remap is disabled every id passes through as-is. The created slot always passes through.
+	// rf remaps one Form_ID's slot half (an alias handle's quest slot). ok=false ⇒ the owning mod is
+	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
+	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
 		if !on || fid == 0 || u32(fid >> 32) == CREATED_SLOT {return fid, true}
-		if ns, rok := remap[u32(fid >> 32)]; rok {return (Form_ID(ns) << 32) | (fid & 0x0000_0000_FFFF_FFFF), true}
-		return fid, false
+		quest, id, is_alias := alias_key(fid)
+		src := quest if is_alias else fid
+		ns, rok := remap[u32(src >> 32)]
+		if !rok {return fid, false}
+		out := (Form_ID(ns) << 32) | (src & 0x0000_0000_FFFF_FFFF)
+		if is_alias {return alias_handle(out, id)}
+		return out, true
 	}
 
 	// Commit: wipe and repopulate (upsert rebuilds ref_deltas + the by_cell index; we restore the
@@ -399,6 +415,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		container, cok := rf(remap, have_remap, f.container)
 		filter, fok := rf(remap, have_remap, f.filter)
 		if cok && fok {add_item_filter(ws, container, filter)}
+	}
+	for a in body.aliases {
+		alias, aok := rf(remap, have_remap, a.alias)
+		form, fok := rf(remap, have_remap, a.form)
+		if aok && fok {fill_alias(ws, alias, form)}
 	}
 	for g in body.globals {
 		if id, kok := rf(remap, have_remap, g.id); kok {ws.globals[id] = g.value}
@@ -465,6 +486,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.relationships {add_slot(&seen, r.a);add_slot(&seen, r.b)}
 	for u in body.updates {add_slot(&seen, u.form)}
 	for f in body.item_filters {add_slot(&seen, f.container);add_slot(&seen, f.filter)}
+	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}
 	add_slot(&seen, body.player.cell)
 
 	out := make([dynamic]Saved_Slot, 0, len(seen), context.temp_allocator)
@@ -479,7 +501,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 @(private = "file")
 add_slot :: proc(seen: ^map[u32]bool, fid: Form_ID) {
 	if fid == 0 {return}
-	s := u32(fid >> 32)
+	quest, _, is_alias := alias_key(fid)
+	s := u32((quest if is_alias else fid) >> 32)
 	if s == CREATED_SLOT {return}
 	seen[s] = true
 }
@@ -507,6 +530,8 @@ clear_overlay :: proc(ws: ^World_State) {
 	clear(&ws.relationships)
 	clear(&ws.updates)
 	clear(&ws.item_filters)
+	clear(&ws.aliases)
+	clear(&ws.alias_holders)
 	ws.next_created = CREATED_FORM_BASE
 	ws.player = {}
 }

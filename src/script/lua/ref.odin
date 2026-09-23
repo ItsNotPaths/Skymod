@@ -170,7 +170,7 @@ ref_method :: proc "c" (L: ^lua.State) -> c.int {
 	// Resolve the form's kind (QUST/GLOB/FACT/…) so a Quest handle dispatches up {Quest, Form},
 	// a GlobalVariable up {GlobalVariable, Form}, etc. — not the object-ref chain. Unknown forms
 	// (object refs) keep the naive chain. db may be nil (headless) → Unknown.
-	kind := gamedb.form_kind(vm.ctx.db, form)
+	kind := script.form_kind(vm.ctx.db, form)
 	class, _ := script.method_class(vm.reg, fn, kind)
 	cc := vm.ctx
 	cc.self = form
@@ -193,7 +193,7 @@ ref_tostring :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	// The form's real class: a weapon base prints [Weapon …], a quest [Quest …]; object refs
 	// and unclassified forms stay [ObjectReference …]. db may be nil (headless) → Unknown.
-	class := script.class_display(gamedb.form_kind(vm.ctx.db, form))
+	class := script.class_display(script.form_kind(vm.ctx.db, form))
 	label := ref_label(vm, form)
 	if label != "" {
 		lua.pushstring(L, tcstr("[%s 0x%08X \"%s\"]", class, u64(form), label))

@@ -116,7 +116,7 @@ OBJECT_REF_CHAIN := []string{"ObjectReference", "Form"}
 // its base is an NPC_ (the player always is); other refs are ObjectReferences.
 @(private)
 engine_chain :: proc(db: ^gamedb.DB, form: script.Form_ID) -> []string {
-	kind := gamedb.form_kind(db, form)
+	kind := script.form_kind(db, form)
 	if kind != .Unknown {
 		return script.class_chain(kind)
 	}

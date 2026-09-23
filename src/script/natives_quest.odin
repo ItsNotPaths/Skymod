@@ -121,21 +121,25 @@ n_quest_is_obj_failed :: proc(c: ^Call, args: []Value) -> Value {
 // ── run-state ────────────────────────────────────────────────────────────────
 
 // Start() -> bool: true if it wasn't already running (Papyrus returns whether the start took effect).
+// A starting quest fills its aliases.
 n_quest_start :: proc(c: ^Call, args: []Value) -> Value {
-	was_running := false
-	if q, ok := worldstate.quest_get(c.ws, c.self); ok {was_running = q.running}
+	if quest_running(c) {return false}
 	worldstate.quest_set_running(c.ws, c.self, true)
-	return !was_running
+	fill_aliases(c.ws, c.db, c.self)
+	return true
 }
 
+// A stopped quest's aliases empty, and its updates stop.
 n_quest_stop :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.quest_set_running(c.ws, c.self, false)
-	worldstate.unregister_updates(c.ws, c.self) // a stopped quest's updates stop too
+	worldstate.unregister_updates(c.ws, c.self)
+	clear_aliases(c.ws, c.db, c.self)
 	return nil
 }
 
 n_quest_reset :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.quest_reset(c.ws, c.self)
+	clear_aliases(c.ws, c.db, c.self)
 	return nil
 }
 

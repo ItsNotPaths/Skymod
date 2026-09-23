@@ -176,6 +176,8 @@ KIND_CHAIN := [gamedb.Form_Kind][2]string {
 	.ImageSpaceModifier = {gamedb.class_name(.ImageSpaceModifier), "Form"},
 	.LeveledItem        = {gamedb.class_name(.LeveledItem), "Form"},
 	.Message            = {gamedb.class_name(.Message), "Form"},
+	.Ref_Alias          = {gamedb.class_name(.Ref_Alias), "Alias"},
+	.Location_Alias     = {gamedb.class_name(.Location_Alias), "Alias"},
 }
 
 // class_chain picks the method-resolution order for a form's kind. Unknown (object

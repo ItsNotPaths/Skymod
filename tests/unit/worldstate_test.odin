@@ -28,6 +28,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.register_update(&src, 0x000C0DE0, 2.5, false)
 	ws.register_update(&src, 0x000C0DE0, 4, true)
 	ws.add_item_filter(&src, 0x000C0DE0, 0xF)
+	alias, _ := ws.alias_handle(0x000C0DE0, 3)
+	ws.fill_alias(&src, alias, 0x000ABCDE)
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
 	testing.expect_value(t, new_id, ws.CREATED_FORM_BASE)
@@ -90,6 +92,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, ws.activation_blocked(&dst, 0x000C0FFE), "Activation_Blocked flag lost")
 	testing.expect_value(t, dst.updates[0x000C0DE0], ws.Update_Timers{single = 2.5, repeat = 4, interval = 4, single_on = true, repeat_on = true})
 	testing.expect_value(t, dst.item_filters[0x000C0DE0][0], 0xF)
+	testing.expect_value(t, dst.aliases[alias], 0x000ABCDE)
+	testing.expect_value(t, dst.alias_holders[0x000ABCDE][0], alias)
 	testing.expect(t, dd.disabled, "disabled value lost")
 	testing.expect_value(t, dd.cell, u64(0x0002BEEF))
 

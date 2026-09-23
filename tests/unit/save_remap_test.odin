@@ -49,6 +49,9 @@ test_save_remap_cross_install :: proc(t: ^testing.T) {
 	m := smath.trs({10, 20, 30}, {0, 0, 0}, 1.0)
 	ws.set_moved(&src, fid(SLOT_A, 0xABCD), fid(SLOT_A, 0x1A26F), m, {10, 20, 30})
 	ws.set_disabled(&src, fid(SLOT_MISSING, 0x77), fid(SLOT_MISSING, 0x1A26F), true)
+	// A quest alias of Cool.esp holding a Cool.esp ref: the handle carries the quest's slot.
+	alias_a, _ := ws.alias_handle(fid(SLOT_A, 0x5000), 7)
+	ws.fill_alias(&src, alias_a, fid(SLOT_A, 0xABCD))
 
 	save_br := ws.Form_Bridge{identify = save_identify}
 	path := "/tmp/skymod_save_remap_test.skysave"
@@ -78,6 +81,10 @@ test_save_remap_cross_install :: proc(t: ^testing.T) {
 		testing.expect(t, false, "a delta keyed on a missing mod must be dropped")
 	}
 	testing.expect(t, ws.count(&dst) == 1, "exactly the resolvable delta remains")
+
+	alias_b, _ := ws.alias_handle(fid(SLOT_B, 0x5000), 7)
+	testing.expect_value(t, dst.aliases[alias_b], fid(SLOT_B, 0xABCD))
+	testing.expect_value(t, len(dst.aliases), 1)
 }
 
 // The bridge hooks the app's cell_load.form_bridge installs, replicated here over a REAL

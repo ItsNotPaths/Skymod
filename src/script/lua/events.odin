@@ -14,9 +14,17 @@ import "../../worldstate"
 // HOLE(combat, gap): nothing sends OnHit or OnDeath; there is no damage and no death path to send them from.
 // HOLE(physics, gap): nothing sends OnTriggerEnter/OnTriggerLeave (442 scripts define one); there are no trigger volumes.
 
-// send queues `event` for every script on `form`, and reports whether `form` has any. Args are refs
-// (Form_ID), i32, f32, bool or string.
-send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) -> bool {
+// send queues a ref's `event` for every script on it, then for the scripts on each alias it fills
+// ("ReferenceAliases receive events from the ObjectReference they are pointing at").
+send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
+	send_own(vm, form, event, ..args)
+	holders, _ := vm.ctx.ws.alias_holders[form]
+	for alias in holders {send_own(vm, alias, event, ..args)}
+}
+
+// send_own queues `event` for every script on `form` alone, and reports whether `form` has any.
+// Args are refs (Form_ID), i32, f32, bool or string.
+send_own :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) -> bool {
 	L := vm.L
 	vm.host_context = context
 	top := lua.gettop(L)
@@ -57,11 +65,11 @@ tick_updates :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 	for form, &u in ws.updates {
 		if u.single_on {
 			u.single -= dt
-			if u.single <= 0 && send(vm, form, "OnUpdate") {u.single_on = false}
+			if u.single <= 0 && send_own(vm, form, "OnUpdate") {u.single_on = false}
 		}
 		if u.repeat_on {
 			u.repeat -= dt
-			if u.repeat <= 0 && send(vm, form, "OnUpdate") {u.repeat = max(u.repeat + u.interval, 0)}
+			if u.repeat <= 0 && send_own(vm, form, "OnUpdate") {u.repeat = max(u.repeat + u.interval, 0)}
 		}
 		if !u.single_on && !u.repeat_on {append(&stopped, form)}
 	}

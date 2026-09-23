@@ -11,9 +11,8 @@ import lua "../../../vendor/lua"
 import script ".."
 import "../../formats/esm"
 import "../../gamedb"
+import "../../worldstate"
 
-// HOLE(script, gap): an object property that resolves through a quest alias (12,896 in Skyrim.esm) reads None — aliases are never filled.
-// HOLE(script, gap): quest alias scripts are never instantiated, so behaviour vanilla hangs on ReferenceAliases does not run.
 // HOLE(save, gap): script instances are not saved; a loaded game rebuilds them from the plugins with member variables at their defaults, and OnInit does not re-fire.
 
 // attach creates the instances for `scripts` on `form` and, when `init` is set, fires their
@@ -46,18 +45,24 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 	return int(lua.tointeger(L, -1))
 }
 
-// HOLE(script, gap): a quest that starts is not reset, so its OnInit does not run a second time as Papyrus runs it.
+// HOLE(script, gap): a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
 
-// start_game gives every quest its scripts, then every persistent ref and actor: Papyrus runs
-// their OnInit at game start, loaded or not. Form order keeps a run reproducible. Returns how many
-// instances were made.
+// start_game fills the aliases of the quests that run from a new game, then gives every quest and
+// every alias its scripts, then every persistent ref and actor: Papyrus runs their OnInit at game
+// start, loaded or not. Form order keeps a run reproducible. Returns how many instances were made.
 start_game :: proc(vm: ^VM, db: ^gamedb.DB, init: bool) -> int {
 	forms := make([dynamic]script.Form_ID, 0, 8192, context.temp_allocator)
 	for q in db.quest_baseline {append(&forms, q)}
 	slice.sort(forms[:])
+	for q in forms {
+		if gamedb.quest_start_game_enabled(db, q) {script.fill_aliases(vm.ctx.ws, db, q)}
+	}
 	made := 0
 	for q in forms {
 		made += attach(vm, q, gamedb.form_scripts(db, q), init)
+		for a in db.form_scripts[q].aliases {
+			if h, ok := worldstate.alias_handle(q, u32(a.owner.alias)); ok {made += attach(vm, h, a.scripts, init)}
+		}
 	}
 
 	refs := make([dynamic]gamedb.Ref, 0, 8192, context.temp_allocator)
@@ -139,14 +144,15 @@ push_prop_value :: proc(L: ^lua.State, v: esm.Prop_Value) {
 	}
 }
 
-// push_object pushes a form's ref; one addressed through a quest alias is None until aliases fill.
+// push_object pushes a form's ref, or the alias handle when the value names a quest alias.
 @(private)
 push_object :: proc(L: ^lua.State, o: esm.Prop_Object) {
-	if o.alias >= 0 {
-		push_none(L)
+	if o.alias < 0 {
+		push_ref(L, o.form)
 		return
 	}
-	push_ref(L, o.form)
+	h, _ := worldstate.alias_handle(o.form, u32(o.alias))
+	push_ref(L, h)
 }
 
 // push_array pushes a 0-based table; rt.instance marks it as a Papyrus array.

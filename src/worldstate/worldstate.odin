@@ -64,6 +64,24 @@ Ref_Delta :: struct {
 // Form_ID generalises Skyrim's 0xFF prefix to a full reserved slot.)
 CREATED_FORM_BASE :: Form_ID(0xFFFF_FFFF) << 32
 
+// An alias handle addresses one quest alias as a form, so its scripts, registrations and filters key
+// like any other form's. It encodes (quest, alias id): high word ALIAS_TAG | id << 16 | the quest's
+// slot, low word the quest's local id. The slot stays where a save's remap finds it.
+ALIAS_TAG :: u32(0x4000_0000)
+
+alias_handle :: proc(quest: Form_ID, id: u32) -> (Form_ID, bool) {
+	slot := u32(quest >> 32)
+	if slot > 0xFFFF || id > 0x3FFF {return 0, false}
+	return Form_ID(ALIAS_TAG | id << 16 | slot) << 32 | (quest & 0xFFFF_FFFF), true
+}
+
+// alias_key splits an alias handle into its quest and alias id; ok=false for any other form.
+alias_key :: proc(h: Form_ID) -> (quest: Form_ID, id: u32, ok: bool) {
+	hi := u32(h >> 32)
+	if hi & 0xC000_0000 != ALIAS_TAG {return}
+	return Form_ID(hi & 0xFFFF) << 32 | (h & 0xFFFF_FFFF), (hi >> 16) & 0x3FFF, true
+}
+
 // Created_Ref is a runtime-spawned reference with NO ESM baseline — the overlay stores its WHOLE
 // placement (not just a divergence), since gamedb has nothing to ⊕ against. The world layer builds an
 // Instance from it (base→model via gamedb) when its cell loads. pos/rot are [3]f32 (== gamedb.Ref).
@@ -131,6 +149,8 @@ World_State :: struct {
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
 	updates:         map[Form_ID]Update_Timers,    // form -> its OnUpdate registrations (the scheduler's timers)
 	item_filters:    map[Form_ID][dynamic]Form_ID, // container -> AddInventoryEventFilter forms; absent = every item passes
+	aliases:         map[Form_ID]Form_ID,          // alias handle -> the form filling it; absent = empty
+	alias_holders:   map[Form_ID][dynamic]Form_ID, // form -> the aliases it fills (the reverse of aliases; not saved)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
@@ -188,6 +208,8 @@ init :: proc(ws: ^World_State) {
 	ws.perks = make(map[Form_ID]map[Form_ID]bool)
 	ws.updates = make(map[Form_ID]Update_Timers)
 	ws.item_filters = make(map[Form_ID][dynamic]Form_ID)
+	ws.aliases = make(map[Form_ID]Form_ID)
+	ws.alias_holders = make(map[Form_ID][dynamic]Form_ID)
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
 	ws.item_moves = make([dynamic]Item_Move)
@@ -222,6 +244,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.perks)
 	delete(ws.updates)
 	delete(ws.item_filters)
+	delete(ws.aliases)
+	delete(ws.alias_holders)
 	delete(ws.scene_dirty)
 	delete(ws.activations)
 	delete(ws.item_moves)
@@ -266,6 +290,9 @@ free_stores :: proc(ws: ^World_State) {
 		delete(inner)
 	}
 	for _, &list in ws.item_filters {
+		delete(list)
+	}
+	for _, &list in ws.alias_holders {
 		delete(list)
 	}
 }
@@ -319,6 +346,33 @@ remove_item_filter :: proc(ws: ^World_State, container, filter: Form_ID) {
 remove_item_filters :: proc(ws: ^World_State, container: Form_ID) {
 	if list, ok := ws.item_filters[container]; ok {delete(list)}
 	delete_key(&ws.item_filters, container)
+}
+
+// fill_alias puts `form` in `alias`, replacing what it held.
+fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
+	clear_alias(ws, alias)
+	if form == 0 {return}
+	ws.aliases[alias] = form
+	if form not_in ws.alias_holders {ws.alias_holders[form] = make([dynamic]Form_ID)}
+	append(&ws.alias_holders[form], alias)
+}
+
+// clear_alias empties `alias`.
+clear_alias :: proc(ws: ^World_State, alias: Form_ID) {
+	form, ok := ws.aliases[alias]
+	if !ok {return}
+	delete_key(&ws.aliases, alias)
+	list := &ws.alias_holders[form]
+	for a, i in list {
+		if a == alias {
+			unordered_remove(list, i)
+			break
+		}
+	}
+	if len(list) == 0 {
+		delete(list^)
+		delete_key(&ws.alias_holders, form)
+	}
 }
 
 // request_activation queues a script's Activate for the app's next tick.

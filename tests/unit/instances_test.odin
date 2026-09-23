@@ -23,7 +23,7 @@ PROPS_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Props", nil)
 C.__vars = {
   ["::target_var"] = { type = "objectreference", default = nil },
-  ["::via_alias_var"] = { type = "objectreference", default = nil },
+  ["::via_alias_var"] = { type = "referencealias", default = nil },
   ["::count_var"] = { type = "Int", default = nil },
   ["::speed_var"] = { type = "Float", default = nil },
   ["::on_var"] = { type = "Bool", default = nil },
@@ -38,7 +38,7 @@ C.__fn["oninit"] = function(self)
   local v = self.vars
   __seen = {
     target = v["::target_var"] === ref(0x5000),
-    alias_none = v["::via_alias_var"] == nil and not v["::via_alias_var"],
+    alias = v["::via_alias_var"] === ref(0x4000000000006000), -- alias 0 of quest 0x6000
     count = v["::count_var"] === 7,
     speed = v["::speed_var"] == 1.5,
     on = v["::on_var"] === true,
@@ -116,6 +116,15 @@ local function log(s) __log = (__log or "") .. s .. ";" end
 C.__fn["onitemadded"] = function(self, base, n, ref, src) log("add" .. n .. (src and "+src" or "")) end
 C.__fn["onitemremoved"] = function(self, base, n, ref, dest) log("rem" .. n .. (dest and "+dest" or "")) end
 C.__fn["oncontainerchanged"] = function(self, new, old) log("moved" .. (new and "+new" or "") .. (old and "+old" or "")) end
+return C
+`
+
+@(private = "file")
+GUARD_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Guard", nil)
+local get = rt.native("ReferenceAlias", "GetReference", false)
+C.__fn["onactivate"] = function(self, by) __guard = (__guard or "") .. tostring(get(self)) .. ";" end
+C.__fn["onupdate"] = function(self) __guard = (__guard or "") .. "update;" end
 return C
 `
 
@@ -388,4 +397,46 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")
 	testing.expect(t, logged(&f, "rem1;rem10;"), "RemoveAllItems: one event per item type")
+}
+
+// A starting quest fills its Forced alias, then its External one from it; the alias's scripts get
+// the events of the ref it holds (not the ref's OnUpdate); a stopped quest empties both.
+@(test)
+test_alias_fills_and_events :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_aliases", {{"guard.lua", GUARD_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST :: script.Form_ID(0x900)
+	DOOR :: script.Form_ID(0x901)
+	aliases := []gamedb.Quest_Alias{{id = 0, fill = .Forced, target = DOOR}, {id = 1, fill = .External, target = QUEST, extra = 0}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	defer delete(f.db.quest_baseline)
+	f.db.quest_baseline[QUEST] = {aliases = aliases}
+	forced, _ := worldstate.alias_handle(QUEST, 0)
+	external, _ := worldstate.alias_handle(QUEST, 1)
+	slua.attach(&f.vm, forced, []esm.Script_Attach{{name = "Guard"}}, false)
+	quest :: proc(f: ^Fixture, fn: string) {
+		c := script.Call{self = QUEST, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "Quest", fn, &c, nil)
+	}
+	guard_saw :: proc(f: ^Fixture, want: string) -> bool {
+		slua.drain(&f.vm)
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__guard or "") == "`, want, `", __guard); __guard = nil`}, context.temp_allocator))
+	}
+
+	quest(&f, "Start")
+	testing.expect_value(t, f.ws.aliases[forced], DOOR)
+	testing.expect_value(t, f.ws.aliases[external], DOOR)
+	slua.send(&f.vm, DOOR, "OnActivate", script.PLAYER)
+	testing.expect(t, guard_saw(&f, "[ObjectReference 0x00000901];"), "the alias hears its ref's OnActivate")
+
+	worldstate.register_update(&f.ws, DOOR, 0, false)
+	slua.tick_updates(&f.vm, &f.ws, 1.0 / 60)
+	testing.expect(t, guard_saw(&f, ""), "the ref's own OnUpdate is not the alias's")
+
+	quest(&f, "Stop")
+	testing.expect_value(t, len(f.ws.aliases), 0)
+	slua.send(&f.vm, DOOR, "OnActivate", script.PLAYER)
+	testing.expect(t, guard_saw(&f, ""), "an empty alias hears nothing")
 }

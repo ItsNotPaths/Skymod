@@ -51,6 +51,7 @@ register_builtins :: proc(reg: ^Registry) {
 
 	register_math(reg) // Math.* — pure callstatic leaves
 	register_quest(reg) // Quest.* — the quest-state store
+	register_alias(reg) // quest aliases
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
 	register_inventory(reg) // ObjectReference/Actor inventory store
 	register_actor(reg) // Actor values + faction/relationship store
