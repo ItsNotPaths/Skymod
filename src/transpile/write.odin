@@ -3,16 +3,13 @@ package transpile
 // Output primitives: everything that turns a PEX value or name into Lua text. All of these
 // write straight into the builder, so no intermediate string is ever allocated.
 
-// HOLE(script): PEX Null emits `nil`, against the None-sentinel rule (script-runtime-decisions section 2).
-// HOLE(script): mangling is not injective — `::temp0` and an authored `__temp0` collide.
-
 import "core:fmt"
 import "core:math"
+import "core:slice"
 import "core:strings"
 import "../formats/pex"
 
-// Lua keywords. A Papyrus identifier that collides gets a trailing underscore. Lua is
-// case-sensitive, so only an exact lowercase match collides.
+// Lua keywords. Lua is case-sensitive, so only an exact lowercase match collides.
 @(private)
 RESERVED := [?]string {
 	"and", "break", "do", "else", "elseif", "end", "false", "for", "function",
@@ -31,30 +28,34 @@ sbprintf :: proc(e: ^Emitter, format: string, args: ..any) {
 }
 
 // write_mangled renders a Papyrus identifier as a legal Lua one. Papyrus emits names Lua
-// rejects outright — `::temp8`, `::NoneVar`.
+// rejects outright — `::temp8`, `::NoneVar`. Each prefix marks one class of name, so no two
+// names meet: compiler `::x` -> `__x`, authored `_x` -> `_u_x`, keyword `end` -> `_kend`.
 @(private)
 write_mangled :: proc(e: ^Emitter, name: string) {
 	if is_self(name) || len(name) == 0 {
 		sbprint(e, len(name) == 0 ? "_" : "self")
 		return
 	}
-	if name[0] >= '0' && name[0] <= '9' {
-		sbprint(e, "_")
+	body := name
+	switch {
+	case strings.has_prefix(name, "::"):
+		sbprint(e, "__")
+		body = name[2:]
+	case name[0] == '_':
+		sbprint(e, "_u")
+	case name[0] >= '0' && name[0] <= '9':
+		sbprint(e, "_d")
+	case slice.contains(RESERVED[:], name):
+		sbprint(e, "_k")
 	}
-	for i in 0 ..< len(name) {
-		c := name[i]
+	for i in 0 ..< len(body) {
+		c := body[i]
 		ok :=
 			(c >= 'a' && c <= 'z') ||
 			(c >= 'A' && c <= 'Z') ||
 			(c >= '0' && c <= '9') ||
 			c == '_'
 		strings.write_byte(&e.sb, ok ? c : '_')
-	}
-	for r in RESERVED {
-		if name == r {
-			sbprint(e, "_")
-			return
-		}
 	}
 }
 
@@ -131,7 +132,7 @@ write_ident :: proc(e: ^Emitter, name: string) {
 write_value :: proc(e: ^Emitter, v: pex.Value) {
 	switch v.kind {
 	case .Null:
-		sbprint(e, "nil")
+		sbprint(e, NONE)
 	case .Identifier:
 		write_ident(e, v.str)
 	case .String:
@@ -168,6 +169,11 @@ is_self :: proc(name: string) -> bool {
 same_ident :: proc(a, b: pex.Value) -> bool {
 	return a.kind == .Identifier && b.kind == .Identifier && a.str == b.str
 }
+
+// NONE is Papyrus None. Never Lua nil: a nil member vanishes from `pairs`, so a save would
+// miss it (rt.save_vars).
+@(private)
+NONE :: "rt.None"
 
 // NONE_VAR is the sink a void call assigns to. A call that writes it is a bare statement.
 @(private)

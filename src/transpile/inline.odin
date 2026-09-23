@@ -22,9 +22,8 @@ package transpile
 //
 // Only side-effect-free definitions move (arithmetic, comparison, cast, concat). A call or a
 // property read stays put, because Lua leaves operand evaluation order unspecified and these
-// calls mutate world state.
-
-// HOLE(script): T2 treats IDiv/IMod/Cast/StrCat/ArrayLength as movable, but they lower to runtime calls with no totality guarantee — `temp = IDiv(x,0)` can move past a call and fire its error late.
+// calls mutate world state. IDiv/IMod/Cast/StrCat/ArrayLength lower to rt helpers that never
+// raise (rt.idiv returns 0 on a zero divisor), which is what lets them move.
 
 import "core:strings"
 import "../formats/pex"

@@ -157,9 +157,9 @@ test_transpile_emits_t0 :: proc(t: ^testing.T) {
 	}
 
 	has(t, src, `local Test = rt.class("Test", "ScriptObject")`)
-	has(t, src, `Test.__fn["doit"] = function(self, end_)`) // reserved word mangled, key folded
+	has(t, src, `Test.__fn["doit"] = function(self, _kend)`) // reserved word mangled, key folded
 	has(t, src, "local __temp0, __NoneVar = false") // locals start at their type's zero
-	has(t, src, "__temp0 = end_ >= 0")
+	has(t, src, "__temp0 = _kend >= 0")
 	// A jump offset is relative to its own index: 2 + 3 = 5, one past the last instruction.
 	has(t, src, "if not __temp0 then goto L5 end")
 	has(t, src, "::L5::")
@@ -251,11 +251,11 @@ test_transpile_t2_inlines_temp :: proc(t: ^testing.T) {
 	// The comparison folds into the jump that reads it, and its temp disappears.
 	testing.expectf(
 		t,
-		strings.contains(src, "if not (end_ >= 0) then goto L5 end"),
+		strings.contains(src, "if not (_kend >= 0) then goto L5 end"),
 		"temp not folded into its reader:\n%s",
 		src,
 	)
-	testing.expect(t, !strings.contains(src, "__temp0 = end_"), "definition removed")
+	testing.expect(t, !strings.contains(src, "__temp0 = _kend"), "definition removed")
 	testing.expect_value(t, st.inlined, 1)
 	testing.expect_value(t, st.statements, 3) // one fewer than the T0 shape
 }
@@ -404,4 +404,74 @@ test_transpile_members_states_casts :: proc(t: ^testing.T) {
 	has(t, src, `rt.cast(self.vars["::count_var"], "bool")`)
 	has(t, src, `rt.parent(self, "Mem", "Run")`)
 	has(t, src, `self.vars["::count_var"] == 3`)
+}
+
+// build_none_pex: an untrusted header, a Null member default, a Null store, and an authored
+// name that looks like a compiler temp.
+//
+//   0  Assign ::Ref_var None
+//   1  Assign ::temp0 __temp0
+@(private = "file")
+build_none_pex :: proc() -> []u8 {
+	b := make([dynamic]u8)
+
+	tw32(&b, pex.MAGIC)
+	append(&b, 3, 2)
+	tw16(&b, 1)
+	tw64(&b, 0)
+	tws(&b, "Evil.psc\nos.exit()");tws(&b, "u");tws(&b, "m")
+
+	tw16(&b, 10)
+	tws(&b, "Evil")            // 0
+	tws(&b, "ScriptObject")    // 1
+	tws(&b, "")                // 2
+	tws(&b, "Clear")           // 3
+	tws(&b, "None")            // 4
+	tws(&b, "Int")             // 5
+	tws(&b, "::temp0")         // 6
+	tws(&b, "__temp0")         // 7
+	tws(&b, "::Ref_var")       // 8
+	tws(&b, "ObjectReference") // 9
+
+	append(&b, 0) // no debug
+	tw16(&b, 0) // user flags
+
+	tw16(&b, 1)
+	tw16(&b, 0);tw32(&b, 0);tw16(&b, 1);tw16(&b, 2);tw32(&b, 0);tw16(&b, 2)
+	tw16(&b, 1);tw16(&b, 8);tw16(&b, 9);tw32(&b, 0);append(&b, 0) // var ::Ref_var, no initializer
+	tw16(&b, 0) // props
+	tw16(&b, 1);tw16(&b, 2);tw16(&b, 1);tw16(&b, 3) // default state, one function "Clear"
+
+	tw16(&b, 4);tw16(&b, 2);tw32(&b, 0);append(&b, 0) // -> None, doc, flags
+	tw16(&b, 1);tw16(&b, 7);tw16(&b, 5) // param __temp0 Int
+	tw16(&b, 1);tw16(&b, 6);tw16(&b, 5) // local ::temp0 Int
+	tw16(&b, 2) // instructions
+
+	append(&b, u8(pex.Opcode.Assign));ti(&b, 8);append(&b, 0)
+	append(&b, u8(pex.Opcode.Assign));ti(&b, 6);ti(&b, 7)
+
+	return b[:]
+}
+
+@(test)
+test_transpile_none_names_header :: proc(t: ^testing.T) {
+	data := build_none_pex()
+	defer delete(data)
+	p, pok := pex.parse(data)
+	defer pex.destroy(&p)
+	testing.expect(t, pok, "fixture parses")
+
+	src, _ := transpile.transpile(&p, transpile.Options{no_inline = true})
+	defer delete(src)
+
+	has :: proc(t: ^testing.T, src, want: string) {
+		testing.expectf(t, strings.contains(src, want), "missing %q in:\n%s", want, src)
+	}
+	has(t, src, "-- transpiled from Evil.psc?os.exit()\n")
+	has(t, src, `["::ref_var"] = { type = "ObjectReference", default = nil }`)
+	// A nil member would drop out of rt.save_vars.
+	has(t, src, `self.vars["::ref_var"] = rt.None`)
+	has(t, src, `Evil.__fn["clear"] = function(self, _u__temp0)`)
+	has(t, src, "local __temp0 = 0")
+	has(t, src, "__temp0 = _u__temp0")
 }

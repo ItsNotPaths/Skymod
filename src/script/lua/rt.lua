@@ -301,6 +301,7 @@ end
 function rt.concat(a, b) return to_string(a) .. to_string(b) end
 
 -- Papyrus integer division and modulo truncate toward zero; fmod does, Lua's // does not.
+-- rt.cast, concat, idiv, imod and alen must never raise: the transpiler moves them past calls.
 function rt.idiv(a, b)
   if b == 0 then
     warn_once("div0", "integer divide by zero")

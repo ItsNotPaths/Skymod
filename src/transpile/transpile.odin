@@ -10,8 +10,6 @@ package transpile
 // local cleanups that need no control-flow analysis). T2 (temp inlining) and T3 (if/while
 // recovery) are not built — see the doc for the measurements that rank them.
 
-// HOLE(script): source_file is written raw into a comment — a newline in an untrusted PEX header injects Lua.
-
 import "core:strings"
 import "../formats/pex"
 
@@ -74,8 +72,12 @@ Emitter :: struct {
 
 @(private)
 emit_file :: proc(e: ^Emitter, p: ^pex.Pex) {
+	// The header is untrusted: a newline in it would end the comment and inject Lua.
 	sbprint(e, "-- transpiled from ")
-	sbprint(e, p.source_file)
+	for i in 0 ..< len(p.source_file) {
+		c := p.source_file[i]
+		strings.write_byte(&e.sb, c < 0x20 || c == 0x7f ? '?' : c)
+	}
 	sbprint(e, "\n")
 	sbprintf(e, "-- pex %d.%d game %d debug %v\n", p.major, p.minor, p.game_id, p.has_debug)
 	sbprintf(e, "local rt = require('%s')\n\n", e.opt.runtime)
@@ -118,8 +120,13 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 			write_key(e, v.name)
 			sbprint(e, "] = { type = ")
 			write_lua_string(e, v.type_name)
+			// Null here means "no initializer"; rt gives the member its type's zero.
 			sbprint(e, ", default = ")
-			write_value(e, v.value)
+			if v.value.kind == .Null {
+				sbprint(e, "nil")
+			} else {
+				write_value(e, v.value)
+			}
 			sbprint(e, " },\n")
 		}
 		sbprint(e, "}\n")
@@ -226,24 +233,18 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 	// local can be read before its first write (DLC2ManyToManyFactionRelationScript does).
 	if len(f.locals) > 0 {
 		sbprint(e, "\tlocal ")
-		last := -1 // last local with a non-nil zero; later ones can be left off the value list
 		for l, i in f.locals {
 			if i > 0 {
 				sbprint(e, ", ")
 			}
 			write_mangled(e, l.name)
-			if type_zero(l.type_name) != "nil" {
-				last = i
-			}
 		}
-		if last >= 0 {
-			sbprint(e, " = ")
-			for l, i in f.locals[:last + 1] {
-				if i > 0 {
-					sbprint(e, ", ")
-				}
-				sbprint(e, type_zero(l.type_name))
+		sbprint(e, " = ")
+		for l, i in f.locals {
+			if i > 0 {
+				sbprint(e, ", ")
 			}
+			sbprint(e, type_zero(l.type_name))
 		}
 		sbprint(e, "\n")
 	}
@@ -289,7 +290,7 @@ emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
 }
 
 // type_zero is the Lua literal a Papyrus variable of this type starts as. Objects and arrays start
-// as None, which is nil.
+// as None.
 @(private)
 type_zero :: proc(type_name: string) -> string {
 	switch strings.to_lower(type_name, context.temp_allocator) {
@@ -298,7 +299,7 @@ type_zero :: proc(type_name: string) -> string {
 	case "bool":   return "false"
 	case "string": return `""`
 	}
-	return "nil"
+	return NONE
 }
 
 // write_slot names where a function lands: the default-state table, or a named state's.
