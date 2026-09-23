@@ -6,8 +6,6 @@ package transpile
 // Every engine-facing operation goes through the `rt` table. The transpiler never decides
 // what `rt` does — see the contract table in docs/papyrus-transpiler.md.
 
-// HOLE(script): rt.array discards the element type.
-// HOLE(script): CmpEq emits Lua `==` but Papyrus string comparison folds case.
 
 import "core:strings"
 import "../formats/pex"
@@ -78,10 +76,13 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		write_rest(e, ins, 3, idx)
 		sbprint(e, ")")
 
-	// callparent <name> <dest> <args...>
+	// callparent <name> <dest> <args...>. The calling class names where the lookup starts: from
+	// the middle of a three-level chain, self's own class would start too low.
 	case .CallParent:
 		write_call_dest(e, arg(ins, 1))
 		sbprint(e, "rt.parent(self, ")
+		write_lua_string(e, e.obj.name)
+		sbprint(e, ", ")
 		write_lua_string(e, ident_of(arg(ins, 0)))
 		write_rest(e, ins, 2, idx)
 		sbprint(e, ")")
@@ -115,8 +116,14 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		sbprint(e, ")")
 
 	// Papyrus arrays are zero-based, so every access goes through a helper.
+	// The element type fills the new slots: an int[] starts as zeros, not None.
 	case .ArrayCreate:
-		write_assign_call(e, arg(ins, 0), "rt.array", {arg(ins, 1)}, idx)
+		write_value(e, arg(ins, 0))
+		sbprint(e, " = rt.array(")
+		write_read(e, arg(ins, 1), idx)
+		sbprint(e, ", ")
+		write_key(e, strings.trim_suffix(dest_type(e, arg(ins, 0)), "[]"))
+		sbprint(e, ")")
 	case .ArrayGetElement:
 		write_assign_call(e, arg(ins, 0), "rt.aget", {arg(ins, 1), arg(ins, 2)}, idx)
 	case .ArraySetElement:
@@ -151,6 +158,7 @@ write_rhs :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 		write_binary(e, ins, "*", idx)
 	case .FDiv:
 		write_binary(e, ins, "/", idx)
+	// The engine's Lua gives `==` Papyrus semantics (build/lua-02-papyrus-eq.patch).
 	case .CmpEq:
 		write_binary(e, ins, "==", idx)
 	case .CmpLt:

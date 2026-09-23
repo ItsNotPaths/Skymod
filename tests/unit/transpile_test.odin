@@ -333,7 +333,9 @@ test_transpile_t2_keeps_escaping_temp :: proc(t: ^testing.T) {
 //
 //   0  CallMethod Foo Self ::NoneVar   -- LE spells the receiver `Self`
 //   1  Cast       ::temp0 ::Count_var  -- member read, cast to the Bool local
-//   2  Return     ::temp0
+//   2  CmpEq      ::temp0 ::Count_var 3
+//   3  CallParent Run ::NoneVar
+//   4  Return     ::temp0
 @(private = "file")
 build_member_pex :: proc() -> []u8 {
 	b := make([dynamic]u8)
@@ -370,10 +372,12 @@ build_member_pex :: proc() -> []u8 {
 	tw16(&b, 4);tw16(&b, 2);tw32(&b, 0);append(&b, 0) // -> Bool, doc, flags
 	tw16(&b, 0) // params
 	tw16(&b, 2);tw16(&b, 6);tw16(&b, 4);tw16(&b, 7);tw16(&b, 2) // locals ::temp0 Bool, ::NoneVar
-	tw16(&b, 3) // instructions
+	tw16(&b, 5) // instructions
 
 	append(&b, u8(pex.Opcode.CallMethod));ti(&b, 8);ti(&b, 9);ti(&b, 7);tn(&b, 0)
 	append(&b, u8(pex.Opcode.Cast));ti(&b, 6);ti(&b, 10)
+	append(&b, u8(pex.Opcode.CmpEq));ti(&b, 6);ti(&b, 10);tn(&b, 3)
+	append(&b, u8(pex.Opcode.CallParent));ti(&b, 3);ti(&b, 7);tn(&b, 0)
 	append(&b, u8(pex.Opcode.Return));ti(&b, 6)
 
 	return b[:]
@@ -398,6 +402,8 @@ test_transpile_members_states_casts :: proc(t: ^testing.T) {
 	has(t, src, `Mem.__states["busy"]["run"] = function(self)`)
 	has(t, src, `rt.call(self, "Foo")`)
 	has(t, src, `rt.cast(self.vars["::count_var"], "bool")`)
+	has(t, src, `rt.parent(self, "Mem", "Run")`)
+	has(t, src, `self.vars["::count_var"] == 3`)
 }
 
 // ── override registry ───────────────────────────────────────────────────────
