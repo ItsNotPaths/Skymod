@@ -31,6 +31,8 @@ Ref :: struct {
 	teleport:     esm.Teleport,
 	has_tp:       bool,
 	disabled:     bool, // REFR "Initially Disabled" flag — not placed in the world
+	deleted:      bool, // a plugin removed this ref (also sets `disabled`); it runs no scripts
+	persistent:   bool, // in its cell's persistent group: its scripts start at game start
 	// XESP enable-parent: this ref is only placed when its parent is enabled (XOR opposite).
 	// enable_parent 0 = no parent. The STATIC default gate (ref_effective_disabled) drops
 	// quest/alternate debris; the eventual quest system flips the parent live.
@@ -1503,6 +1505,8 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		// either way the ref isn't placed. Treating delete as disable keeps the slot so the
 		// override replaces in place rather than leaving a hole.
 		disabled     = rec.flags & (REFR_INITIALLY_DISABLED | REFR_DELETED) != 0,
+		deleted      = rec.flags & REFR_DELETED != 0,
+		persistent   = !ctx.temporary,
 	}
 	if tp, has := esm.refr_teleport(fl); has {
 		tp.door = esm.remap_form(ctx.fm, u32(tp.door)) // XTEL references the destination door
@@ -1561,6 +1565,8 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		rot          = p.rot,
 		scale        = p.scale,
 		disabled     = rec.flags & (REFR_INITIALLY_DISABLED | REFR_DELETED) != 0,
+		deleted      = rec.flags & REFR_DELETED != 0,
+		persistent   = !ctx.temporary,
 	}
 	if ep, has := esm.refr_enable_parent(fl); has {
 		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent)
