@@ -7,7 +7,6 @@ package main
 //   odin run tools/pex2lua -- <archive.bsa> -o <outdir>         # every scripts\*.pex in a BSA
 //   odin run tools/pex2lua -- <...> --lines                     # annotate with source lines
 //   odin run tools/pex2lua -- <...> --no-inline                 # stop at T1 (diff vs T2)
-//   odin run tools/pex2lua -- <...> --overrides <file>          # hand-written Lua registry
 //
 // The corpus harness: point it at SE's Skyrim - Misc.bsa (LE splits the same corpus over
 // Misc + the three DLC archives), then check every emitted file with
@@ -28,7 +27,6 @@ Totals :: struct {
 	files:       int,
 	ok:          int,
 	failed:      int,
-	scripts_overridden: int,
 }
 
 Job :: struct {
@@ -40,7 +38,7 @@ main :: proc() {
 	if len(os.args) < 2 {
 		fmt.eprintln(
 			"usage: pex2lua <script.pex | dir | archive.bsa> [-o <outdir>]" +
-			" [--lines] [--no-inline] [--overrides <file>]",
+			" [--lines] [--no-inline]",
 		)
 		os.exit(2)
 	}
@@ -54,28 +52,6 @@ main :: proc() {
 	opt := transpile.Options {
 		line_comments = slice.contains(os.args, "--lines"),
 		no_inline     = slice.contains(os.args, "--no-inline"),
-	}
-
-	ov: transpile.Overrides
-	defer transpile.overrides_destroy(&ov)
-	for a, i in os.args {
-		if a != "--overrides" || i + 1 >= len(os.args) {
-			continue
-		}
-		text, rerr := os.read_entire_file(os.args[i + 1], context.allocator)
-		if rerr != nil {
-			fmt.eprintfln("failed to read %s", os.args[i + 1])
-			os.exit(1)
-		}
-		defer delete(text)
-		bad: int
-		pok: bool
-		ov, bad, pok = transpile.overrides_parse(string(text))
-		if !pok {
-			fmt.eprintfln("%s:%d: malformed override entry", os.args[i + 1], bad)
-			os.exit(1)
-		}
-		opt.overrides = &ov
 	}
 
 	jobs := make([dynamic]Job)
@@ -118,9 +94,6 @@ main :: proc() {
 		total.ok += 1
 		accumulate(&total, st)
 
-		if st.script_overridden {
-			continue // hand-written in full; emit nothing
-		}
 		if outdir != "" {
 			out := fmt.tprintf("%s/%s.lua", outdir, j.name)
 			if os.write_entire_file(out, transmute([]u8)src) != nil {
@@ -147,8 +120,6 @@ accumulate :: proc(t: ^Totals, s: transpile.Stats) {
 	t.dropped_cast += s.dropped_cast
 	t.bare_calls += s.bare_calls
 	t.inlined += s.inlined
-	t.overridden += s.overridden
-	if s.script_overridden {t.scripts_overridden += 1}
 	t.max_locals = max(t.max_locals, s.max_locals)
 }
 
@@ -170,12 +141,6 @@ report :: proc(t: Totals) {
 	fmt.eprintfln("T1 dropped   %d self-casts", t.dropped_cast)
 	fmt.eprintfln("T1 bare      %d calls to ::NoneVar", t.bare_calls)
 	fmt.eprintfln("T2 inlined   %d temps folded into their reader", t.inlined)
-	if t.overridden > 0 || t.scripts_overridden > 0 {
-		fmt.eprintfln(
-			"overrides    %d functions marked, %d whole scripts skipped",
-			t.overridden, t.scripts_overridden,
-		)
-	}
 }
 
 // stem lowercases a path's basename and strips its extension — the output file's name.

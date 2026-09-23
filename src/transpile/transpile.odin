@@ -10,8 +10,6 @@ package transpile
 // local cleanups that need no control-flow analysis). T2 (temp inlining) and T3 (if/while
 // recovery) are not built — see the doc for the measurements that rank them.
 
-// HOLE(script): the __overridden marker omits the state qualifier its lookup key carries, so OnActivate@Busy is indistinguishable from the default-state one.
-// HOLE(script): a whole-script override emits no marker, so a missing hand-written file has nothing to fail on.
 // HOLE(script): source_file is written raw into a comment — a newline in an untrusted PEX header injects Lua.
 
 import "core:strings"
@@ -25,9 +23,6 @@ Options :: struct {
 	// no_inline stops at T1: one statement per instruction, temps left standing. A debugging
 	// aid — diff it against the inlined form when T2 is the suspect.
 	no_inline:     bool,
-	// overrides names the functions written by hand. An overridden function gets a mark
-	// instead of a body; an overridden script produces nothing at all.
-	overrides:     ^Overrides,
 }
 
 Stats :: struct {
@@ -43,10 +38,6 @@ Stats :: struct {
 	dropped_cast: int, // T1: self-casts removed
 	bare_calls:   int, // T1: calls whose result went to ::NoneVar
 	inlined:      int, // T2: definitions folded into their reader
-	overridden:   int, // functions left to a hand-written override
-	// script_overridden means the whole script is hand-written and `source` is empty. The
-	// caller must not write a file for it.
-	script_overridden: bool,
 }
 
 // transpile renders one parsed script as a Lua chunk. The returned string is owned by the
@@ -64,11 +55,6 @@ transpile :: proc(
 	if e.opt.runtime == "" {
 		e.opt.runtime = DEFAULT_RUNTIME
 	}
-	e.script = script_stem(p.source_file)
-	if overrides_has_script(e.opt.overrides, e.script) {
-		e.stats.script_overridden = true
-		return "", e.stats
-	}
 	strings.builder_init(&e.sb, allocator)
 	emit_file(&e, p)
 	return strings.to_string(e.sb), e.stats
@@ -79,7 +65,6 @@ Emitter :: struct {
 	sb:       strings.Builder,
 	opt:      Options,
 	stats:    Stats,
-	script:   string, // source-file stem, the override key's first field
 	obj:      ^pex.Object, // the object being written
 	// T2 expansion state, live only while a function body is being written.
 	fn:       ^pex.Function,
@@ -194,17 +179,6 @@ emit_property :: proc(e: ^Emitter, obj: string, pr: ^pex.Property) {
 @(private)
 emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 	e.stats.functions += 1
-
-	// A hand-written function gets a mark, not a body. The runtime fails at load when an
-	// override is marked but never supplied — otherwise a missing one is a silent hole.
-	if overrides_has_fn(e.opt.overrides, e.script, obj, state, name) {
-		e.stats.overridden += 1
-		write_mangled(e, obj)
-		sbprint(e, ".__overridden[")
-		write_key(e, name)
-		sbprint(e, "] = true\n")
-		return
-	}
 
 	if f.is_native {
 		e.stats.natives += 1

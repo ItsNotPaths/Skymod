@@ -5,7 +5,6 @@ package script_lua
 
 // HOLE(script, gap): gamedb classifies only the record kinds scripts were seen calling natives on; any other base form (ARMO, BOOK, MISC…) resolves as ObjectReference and its own natives cannot be reached.
 // HOLE(script, gap): Utility.Wait returns at once, so a poll loop in a handler (CritterSpawn's OnLoad) spins until rt.lua's instruction budget ends it — 20-125 ms per re-attaching cell ring. The S5 rewrite turns these into guards; docs/script-rewrite.md "Perf findings".
-// HOLE(script, gap): rt.lua never checks a class's __overridden marks, so an override the registry names but nobody supplied is silently missing instead of failing at load.
 
 import "core:c"
 import "core:log"

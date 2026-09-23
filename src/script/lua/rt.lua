@@ -75,7 +75,6 @@ function rt.class(name, parent)
     __states = {},
     __vars = {},
     __autoprop = {},
-    __overridden = {},
     __cache = {},
   }
   classes[low(name)] = cls
