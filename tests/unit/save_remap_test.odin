@@ -8,6 +8,7 @@ package unit_tests
 import "core:os"
 import "core:testing"
 import smath "../../src/math"
+import "../../src/formid"
 import "../../src/mods"
 import ws "../../src/worldstate"
 
@@ -50,7 +51,7 @@ test_save_remap_cross_install :: proc(t: ^testing.T) {
 	ws.set_moved(&src, fid(SLOT_A, 0xABCD), fid(SLOT_A, 0x1A26F), m, {10, 20, 30})
 	ws.set_disabled(&src, fid(SLOT_MISSING, 0x77), fid(SLOT_MISSING, 0x1A26F), true)
 	// A quest alias of Cool.esp holding a Cool.esp ref: the handle carries the quest's slot.
-	alias_a, _ := ws.alias_handle(fid(SLOT_A, 0x5000), 7)
+	alias_a, _ := formid.alias_handle(fid(SLOT_A, 0x5000), 7)
 	ws.fill_alias(&src, alias_a, fid(SLOT_A, 0xABCD))
 
 	save_br := ws.Form_Bridge{identify = save_identify}
@@ -82,7 +83,7 @@ test_save_remap_cross_install :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, ws.count(&dst) == 1, "exactly the resolvable delta remains")
 
-	alias_b, _ := ws.alias_handle(fid(SLOT_B, 0x5000), 7)
+	alias_b, _ := formid.alias_handle(fid(SLOT_B, 0x5000), 7)
 	testing.expect_value(t, dst.aliases[alias_b], fid(SLOT_B, 0xABCD))
 	testing.expect_value(t, len(dst.aliases), 1)
 }

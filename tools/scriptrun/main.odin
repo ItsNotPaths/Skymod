@@ -49,13 +49,13 @@ main :: proc() {
 	tally: Tally
 	context.logger = log.Logger{tally_log, &tally, .Debug, nil}
 	start := time.now()
-	made := slua.start_game(&vm, &db, true)
+	made := slua.new_game(&vm, &db)
 	took := time.since(start)
 	start = time.now()
 	cells := cells_arg(&db)
 	cell_made := 0
 	for cell in cells {
-		cell_made += slua.attach_cell(&vm, &db, cell, true)
+		cell_made += slua.attach_cell(&vm, &db, cell)
 		free_all(context.temp_allocator)
 	}
 	cell_took := time.since(start)

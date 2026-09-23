@@ -23,13 +23,12 @@ package worldstate
 import "core:encoding/cbor"
 import "core:hash"
 import "core:os"
+import "core:strings"
+import "../formid"
 
 MAGIC :: "SKYSAVE\x00"
 FORMAT_VERSION :: u32(3) // v3: stable identity slots + embedded form-table bridge (§4.4); v2 dropped
 
-// CREATED_SLOT is the reserved high word of runtime-created forms (CREATED_FORM_BASE >> 32). Identical
-// across installs, so its forms are never in the form-table bridge and pass remap through untouched.
-CREATED_SLOT :: u32(0xFFFF_FFFF)
 
 // Form_Bridge decouples the save from the mods/form-table package (which owns identity): the app
 // supplies these hooks over its Form_Table so the save can (identify) name the stable slots it
@@ -97,6 +96,11 @@ Saved_Alias :: struct {
 	alias, form: Form_ID,
 }
 
+Saved_Script :: struct {
+	form: Form_ID,
+	vars: []Script_Var,
+}
+
 // Saved_Global is one coarse world fact (id→value).
 Saved_Global :: struct {
 	id:    Form_ID,
@@ -159,6 +163,10 @@ Saved_Rel :: struct {
 	rank: i32,
 }
 
+Saved_Perk :: struct {
+	actor, perk: Form_ID,
+}
+
 // Save_Body is the overlay's serialised sections (§4.2). New sections become new fields here; CBOR's
 // tagged encoding loads old saves into the extended struct unharmed (a save without a field decodes it
 // as zero — handled in load_from_file). Player_State is already plain/CBOR-friendly, stored as-is.
@@ -172,9 +180,11 @@ Save_Body :: struct {
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
+	perks:         []Saved_Perk,
 	updates:       []Saved_Update,
 	item_filters:  []Saved_Filter,
 	aliases:       []Saved_Alias,
+	scripts:       []Saved_Script,
 	player:        Player_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -267,6 +277,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			append(&facs, Saved_Faction{actor = actor, faction = faction, rank = rank})
 		}
 	}
+	perks := make([dynamic]Saved_Perk, 0, len(ws.perks), context.temp_allocator)
+	for actor, taken in ws.perks {
+		for perk in taken {append(&perks, Saved_Perk{actor, perk})}
+	}
 	rels := make([dynamic]Saved_Rel, 0, len(ws.relationships), context.temp_allocator)
 	for a, others in ws.relationships {
 		for b, rank in others {
@@ -280,6 +294,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	aliases := make([dynamic]Saved_Alias, 0, len(ws.aliases), context.temp_allocator)
 	for alias, form in ws.aliases {
 		append(&aliases, Saved_Alias{alias, form})
+	}
+	scripts := make([dynamic]Saved_Script, 0, len(ws.script_state), context.temp_allocator)
+	for form, vars in ws.script_state {
+		append(&scripts, Saved_Script{form, vars[:]})
 	}
 	filters := make([dynamic]Saved_Filter, 0, len(ws.item_filters), context.temp_allocator)
 	for container, list in ws.item_filters {
@@ -295,9 +313,11 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
+		perks         = perks[:],
 		updates       = updates[:],
 		item_filters  = filters[:],
 		aliases       = aliases[:],
+		scripts       = scripts[:],
 		player        = ws.player,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -365,20 +385,21 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
 	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
-		if !on || fid == 0 || u32(fid >> 32) == CREATED_SLOT {return fid, true}
-		quest, id, is_alias := alias_key(fid)
+		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT {return fid, true}
+		quest, id, is_alias := formid.alias_key(fid)
 		src := quest if is_alias else fid
 		ns, rok := remap[u32(src >> 32)]
 		if !rok {return fid, false}
 		out := (Form_ID(ns) << 32) | (src & 0x0000_0000_FFFF_FFFF)
-		if is_alias {return alias_handle(out, id)}
+		if is_alias {return formid.alias_handle(out, id)}
 		return out, true
 	}
 
 	// Commit: wipe and repopulate (upsert rebuilds ref_deltas + the by_cell index; we restore the
 	// saved `live` set verbatim rather than going through the per-field verbs, since the file already
 	// records which fields diverge).
-	clear_overlay(ws)
+	destroy_overlay(&ws.overlay)
+	init_overlay(&ws.overlay)
 	for d in body.deltas {
 		fid, kok := rf(remap, have_remap, d.form_id)
 		if !kok {continue} // keyed on a missing mod → drop
@@ -396,7 +417,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// Created refs: restore the exact FormIDs + the allocator cursor (don't re-mint via create_ref,
 	// which would hand out fresh ids). Clamp next_created to the floor for saves predating the field.
 	// form_id is a created-slot id (passes through); base/cell reference records → remapped.
-	ws.next_created = max(body.next_created, CREATED_FORM_BASE)
+	ws.next_created = max(body.next_created, formid.CREATED_FORM_BASE)
 	for c in body.created {
 		base, _ := rf(remap, have_remap, c.base)
 		cell, _ := rf(remap, have_remap, c.cell)
@@ -420,6 +441,16 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		alias, aok := rf(remap, have_remap, a.alias)
 		form, fok := rf(remap, have_remap, a.form)
 		if aok && fok {fill_alias(ws, alias, form)}
+	}
+	for sc in body.scripts {
+		form, fok := rf(remap, have_remap, sc.form)
+		if !fok {continue}
+		reset_script_state(ws, form)
+		for v in sc.vars {
+			value, vok := clone_value(v.value, remap, have_remap, rf)
+			if !vok {continue}
+			add_script_var(ws, form, {strings.clone(v.script), strings.clone(v.name), value})
+		}
 	}
 	for g in body.globals {
 		if id, kok := rf(remap, have_remap, g.id); kok {ws.globals[id] = g.value}
@@ -460,6 +491,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		faction, _ := rf(remap, have_remap, f.faction)
 		faction_upsert(ws, actor)^[faction] = f.rank
 	}
+	for p in body.perks {
+		actor, aok := rf(remap, have_remap, p.actor)
+		perk, pok := rf(remap, have_remap, p.perk)
+		if aok && pok {perk_add(ws, actor, perk)}
+	}
 	for r in body.relationships {
 		a, kok := rf(remap, have_remap, r.a)
 		if !kok {continue}
@@ -484,9 +520,14 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
 	for r in body.relationships {add_slot(&seen, r.a);add_slot(&seen, r.b)}
+	for p in body.perks {add_slot(&seen, p.actor);add_slot(&seen, p.perk)}
 	for u in body.updates {add_slot(&seen, u.form)}
 	for f in body.item_filters {add_slot(&seen, f.container);add_slot(&seen, f.filter)}
 	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}
+	for sc in body.scripts {
+		add_slot(&seen, sc.form)
+		for v in sc.vars {add_value_slots(&seen, v.value)}
+	}
 	add_slot(&seen, body.player.cell)
 
 	out := make([dynamic]Saved_Slot, 0, len(seen), context.temp_allocator)
@@ -498,43 +539,50 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	return out[:]
 }
 
+// clone_value copies a loaded member value into the store, remapping its refs. ok=false when a ref's
+// mod is missing: the member then rebuilds at its start value.
+@(private = "file")
+clone_value :: proc(v: Script_Value, remap: map[u32]u32, on: bool, rf: proc(map[u32]u32, bool, Form_ID) -> (Form_ID, bool)) -> (Script_Value, bool) {
+	#partial switch x in v {
+	case string:
+		return strings.clone(x), true
+	case Form_ID:
+		return rf(remap, on, x)
+	case []Script_Value:
+		out := make([]Script_Value, len(x))
+		for e, i in x {
+			ok: bool
+			out[i], ok = clone_value(e, remap, on, rf)
+			if !ok {
+				free_script_value(out)
+				return nil, false
+			}
+		}
+		return out, true
+	}
+	return v, true
+}
+
+@(private = "file")
+add_value_slots :: proc(seen: ^map[u32]bool, v: Script_Value) {
+	#partial switch x in v {
+	case Form_ID:
+		add_slot(seen, x)
+	case []Script_Value:
+		for e in x {add_value_slots(seen, e)}
+	}
+}
+
 @(private = "file")
 add_slot :: proc(seen: ^map[u32]bool, fid: Form_ID) {
 	if fid == 0 {return}
-	quest, _, is_alias := alias_key(fid)
+	quest, _, is_alias := formid.alias_key(fid)
 	s := u32((quest if is_alias else fid) >> 32)
-	if s == CREATED_SLOT {return}
+	if s == formid.CREATED_SLOT {return}
 	seen[s] = true
 }
 
 // --- container framing helpers ---
-
-@(private = "file")
-clear_overlay :: proc(ws: ^World_State) {
-	for _, &list in ws.by_cell {
-		delete(list)
-	}
-	for _, &list in ws.created_by_cell {
-		delete(list)
-	}
-	free_stores(ws) // quests' nested maps + the three stores' inner maps + AV key strings
-	clear(&ws.by_cell)
-	clear(&ws.ref_deltas)
-	clear(&ws.created_by_cell)
-	clear(&ws.created)
-	clear(&ws.globals)
-	clear(&ws.quests)
-	clear(&ws.inventories)
-	clear(&ws.actor_values)
-	clear(&ws.factions)
-	clear(&ws.relationships)
-	clear(&ws.updates)
-	clear(&ws.item_filters)
-	clear(&ws.aliases)
-	clear(&ws.alias_holders)
-	ws.next_created = CREATED_FORM_BASE
-	ws.player = {}
-}
 
 @(private = "file")
 Reader :: struct {

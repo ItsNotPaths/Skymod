@@ -14,6 +14,7 @@ import "core:log"
 import "core:math"
 import "core:strings"
 import "../formats/esm"
+import "../formid"
 import strtab "../formats/strings"
 
 // Form_ID is the global form handle (esm.Form_ID = u64): (slot<<32)|local. All gamedb
@@ -1260,6 +1261,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 	if db == nil {
 		return .Unknown
+	}
+	if quest, id, ok := formid.alias_key(form); ok {
+		a, _ := quest_alias(db, quest, id)
+		return .Location_Alias if a.location else .Ref_Alias
 	}
 	return db.form_kinds[form] // absent → zero value == .Unknown
 }

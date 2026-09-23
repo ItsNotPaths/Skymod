@@ -9,6 +9,7 @@ package world
 import "core:log"
 
 import "../assetdb"
+import "../formid"
 import "../gamedb"
 import smath "../math"
 import "../physics"
@@ -420,7 +421,7 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 resolve_created_models :: proc(s: ^Scene) {
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {
-			if inst.model == nil && inst.form_id >= worldstate.CREATED_FORM_BASE {
+			if inst.model == nil && inst.form_id >= formid.CREATED_FORM_BASE {
 				if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
 					inst.model = m
 				}

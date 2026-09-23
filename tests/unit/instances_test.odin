@@ -12,6 +12,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:testing"
+import "../../src/formid"
 import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/script"
@@ -128,6 +129,22 @@ C.__fn["onupdate"] = function(self) __guard = (__guard or "") .. "update;" end
 return C
 `
 
+@(private = "file")
+COUNTER_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Counter", nil)
+C.__vars = {
+  ["::count_var"] = { type = "Int", default = nil },
+  ["::list_var"] = { type = "Int[]", default = nil },
+  ["::seen"] = { type = "Bool", default = nil },
+  ["::target"] = { type = "objectreference", default = nil },
+  ["::untouched"] = { type = "Int", default = 4 },
+}
+C.__autoprop["count"] = "::count_var"
+C.__autoprop["list"] = "::list_var"
+C.__fn["oninit"] = function(self) __inits = (__inits or 0) + 1 end
+return C
+`
+
 // Fixture is a VM over a temp scripts dir. Its fields are pointed into, so it never moves.
 @(private = "file")
 Fixture :: struct {
@@ -214,9 +231,9 @@ test_refs_start_at_game_start_or_cell_load :: proc(t: ^testing.T) {
 	f.db.actor_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
 	append(&f.db.actor_refs[CELL], gamedb.Ref{form_id = 0x301, base = SCRIPTED})
 
-	testing.expect_value(t, slua.start_game(&f.vm, &f.db, true), 1)
-	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 2)
-	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 0)
+	testing.expect_value(t, slua.start_game(&f.vm, &f.db), 1)
+	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL), 2)
+	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL), 0)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 3, tostring(__inits))`), "OnInit ran once per ref")
 }
 
@@ -267,7 +284,7 @@ test_transitions_follow_attached_cells :: proc(t: ^testing.T) {
 		append(&f.db.cell_refs[CELL], r)
 		f.db.ref_by_id[r.form_id] = r
 	}
-	slua.attach_cell(&f.vm, &f.db, CELL, false)
+	slua.attach_cell(&f.vm, &f.db, CELL)
 
 	loaded :: proc(f: ^Fixture, form: script.Form_ID) -> bool {
 		c := script.Call{self = form, ws = &f.ws, db = &f.db}
@@ -385,10 +402,18 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, CHEST, "AddItem", GOLD, i32(3))
 	testing.expect(t, logged(&f, "add3;"), "a filter drops other items")
 
+	alias, _ := formid.alias_handle(0x900, 0)
+	slua.attach(&f.vm, alias, bag, false)
+	worldstate.fill_alias(&f.ws, alias, CHEST)
+	native(&f, CHEST, "AddItem", ARROW, i32(1))
+	testing.expect(t, logged(&f, "add1;"), "an alias holding the chest filters by its own filters, not the chest's")
+	worldstate.clear_alias(&f.ws, alias)
+
 	native(&f, CHEST, "RemoveItem", GOLD, i32(2), false, OTHER)
 	testing.expect(t, logged(&f, "rem2+dest;add2+src;"), "a transfer tells both containers")
 	testing.expect_value(t, worldstate.inv_count(&f.ws, CHEST, GOLD), 1)
 	testing.expect_value(t, worldstate.inv_count(&f.ws, OTHER, GOLD), 2)
+	testing.expect_value(t, worldstate.inv_count(&f.ws, CHEST, ARROW), 11)
 
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
@@ -396,7 +421,7 @@ test_item_events :: proc(t: ^testing.T) {
 
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")
-	testing.expect(t, logged(&f, "rem1;rem10;"), "RemoveAllItems: one event per item type")
+	testing.expect(t, logged(&f, "rem1;rem11;"), "RemoveAllItems: one event per item type")
 }
 
 // A starting quest fills its Forced alias, then its External one from it; the alias's scripts get
@@ -413,8 +438,8 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
 	defer delete(f.db.quest_baseline)
 	f.db.quest_baseline[QUEST] = {aliases = aliases}
-	forced, _ := worldstate.alias_handle(QUEST, 0)
-	external, _ := worldstate.alias_handle(QUEST, 1)
+	forced, _ := formid.alias_handle(QUEST, 0)
+	external, _ := formid.alias_handle(QUEST, 1)
 	slua.attach(&f.vm, forced, []esm.Script_Attach{{name = "Guard"}}, false)
 	quest :: proc(f: ^Fixture, fn: string) {
 		c := script.Call{self = QUEST, ws = &f.ws, db = &f.db}
@@ -439,4 +464,53 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.aliases), 0)
 	slua.send(&f.vm, DOOR, "OnActivate", script.PLAYER)
 	testing.expect(t, guard_saw(&f, ""), "an empty alias hears nothing")
+
+	f.db.quest_baseline[QUEST] = {start_game_enabled = true, aliases = aliases}
+	slua.start_game(&f.vm, &f.db)
+	testing.expect_value(t, len(f.ws.aliases), 0)
+	slua.new_game(&f.vm, &f.db)
+	testing.expect_value(t, f.ws.aliases[forced], DOOR)
+}
+
+// A save keeps the members that differ from a fresh instance, autoprops included, and which forms
+// ran OnInit. Loading puts the values back on rebuilt instances without re-running OnInit; a form
+// the save does not know still runs it.
+@(test)
+test_script_members_survive_a_save :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_saves", {{"counter.lua", COUNTER_LUA}})
+	defer fixture_destroy(&f)
+
+	FORM :: script.Form_ID(0xA00)
+	LATER :: script.Form_ID(0xA01)
+	counter := []esm.Script_Attach{{name = "Counter", props = {
+		{name = "Count", kind = .Int, status = 1, value = i32(5)},
+		{name = "List", kind = .Int_Array, status = 1, value = []i32{1, 2, 3}},
+	}}}
+	testing.expect_value(t, slua.attach_known(&f.vm, FORM, counter), 1)
+	testing.expect(t, slua.do_string(&f.vm, `
+    local rt = require('skymod.rt')
+    local v = rt.instances_of(ref(0xA00))["counter"].vars
+    v["::count_var"] = 6
+    rt.aset(v["::list_var"], 1, 9)
+    v["::seen"] = true
+    v["::target"] = ref(0x14)`), "change members")
+
+	slua.save_scripts(&f.vm)
+	testing.expect_value(t, len(f.ws.script_state[FORM]), 4)
+	path := "/tmp/skymod_script_members.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&f.ws, path, {save_number = 1}), "save")
+	_, loaded := worldstate.load_from_file(&f.ws, path)
+	testing.expect(t, loaded, "load")
+
+	slua.reload_scripts(&f.vm, &f.db)
+	testing.expect_value(t, slua.attach_known(&f.vm, FORM, counter), 1)
+	testing.expect_value(t, slua.attach_known(&f.vm, LATER, counter), 1)
+	testing.expect(t, slua.do_string(&f.vm, `
+    local rt = require('skymod.rt')
+    local v = rt.instances_of(ref(0xA00))["counter"].vars
+    assert(v["::count_var"] === 6 and rt.aget(v["::list_var"], 1) === 9 and rt.aget(v["::list_var"], 2) === 3)
+    assert(v["::seen"] === true and v["::target"] === ref(0x14) and v["::untouched"] === 4)
+    assert(__inits == 2, "OnInit ran for the new form only: " .. tostring(__inits))`), "members restored")
 }

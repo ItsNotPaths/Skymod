@@ -10,10 +10,8 @@ import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../formats/esm"
+import "../../formid"
 import "../../gamedb"
-import "../../worldstate"
-
-// HOLE(save, gap): script instances are not saved; a loaded game rebuilds them from the plugins with member variables at their defaults, and OnInit does not re-fire.
 
 // attach creates the instances for `scripts` on `form` and, when `init` is set, fires their
 // OnInit. Returns how many instances were made.
@@ -47,21 +45,24 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 
 // HOLE(script, gap): a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
 
-// start_game fills the aliases of the quests that run from a new game, then gives every quest and
-// every alias its scripts, then every persistent ref and actor: Papyrus runs their OnInit at game
-// start, loaded or not. Form order keeps a run reproducible. Returns how many instances were made.
-start_game :: proc(vm: ^VM, db: ^gamedb.DB, init: bool) -> int {
-	forms := make([dynamic]script.Form_ID, 0, 8192, context.temp_allocator)
-	for q in db.quest_baseline {append(&forms, q)}
-	slice.sort(forms[:])
-	for q in forms {
+// new_game fills the aliases of the quests that run from a new game, then starts the game's
+// scripts. A loaded save keeps its own fills, so it calls start_game alone.
+new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
+	for q in sorted_quests(db) {
 		if gamedb.quest_start_game_enabled(db, q) {script.fill_aliases(vm.ctx.ws, db, q)}
 	}
+	return start_game(vm, db)
+}
+
+// start_game gives every quest and every alias its scripts, then every persistent ref and actor:
+// Papyrus runs their OnInit at game start, loaded or not. Form order keeps a run reproducible.
+// Returns how many instances were made.
+start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	made := 0
-	for q in forms {
-		made += attach(vm, q, gamedb.form_scripts(db, q), init)
+	for q in sorted_quests(db) {
+		made += attach_known(vm, q, gamedb.form_scripts(db, q))
 		for a in db.form_scripts[q].aliases {
-			if h, ok := worldstate.alias_handle(q, u32(a.owner.alias)); ok {made += attach(vm, h, a.scripts, init)}
+			if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {made += attach_known(vm, h, a.scripts)}
 		}
 	}
 
@@ -74,19 +75,27 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB, init: bool) -> int {
 	}
 	slice.sort_by(refs[:], proc(a, b: gamedb.Ref) -> bool {return a.form_id < b.form_id})
 	for r in refs {
-		made += attach_ref(vm, db, r, init)
+		made += attach_ref(vm, db, r)
 	}
 	return made
+}
+
+@(private)
+sorted_quests :: proc(db: ^gamedb.DB) -> []script.Form_ID {
+	forms := make([dynamic]script.Form_ID, 0, len(db.quest_baseline), context.temp_allocator)
+	for q in db.quest_baseline {append(&forms, q)}
+	slice.sort(forms[:])
+	return forms[:]
 }
 
 // attach_cell gives a cell's non-persistent refs and actors their scripts when the cell loads.
 // Papyrus runs their OnInit the first time they load; rt.attach skips refs that already have
 // instances, so a cell that loads again runs nothing. Returns how many instances were made.
-attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID, init: bool) -> int {
+attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 	made := 0
 	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
 		for r in list {
-			if !r.persistent {made += attach_ref(vm, db, r, init)}
+			if !r.persistent {made += attach_ref(vm, db, r)}
 		}
 	}
 	return made
@@ -95,11 +104,11 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID, init: bool) -
 // HOLE(script, gap): a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
 // HOLE(script, gap): refs made at runtime (PlaceAtMe, the overlay's created refs) get no scripts.
 @(private)
-attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref, init: bool) -> int {
+attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
 	if r.deleted {return 0}
 	scripts := gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator)
 	if len(scripts) == 0 {return 0}
-	return attach(vm, r.form_id, scripts, init)
+	return attach_known(vm, r.form_id, scripts)
 }
 
 // push_props pushes a {lowercase name = value} table of a script's authored property values.
@@ -151,7 +160,7 @@ push_object :: proc(L: ^lua.State, o: esm.Prop_Object) {
 		push_ref(L, o.form)
 		return
 	}
-	h, _ := worldstate.alias_handle(o.form, u32(o.alias))
+	h, _ := formid.alias_handle(o.form, u32(o.alias))
 	push_ref(L, h)
 }
 

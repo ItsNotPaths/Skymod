@@ -199,7 +199,6 @@ Game :: struct {
 	sreg:         script.Registry,
 	repl:         slua.Repl,
 	repl_ok:      bool,
-	scripts_init: bool, // a new game: refs run OnInit when they first load (not on a Continue)
 	loaded_cells: [dynamic]Form_ID, // cells resident since the last tick; every scene appends here
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (tick_scripts)
 	console:      tools.Console,
@@ -566,12 +565,11 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		log.info("menu: New Game")
 	}
 
-	// Quests and persistent refs get their scripts. OnInit fires on a new game only: instances are
-	// not saved yet, so on a Continue it would re-run side effects the save already holds.
+	// Quests, aliases and persistent refs get their scripts: OnInit for the forms a Continue's save
+	// does not know, saved members for the ones it does.
 	if g.repl_ok {
-		g.scripts_init = boot_choice != .Continue
-		n := slua.start_game(&g.repl.vm, &g.db, g.scripts_init)
-		log.infof("scripts: %d game-start script instance(s)%s", n, ", OnInit fired" if g.scripts_init else "")
+		n := slua.start_game(&g.repl.vm, &g.db) if boot_choice == .Continue else slua.new_game(&g.repl.vm, &g.db)
+		log.infof("scripts: %d game-start script instance(s), %d known to the save", n, len(g.ws.script_state))
 	}
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")

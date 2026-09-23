@@ -418,6 +418,7 @@ frame_persistence :: proc(g: ^Game) {
 			created_unix = time.to_unix_nanoseconds(time.now()),
 			game_cell    = cell,
 		}
+		if g.repl_ok {slua.save_scripts(&g.repl.vm)}
 		if worldstate.save_to_file(&g.ws, g.quicksave_path, man, &g.save_bridge) {
 			g.save_no += 1
 			log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.ws))
@@ -428,6 +429,7 @@ frame_persistence :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "QuickLoad") {
 		if m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); ok {
 			log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
+			if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
 			if !g.interiors_on {
 				traversal_reload(&g.trav) // re-apply the loaded overlay to the live interior
 			}
@@ -475,7 +477,7 @@ frame_stream :: proc(g: ^Game) {
 tick_scripts :: proc(g: ^Game) {
 	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
 	if g.repl_ok {
-		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
+		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell)}
 		slua.tick_transitions(&g.repl.vm, &g.db, &g.ws, &g.trans, attached_cells(g.fr.active_scene))
 		slua.tick_updates(&g.repl.vm, &g.ws, TICK_DT)
 		slua.tick_items(&g.repl.vm, &g.db, &g.ws)

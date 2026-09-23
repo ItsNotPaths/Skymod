@@ -1,9 +1,10 @@
 package script
 
-// Quest aliases. A script addresses an alias through its handle (worldstate.alias_handle); the ref
+// Quest aliases. A script addresses an alias through its handle (formid.alias_handle); the ref
 // filling it lives in worldstate.aliases. A quest fills its aliases when it starts and empties them
 // when it stops (CK "Quest Alias Tab"). `self` is the alias handle.
 
+import "../formid"
 import "../gamedb"
 import "../worldstate"
 
@@ -27,20 +28,11 @@ register_alias :: proc(reg: ^Registry) {
 	register(reg, "LocationAlias", "Clear", n_alias_clear)
 }
 
-// form_kind is gamedb.form_kind that also knows alias handles.
-form_kind :: proc(db: ^gamedb.DB, form: Form_ID) -> gamedb.Form_Kind {
-	if quest, id, ok := worldstate.alias_key(form); ok {
-		a, _ := gamedb.quest_alias(db, quest, id)
-		return .Location_Alias if a.location else .Ref_Alias
-	}
-	return gamedb.form_kind(db, form)
-}
-
 // fill_aliases fills a starting quest's aliases in declaration order, so an External fill can read
 // one filled above it.
 fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) {
 	for a in gamedb.quest_aliases_of(db, quest) {
-		h, ok := worldstate.alias_handle(quest, a.id)
+		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
 		form: Form_ID
 		#partial switch a.fill {
@@ -49,7 +41,7 @@ fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID
 		case .Unique_Actor:
 			form, _ = gamedb.unique_actor_ref(db, a.target)
 		case .External:
-			if other, hok := worldstate.alias_handle(a.target, a.extra); hok {form = ws.aliases[other]}
+			if other, hok := formid.alias_handle(a.target, a.extra); hok {form = ws.aliases[other]}
 		}
 		worldstate.fill_alias(ws, h, form)
 	}
@@ -58,7 +50,7 @@ fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID
 // clear_aliases empties a stopping quest's aliases and stops their update registrations.
 clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) {
 	for a in gamedb.quest_aliases_of(db, quest) {
-		h, ok := worldstate.alias_handle(quest, a.id)
+		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
 		worldstate.clear_alias(ws, h)
 		worldstate.unregister_updates(ws, h)
@@ -69,12 +61,12 @@ clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_I
 n_quest_get_alias :: proc(c: ^Call, args: []Value) -> Value {
 	id := u32(arg_i32(args, 0, 0))
 	if _, ok := gamedb.quest_alias(c.db, c.self, id); !ok {return Form_ID(0)}
-	h, _ := worldstate.alias_handle(c.self, id)
+	h, _ := formid.alias_handle(c.self, id)
 	return h
 }
 
 n_alias_get_owning_quest :: proc(c: ^Call, args: []Value) -> Value {
-	quest, _, _ := worldstate.alias_key(c.self)
+	quest, _, _ := formid.alias_key(c.self)
 	return quest
 }
 

@@ -8,6 +8,7 @@ package unit_tests
 
 import "core:log"
 import "core:testing"
+import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/script"
 import "../../src/worldstate"
@@ -367,12 +368,12 @@ test_registry_stores :: proc(t: ^testing.T) {
 	res := script.call(&reg, "ObjectReference", "PlaceAtMe", &pc, {base, i32(2), false, false})
 	newid, isform := res.(script.Form_ID)
 	testing.expect(t, isform, "PlaceAtMe returns a form")
-	testing.expect(t, newid >= worldstate.CREATED_FORM_BASE, "created ref in the 0xFF space")
+	testing.expect(t, newid >= formid.CREATED_FORM_BASE, "created ref in the 0xFF space")
 	cr, crok := worldstate.get_created(&ws, newid)
 	testing.expect(t, crok, "created ref stored")
 	testing.expect_value(t, cr.base, base)
 	// aiCount=2 spawned two refs; the returned one is the last.
-	testing.expect_value(t, newid, worldstate.CREATED_FORM_BASE + 1)
+	testing.expect_value(t, newid, formid.CREATED_FORM_BASE + 1)
 }
 
 // Quest.* — the store natives end to end through the VM-agnostic dispatch.

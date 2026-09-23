@@ -12,7 +12,7 @@ package mods
 //   0x00..0x0F  reserved for official/system masters. Skyrim.esm is PINNED at 0 — raw refs like the
 //               persistent cell 0x00000D74 and the player 0x14 assume a high word of 0.
 //   0x10..      user plugins: monotonic, tombstoned (never reused, even across uninstall/re-add).
-//   0xFFFFFFFF  runtime-created forms (worldstate.CREATED_FORM_BASE) — reserved, never interned here.
+//   0xFFFFFFFF  runtime-created forms (formid.CREATED_FORM_BASE) — reserved, never interned here.
 //
 // form_table.txt line format (one plugin per line, tab-separated; ordered by slot):
 //   <slot-hex8>\t<uuid>\t<filename>

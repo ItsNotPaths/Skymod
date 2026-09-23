@@ -143,6 +143,20 @@ Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
 
 local instances = {} -- ref -> lowercase script name -> instance
 
+-- snapshot copies a member's start value; an array is copied so writes into it show as changes.
+local function snapshot(vars)
+  local base = {}
+  for k, v in pairs(vars) do
+    if type(v) == "table" and not is_instance(v) then
+      local c = setmetatable({}, getmetatable(v))
+      for i, e in pairs(v) do c[i] = e end
+      v = c
+    end
+    base[k] = v
+  end
+  return base
+end
+
 -- A member with no initializer is Null in the file; Papyrus gives it its type's zero.
 local zeros = { int = 0, float = 0.0, bool = false, string = "" }
 local function type_default(t, v)
@@ -180,7 +194,7 @@ function rt.instance(form, script, props)
       end
     end
   end
-  local inst = setmetatable({ form = form, class = cls, vars = vars }, Instance)
+  local inst = setmetatable({ form = form, class = cls, vars = vars, base = snapshot(vars) }, Instance)
   local per = instances[form]
   if not per then
     per = {}
@@ -478,6 +492,55 @@ function rt.attach(form, list, init)
     for _, inst in ipairs(made) do rt.event(inst, "OnInit") end
   end
   return #made
+end
+
+-- ── saves ───────────────────────────────────────────────────────────────────
+
+local function same(a, b)
+  if type(a) ~= "table" or type(b) ~= "table" or is_instance(a) or is_instance(b) then
+    return rawequal(form_of(a), form_of(b))
+  end
+  if #a ~= #b then return false end
+  for i, e in pairs(a) do
+    if not rawequal(form_of(e), form_of(b[i])) then return false end
+  end
+  return true
+end
+
+-- rt.save_vars calls emit(form) for every form with scripts, then emit(form, script, member,
+-- value, length) for each member that differs from its start value. An array arrives as a
+-- 0-based table of forms and scalars with its length.
+function rt.save_vars(emit)
+  for form, per in pairs(instances) do
+    emit(form)
+    for script, inst in pairs(per) do
+      for name, v in pairs(inst.vars) do
+        if not same(v, inst.base[name]) then
+          if is_array(v) then
+            local out = {}
+            for i = 0, #v - 1 do out[i] = form_of(v[i]) end
+            emit(form, script, name, out, #v)
+          else
+            emit(form, script, name, form_of(v))
+          end
+        end
+      end
+    end
+  end
+end
+
+-- rt.restore_var puts a saved member value back on a form's script instance.
+function rt.restore_var(form, script, name, value)
+  local inst = instances[form] and instances[form][script]
+  if not inst then return end
+  if type(value) == "table" then rt.as_array(value) end
+  inst.vars[name] = value
+end
+
+-- rt.reset drops every instance and queued event: a loaded save rebuilds them.
+function rt.reset()
+  instances = {}
+  queue = {}
 end
 
 -- ── properties ──────────────────────────────────────────────────────────────

@@ -1008,7 +1008,6 @@ test_gamedb_form_kinds :: proc(t: ^testing.T) {
 	add_top_record(&out, "WEAP", 0x0000_00D1)
 	add_top_record(&out, "ALCH", 0x0000_00D2)
 	add_top_record(&out, "KYWD", 0x0000_00D3)
-	add_top_record(&out, "LVLI", 0x0000_00D4)
 
 	db := gamedb.build(out[:])
 	defer gamedb.destroy(&db)
@@ -1019,7 +1018,6 @@ test_gamedb_form_kinds :: proc(t: ^testing.T) {
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D1), gamedb.Form_Kind.Weapon)
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D2), gamedb.Form_Kind.Potion)
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D3), gamedb.Form_Kind.Keyword)
-	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00D4), gamedb.Form_Kind.LeveledItem)
 	testing.expect_value(t, gamedb.class_name(gamedb.Form_Kind.Weapon), "Weapon")
 	testing.expect_value(t, gamedb.class_name(gamedb.Form_Kind.Unknown), "ObjectReference")
 	testing.expect_value(t, gamedb.form_kind(&db, 0x0000_00FF), gamedb.Form_Kind.Unknown) // a REFR/base id

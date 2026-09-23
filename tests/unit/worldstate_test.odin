@@ -7,6 +7,7 @@ package unit_tests
 
 import "core:os"
 import "core:testing"
+import "../../src/formid"
 import smath "../../src/math"
 import ws "../../src/worldstate"
 
@@ -28,11 +29,11 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.register_update(&src, 0x000C0DE0, 2.5, false)
 	ws.register_update(&src, 0x000C0DE0, 4, true)
 	ws.add_item_filter(&src, 0x000C0DE0, 0xF)
-	alias, _ := ws.alias_handle(0x000C0DE0, 3)
+	alias, _ := formid.alias_handle(0x000C0DE0, 3)
 	ws.fill_alias(&src, alias, 0x000ABCDE)
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
-	testing.expect_value(t, new_id, ws.CREATED_FORM_BASE)
+	testing.expect_value(t, new_id, formid.CREATED_FORM_BASE)
 	// Coarse singletons: globals + the player.
 	ws.set_global(&src, 0x00000005, 42.5)
 	ws.set_player(&src, 0, {7, 8, 9}, 1.2, -0.3)
@@ -53,6 +54,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.av_set(&src, 0x000AC701, "Health", 87.5)
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
 	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
+	ws.perk_add(&src, 0x000AC701, 0x000BABE0)
 
 	path := "test_quicksave.skysave"
 	defer os.remove(path)
@@ -108,7 +110,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, cr.base, u64(0x000DEAD0))
 	testing.expect_value(t, cr.cell, u64(0x0003CAFE))
 	testing.expectf(t, abs(cr.scale - 1.5) < 1e-5, "created scale mismatch: %v", cr.scale)
-	testing.expect_value(t, dst.next_created, ws.CREATED_FORM_BASE + 1)
+	testing.expect_value(t, dst.next_created, formid.CREATED_FORM_BASE + 1)
 
 	// Globals + player singleton survive.
 	gv, gok := ws.get_global(&dst, 0x00000005)
@@ -147,6 +149,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, fok && fr == 4, "faction rank lost")
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
+	testing.expect(t, ws.perk_has(&dst, 0x000AC701, 0x000BABE0), "perk lost")
 }
 
 @(test)
