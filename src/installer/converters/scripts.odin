@@ -22,7 +22,7 @@ Script_Stats :: struct {
 // LE DLC archives ship 73 patched copies of base scripts. An archive that will not open is
 // skipped with a warning.
 convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stats, ok: bool) {
-	os.make_directory(out_dir)
+	os.make_directory_all(out_dir)
 	if !os.is_dir(out_dir) {
 		log.errorf("scripts: could not create %q", out_dir)
 		return st, false

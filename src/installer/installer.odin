@@ -23,9 +23,10 @@ import "converters"
 import "core:time"
 
 CONTENT_DIR    :: "content"      // <base>/content — the installed data root
-SCRIPTS_DIR    :: "scripts"      // <base>/content/scripts — the base game's scripts as Lua
+SCRIPTS_MOD    :: "basescripts"  // <base>/content/basescripts — the content mod holding the base game's scripts
+SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>.lua and <name>.patch.lua
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
-FORMAT_VERSION :: 2 // bump when converted output changes, so an older install re-runs
+FORMAT_VERSION :: 3 // bump when converted output changes, so an older install re-runs
 
 // content_ready reports whether <base>/content holds a finished install of this format. The
 // boot gate: true => launch the game, false => run the installer, so a stale install re-runs.
@@ -112,7 +113,7 @@ install :: proc(source, base: string) -> bool {
 	esps := list_by_ext(data, ".esp")
 	esls := list_by_ext(data, ".esl")
 
-	scripts_dir, _ := filepath.join({content, SCRIPTS_DIR}, context.temp_allocator)
+	scripts_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
 	sst, sok := converters.convert_scripts(script_archives(data, archives, {esms, esls, esps}), scripts_dir)
 	if !sok {
 		return false
