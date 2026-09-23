@@ -14,10 +14,6 @@ import "../../src/installer"
 
 @(test)
 test_installer_boot_gate :: proc(t: ^testing.T) {
-	// We deliberately exercise the bad-source path, which logs at ERROR level; the
-	// test runner fails a test on any ERROR through its logger, so silence it.
-	context.logger = log.nil_logger()
-
 	base, terr := os.temp_dir(context.allocator)
 	testing.expect(t, terr == nil, "temp_dir")
 	defer delete(base)
@@ -38,7 +34,13 @@ test_installer_boot_gate :: proc(t: ^testing.T) {
 	testing.expect(t, !installer.content_ready(install_base), "no content yet")
 	testing.expect(t, !installer.valid_source(""), "empty source invalid")
 	testing.expect(t, !installer.valid_source(source), "source without Data/Skyrim.esm invalid")
-	testing.expect(t, !installer.install(source, install_base), "install rejects bad source")
+	// The bad-source install logs an ERROR by design, which the runner would count, so only that call
+	// runs silenced: expect reports failures through the same logger.
+	old := context.logger
+	context.logger = log.nil_logger()
+	rejected := !installer.install(source, install_base)
+	context.logger = old
+	testing.expect(t, rejected, "install rejects bad source")
 	testing.expect(t, !installer.content_ready(install_base), "still no content after rejected install")
 
 	// Build a synthetic source: Data/ with the base master + a fake archive and a

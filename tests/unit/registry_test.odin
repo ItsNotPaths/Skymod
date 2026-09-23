@@ -95,11 +95,6 @@ test_registry_unimplemented_and_unknown :: proc(t: ^testing.T) {
 	db: gamedb.DB
 	c := script.Call{self = script.Form_ID(1), ws = &ws, db = &db}
 
-	// These paths log at WARN/ERROR by design (an unknown native is a real bug);
-	// silence the logger so the test runner doesn't count them as failures.
-	old := context.logger
-	context.logger = log.nil_logger()
-
 	// Declared-but-unimplemented returns its declared type's zero; None only for objects.
 	r1 := script.call(&reg, "Actor", "GetActorValue", &c, []script.Value{"Health"})
 	testing.expect_value(t, r1.(f32), f32(0))
@@ -108,12 +103,14 @@ test_registry_unimplemented_and_unknown :: proc(t: ^testing.T) {
 	testing.expect(t, reg.declared["utility.wait"].latent, "Wait is latent")
 	testing.expect(t, !reg.declared["actor.canflyhere"].latent, "CanFlyHere is not latent")
 
-	// Unknown native (not in the manifest) also returns None (logs an error).
+	// Unknown native (not in the manifest) also returns None. It logs an ERROR by design, which the
+	// runner would count, so only that call runs silenced: expect reports through the same logger.
+	old := context.logger
+	context.logger = log.nil_logger()
 	r2 := script.call(&reg, "TotallyNotAClass", "Nope", &c, nil)
+	context.logger = old
 	testing.expect(t, r2 == nil, "unknown -> None")
 	testing.expect(t, !script.is_declared(&reg, "TotallyNotAClass", "Nope"), "unknown not declared")
-
-	context.logger = old
 }
 
 // Math.* — pure callstatic leaves (degrees convention: sin(90)=1). Spot-checks each shape.
