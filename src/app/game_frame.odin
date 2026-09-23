@@ -469,14 +469,15 @@ frame_stream :: proc(g: ^Game) {
 }
 
 // tick_scripts is the one place script handlers run: refs of cells that loaded since the last tick
-// get their scripts (and OnInit), load/attach transitions are sent, activations scripts requested
-// run, then every queued event runs.
+// get their scripts (and OnInit), load/attach transitions are sent, due OnUpdate timers are sent,
+// activations scripts requested run, then every queued event runs.
 @(private = "file")
 tick_scripts :: proc(g: ^Game) {
 	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
 	if g.repl_ok {
 		for cell in g.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
 		slua.tick_transitions(&g.repl.vm, &g.db, &g.ws, &g.trans, attached_cells(g.fr.active_scene))
+		slua.tick_updates(&g.repl.vm, &g.ws, TICK_DT)
 	}
 	clear(&g.loaded_cells)
 	tick_activations(g)

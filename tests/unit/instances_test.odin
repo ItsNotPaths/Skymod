@@ -3,11 +3,13 @@ package unit_tests
 // Script instances at runtime (src/script/lua/instances.odin + rt.attach): plugin property values
 // reach a script's members, OnInit fires on every instance, a runaway handler is stopped by the
 // instruction budget without stopping the next one, placed refs start at the right time, and sent
-// events run only when the queue drains, and load/attach transitions follow the attached cells.
+// events run only when the queue drains, load/attach transitions follow the attached cells, and
+// OnUpdate registrations fire on time.
 // Hermetic: a temp scripts dir, no game files.
 
 import "core:os"
 import "core:path/filepath"
+import "core:strconv"
 import "core:strings"
 import "core:testing"
 import "../../src/formats/esm"
@@ -90,6 +92,20 @@ for _, e in ipairs({ "OnCellAttach", "OnLoad", "OnCellLoad", "OnUnload", "OnCell
     __log[#__log] = (self.form === ref(0x201) and "a:" or "b:") .. e
   end
 end
+return C
+`
+
+@(private = "file")
+TICK_A_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("TickA", nil)
+C.__fn["onupdate"] = function(self) __a = (__a or 0) + 1 end
+return C
+`
+
+@(private = "file")
+TICK_B_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("TickB", nil)
+C.__fn["onupdate"] = function(self) __b = (__b or 0) + 1 end
 return C
 `
 
@@ -254,4 +270,62 @@ test_transitions_follow_attached_cells :: proc(t: ^testing.T) {
 	step(t, &f, &trans, {CELL}, "b:OnLoad")
 	step(t, &f, &trans, {}, "a:OnUnload,a:OnCellDetach,b:OnUnload,b:OnCellDetach")
 	testing.expect(t, !loaded(&f, 0x201), "Is3DLoaded: no once detached")
+}
+
+// OnUpdate timers (the scheduler): a registration belongs to the form, so both scripts on it get
+// OnUpdate; registering again replaces the pending one; a repeating one keeps firing until
+// UnregisterForUpdate; a due timer on a form with no scripts yet waits for them.
+@(test)
+test_updates_fire_on_time :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_updates", {{"ticka.lua", TICK_A_LUA}, {"tickb.lua", TICK_B_LUA}})
+	defer fixture_destroy(&f)
+
+	FORM :: script.Form_ID(0x700)
+	LATE :: script.Form_ID(0x701)
+	both := []esm.Script_Attach{{name = "TickA"}, {name = "TickB"}}
+	slua.attach(&f.vm, FORM, both, false)
+	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
+		c := script.Call{self = form, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "Form", fn, &c, args)
+	}
+	ticks :: proc(f: ^Fixture, n: int) {
+		for _ in 0 ..< n {
+			slua.tick_updates(&f.vm, &f.ws, 1.0 / 60)
+			slua.drain(&f.vm)
+		}
+	}
+	seen :: proc(f: ^Fixture, a, b: int) -> bool {
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__a or 0) == `, fmt_int(a), ` and (__b or 0) == `, fmt_int(b), `, tostring(__a) .. " " .. tostring(__b))`}, context.temp_allocator))
+	}
+
+	native(&f, FORM, "RegisterForSingleUpdate", f32(1))
+	native(&f, FORM, "RegisterForSingleUpdate", f32(0.5)) // replaces the 1 s one
+	ticks(&f, 28)
+	testing.expect(t, seen(&f, 0, 0), "nothing before 0.5 s")
+	ticks(&f, 4)
+	testing.expect(t, seen(&f, 1, 1), "both scripts at 0.5 s")
+	ticks(&f, 60)
+	testing.expect(t, seen(&f, 1, 1), "a single update fires once")
+	testing.expect(t, FORM not_in f.ws.updates, "a fired single update is gone")
+
+	native(&f, FORM, "RegisterForUpdate", f32(0.5))
+	ticks(&f, 62) // ~1.03 s: fires at 0.5 and 1.0
+	testing.expect(t, seen(&f, 3, 3), "a repeating update fires every 0.5 s")
+	native(&f, FORM, "UnregisterForUpdate")
+	ticks(&f, 60)
+	testing.expect(t, seen(&f, 3, 3), "UnregisterForUpdate stops it")
+
+	native(&f, LATE, "RegisterForSingleUpdate", f32(0.1))
+	ticks(&f, 30)
+	testing.expect(t, LATE in f.ws.updates, "due with no scripts yet: still waiting")
+	slua.attach(&f.vm, LATE, both, false)
+	ticks(&f, 1)
+	testing.expect(t, seen(&f, 4, 4), "delivered once the form has scripts")
+}
+
+@(private = "file")
+fmt_int :: proc(n: int) -> string {
+	buf := make([]u8, 20, context.temp_allocator)
+	return strconv.itoa(buf, n)
 }

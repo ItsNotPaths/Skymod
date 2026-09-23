@@ -36,6 +36,9 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "IsLocked", n_is_locked)
 	register(reg, "ObjectReference", "SetOpen", n_set_open)
 	register(reg, "ObjectReference", "Activate", n_activate)
+	register(reg, "Form", "RegisterForSingleUpdate", n_register_single_update)
+	register(reg, "Form", "RegisterForUpdate", n_register_update)
+	register(reg, "Form", "UnregisterForUpdate", n_unregister_for_update)
 	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
 	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
 
@@ -85,6 +88,23 @@ ref_enabled :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, form: Form_ID) 
 	}
 	r, ok := gamedb.ref_by_formid(db, form)
 	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
+}
+
+// HOLE(script, gap): RegisterForSingleUpdateGameTime / RegisterForUpdateGameTime are stubs; game-hour timers wait on the game clock (HOLE(world)).
+
+n_register_single_update :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.register_update(c.ws, c.self, arg_f32(args, 0, 0), false)
+	return nil
+}
+
+n_register_update :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.register_update(c.ws, c.self, arg_f32(args, 0, 0), true)
+	return nil
+}
+
+n_unregister_for_update :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.unregister_updates(c.ws, c.self)
+	return nil
 }
 
 // n_activate queues the activation for the app's next tick. It returns whether default processing

@@ -25,7 +25,6 @@ import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 
-// HOLE(script, blocker): no scheduler — nothing ticks a script, so a delayed or resumed body has no home. docs/script-rewrite.md notes both rewrite routes need this same piece.
 // VM binds a Lua state to the registry and an engine call-context (self/ws/db).
 VM :: struct {
 	L:            ^lua.State,

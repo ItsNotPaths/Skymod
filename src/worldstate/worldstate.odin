@@ -129,6 +129,7 @@ World_State :: struct {
 	factions:        map[Form_ID]map[Form_ID]i32,  // actor FormID -> (faction FormID -> rank); presence = membership
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
+	updates:         map[Form_ID]Update_Timers,    // form -> its OnUpdate registrations (the scheduler's timers)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
@@ -142,6 +143,17 @@ World_State :: struct {
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it. Never saved.
 	attached:        map[Form_ID][dynamic]Form_ID,
+}
+
+// Update_Timers is one form's OnUpdate registrations, as real seconds left until each fires. The
+// single and the repeating one are independent, and registering again replaces that kind (Papyrus).
+// A registration belongs to the form: its OnUpdate goes to every script on it.
+Update_Timers :: struct {
+	single:    f32, // seconds until the single update (single_on)
+	repeat:    f32, // seconds until the next repeating update (repeat_on)
+	interval:  f32, // the repeating update's period
+	single_on: bool,
+	repeat_on: bool,
 }
 
 // Activation is one request to activate `target` by `by`. `default_only` skips OnActivate and ignores
@@ -164,6 +176,7 @@ init :: proc(ws: ^World_State) {
 	ws.factions = make(map[Form_ID]map[Form_ID]i32)
 	ws.relationships = make(map[Form_ID]map[Form_ID]i32)
 	ws.perks = make(map[Form_ID]map[Form_ID]bool)
+	ws.updates = make(map[Form_ID]Update_Timers)
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
@@ -195,6 +208,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.factions)
 	delete(ws.relationships)
 	delete(ws.perks)
+	delete(ws.updates)
 	delete(ws.scene_dirty)
 	delete(ws.activations)
 	for _, &refs in ws.attached {
@@ -243,6 +257,24 @@ free_stores :: proc(ws: ^World_State) {
 // overlay (script natives) so the app's per-frame drain re-applies the change to the resident scene.
 mark_scene_dirty :: proc(ws: ^World_State, form_id: Form_ID) {
 	append(&ws.scene_dirty, form_id)
+}
+
+// register_update is RegisterForSingleUpdate / RegisterForUpdate: `form` gets OnUpdate after
+// `seconds`, once or every `seconds`. A negative or zero interval fires at the next tick.
+register_update :: proc(ws: ^World_State, form: Form_ID, seconds: f32, repeat: bool) {
+	if form not_in ws.updates {ws.updates[form] = {}}
+	u := &ws.updates[form]
+	s := max(seconds, 0)
+	if repeat {
+		u.repeat, u.interval, u.repeat_on = s, s, true
+	} else {
+		u.single, u.single_on = s, true
+	}
+}
+
+// unregister_updates is UnregisterForUpdate: both kinds stop.
+unregister_updates :: proc(ws: ^World_State, form: Form_ID) {
+	delete_key(&ws.updates, form)
 }
 
 // request_activation queues a script's Activate for the app's next tick.

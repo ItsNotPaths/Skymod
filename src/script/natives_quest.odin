@@ -130,6 +130,7 @@ n_quest_start :: proc(c: ^Call, args: []Value) -> Value {
 
 n_quest_stop :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.quest_set_running(c.ws, c.self, false)
+	worldstate.unregister_updates(c.ws, c.self) // a stopped quest's updates stop too
 	return nil
 }
 

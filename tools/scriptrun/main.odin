@@ -21,6 +21,9 @@ import "../../src/script"
 import slua "../../src/script/lua"
 import "../../src/worldstate"
 
+// UPDATE_TICKS is how long the run lets registered OnUpdate timers play out: 10 s at 60Hz.
+UPDATE_TICKS :: 600
+
 // Tally groups warnings by their text with digits masked, so one message per form collapses.
 Tally :: struct {
 	by_msg: map[string]int,
@@ -61,11 +64,20 @@ main :: proc() {
 	slua.tick_transitions(&vm, &db, &ws, &trans, cells)
 	events := slua.drain(&vm)
 	trans_took := time.since(start)
+	start = time.now()
+	updates := 0
+	for _ in 0 ..< UPDATE_TICKS {
+		slua.tick_updates(&vm, &ws, 1.0 / 60)
+		updates += slua.drain(&vm)
+		free_all(context.temp_allocator)
+	}
+	update_took := time.since(start)
 	context.logger = log.create_console_logger(.Info)
 
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
+	fmt.printfln("updates: %d OnUpdate events over %d s of ticks (%d registered forms left), run in %v", updates, UPDATE_TICKS / 60, len(ws.updates), update_took)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)

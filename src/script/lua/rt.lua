@@ -442,13 +442,15 @@ function rt.event(inst, name, ...)
   if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
 end
 
--- rt.send queues an event for every script on `form`; rt.drain runs the queue, once per tick. An
--- event sent while the queue drains runs on the next drain, as Papyrus queues it too.
+-- rt.send queues an event for every script on `form`, and reports whether `form` has any; rt.drain
+-- runs the queue, once per tick. An event sent while the queue drains runs on the next drain, as
+-- Papyrus queues it too.
 local queue = {}
 
 function rt.send(form, name, ...)
-  if not instances[form] then return end
+  if not instances[form] then return false end
   queue[#queue] = { form = form, name = name, args = table.pack(...) }
+  return true
 end
 
 function rt.drain()

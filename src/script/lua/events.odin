@@ -1,23 +1,26 @@
 package script_lua
 
 // Engine events into scripts. The engine sends an edge when it happens; the scripts run it when
-// game_tick drains the queue (docs/script-rewrite.md "Events: edges, transitions, timers").
+// game_tick drains the queue. Timers are the third kind: tick_updates counts OnUpdate registrations
+// down and sends the ones that come due (docs/script-rewrite.md "Events: edges, transitions, timers").
 
 import "core:log"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
+import "../../worldstate"
 
 // HOLE(script, gap): only OnActivate has a sender; OnHit, OnDeath, OnContainerChanged, OnItemAdded and OnTriggerEnter are never sent.
 
-// send queues `event` for every script on `form`. Args are refs (Form_ID), i32, f32, bool or string.
-send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
+// send queues `event` for every script on `form`, and reports whether `form` has any. Args are refs
+// (Form_ID), i32, f32, bool or string.
+send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) -> bool {
 	L := vm.L
 	vm.host_context = context
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
 
-	if !push_rt_fn(L, "send") {return}
+	if !push_rt_fn(L, "send") {return false}
 	push_ref(L, form)
 	lua.pushstring(L, strings.clone_to_cstring(event, context.temp_allocator))
 	for a in args {
@@ -34,12 +37,33 @@ send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
 			lua.pushstring(L, strings.clone_to_cstring(x, context.temp_allocator))
 		case:
 			log.errorf("lua: send %s: unsupported arg type %v", event, a.id)
-			return
+			return false
 		}
 	}
-	if lua.pcall(L, i32(2 + len(args)), 0, 0) != 0 {
+	if lua.pcall(L, i32(2 + len(args)), 1, 0) != 0 {
 		log.errorf("lua: rt.send: %s", to_string(L, -1))
+		return false
 	}
+	return bool(lua.toboolean(L, -1))
+}
+
+// tick_updates is the scheduler: every OnUpdate registration counts down by `dt`, and a due one
+// queues OnUpdate on its form. A due form with no script instances yet (after a Continue, a ref
+// whose cell has not loaded) stays due until one exists.
+tick_updates :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
+	stopped := make([dynamic]script.Form_ID, context.temp_allocator)
+	for form, &u in ws.updates {
+		if u.single_on {
+			u.single -= dt
+			if u.single <= 0 && send(vm, form, "OnUpdate") {u.single_on = false}
+		}
+		if u.repeat_on {
+			u.repeat -= dt
+			if u.repeat <= 0 && send(vm, form, "OnUpdate") {u.repeat = max(u.repeat + u.interval, 0)}
+		}
+		if !u.single_on && !u.repeat_on {append(&stopped, form)}
+	}
+	for form in stopped {delete_key(&ws.updates, form)}
 }
 
 // drain runs every queued event. Call once per game_tick. Returns how many events ran.

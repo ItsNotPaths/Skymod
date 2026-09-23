@@ -25,6 +25,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.set_scale(&src, 0x000ABCDE, 0x0001A26F, 3.5)
 	ws.set_disabled(&src, 0x000C0FFE, 0x0002BEEF, true)
 	ws.set_activation_blocked(&src, 0x000C0FFE, 0x0002BEEF, true) // the 9th field: live is wider than a byte
+	ws.register_update(&src, 0x000C0DE0, 2.5, false)
+	ws.register_update(&src, 0x000C0DE0, 4, true)
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
 	testing.expect_value(t, new_id, ws.CREATED_FORM_BASE)
@@ -85,6 +87,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, .Disabled in dd.live, "Disabled flag lost")
 	testing.expect(t, .Moved not_in dd.live, "spurious Moved flag on a disabled-only delta")
 	testing.expect(t, ws.activation_blocked(&dst, 0x000C0FFE), "Activation_Blocked flag lost")
+	testing.expect_value(t, dst.updates[0x000C0DE0], ws.Update_Timers{single = 2.5, repeat = 4, interval = 4, single_on = true, repeat_on = true})
 	testing.expect(t, dd.disabled, "disabled value lost")
 	testing.expect_value(t, dd.cell, u64(0x0002BEEF))
 
