@@ -230,6 +230,16 @@ fetch_lua() {
     binding="$(odin root)vendor/lua/5.4/lua.odin"
     [ -f "$binding" ] || { echo "error: Odin's lua binding not found at $binding" >&2; exit 1; }
     cp "$binding" "$dest/lua.odin"
+    # C API our Lua patches add (build/lua-*.patch), declared beside Odin's own binding.
+    cat >>"$dest/lua.odin" <<'EOF'
+
+// --- skymod addition (download-deps.sh): C API from build/lua-03-falsy-userdata.patch ---
+@(link_prefix="lua_")
+@(default_calling_convention="c")
+foreign lib {
+	setfalsy :: proc(L: ^State, idx: c.int, falsy: c.int) ---
+}
+EOF
     bash "$ROOT/build/build-lua.sh"
 }
 

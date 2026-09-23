@@ -1,0 +1,71 @@
+diff -ruN a/src/lapi.c b/src/lapi.c
+--- a/src/lapi.c	2026-09-22 20:12:11.739181266 -0500
++++ b/src/lapi.c	2026-09-22 20:12:11.741001930 -0500
+@@ -990,6 +990,16 @@
+ }
+ 
+ 
++LUA_API void lua_setfalsy (lua_State *L, int idx, int falsy) {  /* falsy */
++  TValue *o;
++  lua_lock(L);
++  o = index2value(L, idx);
++  api_check(L, ttisfulluserdata(o), "full userdata expected");
++  uvalue(o)->falsy = (falsy != 0);
++  lua_unlock(L);
++}
++
++
+ /*
+ ** 'load' and 'call' functions (run Lua code)
+ */
+diff -ruN a/src/lobject.h b/src/lobject.h
+--- a/src/lobject.h	2026-09-22 20:12:11.738951891 -0500
++++ b/src/lobject.h	2026-09-22 20:12:11.740776492 -0500
+@@ -244,7 +244,8 @@
+ #define ttistrue(o)		checktag((o), LUA_VTRUE)
+ 
+ 
+-#define l_isfalse(o)	(ttisfalse(o) || ttisnil(o))
++#define l_isfalse(o)	(ttisfalse(o) || ttisnil(o) || \
++    (ttisfulluserdata(o) && uvalue(o)->falsy))  /* falsy */
+ 
+ 
+ #define setbfvalue(obj)		settt_(obj, LUA_VFALSE)
+@@ -459,6 +460,7 @@
+ typedef struct Udata {
+   CommonHeader;
+   unsigned short nuvalue;  /* number of user values */
++  lu_byte falsy;  /* falsy: false in truth tests (lua_setfalsy) */
+   size_t len;  /* number of bytes */
+   struct Table *metatable;
+   GCObject *gclist;
+@@ -478,6 +480,7 @@
+ typedef struct Udata0 {
+   CommonHeader;
+   unsigned short nuvalue;  /* number of user values */
++  lu_byte falsy;  /* falsy: false in truth tests (lua_setfalsy) */
+   size_t len;  /* number of bytes */
+   struct Table *metatable;
+   union {LUAI_MAXALIGN;} bindata;
+diff -ruN a/src/lstring.c b/src/lstring.c
+--- a/src/lstring.c	2026-09-22 20:12:11.738908306 -0500
++++ b/src/lstring.c	2026-09-22 20:12:11.740730513 -0500
+@@ -266,6 +266,7 @@
+   u = gco2u(o);
+   u->len = s;
+   u->nuvalue = nuvalue;
++  u->falsy = 0;  /* falsy */
+   u->metatable = NULL;
+   for (i = 0; i < nuvalue; i++)
+     setnilvalue(&u->uv[i].uv);
+diff -ruN a/src/lua.h b/src/lua.h
+--- a/src/lua.h	2026-09-22 20:12:11.738679021 -0500
++++ b/src/lua.h	2026-09-22 20:12:11.740493172 -0500
+@@ -284,6 +284,7 @@
+ LUA_API void  (lua_rawsetp) (lua_State *L, int idx, const void *p);
+ LUA_API int   (lua_setmetatable) (lua_State *L, int objindex);
+ LUA_API int   (lua_setiuservalue) (lua_State *L, int idx, int n);
++LUA_API void  (lua_setfalsy) (lua_State *L, int idx, int falsy);  /* falsy */
+ 
+ 
+ /*

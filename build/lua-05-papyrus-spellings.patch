@@ -1,0 +1,37 @@
+diff -ruN a/src/llex.c b/src/llex.c
+--- a/src/llex.c	2026-09-22 20:12:31.381616577 -0500
++++ b/src/llex.c	2026-09-22 20:12:31.383248575 -0500
+@@ -100,6 +100,11 @@
+ 
+ static const char *txtToken (LexState *ls, int token) {
+   switch (token) {
++    case TK_NOT: case TK_AND: case TK_OR:  /* spelling: show as written */
++    case TK_NE: case TK_RNE:
++      if (luaZ_bufflen(ls->buff) == 0)
++        return luaX_token2str(ls, token);
++      /* FALLTHROUGH */
+     case TK_NAME: case TK_STRING:
+     case TK_FLT: case TK_INT:
+       save(ls, '\0');
+@@ -548,6 +553,21 @@
+         next(ls);
+         return check_next1(ls, '=') ? TK_MODEQ : '%';
+       }
++      case '!': {  /* spelling: '!' '!=' '!==' */
++        save_and_next(ls);
++        if (ls->current != '=') return TK_NOT;
++        save_and_next(ls);
++        if (ls->current != '=') return TK_NE;
++        save_and_next(ls);
++        return TK_RNE;
++      }
++      case '&': case '|': {  /* spelling: '&&' '||' */
++        int c = ls->current;
++        save_and_next(ls);
++        if (ls->current != c) return c;
++        save_and_next(ls);
++        return (c == '&') ? TK_AND : TK_OR;
++      }
+       case '0': case '1': case '2': case '3': case '4':
+       case '5': case '6': case '7': case '8': case '9': {
+         return read_numeral(ls, seminfo);
