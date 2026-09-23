@@ -99,22 +99,21 @@ register :: proc(reg: ^Registry, class, fn: string, impl: Native) {
 }
 
 // call dispatches one native invocation. Three outcomes: implemented → invoke;
-// declared-but-unimplemented → log once + return the declared type's zero; unknown → log an error
-// (a real bug — a call to something the base game never declared).
+// declared-but-unimplemented → warn once + return the declared type's zero; unknown → warn once +
+// None (a call the manifest never declared: usually a form whose kind resolved wrong, rt.odin).
 call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Value {
 	c.reg = reg
 	k := key_temp(class, fn)
 	if impl, ok := reg.natives[k]; ok {
 		return impl(c, args)
 	}
+	first := k not_in reg.warned
+	if first {reg.warned[key_own(class, fn, reg.allocator)] = true}
 	if e, ok := reg.declared[k]; ok {
-		if k not_in reg.warned {
-			reg.warned[key_own(class, fn, reg.allocator)] = true
-			log.warnf("script: unimplemented native %s.%s -> %s zero", e.class, e.fn, e.ret)
-		}
+		if first {log.warnf("script: unimplemented native %s.%s -> %s zero", e.class, e.fn, e.ret)}
 		return zero_of(e.ret)
 	}
-	log.errorf("script: unknown native %s.%s (not in the declared manifest)", class, fn)
+	if first {log.warnf("script: unknown native %s.%s (not in the declared manifest)", class, fn)}
 	return nil
 }
 
