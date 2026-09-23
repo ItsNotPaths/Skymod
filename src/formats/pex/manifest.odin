@@ -24,7 +24,8 @@ Signature :: struct {
 // Natives that suspend the calling script, lower "class.fn", keyed by the declaring class
 // (Scene.Start does not suspend). The seed is what cannot finish inside one of OUR ticks: the
 // `blocking` rows of docs/natives-classified.tsv minus the ones we implement as immediate
-// (Quest.Start, SetCurrentStageID, Enable, Disable, DamageObject).
+// (Quest.Start, SetCurrentStageID, Enable, Disable, DamageObject). Message.Show and ShowGiftMenu are out
+// too: their menus pause the world, so they return within the tick they were called in.
 LATENT_GLOBALS := []string{
 	"utility.wait",
 	"utility.waitmenumode",
@@ -38,9 +39,7 @@ LATENT_METHODS := []string{
 	"objectreference.playsyncedanimationandwaitss",
 	"objectreference.waitforanimationevent",
 	"actor.pathtoreference",
-	"actor.showgiftmenu",
 	"keyword.sendstoryeventandwait",
-	"message.show",
 	"sound.playandwait",
 }
 
