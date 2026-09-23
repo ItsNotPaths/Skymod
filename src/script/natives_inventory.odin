@@ -5,6 +5,8 @@ package script
 // DELTAS from the baseline (GetItemCount reads what scripts added/removed, not absolute contents).
 // Not scene geometry → no mark_scene_dirty (a dropped world item would be, but DropObject is deferred).
 
+import "core:slice"
+import "../gamedb"
 import "../worldstate"
 
 // Gold001 — Skyrim.esm local 0x0000000F, master slot 0 → the wide FormID 0xF. GetGoldAmount counts it.
@@ -16,29 +18,74 @@ register_inventory :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "GetItemCount", n_get_item_count)
 	register(reg, "ObjectReference", "RemoveAllItems", n_remove_all_items)
 	register(reg, "Actor", "GetGoldAmount", n_get_gold)
+	register(reg, "ObjectReference", "AddInventoryEventFilter", n_add_inventory_event_filter)
+	register(reg, "ObjectReference", "RemoveInventoryEventFilter", n_remove_inventory_event_filter)
+	register(reg, "ObjectReference", "RemoveAllInventoryEventFilters", n_remove_all_inventory_event_filters)
 }
 
+// HOLE(script, gap): a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
 // AddItem(akItemToAdd, aiCount=1, abSilent=false).
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.inv_add(c.ws, c.self, arg_form(args, 0), max(1, arg_i32(args, 1, 1)))
+	base, ref := item_of(c, arg_form(args, 0))
+	move_items(c, {base = base, ref = ref, to = c.self, count = max(1, arg_i32(args, 1, 1))})
 	return nil
 }
 
-// RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). The transfer-target
-// container is ignored for now (items just leave `self`); a real transfer adds to akOtherContainer too.
+// RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). With no other
+// container the items are destroyed.
 n_remove_item :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.inv_add(c.ws, c.self, arg_form(args, 0), -max(1, arg_i32(args, 1, 1)))
+	base, ref := item_of(c, arg_form(args, 0))
+	move_items(c, {base = base, ref = ref, from = c.self, to = arg_form(args, 3), count = max(1, arg_i32(args, 1, 1))})
 	return nil
 }
 
 n_get_item_count :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.inv_count(c.ws, c.self, arg_form(args, 0))
+	base, _ := item_of(c, arg_form(args, 0))
+	return worldstate.inv_count(c.ws, c.self, base)
 }
 
-// RemoveAllItems(akTransferTo=None, …) — clears the overlay inventory (transfer target ignored).
+// RemoveAllItems(akTransferTo=None, …): one move per item type, in form order.
 n_remove_all_items :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.inv_clear(c.ws, c.self)
+	to := arg_form(args, 0)
+	moves := make([dynamic]worldstate.Item_Move, context.temp_allocator)
+	inv, _ := c.ws.inventories[c.self]
+	for base, n in inv {
+		append(&moves, worldstate.Item_Move{base = base, from = c.self, to = to, count = n})
+	}
+	slice.sort_by(moves[:], proc(a, b: worldstate.Item_Move) -> bool {return a.base < b.base})
+	for m in moves {move_items(c, m)}
 	return nil
+}
+
+n_add_inventory_event_filter :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.add_item_filter(c.ws, c.self, arg_form(args, 0))
+	return nil
+}
+
+n_remove_inventory_event_filter :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.remove_item_filter(c.ws, c.self, arg_form(args, 0))
+	return nil
+}
+
+n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.remove_item_filters(c.ws, c.self)
+	return nil
+}
+
+// move_items moves the counts and queues the move's inventory events for the next tick.
+@(private)
+move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
+	if m.from != 0 {worldstate.inv_add(c.ws, m.from, m.base, -m.count)}
+	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
+	worldstate.move_items(c.ws, m)
+}
+
+// item_of splits an item argument into its base object and, when the argument is a reference, the ref.
+@(private)
+item_of :: proc(c: ^Call, form: Form_ID) -> (base, ref: Form_ID) {
+	if cr, ok := c.ws.created[form]; ok {return cr.base, form}
+	if r, ok := gamedb.ref_by_formid(c.db, form); ok {return r.base, form}
+	return form, 0
 }
 
 n_get_gold :: proc(c: ^Call, args: []Value) -> Value {

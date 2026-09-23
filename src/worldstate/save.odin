@@ -89,6 +89,10 @@ Saved_Update :: struct {
 	timers: Update_Timers,
 }
 
+Saved_Filter :: struct {
+	container, filter: Form_ID,
+}
+
 // Saved_Global is one coarse world fact (id→value).
 Saved_Global :: struct {
 	id:    Form_ID,
@@ -165,6 +169,7 @@ Save_Body :: struct {
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
 	updates:       []Saved_Update,
+	item_filters:  []Saved_Filter,
 	player:        Player_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -267,6 +272,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for form, u in ws.updates {
 		append(&updates, Saved_Update{form, u})
 	}
+	filters := make([dynamic]Saved_Filter, 0, len(ws.item_filters), context.temp_allocator)
+	for container, list in ws.item_filters {
+		for f in list {append(&filters, Saved_Filter{container, f})}
+	}
 	body := Save_Body {
 		deltas       = deltas,
 		created      = created,
@@ -278,6 +287,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		factions      = facs[:],
 		relationships = rels[:],
 		updates       = updates[:],
+		item_filters  = filters[:],
 		player        = ws.player,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -385,6 +395,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for u in body.updates {
 		if id, kok := rf(remap, have_remap, u.form); kok {ws.updates[id] = u.timers}
 	}
+	for f in body.item_filters {
+		container, cok := rf(remap, have_remap, f.container)
+		filter, fok := rf(remap, have_remap, f.filter)
+		if cok && fok {add_item_filter(ws, container, filter)}
+	}
 	for g in body.globals {
 		if id, kok := rf(remap, have_remap, g.id); kok {ws.globals[id] = g.value}
 	}
@@ -449,6 +464,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
 	for r in body.relationships {add_slot(&seen, r.a);add_slot(&seen, r.b)}
 	for u in body.updates {add_slot(&seen, u.form)}
+	for f in body.item_filters {add_slot(&seen, f.container);add_slot(&seen, f.filter)}
 	add_slot(&seen, body.player.cell)
 
 	out := make([dynamic]Saved_Slot, 0, len(seen), context.temp_allocator)
@@ -490,6 +506,7 @@ clear_overlay :: proc(ws: ^World_State) {
 	clear(&ws.factions)
 	clear(&ws.relationships)
 	clear(&ws.updates)
+	clear(&ws.item_filters)
 	ws.next_created = CREATED_FORM_BASE
 	ws.player = {}
 }

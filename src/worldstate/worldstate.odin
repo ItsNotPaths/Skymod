@@ -130,6 +130,7 @@ World_State :: struct {
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
 	updates:         map[Form_ID]Update_Timers,    // form -> its OnUpdate registrations (the scheduler's timers)
+	item_filters:    map[Form_ID][dynamic]Form_ID, // container -> AddInventoryEventFilter forms; absent = every item passes
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
@@ -139,6 +140,8 @@ World_State :: struct {
 	// Activations a script requested (ObjectReference.Activate). The app runs them at the next tick,
 	// through the same path as the player's Activate key, and clears the list. Never saved.
 	activations:     [dynamic]Activation,
+	// Items scripts moved since the last tick; the tick sends their inventory events. Never saved.
+	item_moves:      [dynamic]Item_Move,
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it. Never saved.
@@ -163,6 +166,13 @@ Activation :: struct {
 	default_only: bool,
 }
 
+// Item_Move is `count` of `base` leaving `from` for `to`; 0 is the world (or destroyed). `ref` is the
+// moved reference, 0 when the items are not one.
+Item_Move :: struct {
+	base, ref, from, to: Form_ID,
+	count:               i32,
+}
+
 init :: proc(ws: ^World_State) {
 	ws.ref_deltas = make(map[Form_ID]Ref_Delta)
 	ws.by_cell = make(map[Form_ID][dynamic]Form_ID)
@@ -177,8 +187,10 @@ init :: proc(ws: ^World_State) {
 	ws.relationships = make(map[Form_ID]map[Form_ID]i32)
 	ws.perks = make(map[Form_ID]map[Form_ID]bool)
 	ws.updates = make(map[Form_ID]Update_Timers)
+	ws.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
+	ws.item_moves = make([dynamic]Item_Move)
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
 	ws.player.level = 1 // default until real leveling / save round-trip sets it
 }
@@ -209,8 +221,10 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.relationships)
 	delete(ws.perks)
 	delete(ws.updates)
+	delete(ws.item_filters)
 	delete(ws.scene_dirty)
 	delete(ws.activations)
+	delete(ws.item_moves)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
@@ -251,6 +265,9 @@ free_stores :: proc(ws: ^World_State) {
 	for _, &inner in ws.perks {
 		delete(inner)
 	}
+	for _, &list in ws.item_filters {
+		delete(list)
+	}
 }
 
 // mark_scene_dirty enqueues `form_id` for deferred live-apply. Called by writers that only touch the
@@ -275,6 +292,33 @@ register_update :: proc(ws: ^World_State, form: Form_ID, seconds: f32, repeat: b
 // unregister_updates is UnregisterForUpdate: both kinds stop.
 unregister_updates :: proc(ws: ^World_State, form: Form_ID) {
 	delete_key(&ws.updates, form)
+}
+
+// move_items records items moving for the next tick's inventory events.
+move_items :: proc(ws: ^World_State, m: Item_Move) {
+	append(&ws.item_moves, m)
+}
+
+// add_item_filter is AddInventoryEventFilter: filters stack.
+add_item_filter :: proc(ws: ^World_State, container, filter: Form_ID) {
+	if container not_in ws.item_filters {ws.item_filters[container] = make([dynamic]Form_ID)}
+	append(&ws.item_filters[container], filter)
+}
+
+// remove_item_filter is RemoveInventoryEventFilter.
+remove_item_filter :: proc(ws: ^World_State, container, filter: Form_ID) {
+	list, ok := &ws.item_filters[container]
+	if !ok {return}
+	for i := len(list) - 1; i >= 0; i -= 1 {
+		if list[i] == filter {ordered_remove(list, i)}
+	}
+	if len(list) == 0 {remove_item_filters(ws, container)}
+}
+
+// remove_item_filters is RemoveAllInventoryEventFilters.
+remove_item_filters :: proc(ws: ^World_State, container: Form_ID) {
+	if list, ok := ws.item_filters[container]; ok {delete(list)}
+	delete_key(&ws.item_filters, container)
 }
 
 // request_activation queues a script's Activate for the app's next tick.

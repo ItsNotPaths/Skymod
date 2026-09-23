@@ -109,6 +109,16 @@ C.__fn["onupdate"] = function(self) __b = (__b or 0) + 1 end
 return C
 `
 
+@(private = "file")
+BAG_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Bag", nil)
+local function log(s) __log = (__log or "") .. s .. ";" end
+C.__fn["onitemadded"] = function(self, base, n, ref, src) log("add" .. n .. (src and "+src" or "")) end
+C.__fn["onitemremoved"] = function(self, base, n, ref, dest) log("rem" .. n .. (dest and "+dest" or "")) end
+C.__fn["oncontainerchanged"] = function(self, new, old) log("moved" .. (new and "+new" or "") .. (old and "+old" or "")) end
+return C
+`
+
 // Fixture is a VM over a temp scripts dir. Its fields are pointed into, so it never moves.
 @(private = "file")
 Fixture :: struct {
@@ -328,4 +338,54 @@ test_updates_fire_on_time :: proc(t: ^testing.T) {
 fmt_int :: proc(n: int) -> string {
 	buf := make([]u8, 20, context.temp_allocator)
 	return strconv.itoa(buf, n)
+}
+
+// AddItem/RemoveItem queue OnItemAdded/OnItemRemoved for the next tick, only for items the
+// container's filters let through; a transfer tells both containers; a moved ref hears
+// OnContainerChanged.
+@(test)
+test_item_events :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_items", {{"bag.lua", BAG_LUA}})
+	defer fixture_destroy(&f)
+
+	CHEST :: script.Form_ID(0x800)
+	OTHER :: script.Form_ID(0x801)
+	GOLD :: script.Form_ID(0xF)
+	ARROW :: script.Form_ID(0x10)
+	bag := []esm.Script_Attach{{name = "Bag"}}
+	ring := worldstate.create_ref(&f.ws, 0x20, 0, {}, {}, 1)
+	for form in ([]script.Form_ID{CHEST, OTHER, ring}) {slua.attach(&f.vm, form, bag, false)}
+	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
+		c := script.Call{self = form, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "ObjectReference", fn, &c, args)
+	}
+	logged :: proc(f: ^Fixture, want: string) -> bool {
+		slua.tick_items(&f.vm, &f.db, &f.ws)
+		slua.drain(&f.vm)
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__log or "") == "`, want, `", __log); __log = nil`}, context.temp_allocator))
+	}
+
+	native(&f, CHEST, "RemoveAllItems") // an empty container
+	testing.expect(t, logged(&f, ""), "nothing to remove")
+	native(&f, CHEST, "AddItem", ARROW, i32(5))
+	testing.expect(t, logged(&f, "add5;"), "no filter: every item")
+
+	native(&f, CHEST, "AddInventoryEventFilter", GOLD)
+	native(&f, CHEST, "AddItem", ARROW, i32(5))
+	native(&f, CHEST, "AddItem", GOLD, i32(3))
+	testing.expect(t, logged(&f, "add3;"), "a filter drops other items")
+
+	native(&f, CHEST, "RemoveItem", GOLD, i32(2), false, OTHER)
+	testing.expect(t, logged(&f, "rem2+dest;add2+src;"), "a transfer tells both containers")
+	testing.expect_value(t, worldstate.inv_count(&f.ws, CHEST, GOLD), 1)
+	testing.expect_value(t, worldstate.inv_count(&f.ws, OTHER, GOLD), 2)
+
+	native(&f, OTHER, "AddItem", ring)
+	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
+	testing.expect_value(t, worldstate.inv_count(&f.ws, OTHER, 0x20), 1)
+
+	native(&f, CHEST, "RemoveAllInventoryEventFilters")
+	native(&f, CHEST, "RemoveAllItems")
+	testing.expect(t, logged(&f, "rem1;rem10;"), "RemoveAllItems: one event per item type")
 }

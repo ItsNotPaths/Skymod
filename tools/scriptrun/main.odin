@@ -68,6 +68,7 @@ main :: proc() {
 	updates := 0
 	for _ in 0 ..< UPDATE_TICKS {
 		slua.tick_updates(&vm, &ws, 1.0 / 60)
+		slua.tick_items(&vm, &db, &ws)
 		updates += slua.drain(&vm)
 		free_all(context.temp_allocator)
 	}
@@ -77,7 +78,7 @@ main :: proc() {
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
-	fmt.printfln("updates: %d OnUpdate events over %d s of ticks (%d registered forms left), run in %v", updates, UPDATE_TICKS / 60, len(ws.updates), update_took)
+	fmt.printfln("updates: %d OnUpdate and item events over %d s of ticks (%d registered forms left), run in %v", updates, UPDATE_TICKS / 60, len(ws.updates), update_took)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)
