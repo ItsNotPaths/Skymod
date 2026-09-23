@@ -4,6 +4,7 @@ package script_lua
 // language half; these are the few things it cannot do without the registry or gamedb.
 
 // HOLE(script, gap): gamedb classifies ~16 record kinds; any other base form (LVLI, MESG, SOUN, STAT…) resolves as ObjectReference, so LeveledItem.AddForm or Message.Show cannot be reached. Measured: scriptrun hits it on HearthFires' planter LVLI.
+// HOLE(script, gap): Utility.Wait returns at once, so a poll loop in a handler (CritterSpawn's OnLoad) spins until rt.lua's instruction budget ends it — 20-125 ms per re-attaching cell ring. The S5 rewrite turns these into guards; docs/script-rewrite.md "Perf findings".
 // HOLE(script, gap): rt.lua never checks a class's __overridden marks, so an override the registry names but nobody supplied is silently missing instead of failing at load.
 
 import "core:c"
