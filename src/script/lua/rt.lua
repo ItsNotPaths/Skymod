@@ -4,7 +4,7 @@
 -- Receivers are one of three things: a ref (engine userdata wrapping a form), a script instance
 -- (a table per form and attached script), or None (the engine sentinel; nil counts as None).
 
-local native, class_of, is_a, warn = __native, __class_of, __is_a, __warn
+local native, class_of, is_a, warn, script_layers = __native, __class_of, __is_a, __warn, __script_layers
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 
@@ -34,9 +34,37 @@ local function is_none(v) return v == nil or v == None end
 
 local classes = {} -- lowercase name -> class table, or false when no file exists
 
--- rt.loader(lname) runs the named script's chunk and returns its class table, or nil. The host
--- installs it; until then nothing loads.
-rt.loader = function() return nil end
+-- run calls a chunk, warning with its file on error.
+local function run(path, f, ...)
+  local ok, res = pcall(f, ...)
+  if not ok then
+    warn(path .. ": " .. tostring(res))
+    return nil
+  end
+  return res
+end
+
+-- rt.loader(lname) builds a script's class from every file that ships it, lowest priority first
+-- (loader.odin): a full <name>.lua replaces what is below it, a <name>.patch.lua returns a
+-- function that edits the class so far.
+rt.loader = function(lname)
+  local cls
+  for _, layer in ipairs(script_layers(lname)) do
+    local chunk, err = loadfile(layer.path)
+    if not chunk then
+      warn(err)
+    elseif not layer.patch then
+      cls = run(layer.path, chunk) or cls
+    elseif not cls then
+      warn(layer.path .. ": patches '" .. lname .. "', which nothing below it defines")
+    else
+      local edit = run(layer.path, chunk)
+      if edit then run(layer.path, edit, cls) end
+      cls.__cache = {}
+    end
+  end
+  return cls
+end
 
 function rt.class(name, parent)
   local cls = {

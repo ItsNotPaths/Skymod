@@ -22,7 +22,13 @@ setup_rt :: proc(vm: ^VM) -> bool {
 	hooks := [?]struct {
 		name: cstring,
 		fn:   lua.CFunction,
-	}{{"__native", rt_native}, {"__class_of", rt_class_of}, {"__is_a", rt_is_a}, {"__warn", rt_warn}}
+	}{
+		{"__native", rt_native},
+		{"__class_of", rt_class_of},
+		{"__is_a", rt_is_a},
+		{"__warn", rt_warn},
+		{"__script_layers", rt_script_layers},
+	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
 		lua.pushcclosure(L, h.fn, 1)

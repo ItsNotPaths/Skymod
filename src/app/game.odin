@@ -529,6 +529,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.repl, &g.sreg, &g.ws, &g.db, &g.noclip)
 	if g.repl_ok {
+		slua.set_script_dirs(&g.repl.vm, script_dirs(base, &g.mprofile))
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
 		slua.repl_load_rc(&g.repl, rc_path)
 		tools.console_print(&g.console, "SkyMod console — Lua REPL on the gameplay VM. `cmd.help()` lists commands.")

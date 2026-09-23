@@ -25,8 +25,7 @@ import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 
-// HOLE(script, blocker): nothing LOADS a script file. gamedb knows which scripts each form carries (gamedb.form_scripts) and the installer writes them as Lua to content/scripts/<name>.lua, but no one turns a name into a loaded chunk in this VM.
-// HOLE(script, blocker): no event dispatch — nothing calls OnActivate, OnInit, OnUpdate or any other handler. This VM is reached only by the dev REPL (app/game_frame.odin repl_eval).
+// HOLE(script, blocker): no event dispatch — scripts load (loader.odin) but nothing creates their instances or calls OnActivate, OnInit, OnUpdate or any other handler. This VM is reached only by the dev REPL (app/game_frame.odin repl_eval).
 // HOLE(script, blocker): no scheduler — nothing ticks a script, so a delayed or resumed body has no home. docs/script-rewrite.md notes both rewrite routes need this same piece.
 // VM binds a Lua state to the registry and an engine call-context (self/ws/db).
 VM :: struct {
@@ -35,6 +34,7 @@ VM :: struct {
 	ctx:          script.Call, // self/ws/db template; reg is filled by script.call()
 	host_context: runtime.Context, // captured per run so the "c"-callconv bridge can log/alloc
 	none_warned:  map[string]bool, // per-method log-once guard for None absorption (decision #2)
+	scripts:      map[string][dynamic]Script_Layer, // lowercase script name -> its files (loader.odin)
 }
 
 // UPVAL_VM is lua_upvalueindex(1) — the closure upvalue holding the ^VM. The
@@ -95,6 +95,7 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 
 destroy :: proc(vm: ^VM) {
 	delete(vm.none_warned)
+	free_script_index(vm)
 	if vm.L != nil {
 		lua.close(vm.L)
 		vm.L = nil
