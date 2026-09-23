@@ -119,6 +119,8 @@ call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Valu
 
 // zero_of is a stub's return. Object types stay None, which is their real zero;
 // a None for bool would reach Lua as the truthy None sentinel.
+// HOLE(script): a per-native fallback column replaces this: Papyrus's documented value (GetDistance
+// across worldspaces is huge, not 0), else absent/quiet/done (docs/script-rewrite.md "Evaluation and clocks").
 zero_of :: proc(type_name: string) -> Value {
 	switch strings.to_lower(type_name, context.temp_allocator) {
 	case "bool":   return false
