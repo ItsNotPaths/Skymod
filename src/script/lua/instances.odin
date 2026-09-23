@@ -52,19 +52,55 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 	return int(lua.tointeger(L, -1))
 }
 
-// start_quests attaches the scripts of every start-game-enabled quest, in form order so a run is
-// reproducible. Returns how many instances were made.
-start_quests :: proc(vm: ^VM, db: ^gamedb.DB, init: bool) -> int {
-	quests := make([dynamic]script.Form_ID, 0, 256, context.temp_allocator)
-	for q, qb in db.quest_baseline {
-		if qb.start_game_enabled {append(&quests, q)}
-	}
-	slice.sort(quests[:])
+// HOLE(script, gap): a quest that starts is not reset, so its OnInit does not run a second time as Papyrus runs it.
+
+// start_game gives every quest its scripts, then every persistent ref and actor: Papyrus runs
+// their OnInit at game start, loaded or not. Form order keeps a run reproducible. Returns how many
+// instances were made.
+start_game :: proc(vm: ^VM, db: ^gamedb.DB, init: bool) -> int {
+	forms := make([dynamic]script.Form_ID, 0, 8192, context.temp_allocator)
+	for q in db.quest_baseline {append(&forms, q)}
+	slice.sort(forms[:])
 	made := 0
-	for q in quests {
+	for q in forms {
 		made += attach(vm, q, gamedb.form_scripts(db, q), init)
 	}
+
+	refs := make([dynamic]gamedb.Ref, 0, 8192, context.temp_allocator)
+	for _, cell in db.cell_refs {
+		for r in cell {if r.persistent {append(&refs, r)}}
+	}
+	for _, cell in db.actor_refs {
+		for r in cell {if r.persistent {append(&refs, r)}}
+	}
+	slice.sort_by(refs[:], proc(a, b: gamedb.Ref) -> bool {return a.form_id < b.form_id})
+	for r in refs {
+		made += attach_ref(vm, db, r, init)
+	}
 	return made
+}
+
+// attach_cell gives a cell's non-persistent refs and actors their scripts when the cell loads.
+// Papyrus runs their OnInit the first time they load; rt.attach skips refs that already have
+// instances, so a cell that loads again runs nothing. Returns how many instances were made.
+attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID, init: bool) -> int {
+	made := 0
+	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
+		for r in list {
+			if !r.persistent {made += attach_ref(vm, db, r, init)}
+		}
+	}
+	return made
+}
+
+// HOLE(script, gap): a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
+// HOLE(script, gap): refs made at runtime (PlaceAtMe, the overlay's created refs) get no scripts.
+@(private)
+attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref, init: bool) -> int {
+	if r.deleted {return 0}
+	scripts := gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator)
+	if len(scripts) == 0 {return 0}
+	return attach(vm, r.form_id, scripts, init)
 }
 
 // push_props pushes a {lowercase name = value} table of a script's authored property values.

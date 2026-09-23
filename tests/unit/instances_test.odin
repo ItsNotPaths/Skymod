@@ -1,8 +1,9 @@
 package unit_tests
 
 // Script instances at runtime (src/script/lua/instances.odin + rt.attach): plugin property values
-// reach a script's members, OnInit fires on every instance, and a runaway handler is stopped by the
-// instruction budget without stopping the next one. Hermetic: a temp scripts dir, no game files.
+// reach a script's members, OnInit fires on every instance, a runaway handler is stopped by the
+// instruction budget without stopping the next one, and placed refs start at the right time.
+// Hermetic: a temp scripts dir, no game files.
 
 import "core:os"
 import "core:path/filepath"
@@ -59,29 +60,52 @@ C.__fn["oninit"] = function(self) __after = true end
 return C
 `
 
+@(private = "file")
+COUNT_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Count", nil)
+C.__fn["oninit"] = function(self) __inits = (__inits or 0) + 1 end
+return C
+`
+
+// Fixture is a VM over a temp scripts dir. Its fields are pointed into, so it never moves.
+@(private = "file")
+Fixture :: struct {
+	dir: string,
+	reg: script.Registry,
+	ws:  worldstate.World_State,
+	db:  gamedb.DB,
+	vm:  slua.VM,
+}
+
+@(private = "file")
+fixture_init :: proc(t: ^testing.T, f: ^Fixture, name: string, files: [][2]string) {
+	tmp, _ := os.temp_dir(context.temp_allocator)
+	f.dir, _ = filepath.join({tmp, name}, context.temp_allocator)
+	os.remove_all(f.dir)
+	_ = os.make_directory_all(f.dir)
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write fixture")
+	}
+	script.init(&f.reg)
+	worldstate.init(&f.ws)
+	testing.expect(t, slua.init(&f.vm, &f.reg, script.Call{ws = &f.ws, db = &f.db}), "VM init")
+	slua.set_script_dirs(&f.vm, {f.dir})
+}
+
+@(private = "file")
+fixture_destroy :: proc(f: ^Fixture) {
+	slua.destroy(&f.vm)
+	worldstate.destroy(&f.ws)
+	script.destroy(&f.reg)
+	os.remove_all(f.dir)
+}
+
 @(test)
 test_attach_props_and_oninit :: proc(t: ^testing.T) {
-	tmp, _ := os.temp_dir(context.temp_allocator)
-	dir, _ := filepath.join({tmp, "skymod_instances_test"}, context.temp_allocator)
-	os.remove_all(dir)
-	_ = os.make_directory_all(dir)
-	defer os.remove_all(dir)
-	for f in ([][2]string{{"props.lua", PROPS_LUA}, {"spin.lua", SPIN_LUA}, {"after.lua", AFTER_LUA}}) {
-		p, _ := filepath.join({dir, f[0]}, context.temp_allocator)
-		testing.expect(t, os.write_entire_file(p, transmute([]u8)f[1]) == nil, "write fixture")
-	}
-
-	reg: script.Registry
-	script.init(&reg)
-	defer script.destroy(&reg)
-	ws: worldstate.World_State
-	worldstate.init(&ws)
-	defer worldstate.destroy(&ws)
-	db: gamedb.DB
-	vm: slua.VM
-	testing.expect(t, slua.init(&vm, &reg, script.Call{ws = &ws, db = &db}), "VM init")
-	defer slua.destroy(&vm)
-	slua.set_script_dirs(&vm, {dir})
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_props", {{"props.lua", PROPS_LUA}, {"spin.lua", SPIN_LUA}, {"after.lua", AFTER_LUA}})
+	defer fixture_destroy(&f)
 
 	props := []esm.Script_Prop {
 		{name = "Target", kind = .Object, status = 1, value = esm.Prop_Object{form = 0x5000, alias = -1}},
@@ -95,11 +119,42 @@ test_attach_props_and_oninit :: proc(t: ^testing.T) {
 	}
 	scripts := []esm.Script_Attach{{name = "Props", props = props}, {name = "Spin"}, {name = "After"}}
 	// The spin handler exceeds the budget by design and warns; that is not a test failure.
-	made := slua.attach(&vm, script.Form_ID(0x1234), scripts, true)
+	made := slua.attach(&f.vm, script.Form_ID(0x1234), scripts, true)
 	testing.expect_value(t, made, 3)
 
-	ok := slua.do_string(&vm, `
+	ok := slua.do_string(&f.vm, `
 		for k, v in pairs(__seen) do assert(v, "property " .. k) end
 		assert(__after, "OnInit after a runaway handler still ran")`)
 	testing.expect(t, ok, "OnInit saw every property value, and the budget stopped only the runaway")
+}
+
+// A persistent ref starts at game start; the cell's other refs and actors start when it loads, once.
+// A deleted ref and a ref whose base has no scripts get nothing.
+@(test)
+test_refs_start_at_game_start_or_cell_load :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_refs", {{"count.lua", COUNT_LUA}})
+	defer fixture_destroy(&f)
+
+	CELL :: gamedb.Form_ID(0x100)
+	SCRIPTED :: gamedb.Form_ID(0xB)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[SCRIPTED] = {scripts = []esm.Script_Attach{{name = "Count"}}}
+	f.db.cell_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.cell_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
+	append(
+		&f.db.cell_refs[CELL],
+		gamedb.Ref{form_id = 0x201, base = SCRIPTED, persistent = true},
+		gamedb.Ref{form_id = 0x202, base = SCRIPTED},
+		gamedb.Ref{form_id = 0x203, base = SCRIPTED, deleted = true, disabled = true},
+		gamedb.Ref{form_id = 0x204, base = 0xC},
+	)
+	f.db.actor_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.actor_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
+	append(&f.db.actor_refs[CELL], gamedb.Ref{form_id = 0x301, base = SCRIPTED})
+
+	testing.expect_value(t, slua.start_game(&f.vm, &f.db, true), 1)
+	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 2)
+	testing.expect_value(t, slua.attach_cell(&f.vm, &f.db, CELL, true), 0)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 3, tostring(__inits))`), "OnInit ran once per ref")
 }

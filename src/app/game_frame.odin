@@ -93,6 +93,7 @@ game_frame :: proc(g: ^Game) {
 	frame_stream(g)
 	frame_inspect(g)
 	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
+	frame_scripts(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 
 	g.elapsed += g.p.dt
@@ -465,6 +466,20 @@ frame_stream :: proc(g: ^Game) {
 		}
 	}
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
+}
+
+// frame_scripts gives the refs of every cell that loaded this frame their scripts. It runs after the
+// streamer and after any door crossing, so both exterior cells and a new interior are drained.
+@(private = "file")
+frame_scripts :: proc(g: ^Game) {
+	drain :: proc(g: ^Game, s: ^world.Scene) {
+		if g.repl_ok {
+			for cell in s.loaded_cells {slua.attach_cell(&g.repl.vm, &g.db, cell, g.scripts_init)}
+		}
+		clear(&s.loaded_cells)
+	}
+	drain(g, &g.scene)
+	if g.trav.mode == .Interior {drain(g, &g.trav.interior)}
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE

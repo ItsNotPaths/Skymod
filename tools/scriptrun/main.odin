@@ -1,10 +1,10 @@
 package main
 
-// Headless script run (dev harness, not shipped): load an install's plugins, give every
-// start-game-enabled quest its scripts, fire OnInit, and report what the scripts tried to do —
-// the new-game script start without a window.
+// Headless script run (dev harness, not shipped): load an install's plugins, give every quest and
+// persistent ref its scripts, fire OnInit, and report what the scripts tried to do — the new-game
+// script start without a window. --cell also loads one cell's refs (hex form id), or every cell.
 //
-//   odin run tools/scriptrun -- <Skyrim root> <scripts dir>
+//   odin run tools/scriptrun -- <Skyrim root> <scripts dir> [--cell <formid>|all]
 //
 // <scripts dir> is converted Lua, e.g. <base>/content/basescripts/scripts after an install.
 
@@ -13,6 +13,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:slice"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 import "../../src/gamedb"
@@ -28,7 +29,7 @@ Tally :: struct {
 
 main :: proc() {
 	if len(os.args) < 3 {
-		fmt.eprintln("usage: scriptrun <Skyrim root> <scripts dir>")
+		fmt.eprintln("usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]")
 		os.exit(2)
 	}
 	db, ok := load_plugins(os.args[1])
@@ -45,11 +46,19 @@ main :: proc() {
 	tally: Tally
 	context.logger = log.Logger{tally_log, &tally, .Debug, nil}
 	start := time.now()
-	made := slua.start_quests(&vm, &db, true)
+	made := slua.start_game(&vm, &db, true)
 	took := time.since(start)
+	start = time.now()
+	cell_made := 0
+	for cell in cells_arg(&db) {
+		cell_made += slua.attach_cell(&vm, &db, cell, true)
+		free_all(context.temp_allocator)
+	}
+	cell_took := time.since(start)
 	context.logger = log.create_console_logger(.Info)
 
-	fmt.printfln("instances %d, OnInit run in %v", made, took)
+	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
+	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)
@@ -58,6 +67,26 @@ main :: proc() {
 	for r in rows[:min(len(rows), 40)] {
 		fmt.printfln("%6d  %s", r.n, r.msg)
 	}
+}
+
+// cells_arg reads --cell: one hex form id, or every cell with refs or actors.
+cells_arg :: proc(db: ^gamedb.DB) -> []gamedb.Form_ID {
+	if len(os.args) < 5 || os.args[3] != "--cell" {return nil}
+	if os.args[4] == "all" {
+		cells := make([dynamic]gamedb.Form_ID)
+		for c in db.cell_refs {append(&cells, c)}
+		for c in db.actor_refs {
+			if c not_in db.cell_refs {append(&cells, c)}
+		}
+		slice.sort(cells[:])
+		return cells[:]
+	}
+	id, ok := strconv.parse_u64_of_base(strings.trim_prefix(os.args[4], "0x"), 16)
+	if !ok {
+		fmt.eprintfln("--cell: not a hex form id: %s", os.args[4])
+		os.exit(2)
+	}
+	return slice.clone([]gamedb.Form_ID{gamedb.Form_ID(id)})
 }
 
 tally_log :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {

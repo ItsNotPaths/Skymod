@@ -196,11 +196,12 @@ Game :: struct {
 	interact: Interact,
 
 	// scripting + dev console + inspector
-	sreg:    script.Registry,
-	repl:    slua.Repl,
-	repl_ok: bool,
-	console: tools.Console,
-	insp:    tools.Inspector,
+	sreg:         script.Registry,
+	repl:         slua.Repl,
+	repl_ok:      bool,
+	scripts_init: bool, // a new game: refs run OnInit when they first load (not on a Continue)
+	console:      tools.Console,
+	insp:         tools.Inspector,
 
 	// debug verbs (drop-test balls, hitbox wireframe) + overlay visibility
 	drop_marker:   render.Mesh,
@@ -562,12 +563,12 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		log.info("menu: New Game")
 	}
 
-	// Start-game-enabled quests get their scripts. OnInit fires on a new game only: instances are
+	// Quests and persistent refs get their scripts. OnInit fires on a new game only: instances are
 	// not saved yet, so on a Continue it would re-run side effects the save already holds.
 	if g.repl_ok {
-		new_game := boot_choice != .Continue
-		n := slua.start_quests(&g.repl.vm, &g.db, new_game)
-		log.infof("scripts: %d start-game quest script instance(s)%s", n, ", OnInit fired" if new_game else "")
+		g.scripts_init = boot_choice != .Continue
+		n := slua.start_game(&g.repl.vm, &g.db, g.scripts_init)
+		log.infof("scripts: %d game-start script instance(s)%s", n, ", OnInit fired" if g.scripts_init else "")
 	}
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")

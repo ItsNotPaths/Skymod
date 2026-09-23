@@ -443,8 +443,10 @@ function rt.event(inst, name, ...)
 end
 
 -- rt.attach gives a form its scripts: every instance first, so siblings can find each other, then
--- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }.
+-- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }. A form that
+-- already has instances keeps them, so a cell that loads again does not re-run OnInit.
 function rt.attach(form, list, init)
+  if instances[form] then return 0 end
   local made = {}
   for _, s in ipairs(list) do
     local inst = rt.instance(form, s.name, s.props)
