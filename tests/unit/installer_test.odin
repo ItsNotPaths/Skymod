@@ -47,7 +47,8 @@ test_installer_boot_gate :: proc(t: ^testing.T) {
 	defer delete(data_dir)
 	_ = os.make_directory(source)
 	_ = os.make_directory(data_dir)
-	for name in ([]string{"Skyrim.esm", "Dawnguard.esm", "MyMod.esp", "Skyrim - Meshes.bsa"}) {
+	// Dawnguard.bsa is a script archive that will not open: the converter skips it, not the install.
+	for name in ([]string{"Skyrim.esm", "Dawnguard.esm", "MyMod.esp", "Skyrim - Meshes.bsa", "Dawnguard.bsa"}) {
 		fp, _ := filepath.join({data_dir, name}, context.allocator)
 		defer delete(fp)
 		testing.expect(t, os.write_entire_file(fp, []byte{}) == nil, "write synthetic Data file")
@@ -69,4 +70,9 @@ test_installer_boot_gate :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(ms, "archive = Skyrim - Meshes.bsa"), "manifest lists the bsa")
 	testing.expect(t, strings.contains(ms, "plugin = Skyrim.esm"), "manifest lists the master")
 	testing.expect(t, strings.contains(ms, "plugin = MyMod.esp"), "manifest lists the plugin")
+	testing.expect(t, strings.contains(ms, "scripts = 0"), "manifest records the converted scripts")
+
+	// An install of an older format is stale, so boot re-runs the installer.
+	testing.expect(t, os.write_entire_file(manifest, transmute([]byte)string("format = 1\n")) == nil, "write stale manifest")
+	testing.expect(t, !installer.content_ready(install_base), "older format is not ready")
 }

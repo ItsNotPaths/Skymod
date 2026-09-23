@@ -26,7 +26,7 @@ import "core:strings"
 import lua "vendor:lua/5.4"
 import script ".."
 
-// HOLE(script, blocker): nothing LOADS a script file. gamedb now knows which scripts each form carries (gamedb.form_scripts, decoded from VMAD), but no one turns a name into a loaded chunk in this VM.
+// HOLE(script, blocker): nothing LOADS a script file. gamedb knows which scripts each form carries (gamedb.form_scripts) and the installer writes them as Lua to content/scripts/<name>.lua, but no one turns a name into a loaded chunk in this VM.
 // HOLE(script, blocker): no event dispatch — nothing calls OnActivate, OnInit, OnUpdate or any other handler. This VM is reached only by the dev REPL (app/game_frame.odin repl_eval).
 // HOLE(script, blocker): no scheduler — nothing ticks a script, so a delayed or resumed body has no home. docs/script-rewrite.md notes both rewrite routes need this same piece.
 // VM binds a Lua state to the registry and an engine call-context (self/ws/db).

@@ -19,21 +19,24 @@ import "core:path/filepath"
 import "core:slice"
 import "core:strings"
 import "../formats/pe"
+import "converters"
 import "core:time"
 
 CONTENT_DIR    :: "content"      // <base>/content — the installed data root
+SCRIPTS_DIR    :: "scripts"      // <base>/content/scripts — the base game's scripts as Lua
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
-FORMAT_VERSION :: 1
+FORMAT_VERSION :: 2 // bump when converted output changes, so an older install re-runs
 
-// content_ready reports whether <base>/content holds a finished install. The
-// boot gate: true => launch the game, false => run the installer. For now a
-// present, non-empty manifest is enough; Phase 1 will validate FORMAT_VERSION and
-// per-asset hashes here so a stale install triggers a re-run.
+// content_ready reports whether <base>/content holds a finished install of this format. The
+// boot gate: true => launch the game, false => run the installer, so a stale install re-runs.
 content_ready :: proc(base: string) -> bool {
 	m := manifest_path(base)
 	defer delete(m)
 	data, err := os.read_entire_file(m, context.temp_allocator)
-	return err == nil && len(data) > 0
+	if err != nil {
+		return false
+	}
+	return strings.has_prefix(string(data), fmt.tprintf("format = %d\n", FORMAT_VERSION))
 }
 
 // Edition is which Skyrim generation an install root holds, autodetected from the
@@ -107,6 +110,14 @@ install :: proc(source, base: string) -> bool {
 	archives := list_by_ext(data, ".bsa")
 	esms := list_by_ext(data, ".esm")
 	esps := list_by_ext(data, ".esp")
+	esls := list_by_ext(data, ".esl")
+
+	scripts_dir, _ := filepath.join({content, SCRIPTS_DIR}, context.temp_allocator)
+	sst, sok := converters.convert_scripts(script_archives(data, archives, {esms, esls, esps}), scripts_dir)
+	if !sok {
+		return false
+	}
+	log.infof("installer: converted %d script(s) to Lua, %d unreadable", sst.converted, sst.failed)
 
 	m := manifest_path(base)
 	defer delete(m)
@@ -123,6 +134,7 @@ install :: proc(source, base: string) -> bool {
 	for p in esps {
 		fmt.sbprintfln(&b, "plugin = %s", p)
 	}
+	fmt.sbprintfln(&b, "scripts = %d", sst.converted)
 	if err := os.write_entire_file(m, transmute([]byte)strings.to_string(b)); err != nil {
 		log.errorf("installer: could not write manifest %q: %v", m, err)
 		return false
@@ -130,6 +142,29 @@ install :: proc(source, base: string) -> bool {
 
 	log.infof("installer: done — indexed %d archive(s), %d plugin(s) -> %s", len(archives), len(esms) + len(esps), m)
 	return true
+}
+
+// script_archives orders the archives that hold scripts, later winning: the base game's Misc,
+// then each plugin's own archive in plugin order. Plugin order carries the load-order HOLE above;
+// on LE it hands HearthFires' copy of byohrelationshipadoptableaccessor the win over Dragonborn's.
+@(private)
+script_archives :: proc(data: string, archives: []string, plugin_groups: [][]string) -> []string {
+	out := make([dynamic]string, 0, 8, context.temp_allocator)
+	add :: proc(out: ^[dynamic]string, data: string, archives: []string, name: string) {
+		for a in archives {
+			if strings.equal_fold(a, name) {
+				p, _ := filepath.join({data, a}, context.temp_allocator)
+				append(out, p)
+			}
+		}
+	}
+	add(&out, data, archives, "Skyrim - Misc.bsa")
+	for group in plugin_groups {
+		for p in group {
+			add(&out, data, archives, strings.concatenate({filepath.stem(p), ".bsa"}, context.temp_allocator))
+		}
+	}
+	return out[:]
 }
 
 @(private)
