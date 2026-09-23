@@ -168,7 +168,7 @@ engine_credits :: proc "c" (L: ^lua.State) -> c.int {
 	lua.createtable(L, c.int(len(host.credits)), 0)
 	for ln, i in host.credits {
 		lua.pushstring(L, strings.clone_to_cstring(ln, context.temp_allocator))
-		lua.seti(L, -2, lua.Integer(i + 1))
+		lua.seti(L, -2, lua.Integer(i))
 	}
 	return 1
 }
@@ -217,7 +217,7 @@ engine_list_saves :: proc "c" (L: ^lua.State) -> c.int {
 	lua.createtable(L, c.int(len(saves)), 0)
 	for s, i in saves {
 		push_save_entry(L, s)
-		lua.seti(L, -2, lua.Integer(i + 1))
+		lua.seti(L, -2, lua.Integer(i))
 	}
 	return 1
 }

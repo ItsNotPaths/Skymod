@@ -24,7 +24,7 @@ function button(t)
     offset = t.offset,
     size = t.size, -- explicit hit rect; nil → auto-measures to the label (text-sized for now)
     text {
-      t[1], -- the label
+      t[0], -- the label
       scale = t.scale,
       color = focused and "#ffffff" or (t.color or "#bdbdbd"),
     },

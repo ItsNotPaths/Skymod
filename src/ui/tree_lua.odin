@@ -56,7 +56,7 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	read_enabled(L, idx, &n)
 
 	cnt := int(lua.rawlen(L, idx))
-	for i in 1 ..= cnt {
+	for i in 0 ..< cnt {
 		lua.geti(L, idx, lua.Integer(i))
 		ci := lua.gettop(L)
 		#partial switch lua.type(L, ci) {
@@ -117,8 +117,8 @@ field_vec2 :: proc(L: ^lua.State, idx: c.int, key: cstring) -> ([2]f32, bool) {
 	ok: bool
 	if lua.type(L, -1) == .TABLE {
 		ti := lua.gettop(L)
-		out[0] = elem_num(L, ti, 1)
-		out[1] = elem_num(L, ti, 2)
+		out[0] = elem_num(L, ti, 0)
+		out[1] = elem_num(L, ti, 1)
 		ok = true
 	}
 	lua.settop(L, -2)
@@ -136,8 +136,8 @@ field_anchor :: proc(L: ^lua.State, idx: c.int, key: cstring) -> ([2]f32, bool) 
 		ok = true
 	case .TABLE:
 		ti := lua.gettop(L)
-		out[0] = elem_num(L, ti, 1)
-		out[1] = elem_num(L, ti, 2)
+		out[0] = elem_num(L, ti, 0)
+		out[1] = elem_num(L, ti, 1)
 		ok = true
 	}
 	lua.settop(L, -2)
@@ -158,7 +158,7 @@ field_color :: proc(L: ^lua.State, idx: c.int, key: cstring) -> (Color, bool) {
 		out[3] = 1 // default opaque so a 3-element {r,g,b} table stays visible (alpha optional)
 		cnt := min(int(lua.rawlen(L, ti)), 4)
 		for i in 0 ..< cnt {
-			out[i] = elem_num(L, ti, c.int(i + 1))
+			out[i] = elem_num(L, ti, c.int(i))
 		}
 		ok = true
 	}

@@ -43,10 +43,9 @@ out_allocator :: proc(repl: ^Repl) -> runtime.Allocator {
 @(private)
 REPL_PRELUDE :: `
 function print(...)
-  local n = select('#', ...)
-  local t = {}
-  for i = 1, n do t[i] = tostring((select(i, ...))) end
-  __repl_out(table.concat(t, "\t"))
+  local t = table.pack(...)
+  for i = 0, t.n - 1 do t[i] = tostring(t[i]) end
+  __repl_out(table.concat(t, "\t", 0, t.n - 1))
 end
 
 -- Expression-first eval: try to 'return <src>' (so bare expressions echo their
@@ -56,8 +55,8 @@ function __repl_eval(src)
   if not chunk then chunk, err = load(src, "=repl") end
   if not chunk then __repl_out("! " .. tostring(err)); return end
   local r = table.pack(pcall(chunk))
-  if not r[1] then __repl_out("! " .. tostring(r[2])); return end
-  for i = 2, r.n do __repl_out(tostring(r[i])) end
+  if not r[0] then __repl_out("! " .. tostring(r[1])); return end
+  for i = 1, r.n - 1 do __repl_out(tostring(r[i])) end
 end
 
 -- Enumerable command table with per-command metadata (help/aliases) → free
@@ -78,7 +77,7 @@ function cmd.help(name)
     return
   end
   local names = {}
-  for k in pairs(meta) do names[#names + 1] = k end
+  for k in pairs(meta) do names[#names] = k end
   table.sort(names)
   for _, k in ipairs(names) do
     __repl_out(string.format("%-14s %s", k, meta[k].help or ""))
@@ -196,7 +195,7 @@ repl_register_cmd :: proc(
 		lua.createtable(L, i32(len(aliases)), 0) // [.., name, fn, help, {}]
 		for a, i in aliases {
 			lua.pushstring(L, strings.clone_to_cstring(a, context.temp_allocator))
-			lua.rawseti(L, -2, lua.Integer(i + 1))
+			lua.rawseti(L, -2, lua.Integer(i))
 		}
 		call_or_log(repl, 4)
 	} else {

@@ -53,7 +53,7 @@ ui.screen(function()
     local verb = VERB[a.kind] or "Activate"
     local name = (a.kind == "door") and a.dest or a.name
 
-    root[#root + 1] = row {
+    root[#root] = row {
       anchor = "center",
       offset = { 0, VERB_Y },
       gap = 8,
@@ -66,7 +66,7 @@ ui.screen(function()
       },
     }
     if name and name ~= "" then
-      root[#root + 1] = text {
+      root[#root] = text {
         a.locked and (name .. "   (Locked)") or name,
         anchor = "center",
         offset = { 0, NAME_Y },

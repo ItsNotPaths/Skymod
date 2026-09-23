@@ -35,7 +35,7 @@ local function sidebar(data, content)
     gap = 18,
   }
   for _, c in ipairs(content) do
-    col[#col + 1] = c
+    col[#col] = c
   end
 
   return {
@@ -56,9 +56,9 @@ end
 -- confirm builds a Yes/No (or single-button) prompt inside the sidebar. Actions scope to data.on.
 local function confirm(data)
   local buttons = { _kind = "row", gap = 36, align = "center" }
-  buttons[#buttons + 1] = button { data.yes or "Yes", action = "yes", scale = 0.31 }
+  buttons[#buttons] = button { data.yes or "Yes", action = "yes", scale = 0.31 }
   if data.no then
-    buttons[#buttons + 1] = button { data.no, action = "no", scale = 0.31 }
+    buttons[#buttons] = button { data.no, action = "no", scale = 0.31 }
   end
   return sidebar(data, {
     text { data.title, scale = 0.32, color = "#ffffff" },
@@ -74,16 +74,16 @@ local function load_panel(data)
   }
   local saves = engine.list_saves()
   if #saves == 0 then
-    content[#content + 1] = text { "No saves yet.", scale = 0.24, color = "#8a8a8a" }
+    content[#content] = text { "No saves yet.", scale = 0.24, color = "#8a8a8a" }
   else
     for i, s in ipairs(saves) do
       -- Rows share the `load_save` action but need a UNIQUE id, or focus/highlight collapses onto the
       -- first row (the engine tracks focus by id; `id` defaults to `action`).
-      content[#content + 1] = button { s.label, action = "load_save", id = "save_" .. i, scale = 0.26 }
+      content[#content] = button { s.label, action = "load_save", id = "save_" .. i, scale = 0.26 }
     end
   end
-  content[#content + 1] = text { " ", scale = 0.16 } -- spacer
-  content[#content + 1] = button { "Back", action = "back", scale = 0.3 }
+  content[#content] = text { " ", scale = 0.16 } -- spacer
+  content[#content] = button { "Back", action = "back", scale = 0.3 }
   return sidebar(data, content)
 end
 
@@ -100,18 +100,18 @@ local function credits_panel(data)
   local col = { _kind = "column", anchor = "top", align = "center", gap = 6, size = { 980, 0 } }
   -- The credits' header icon: the SkyrimLogo bitmap we extracted from creditsmenu.swf → bethassets DDS
   -- (loaded through the VFS, so a mod can override it). credits.txt opens with <img src='SkyrimLogo'>.
-  col[#col + 1] = image { source = "interface/skyrimlogo.dds", size = { 129, 244 } }
-  col[#col + 1] = text { " ", scale = 0.3 } -- gap below the logo
+  col[#col] = image { source = "interface/skyrimlogo.dds", size = { 129, 244 } }
+  col[#col] = text { " ", scale = 0.3 } -- gap below the logo
   if #lines == 0 then
-    col[#col + 1] = text { "(credits unavailable)", scale = 0.24, color = "#8a8a8a" }
+    col[#col] = text { "(credits unavailable)", scale = 0.24, color = "#8a8a8a" }
   else
     for _, ln in ipairs(lines) do
       if ln == "" then
-        col[#col + 1] = text { " ", scale = 0.18 } -- blank-line spacer
+        col[#col] = text { " ", scale = 0.18 } -- blank-line spacer
       elseif is_header(ln) then
-        col[#col + 1] = text { ln, scale = 0.26, color = "#cfcfcf" }
+        col[#col] = text { ln, scale = 0.26, color = "#cfcfcf" }
       else
-        col[#col + 1] = text { ln, scale = 0.24, color = "#8f8f8f" }
+        col[#col] = text { ln, scale = 0.24, color = "#8f8f8f" }
       end
     end
   end

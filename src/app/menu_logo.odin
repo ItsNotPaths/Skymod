@@ -80,8 +80,8 @@ menu_logo_read_lua :: proc(vm: ^ui.VM, cfg: ^Menu_Logo_Cfg) -> (present: bool) {
 	ui.read_num_field(L, "lift", &cfg.lift)
 	lua.getfield(L, -1, "pos") // pos = {x, y}
 	if lua.type(L, -1) == .TABLE {
-		ui.read_num_index(L, 1, &cfg.pos[0])
-		ui.read_num_index(L, 2, &cfg.pos[1])
+		ui.read_num_index(L, 0, &cfg.pos[0])
+		ui.read_num_index(L, 1, &cfg.pos[1])
 	}
 	lua.settop(L, -2)
 	return true

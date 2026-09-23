@@ -81,25 +81,25 @@ end
 function ui.spawn(builder, data)
   data = data or {}
   if data._t0 == nil then data._t0 = ui.time end
-  ui._transients[#ui._transients + 1] = { builder = builder, data = data }
+  ui._transients[#ui._transients] = { builder = builder, data = data }
 end
 
 -- ui.close removes the topmost transient (a dialog confirming/cancelling itself).
 function ui.close()
-  ui._transients[#ui._transients] = nil
+  ui._transients[#ui._transients - 1] = nil
 end
 
 -- ui.back is Backspace: drop the topmost transient if any.
 function ui.back()
   if #ui._transients > 0 then
-    ui._transients[#ui._transients] = nil
+    ui._transients[#ui._transients - 1] = nil
   end
 end
 
 -- ui.dispatch runs an activated action: the topmost transient's own on[action] wins (so a dialog's
 -- Yes/No stay scoped to it), else a screen-registered handler.
 function ui.dispatch(action)
-  local t = ui._transients[#ui._transients]
+  local t = ui._transients[#ui._transients - 1]
   if t and t.data.on and t.data.on[action] then
     t.data.on[action]()
     return
@@ -112,9 +112,9 @@ end
 -- top (painter's order). The engine lays this out, routes input to the topmost modal subtree, draws.
 function ui._frame()
   local root = { _kind = "container", fill = "both" }
-  if ui._screen then root[1] = ui._screen() end
+  if ui._screen then root[0] = ui._screen() end
   for _, t in ipairs(ui._transients) do
-    root[#root + 1] = t.builder(t.data)
+    root[#root] = t.builder(t.data)
   end
   return root
 end

@@ -25,15 +25,15 @@
 -- A mod overrides this file to restyle every bar; the 3-slice + shader fill live in the engine.
 
 function bar(t)
-  local w = (t.size and t.size[1]) or 220
-  local h = (t.size and t.size[2]) or 22
-  local slice_l = (type(t.slice) == "table" and t.slice[1]) or t.slice or 0
+  local w = (t.size and t.size[0]) or 220
+  local h = (t.size and t.size[1]) or 22
+  local slice_l = (type(t.slice) == "table" and t.slice[0]) or t.slice or 0
 
   -- Fill inset: horizontal defaults to the cap width (fill sits between the decorated ends), vertical to
   -- a small border. A number → symmetric; a table → {x,y}.
   local ix, iy
   if type(t.inset) == "table" then
-    ix, iy = t.inset[1], t.inset[2]
+    ix, iy = t.inset[0], t.inset[1]
   elseif type(t.inset) == "number" then
     ix, iy = t.inset, t.inset
   else
@@ -44,14 +44,14 @@ function bar(t)
 
   -- 1. BG (3-sliced image tinted by bg_color, or a flat colour track).
   if t.bg then
-    node[#node + 1] = image { source = t.bg, slice = t.slice, fill = "both", color = t.bg_color }
+    node[#node] = image { source = t.bg, slice = t.slice, fill = "both", color = t.bg_color }
   elseif t.track then
-    node[#node + 1] = rect { fill = "both", color = t.track }
+    node[#node] = rect { fill = "both", color = t.track }
   end
 
   -- 2. FILL (shader), UNDER the frame. anchor=top_left so `inset` is a plain top-left offset (a centred
   -- anchor would fight the offset). It spans the full inner rect; the frame on top hides its ends.
-  node[#node + 1] = {
+  node[#node] = {
     _kind = "bar",
     anchor = "top_left",
     offset = { ix, iy },
@@ -62,7 +62,7 @@ function bar(t)
 
   -- 3. FRAME (3-sliced decorated frame on top, tinted by frame_color — its caps/border overlay the fill).
   if t.frame then
-    node[#node + 1] = image { source = t.frame, slice = t.slice, fill = "both", color = t.frame_color }
+    node[#node] = image { source = t.frame, slice = t.slice, fill = "both", color = t.frame_color }
   end
 
   return node
