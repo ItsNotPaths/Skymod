@@ -158,7 +158,7 @@ test_transpile_emits_t0 :: proc(t: ^testing.T) {
 
 	has(t, src, `local Test = rt.class("Test", "ScriptObject")`)
 	has(t, src, `Test.__fn["doit"] = function(self, end_)`) // reserved word mangled, key folded
-	has(t, src, "local __temp0, __NoneVar")
+	has(t, src, "local __temp0, __NoneVar = false") // locals start at their type's zero
 	has(t, src, "__temp0 = end_ >= 0")
 	// A jump offset is relative to its own index: 2 + 3 = 5, one past the last instruction.
 	has(t, src, "if not __temp0 then goto L5 end")

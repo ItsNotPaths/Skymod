@@ -248,14 +248,28 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 	sbprint(e, ")\n")
 
 	// Every local is declared up front. That is what keeps a `goto` from ever jumping into
-	// the scope of a local, which Lua rejects.
+	// the scope of a local, which Lua rejects. Each starts at its type's zero, as in Papyrus: a
+	// local can be read before its first write (DLC2ManyToManyFactionRelationScript does).
 	if len(f.locals) > 0 {
 		sbprint(e, "\tlocal ")
+		last := -1 // last local with a non-nil zero; later ones can be left off the value list
 		for l, i in f.locals {
 			if i > 0 {
 				sbprint(e, ", ")
 			}
 			write_mangled(e, l.name)
+			if type_zero(l.type_name) != "nil" {
+				last = i
+			}
+		}
+		if last >= 0 {
+			sbprint(e, " = ")
+			for l, i in f.locals[:last + 1] {
+				if i > 0 {
+					sbprint(e, ", ")
+				}
+				sbprint(e, type_zero(l.type_name))
+			}
 		}
 		sbprint(e, "\n")
 	}
@@ -298,6 +312,19 @@ emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
 		sbprintf(e, "\t::L%d::\n", n)
 		e.stats.labels += 1
 	}
+}
+
+// type_zero is the Lua literal a Papyrus variable of this type starts as. Objects and arrays start
+// as None, which is nil.
+@(private)
+type_zero :: proc(type_name: string) -> string {
+	switch strings.to_lower(type_name, context.temp_allocator) {
+	case "int":    return "0"
+	case "float":  return "0.0"
+	case "bool":   return "false"
+	case "string": return `""`
+	}
+	return "nil"
 }
 
 // write_slot names where a function lands: the default-state table, or a named state's.
