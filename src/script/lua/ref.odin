@@ -21,7 +21,7 @@ import "core:c"
 import "core:fmt"
 import "core:log"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../../vendor/lua"
 import "../../gamedb"
 import script ".."
 

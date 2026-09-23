@@ -7,7 +7,7 @@ package ui
 import "core:c"
 import "core:strconv"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../vendor/lua"
 
 // parse_node walks the Lua table at absolute stack index `idx` into a Node. The array part is
 // children (tables) or, for Text, the [1] string. Properties come from the hash part.

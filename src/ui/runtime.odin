@@ -22,7 +22,7 @@ import "core:c"
 import "core:log"
 import "base:runtime"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../vendor/lua"
 
 // UPVAL is lua_upvalueindex(1) — the closure upvalue holding the ^VM for host procs (the binding
 // doesn't expose the macro, so derive it from REGISTRYINDEX, as script_lua does).

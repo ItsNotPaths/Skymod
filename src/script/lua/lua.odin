@@ -14,16 +14,15 @@ package script_lua
 // boundary, not UI-vs-gameplay; the `ui` substrate + table→node loader are VM-agnostic
 // and reused by both.
 //
-// Cross-platform by construction: nothing here is OS-specific. It links Odin's
-// vendored static liblua54.a on Linux via `vendor:lua/5.4`. The Lua import is
-// isolated to this file, so swapping to our own static-on-Windows binding (the
-// imgui/jolt build-from-source pattern) later is a one-line change.
+// Cross-platform by construction: nothing here is OS-specific. It links our own
+// static Lua build (vendor/lua, built by build/build-lua.sh from pinned source, patched
+// there) through a copy of Odin's lua.odin binding.
 
 import "base:runtime"
 import "core:c"
 import "core:log"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../../vendor/lua"
 import script ".."
 
 // HOLE(script, blocker): nothing LOADS a script file. gamedb knows which scripts each form carries (gamedb.form_scripts) and the installer writes them as Lua to content/scripts/<name>.lua, but no one turns a name into a loaded chunk in this VM.

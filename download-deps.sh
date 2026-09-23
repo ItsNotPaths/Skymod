@@ -9,6 +9,9 @@
 #   - imgui    : Dear ImGui source + the (pre-generated) odin-imgui bindings,
 #                compiled into a static lib by build/build-imgui.sh. Dev tooling +
 #                the MVP game UI (ROADMAP Phase 0 step 6).
+#   - lua      : Lua 5.4 source, built into a static lib by build/build-lua.sh,
+#                plus Odin's own lua.odin binding copied beside it. We build Lua
+#                ourselves so it can be patched (build/lua-*.patch).
 #   - kenney input prompts : CC0 button-prompt glyph art (keyboard/mouse + every
 #                pad family Kenney draws). build/bake_prompts.sh packs the 64px
 #                tier into src/prompts/prompts.pak, which the binary #load's.
@@ -28,6 +31,9 @@ ODIN_IMGUI_COMMIT="daa7298c62995440fd1b484c0d2f05afde055b33"
 # joltc-odin bindings (amerkoleci/joltc via its committed Odin bindings); its own
 # joltc submodule (which vendors JoltPhysics) is pinned by this commit's gitlink.
 JOLTC_ODIN_COMMIT="84ab78c32314a4bb9f9a2f897a4fcce320db825a"
+# Lua source release + the sha256 lua.org publishes for it (https://www.lua.org/ftp/).
+LUA_VERSION="5.4.9"
+LUA_SHA256="2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6"
 # Kenney "Input Prompts" 1.5 (CC0 1.0 — https://kenney.nl/assets/input-prompts).
 # The media hash in the URL pins the exact 1.5 artifact.
 KENNEY_PROMPTS_URL="https://www.kenney.nl/media/pages/assets/input-prompts/8de120163f-1777890371/kenney_input-prompts_1.5.zip"
@@ -201,6 +207,32 @@ EOF
     JOLT_DOUBLE=ON bash "$ROOT/build/build-jolt.sh"
 }
 
+# Fetch the Lua source and Odin's lua.odin binding into vendor/lua, then build the static lib
+# (build/build-lua.sh). The binding foreign-imports "linux/liblua54.a" relative to itself, so
+# the build writes exactly there and the binding needs no edit.
+fetch_lua() {
+    local dest="$VENDOR/lua"
+    if [ ! -f "$dest/src/lua.h" ]; then
+        echo "  downloading lua $LUA_VERSION..."
+        local work
+        work="$(mktemp -d)"
+        trap 'rm -rf "$work"' RETURN
+        curl -fsSL "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" -o "$work/lua.tar.gz"
+        echo "$LUA_SHA256  $work/lua.tar.gz" | sha256sum -c --quiet - || {
+            echo "error: lua-${LUA_VERSION}.tar.gz checksum mismatch" >&2
+            exit 1
+        }
+        rm -rf "$dest"
+        mkdir -p "$dest"
+        tar xzf "$work/lua.tar.gz" --strip-components=1 -C "$dest"
+    fi
+    local binding
+    binding="$(odin root)vendor/lua/5.4/lua.odin"
+    [ -f "$binding" ] || { echo "error: Odin's lua binding not found at $binding" >&2; exit 1; }
+    cp "$binding" "$dest/lua.odin"
+    bash "$ROOT/build/build-lua.sh"
+}
+
 # Vendor the Kenney input-prompt glyphs: the 64px "Default" tier of every device
 # set + the license. (The zip also carries 128px/SVG/font tiers we don't bake —
 # skipped to keep vendor/ lean.) The pak baker (build/bake_prompts.sh) reads this
@@ -237,6 +269,9 @@ fetch_imgui
 
 echo "==> jolt ($JOLTC_ODIN_COMMIT)"
 fetch_jolt
+
+echo "==> lua ($LUA_VERSION)"
+fetch_lua
 
 echo "==> kenney input prompts (1.5)"
 fetch_input_prompts

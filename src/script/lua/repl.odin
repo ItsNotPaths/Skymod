@@ -21,7 +21,7 @@ import "core:c"
 import "core:log"
 import "core:os"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../../vendor/lua"
 import script ".."
 
 // Repl owns a gameplay VM plus an output accumulator. `out` holds the lines produced

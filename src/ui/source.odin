@@ -10,7 +10,7 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import lua "vendor:lua/5.4"
+import lua "../../vendor/lua"
 
 @(private = "file")
 EMBED_PRELUDE :: #load("lua/lib/ui.lua", string)

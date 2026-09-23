@@ -9,7 +9,7 @@ package main
 // comes from the REPL prelude for free.
 
 import "core:c"
-import lua "vendor:lua/5.4"
+import lua "../../vendor/lua"
 import "../gamedb"
 import "../script"
 import slua "../script/lua"
