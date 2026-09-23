@@ -1,20 +1,20 @@
 package unit_tests
 
-// 0-based Lua fork (build/lua-01-zero-index.patch): runs lua_zero.lua in a bare state.
+// Papyrus equality fork (build/lua-02-papyrus-eq.patch): runs lua_eq.lua in a bare state.
 
 import "core:strings"
 import "core:testing"
 import lua "../../vendor/lua"
 
-LUA_ZERO_SRC :: #load("lua_zero.lua", string)
+LUA_EQ_SRC :: #load("lua_eq.lua", string)
 
 @(test)
-test_lua_zero_index :: proc(t: ^testing.T) {
+test_lua_papyrus_eq :: proc(t: ^testing.T) {
 	L := lua.L_newstate()
 	defer lua.close(L)
 	lua.L_openlibs(L)
 
-	src := strings.clone_to_cstring(LUA_ZERO_SRC)
+	src := strings.clone_to_cstring(LUA_EQ_SRC)
 	defer delete(src)
 
 	if lua.L_dostring(L, src) != 0 {
