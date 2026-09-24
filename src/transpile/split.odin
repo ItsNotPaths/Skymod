@@ -23,6 +23,7 @@ Split :: struct {
 	from:    int,          // the first of those
 	hash:    u32,
 	game:    bool,         // the waits are WaitGameTime: the timer counts game hours
+	in_tick: bool,         // writing the tick: a wait carries the last one's overshoot
 }
 
 @(private)
@@ -186,7 +187,11 @@ emit_split_ticks :: proc(e: ^Emitter, o: ^pex.Object, splits: []Split) {
 		write_var(e, &s, "t")
 		sbprint(e, " == rt.None or ")
 		write_var(e, &s, "t")
-		sbprint(e, " > 0 then return end\n\t")
+		sbprint(e, " > 0 then return end\n")
+		// The timer ran out this far back; the next wait counts from then, so a chain keeps time.
+		sbprint(e, "\tlocal __late = ")
+		write_var(e, &s, "t")
+		sbprint(e, "\n\t")
 		write_var(e, &s, "t")
 		sbprint(e, " = rt.None\n")
 		if len(s.f.params) > 0 {
@@ -219,9 +224,9 @@ emit_split_ticks :: proc(e: ^Emitter, o: ^pex.Object, splits: []Split) {
 			sbprintf(e, " then goto L%d end\n", site + 1)
 		}
 		sbprintf(e, "\tgoto L%d\n", s.sites[0] + 1)
-		e.split = &s
+		e.split, s.in_tick = &s, true
 		emit_body(e, s.f, s.from, s.reached)
-		e.split = nil
+		e.split, s.in_tick = nil, false
 		sbprint(e, "end\n")
 	}
 
@@ -272,6 +277,7 @@ emit_wait :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 	write_var(e, s, "t")
 	sbprint(e, " = ")
 	write_read(e, arg(ins, 3), idx)
+	if s.in_tick {sbprint(e, " + __late")}
 	sbprint(e, "\n\tdo return end\n")
 }
 
