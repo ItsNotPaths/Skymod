@@ -2,9 +2,18 @@ package main
 
 // Headless script run (dev harness, not shipped): load an install's plugins, give every quest and
 // persistent ref its scripts, fire OnInit, and report what the scripts tried to do — the new-game
-// script start without a window. --cell also loads and attaches one cell (hex form id), or every cell.
+// script start without a window.
 //
-//   odin run tools/scriptrun -- <Skyrim root> <scripts dir> [--cell <formid>|all]
+//   odin run tools/scriptrun -- <Skyrim root> <scripts dir> [flags]
+//
+//   --cell <formid>|all  also attach this cell (hex form id), or every cell; repeatable
+//   --patches <dir>      layer the scripts in <dir> over <scripts dir> (.lua replaces, .patch.lua edits)
+//   --driver <file.lua>  run this Lua once after the attach, before the ticks (send events, set stages);
+//                        a global `driver_tick(t)` it defines is then called after every tick, t in seconds
+//   --seconds <n>        how long ticks run after the attach, default 10
+//   --trace              print Debug.Trace and Notification lines with the tick time they ran at
+//   --all-warnings       print every warning row, not the top 40
+//   --where <script>     only list the refs (with their cells), quests and aliases that carry <script>
 //
 // <scripts dir> is converted Lua, e.g. <base>/content/basescripts/scripts after an install.
 
@@ -16,27 +25,39 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
+import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/script"
 import slua "../../src/script/lua"
 import "../../src/worldstate"
 
-// UPDATE_TICKS is how long the run lets registered OnUpdate timers play out: 10 s at 60Hz.
-UPDATE_TICKS :: 600
+TICK_HZ :: 60
+
+Args :: struct {
+	root, scripts, patches: string,
+	driver, find:           string,
+	cells:                  [dynamic]string, // hex form ids, or "all"
+	seconds:                int,
+	trace, all_warnings:    bool,
+}
 
 // Tally groups warnings by their text with digits masked, so one message per form collapses.
+// With `trace` it also prints script trace lines, stamped with `tick`.
 Tally :: struct {
 	by_msg: map[string]int,
 	errors: int,
+	trace:  bool,
+	tick:   int,
 }
 
 main :: proc() {
-	if len(os.args) < 3 {
-		fmt.eprintln("usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]")
-		os.exit(2)
-	}
-	db, ok := load_plugins(os.args[1])
+	args := parse_args()
+	db, ok := load_plugins(args.root)
 	if !ok {os.exit(1)}
+	if args.find != "" {
+		print_where(&db, args.find)
+		return
+	}
 
 	reg: script.Registry
 	script.init(&reg)
@@ -44,15 +65,16 @@ main :: proc() {
 	worldstate.init(&ws)
 	vm: slua.VM
 	if !slua.init(&vm, &reg, script.Call{ws = &ws, db = &db}) {os.exit(1)}
-	slua.set_script_dirs(&vm, {os.args[2]})
+	dirs := []string{args.scripts, args.patches}
+	slua.set_script_dirs(&vm, dirs[:1] if args.patches == "" else dirs)
 
-	tally: Tally
+	tally := Tally{trace = args.trace}
 	context.logger = log.Logger{tally_log, &tally, .Debug, nil}
 	start := time.now()
 	made := slua.new_game(&vm, &db)
 	took := time.since(start)
 	start = time.now()
-	cells := cells_arg(&db)
+	cells := cells_arg(&db, args.cells[:])
 	cell_made := 0
 	for cell in cells {
 		cell_made += slua.attach_cell(&vm, &db, cell)
@@ -64,11 +86,21 @@ main :: proc() {
 	slua.tick_transitions(&vm, &db, &ws, &trans, cells)
 	events := slua.drain(&vm)
 	trans_took := time.since(start)
+	if args.driver != "" {
+		code, err := os.read_entire_file(args.driver, context.allocator)
+		if err != nil || !slua.do_string(&vm, string(code)) {
+			fmt.eprintfln("--driver %s failed; its error is in the warnings below", args.driver)
+		}
+	}
 	start = time.now()
 	updates := 0
-	for _ in 0 ..< UPDATE_TICKS {
-		slua.tick_begin(&vm, &db, &ws, &trans, nil, cells, 1.0 / 60)
-		updates += slua.tick_end(&vm, 1.0 / 60)
+	for tick in 0 ..< args.seconds * TICK_HZ {
+		tally.tick = tick
+		slua.tick_begin(&vm, &db, &ws, &trans, nil, cells, 1.0 / TICK_HZ)
+		updates += slua.tick_end(&vm, 1.0 / TICK_HZ)
+		if args.driver != "" {
+			slua.do_string(&vm, fmt.tprintf("if driver_tick then driver_tick(%f) end", f32(tick + 1) / TICK_HZ))
+		}
 		free_all(context.temp_allocator)
 	}
 	update_took := time.since(start)
@@ -77,42 +109,133 @@ main :: proc() {
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
-	fmt.printfln("updates: %d OnUpdate and item events over %d s of ticks (%d registered forms left), run in %v", updates, UPDATE_TICKS / 60, len(ws.updates), update_took)
+	fmt.printfln("updates: %d OnUpdate and item events over %d s of ticks (%d registered forms left), run in %v", updates, args.seconds, len(ws.updates), update_took)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)
 	for m, n in tally.by_msg {append(&rows, Row{m, n})}
-	slice.sort_by(rows[:], proc(a, b: Row) -> bool {return a.n > b.n})
-	for r in rows[:min(len(rows), 40)] {
+	slice.sort_by(rows[:], proc(a, b: Row) -> bool {return a.n > b.n || (a.n == b.n && a.msg < b.msg)})
+	top := len(rows) if args.all_warnings else min(len(rows), 40)
+	for r in rows[:top] {
 		fmt.printfln("%6d  %s", r.n, r.msg)
 	}
-	for r in rows[min(len(rows), 40):] {
+	for r in rows[top:] {
 		if strings.contains(r.msg, "unknown native") {fmt.printfln("%6d  %s", r.n, r.msg)}
 	}
 }
 
-// cells_arg reads --cell: one hex form id, or every cell with refs or actors.
-cells_arg :: proc(db: ^gamedb.DB) -> []gamedb.Form_ID {
-	if len(os.args) < 5 || os.args[3] != "--cell" {return nil}
-	if os.args[4] == "all" {
-		cells := make([dynamic]gamedb.Form_ID)
-		for c in db.cell_refs {append(&cells, c)}
-		for c in db.actor_refs {
-			if c not_in db.cell_refs {append(&cells, c)}
+USAGE :: "usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]... [--patches <dir>] [--driver <file.lua>] [--seconds <n>] [--trace] [--all-warnings] [--where <script>]"
+
+parse_args :: proc() -> Args {
+	a := Args{seconds = 10}
+	rest := os.args[1:]
+	positional := 0
+	for len(rest) > 0 {
+		arg := rest[0]
+		rest = rest[1:]
+		switch arg {
+		case "--trace":
+			a.trace = true
+			continue
+		case "--all-warnings":
+			a.all_warnings = true
+			continue
+		case "--cell", "--patches", "--driver", "--where", "--seconds":
+			if len(rest) == 0 {usage_exit()}
+			value := rest[0]
+			rest = rest[1:]
+			switch arg {
+			case "--cell":
+				append(&a.cells, value)
+			case "--patches":
+				a.patches = value
+			case "--driver":
+				a.driver = value
+			case "--where":
+				a.find = value
+			case "--seconds":
+				n, ok := strconv.parse_int(value)
+				if !ok || n < 0 {usage_exit()}
+				a.seconds = n
+			}
+			continue
 		}
-		slice.sort(cells[:])
-		return cells[:]
+		switch positional {
+		case 0:
+			a.root = arg
+		case 1:
+			a.scripts = arg
+		case:
+			usage_exit()
+		}
+		positional += 1
 	}
-	id, ok := strconv.parse_u64_of_base(strings.trim_prefix(os.args[4], "0x"), 16)
-	if !ok {
-		fmt.eprintfln("--cell: not a hex form id: %s", os.args[4])
-		os.exit(2)
+	if positional < 2 {usage_exit()}
+	return a
+}
+
+usage_exit :: proc() {
+	fmt.eprintln(USAGE)
+	os.exit(2)
+}
+
+// print_where lists every placed ref, quest, alias and other form that carries `name`.
+print_where :: proc(db: ^gamedb.DB, name: string) {
+	carries :: proc(list: []esm.Script_Attach, name: string) -> bool {
+		for a in list {
+			if strings.equal_fold(a.name, name) && !esm.script_attach_removed(a) {return true}
+		}
+		return false
 	}
-	return slice.clone([]gamedb.Form_ID{gamedb.Form_ID(id)})
+	refs := 0
+	for groups in ([]map[gamedb.Form_ID][dynamic]gamedb.Ref{db.cell_refs, db.actor_refs}) {
+		for _, list in groups {
+			for r in list {
+				if r.deleted || !carries(gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator), name) {continue}
+				refs += 1
+				cell := gamedb.ref_attach_cell(db, r)
+				fmt.printfln("ref   0x%X base 0x%X %q  cell 0x%X %s%s", u64(r.form_id), u64(r.base), gamedb.name_of(db, r.base), u64(cell), db.cells[cell].editor_id, "  (disabled)" if r.disabled else "")
+			}
+		}
+	}
+	for form, fs in db.form_scripts {
+		if _, is_ref := db.ref_by_id[form]; is_ref {continue}
+		if carries(fs.scripts, name) {fmt.printfln("form  0x%X %q", u64(form), gamedb.name_of(db, form))}
+		if strings.equal_fold(fs.frag_file, name) {fmt.printfln("frags 0x%X %q", u64(form), gamedb.name_of(db, form))}
+		for a in fs.aliases {
+			if carries(a.scripts, name) {fmt.printfln("alias 0x%X alias %d", u64(form), a.owner.alias)}
+		}
+	}
+	fmt.printfln("%d placed refs", refs)
+}
+
+// cells_arg resolves --cell values: hex form ids, or "all" for every cell with refs or actors.
+cells_arg :: proc(db: ^gamedb.DB, values: []string) -> []gamedb.Form_ID {
+	cells := make([dynamic]gamedb.Form_ID)
+	for v in values {
+		if v == "all" {
+			for c in db.cell_refs {append(&cells, c)}
+			for c in db.actor_refs {
+				if c not_in db.cell_refs {append(&cells, c)}
+			}
+			continue
+		}
+		id, ok := strconv.parse_u64_of_base(strings.trim_prefix(v, "0x"), 16)
+		if !ok {
+			fmt.eprintfln("--cell: not a hex form id: %s", v)
+			os.exit(2)
+		}
+		append(&cells, gamedb.Form_ID(id))
+	}
+	slice.sort(cells[:])
+	return slice.unique(cells[:])
 }
 
 tally_log :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
 	t := cast(^Tally)data
+	if t.trace && (strings.has_prefix(text, "[papyrus]") || strings.has_prefix(text, "[notification]")) {
+		fmt.printfln("t=%.2fs %s", f32(t.tick) / TICK_HZ, text)
+	}
 	if level >= .Error {t.errors += 1}
 	if level < .Warning {return}
 	b := strings.builder_make()
