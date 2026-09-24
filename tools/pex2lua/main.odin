@@ -7,6 +7,7 @@ package main
 //   odin run tools/pex2lua -- <archive.bsa> -o <outdir>         # every scripts\*.pex in a BSA
 //   odin run tools/pex2lua -- <...> --lines                     # annotate with source lines
 //   odin run tools/pex2lua -- <...> --no-inline                 # stop at T1 (diff vs T2)
+//   odin run tools/pex2lua -- <...> --split <list.tsv>          # split the listed bodies (S6)
 //
 // The corpus harness: point it at SE's Skyrim - Misc.bsa (LE splits the same corpus over
 // Misc + the three DLC archives), then check every emitted file with
@@ -38,20 +39,31 @@ main :: proc() {
 	if len(os.args) < 2 {
 		fmt.eprintln(
 			"usage: pex2lua <script.pex | dir | archive.bsa> [-o <outdir>]" +
-			" [--lines] [--no-inline]",
+			" [--lines] [--no-inline] [--split <list.tsv>]",
 		)
 		os.exit(2)
 	}
 	path := os.args[1]
-	outdir := ""
+	outdir, split_list := "", ""
 	for a, i in os.args {
 		if a == "-o" && i + 1 < len(os.args) {
 			outdir = os.args[i + 1]
+		}
+		if a == "--split" && i + 1 < len(os.args) {
+			split_list = os.args[i + 1]
 		}
 	}
 	opt := transpile.Options {
 		line_comments = slice.contains(os.args, "--lines"),
 		no_inline     = slice.contains(os.args, "--no-inline"),
+	}
+	if split_list != "" {
+		text, err := os.read_entire_file(split_list, context.allocator)
+		if err != nil {
+			fmt.eprintfln("could not read %s: %v", split_list, err)
+			os.exit(1)
+		}
+		opt.split = transpile.parse_split_list(string(text))
 	}
 
 	jobs := make([dynamic]Job)
@@ -120,6 +132,7 @@ accumulate :: proc(t: ^Totals, s: transpile.Stats) {
 	t.dropped_cast += s.dropped_cast
 	t.bare_calls += s.bare_calls
 	t.inlined += s.inlined
+	t.split += s.split
 	t.max_locals = max(t.max_locals, s.max_locals)
 }
 
@@ -137,6 +150,7 @@ report :: proc(t: Totals) {
 	fmt.eprintfln("instructions %d", t.instructions)
 	fmt.eprintfln("statements   %d", t.statements)
 	fmt.eprintfln("labels       %d", t.labels)
+	fmt.eprintfln("split        %d bodies", t.split)
 	fmt.eprintfln("max locals   %d (lua 5.4 caps at 200)", t.max_locals)
 	fmt.eprintfln("T1 dropped   %d self-casts", t.dropped_cast)
 	fmt.eprintfln("T1 bare      %d calls to ::NoneVar", t.bare_calls)

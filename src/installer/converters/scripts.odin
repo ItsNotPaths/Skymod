@@ -23,9 +23,14 @@ Script_Stats :: struct {
 // REWRITES are <name>.patch.lua files; the loader applies each over the transpiled <name>.lua.
 REWRITES := #load_directory("../../script/patches")
 
-// rewrites_hash identifies the shipped set, so an install made with another set runs again.
+// SPLIT_LIST names the bodies the transpiler splits at their waits (generated: pexlatent
+// --emit-split).
+SPLIT_LIST :: #load("split.tsv", string)
+
+// rewrites_hash identifies the shipped rewrites and split list, so an install made with others
+// runs again.
 rewrites_hash :: proc() -> u64 {
-	h := hash.fnv64a({})
+	h := hash.fnv64a(transmute([]u8)string(SPLIT_LIST))
 	for f in REWRITES {
 		h = hash.fnv64a(transmute([]u8)f.name, h)
 		h = hash.fnv64a(f.data, h)
@@ -81,6 +86,11 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 	defer virtual.arena_destroy(&scratch)
 	context.temp_allocator = virtual.arena_allocator(&scratch)
 
+	opt := transpile.Options{split = transpile.parse_split_list(SPLIT_LIST)}
+	defer {
+		for k in opt.split {delete(k)}
+		delete(opt.split)
+	}
 	for stem, src in winner {
 		defer virtual.arena_free_all(&scratch)
 		a := &opened[src.arc]
@@ -91,7 +101,7 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 			st.failed += 1
 			continue
 		}
-		lua, _ := transpile.transpile(&p, {}, context.temp_allocator)
+		lua, _ := transpile.transpile(&p, opt, context.temp_allocator)
 		out, _ := filepath.join({out_dir, strings.concatenate({stem, ".lua"}, context.temp_allocator)}, context.temp_allocator)
 		if err := os.write_entire_file(out, transmute([]u8)lua); err != nil {
 			log.errorf("scripts: could not write %q: %v", out, err)

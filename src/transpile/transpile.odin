@@ -21,6 +21,9 @@ Options :: struct {
 	// no_inline stops at T1: one statement per instruction, temps left standing. A debugging
 	// aid — diff it against the inlined form when T2 is the suspect.
 	no_inline:     bool,
+	// split lists the bodies the splitter converts (split.odin): "script\tstate\tfunction",
+	// lowercase, to the code hash the list was made from (`pexlatent --emit-split`).
+	split:         map[string]u32,
 }
 
 Stats :: struct {
@@ -36,6 +39,7 @@ Stats :: struct {
 	dropped_cast: int, // T1: self-casts removed
 	bare_calls:   int, // T1: calls whose result went to ::NoneVar
 	inlined:      int, // T2: definitions folded into their reader
+	split:        int, // S6: bodies split at their waits
 }
 
 // transpile renders one parsed script as a Lua chunk. The returned string is owned by the
@@ -68,6 +72,7 @@ Emitter :: struct {
 	fn:       ^pex.Function,
 	dropped:  []bool, // instruction folded into its reader
 	block_lo: []int,  // per instruction, the index its basic block starts at
+	split:    ^Split, // the body being written is split at these waits
 }
 
 @(private)
@@ -131,6 +136,8 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 		}
 		sbprint(e, "}\n")
 	}
+	splits := plan_splits(e, o)
+	emit_split_fields(e, o, splits[:])
 
 	for &pr in o.properties {
 		emit_property(e, o.name, &pr)
@@ -145,8 +152,14 @@ emit_object :: proc(e: ^Emitter, o: ^pex.Object) {
 	}
 	for &st in o.states {
 		for &f in st.functions {
+			e.split = find_split(splits[:], st.name, &f)
 			emit_function(e, o.name, st.name, f.name, &f)
+			e.split = nil
 		}
+	}
+	if len(splits) > 0 {
+		e.stats.split += len(splits)
+		emit_split_ticks(e, o, splits[:])
 	}
 
 	sbprint(e, "\nreturn ")
@@ -227,10 +240,21 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 		first = false
 	}
 	sbprint(e, ")\n")
+	write_locals(e, f)
+	if e.split != nil {
+		emit_split_drop(e, e.split)
+		emit_body(e, f, 0, e.split.before)
+	} else {
+		emit_body(e, f)
+	}
+	sbprint(e, "end\n")
+}
 
-	// Every local is declared up front. That is what keeps a `goto` from ever jumping into
-	// the scope of a local, which Lua rejects. Each starts at its type's zero, as in Papyrus: a
-	// local can be read before its first write (DLC2ManyToManyFactionRelationScript does).
+// write_locals declares every local up front. That is what keeps a `goto` from ever jumping
+// into the scope of a local, which Lua rejects. Each starts at its type's zero, as in Papyrus: a
+// local can be read before its first write (DLC2ManyToManyFactionRelationScript does).
+@(private)
+write_locals :: proc(e: ^Emitter, f: ^pex.Function) {
 	if len(f.locals) > 0 {
 		sbprint(e, "\tlocal ")
 		for l, i in f.locals {
@@ -248,13 +272,11 @@ emit_function :: proc(e: ^Emitter, obj, state, name: string, f: ^pex.Function) {
 		}
 		sbprint(e, "\n")
 	}
-
-	emit_body(e, f)
-	sbprint(e, "end\n")
 }
 
+// emit_body writes the statements from `from` on; with `only`, just the instructions it marks.
 @(private)
-emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
+emit_body :: proc(e: ^Emitter, f: ^pex.Function, from := 0, only: []bool = nil) {
 	n := len(f.instructions)
 	// One slot past the end: a jump may fall off the bottom of the function.
 	labels := make([]bool, n + 1)
@@ -264,6 +286,10 @@ emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
 			labels[t] = true
 		}
 	}
+	// A resume lands after each wait, which also keeps T2 from folding a value across it.
+	if e.split != nil {
+		for site in e.split.sites {labels[site + 1] = true}
+	}
 
 	dropped, block_lo := plan_inline(f^, labels, e.opt.no_inline)
 	defer delete(dropped)
@@ -271,13 +297,19 @@ emit_body :: proc(e: ^Emitter, f: ^pex.Function) {
 	e.fn, e.dropped, e.block_lo = f, dropped, block_lo
 	defer {e.fn, e.dropped, e.block_lo = nil, nil, nil}
 
-	for ins, i in f.instructions {
+	for ins, i in f.instructions[from:] {
+		i := i + from
+		if only != nil && !only[i] {continue}
 		if labels[i] {
 			sbprintf(e, "\t::L%d::\n", i)
 			e.stats.labels += 1
 		}
 		if dropped[i] {
 			continue // folded into its reader
+		}
+		if e.split != nil && is_wait(ins) {
+			emit_wait(e, i, ins)
+			continue
 		}
 		if emit_stmt(e, i, ins) {
 			e.stats.statements += 1
