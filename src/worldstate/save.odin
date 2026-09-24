@@ -40,7 +40,7 @@ Form_Bridge :: struct {
 	resolve:  proc(user: rawptr, uuid: string, filename: string) -> (slot: u32, ok: bool),
 }
 
-// Ref_Field (9 values) backs bit_set onto a u16; the save lowers `live` through it into a u32. If a
+// Ref_Field (10 values) backs bit_set onto a u16; the save lowers `live` through it into a u32. If a
 // 17th field ever widens the backing integer this assert fires (a loud, correct compile error).
 #assert(size_of(bit_set[Ref_Field]) == 2)
 

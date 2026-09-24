@@ -16,6 +16,7 @@ Ref_Field :: enum u8 {
 	Dead,      // actor life-state
 	Deleted,   // ESM ref destroyed (streaming must suppress the baseline)
 	Activation_Blocked, // BlockActivation: no default action on Activate. The bit is the whole state (a baseline ref is never blocked)
+	Delete_When_Detached, // DeleteWhenAble on an attached ref: deleted when its cell detaches. The bit is the whole state
 }
 
 // HOLE(combat, blocker): `Dead` is a flag a script sets. Nothing computes it — there is no health value anywhere in the engine, no damage application, no hostility and no death path.
@@ -128,6 +129,22 @@ set_activation_blocked :: proc(ws: ^World_State, form_id, cell: Form_ID, blocked
 		upsert(ws, form_id, cell).live += {.Activation_Blocked}
 	} else if d, ok := &ws.ref_deltas[form_id]; ok {
 		d.live -= {.Activation_Blocked}
+	}
+}
+
+// set_delete_when_detached records DeleteWhenAble on a ref whose cell is attached: the ref is
+// deleted when that cell detaches (script-api.md section 5).
+set_delete_when_detached :: proc(ws: ^World_State, form_id, cell: Form_ID) {
+	upsert(ws, form_id, cell).live += {.Delete_When_Detached}
+}
+
+// delete_detached deletes the refs of `cell` that waited for it to detach.
+delete_detached :: proc(ws: ^World_State, cell: Form_ID) {
+	for id in refs_in(ws, cell) {
+		d := &ws.ref_deltas[id]
+		if .Delete_When_Detached not_in d.live {continue}
+		d.live -= {.Delete_When_Detached}
+		d.live += {.Deleted}
 	}
 }
 

@@ -49,6 +49,7 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 		}
 		delete(refs)
 		delete_key(&ws.attached, cell)
+		worldstate.delete_detached(ws, cell)
 	}
 
 	for _, refs in ws.attached {

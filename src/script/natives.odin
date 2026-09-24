@@ -45,9 +45,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "SetScale", n_set_scale)
 	register(reg, "ObjectReference", "GetScale", n_get_scale)
 	register(reg, "ObjectReference", "Delete", n_delete)
-	// HOLE(world, gap): DeleteWhenAble is converted ObjectReference.psc, a Wait(5) poll on the parent cell that shadows this native; it becomes a saved "delete when detached" fact and an objectreference.patch.lua (script-api.md section 5). It keeps 359 dependent call sites latent (S6 phase 2b).
 	// HOLE(world, gap): MoveToWhenUnloaded is converted too, a Wait(5) poll until neither location is loaded; it needs GetCurrentLocation and a loaded location before it can become a "move when both unloaded" fact.
-	register(reg, "ObjectReference", "DeleteWhenAble", n_delete)
+	register(reg, "ObjectReference", "DeleteWhenAble", n_delete_when_able)
 	register(reg, "ObjectReference", "MoveTo", n_move_to)
 	register(reg, "ObjectReference", "Lock", n_lock)
 	register(reg, "ObjectReference", "IsLocked", n_is_locked)
@@ -176,6 +175,17 @@ n_delete :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_deleted(c.ws, c.self, ref_cell(c, c.self))
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
+}
+
+// DeleteWhenAble: at once when the ref's cell is not attached, else when it detaches (the converted
+// ObjectReference.psc loop is replaced by objectreference.patch.lua, script-api.md section 5).
+n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
+	cell := ref_cell(c, c.self)
+	if cell in c.ws.attached {
+		worldstate.set_delete_when_detached(c.ws, c.self, cell)
+		return nil
+	}
+	return n_delete(c, args)
 }
 
 // MoveTo(akTarget, afXOffset, afYOffset, afZOffset, abMatchRotation). First slice:
