@@ -7,6 +7,7 @@ package unit_tests
 // reads through baseline⊕overlay + case-insensitive dispatch.
 
 import "core:log"
+import "core:math"
 import "core:testing"
 import "../../src/formid"
 import "../../src/gamedb"
@@ -487,4 +488,144 @@ test_registry_activate_queues :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, len(ws.activations), 3)
 	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = script.PLAYER, default_only = true})
+}
+
+// A stub answers its fallback: Papyrus's value where the zero would be wrong, else the zero.
+@(test)
+test_registry_fallbacks :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	c := script.Call{self = script.Form_ID(1), ws = &ws, db = &db}
+
+	testing.expect_value(t, script.call(&reg, "Actor", "GetLightLevel", &c, nil).(f32), f32(100))
+	testing.expect_value(t, script.call(&reg, "Actor", "IsInCombat", &c, nil).(bool), false)
+}
+
+// Ref reads over a small world: an interior with a linked chain, and a worldspace whose persistent
+// cell holds a ref standing over one grid cell.
+@(test)
+test_registry_ref_reads :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	F :: script.Form_ID
+	INT, WORLD, PERSIST, GRID :: F(0x100), F(0x200), F(0x201), F(0x202)
+	LOC, WORLD_LOC, KW, DOOR :: F(0x300), F(0x301), F(0x400), F(0x401)
+	A, B, C, OUT :: F(0x500), F(0x501), F(0x502), F(0x503)
+
+	db: gamedb.DB
+	defer {
+		delete(db.cells);delete(db.cell_at_grid);delete(db.world_location)
+		delete(db.ref_by_id);delete(db.linked_refs);delete(db.doors)
+	}
+	db.cells[INT] = {form_id = INT, interior = true, location = LOC}
+	db.cells[PERSIST] = {form_id = PERSIST, world_form_id = WORLD}
+	db.cells[GRID] = {form_id = GRID, world_form_id = WORLD, has_grid = true}
+	db.cell_at_grid[{WORLD, 0, 0}] = GRID
+	db.world_location[WORLD] = WORLD_LOC
+	db.ref_by_id[A] = {form_id = A, cell_form_id = INT, base = DOOR, rot = {0, 0, math.PI / 2}}
+	db.ref_by_id[B] = {form_id = B, cell_form_id = INT, pos = {3, 4, 0}}
+	db.ref_by_id[OUT] = {form_id = OUT, cell_form_id = PERSIST, pos = {100, 100, 0}}
+	a_links := []gamedb.Linked_Ref{{0, B}, {KW, OUT}}
+	b_links := []gamedb.Linked_Ref{{0, C}}
+	db.linked_refs[A] = a_links
+	db.linked_refs[B] = b_links
+	db.doors[DOOR] = true
+
+	a := script.Call{self = A, ws = &ws, db = &db}
+	b := script.Call{self = B, ws = &ws, db = &db}
+	out := script.Call{self = OUT, ws = &ws, db = &db}
+	call :: proc(reg: ^script.Registry, c: ^script.Call, fn: string, args: ..script.Value) -> script.Value {
+		return script.call(reg, "ObjectReference", fn, c, args)
+	}
+
+	testing.expect_value(t, call(&reg, &a, "GetDistance", B).(f32), f32(5))
+	testing.expect_value(t, call(&reg, &a, "GetDistance", OUT).(f32), script.FAR_DISTANCE)
+	testing.expect_value(t, call(&reg, &a, "GetDistance", script.PLAYER).(f32), script.FAR_DISTANCE)
+	ws.player_at = {INT, {0, 0, 10}}
+	testing.expect_value(t, call(&reg, &a, "GetDistance", script.PLAYER).(f32), f32(10))
+
+	testing.expect_value(t, call(&reg, &a, "GetLinkedRef").(F), B)
+	testing.expect_value(t, call(&reg, &a, "GetLinkedRef", KW).(F), OUT)
+	testing.expect_value(t, call(&reg, &a, "GetNthLinkedRef", i32(2)).(F), C)
+	testing.expect(t, call(&reg, &a, "GetNthLinkedRef", i32(3)) == nil, "chain ends in None")
+
+	testing.expect(t, abs(call(&reg, &a, "GetAngleZ").(f32) - 90) < 1e-4, "angle in degrees")
+	call(&reg, &b, "SetPosition", f32(7), f32(8), f32(9))
+	testing.expect_value(t, call(&reg, &b, "GetPositionY").(f32), f32(8))
+
+	testing.expect(t, call(&reg, &a, "GetWorldSpace") == nil, "an interior has no worldspace")
+	testing.expect_value(t, call(&reg, &out, "GetWorldSpace").(F), WORLD)
+	testing.expect_value(t, call(&reg, &a, "GetCurrentLocation").(F), LOC)
+	testing.expect_value(t, call(&reg, &out, "GetCurrentLocation").(F), WORLD_LOC)
+	testing.expect(t, call(&reg, &out, "GetParentCell") == nil, "an unattached exterior reads None")
+	ws.attached[GRID] = make([dynamic]F)
+	testing.expect_value(t, call(&reg, &out, "GetParentCell").(F), GRID)
+	testing.expect_value(t, call(&reg, &out, "Is3DLoaded").(bool), true)
+
+	testing.expect_value(t, call(&reg, &a, "GetBaseObject").(F), DOOR)
+	testing.expect_value(t, call(&reg, &a, "GetOpenState").(i32), i32(3))
+	call(&reg, &a, "SetOpen", true)
+	testing.expect_value(t, call(&reg, &a, "GetOpenState").(i32), i32(1))
+	testing.expect_value(t, call(&reg, &b, "GetOpenState").(i32), i32(0))
+}
+
+// Base-form reads: keywords through a ref's base, form lists with added forms, the location tree
+// and its keyword data, race, and the game time from its global.
+@(test)
+test_registry_form_reads :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	F :: script.Form_ID
+	REF, BASE, KW, LIST, X, Y, Z :: F(0x500), F(0x501), F(0x400), F(0x600), F(0x601), F(0x602), F(0x603)
+	HOLD, CITY, ACTOR, NPC, RACE :: F(0x700), F(0x701), F(0x800), F(0x801), F(0x802)
+
+	db: gamedb.DB
+	defer {
+		delete(db.ref_by_id);delete(db.keywords);delete(db.form_lists)
+		delete(db.locations);delete(db.actors);delete(db.global_values)
+	}
+	kws := []F{KW}
+	members := []F{X, Y}
+	db.ref_by_id[REF] = {form_id = REF, base = BASE}
+	db.ref_by_id[ACTOR] = {form_id = ACTOR, base = NPC}
+	db.keywords[BASE] = kws
+	db.form_lists[LIST] = members
+	db.locations[CITY] = {parent = HOLD}
+	db.actors[NPC] = {race = RACE}
+	db.global_values[script.GAME_DAYS_PASSED] = 3.5
+
+	c := script.Call{self = REF, ws = &ws, db = &db}
+	testing.expect_value(t, script.call(&reg, "Form", "HasKeyword", &c, {KW}).(bool), true)
+	c.self = ACTOR
+	testing.expect_value(t, script.call(&reg, "Actor", "GetRace", &c, nil).(F), RACE)
+
+	c.self = LIST
+	script.call(&reg, "FormList", "AddForm", &c, {Z})
+	testing.expect_value(t, script.call(&reg, "FormList", "GetSize", &c, nil).(i32), i32(3))
+	testing.expect_value(t, script.call(&reg, "FormList", "GetAt", &c, {i32(2)}).(F), Z)
+	testing.expect_value(t, script.call(&reg, "FormList", "HasForm", &c, {Y}).(bool), true)
+	script.call(&reg, "FormList", "Revert", &c, nil)
+	testing.expect_value(t, script.call(&reg, "FormList", "HasForm", &c, {Z}).(bool), false)
+
+	c.self = CITY
+	testing.expect_value(t, script.call(&reg, "Location", "IsChild", &c, {HOLD}).(bool), true)
+	script.call(&reg, "Location", "SetKeywordData", &c, {KW, f32(2)})
+	testing.expect_value(t, script.call(&reg, "Location", "GetKeywordData", &c, {KW}).(f32), f32(2))
+
+	testing.expect_value(t, script.call(&reg, "Utility", "GetCurrentGameTime", &c, nil).(f32), f32(3.5))
 }

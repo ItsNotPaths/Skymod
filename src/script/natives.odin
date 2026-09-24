@@ -78,6 +78,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
 	register_inventory(reg) // ObjectReference/Actor inventory store
 	register_actor(reg) // Actor values + faction/relationship store
+	register_ref_reads(reg) // position, links, cell and location of a ref
+	register_forms(reg) // FormList, Location, keywords, race, game time
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────
@@ -98,17 +100,10 @@ n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
 	return !ref_enabled(c.ws, c.db, c.self)
 }
 
-// n_is_3d_loaded: an enabled ref, placed or created, whose cell is attached to the player's scene.
+// n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
 n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
-	cell: Form_ID
-	if r, ok := gamedb.ref_by_formid(c.db, c.self); ok {
-		cell = gamedb.ref_attach_cell(c.db, r)
-	} else if cr, created := worldstate.get_created(c.ws, c.self); created {
-		cell = cr.cell
-	} else {
-		return false
-	}
-	return cell in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
+	cell := ref_grid_cell(c, c.self)
+	return cell != 0 && cell in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
 }
 
 // ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline
@@ -275,27 +270,40 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────
 
-// ref_cell resolves a ref's CURRENT owning cell — the overlay (if it moved) wins
-// over the gamedb baseline. The setters need it for the per-cell patch index.
+// ref_cell resolves a ref's CURRENT owning cell: the player's live cell, else the overlay (if it
+// moved), the baseline, or a created ref's cell. 0 when the ref has none. The setters need it for
+// the per-cell patch index.
 @(private)
 ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
+	if form == PLAYER {
+		return c.ws.player_at.cell
+	}
 	if d, ok := worldstate.get(c.ws, form); ok && d.cell != 0 {
 		return d.cell
 	}
 	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
 		return r.cell_form_id
 	}
+	if cr, ok := worldstate.get_created(c.ws, form); ok {
+		return cr.cell
+	}
 	return 0
 }
 
-// ref_pos resolves a ref's CURRENT position (overlay Moved wins over baseline).
+// ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
 @(private)
 ref_pos :: proc(c: ^Call, form: Form_ID) -> smath.Vec3 {
+	if form == PLAYER {
+		return c.ws.player_at.pos
+	}
 	if d, ok := worldstate.get(c.ws, form); ok && .Moved in d.live {
 		return d.pos
 	}
 	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
 		return r.pos
+	}
+	if cr, ok := worldstate.get_created(c.ws, form); ok {
+		return cr.pos
 	}
 	return {}
 }

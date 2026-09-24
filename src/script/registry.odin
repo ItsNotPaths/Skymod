@@ -12,7 +12,7 @@ package script
 //
 // The full declared API surface (the 686 natives LE and SE declare together) is
 // auto-stubbed from the generated native_manifest: an unimplemented-but-declared call
-// type-checks, logs once, and returns the zero of its declared type — it never crashes.
+// type-checks, logs once, and returns its fallback (native_fallbacks) — it never crashes.
 // Only the call-frequency hot set (see natives.odin) has real bodies; the long tail
 // stays stubbed until needed.
 
@@ -99,7 +99,7 @@ register :: proc(reg: ^Registry, class, fn: string, impl: Native) {
 }
 
 // call dispatches one native invocation. Three outcomes: implemented → invoke;
-// declared-but-unimplemented → warn once + return the declared type's zero; unknown → warn once +
+// declared-but-unimplemented → warn once + return its fallback; unknown → warn once +
 // None (a call the manifest never declared: usually a form whose kind resolved wrong, rt.odin).
 call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Value {
 	c.reg = reg
@@ -110,17 +110,35 @@ call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Valu
 	first := k not_in reg.warned
 	if first {reg.warned[key_own(class, fn, reg.allocator)] = true}
 	if e, ok := reg.declared[k]; ok {
-		if first {log.warnf("script: unimplemented native %s.%s -> %s zero", e.class, e.fn, e.ret)}
-		return zero_of(e.ret)
+		v := fallback(e)
+		if first {log.warnf("script: unimplemented native %s.%s -> %v", e.class, e.fn, v)}
+		return v
 	}
 	if first {log.warnf("script: unknown native %s.%s (not in the declared manifest)", class, fn)}
 	return nil
 }
 
-// zero_of is a stub's return. Object types stay None, which is their real zero;
+// FAR_DISTANCE is GetDistance between refs in different cells or worldspaces, or with no position.
+FAR_DISTANCE :: f32(1e9)
+
+// native_fallbacks is what a stub answers where its type's zero would be wrong: Papyrus's
+// documented value, else the absent, quiet, done answer (docs/script-rewrite.md "Missing data").
+native_fallbacks := []struct {
+	class, fn: string,
+	value:     Value,
+}{
+	{"Actor", "GetLightLevel", f32(100)}, // bright: a "dark" check (< 30) stays quiet
+}
+
+fallback :: proc(e: Manifest_Entry) -> Value {
+	for f in native_fallbacks {
+		if f.class == e.class && f.fn == e.fn {return f.value}
+	}
+	return zero_of(e.ret)
+}
+
+// zero_of is a type's zero. Object types stay None, which is their real zero;
 // a None for bool would reach Lua as the truthy None sentinel.
-// HOLE(script): a per-native fallback column replaces this: Papyrus's documented value (GetDistance
-// across worldspaces is huge, not 0), else absent/quiet/done (docs/script-rewrite.md "Evaluation and clocks").
 zero_of :: proc(type_name: string) -> Value {
 	switch strings.to_lower(type_name, context.temp_allocator) {
 	case "bool":   return false

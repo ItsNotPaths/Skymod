@@ -21,14 +21,16 @@ register_stores :: proc(reg: ^Registry) {
 }
 
 // ── GlobalVariable ─────────────────────────────────────────────────────────────
-// Overlay-only: an unset global reads 0, not its authored FLTV default. The baseline IS indexed
-// now (gamedb.global_value) — read through c.db here when the globals pass lands.
 
 n_glob_get :: proc(c: ^Call, args: []Value) -> Value {
-	if v, ok := worldstate.get_global(c.ws, c.self); ok {
-		return v
-	}
-	return f32(0)
+	return global_value(c, c.self)
+}
+
+// global_value is a global's value: a script's write, else its authored FLTV, else 0.
+global_value :: proc(c: ^Call, global: Form_ID) -> f32 {
+	if v, ok := worldstate.get_global(c.ws, global); ok {return v}
+	v, _ := gamedb.global_value(c.db, global)
+	return v
 }
 
 n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
