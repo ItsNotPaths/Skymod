@@ -297,10 +297,11 @@ test_registry_quest_baseline :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Quest", "IsObjectiveCompleted", &c, {i32(5)}).(bool), true)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsObjectiveCompleted", &c, {i32(15)}).(bool), true)
 
-	// Explicit Stop overrides the baseline SGE; a stopped quest ignores SetCurrentStageID.
+	// Explicit Stop overrides the baseline SGE; SetCurrentStageID starts a stopped quest again.
 	script.call(&reg, "Quest", "Stop", &c, nil)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsRunning", &c, nil).(bool), false)
-	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(10)}).(bool), false)
+	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(10)}).(bool), true)
+	testing.expect_value(t, script.call(&reg, "Quest", "IsRunning", &c, nil).(bool), true)
 }
 
 // Form-kind method dispatch: a Quest/GlobalVariable/Faction handle resolves methods up its own

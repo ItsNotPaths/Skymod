@@ -137,9 +137,7 @@ test_repl_quest_dispatch :: proc(t: ^testing.T) {
 	defer {slua.repl_destroy(&repl);worldstate.destroy(&ws);script.destroy(&reg)}
 
 	// Set a stage through a bare quest handle, then read it back — routes to Quest.*, not ObjectReference.
-	// Start() first: SetCurrentStageID only advances a running quest (this DB has no baseline SGE flag).
 	slua.repl_eval(&repl, "q = ref(0x000C0DE0)")
-	slua.repl_eval(&repl, "q:Start()")
 	slua.repl_eval(&repl, "q:SetCurrentStageID(30)")
 	testing.expect_value(t, worldstate.quest_stage(&ws, quest), u16(30))
 	testing.expect_value(t, joined(slua.repl_eval(&repl, "q:GetCurrentStageID()")), "30")

@@ -54,18 +54,16 @@ register_quest :: proc(reg: ^Registry) {
 
 // ── stages ───────────────────────────────────────────────────────────────────
 
-// SetCurrentStageID(aiStageID) -> bool: advance a RUNNING quest to a stage. Returns false (no-op) if
-// the stage isn't a defined stage of the quest, or if the quest isn't running — matching Papyrus
-// ("returns true if stage exists and was set"; a stopped quest ignores it). Stage validation is
-// skipped when the quest's baseline is unknown (unparsed / synthetic DB) so it still works there.
+// SetCurrentStageID(aiStageID) -> bool: set a stage, starting the quest first if it is not running
+// (CK: "will wait for the quest to start if it has to start the quest"). Returns false (no-op) if
+// the stage isn't a defined stage of the quest. Stage validation is skipped when the quest's
+// baseline is unknown (unparsed / synthetic DB) so it still works there.
 n_quest_set_stage :: proc(c: ^Call, args: []Value) -> Value {
 	stage := u16(arg_i32(args, 0, 0))
 	if exists, known := gamedb.quest_stage_exists(c.db, c.self, stage); known && !exists {
 		return false
 	}
-	if !quest_running(c) {
-		return false
-	}
+	n_quest_start(c, nil)
 	worldstate.quest_set_stage(c.ws, c.self, stage)
 	return true
 }
