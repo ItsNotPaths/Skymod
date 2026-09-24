@@ -45,7 +45,7 @@ return function(C)
 	end
 
 	function C:OnCellAttach()
-		self.MaxLightningPoints = self:GetLinkedRef():CountLinkedRefChain()
+		self.MaxLightningPoints = self:GetLinkedRef():CountLinkedRefChain(rt.None, 100)
 		self.ShouldCastLightning = true
 		if self:GetState() == "Running" then return end -- a run happens once
 		self.waitT = 0.0

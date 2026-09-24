@@ -53,7 +53,7 @@ return function(C)
 
 		if self.attach == Attach.LinkWait then
 			if self.attachT > 0 then return end
-			self.ilinkchaincount = self:CountLinkedRefChain()
+			self.ilinkchaincount = self:CountLinkedRefChain(rt.None, 100)
 			self.bstarttranslation = true
 			self:Activate(self)
 			self.attach, self.attachT = Attach.Looping, 0.0
