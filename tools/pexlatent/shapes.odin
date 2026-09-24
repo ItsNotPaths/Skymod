@@ -427,15 +427,19 @@ write_shapes_tsv :: proc(c: ^Corpus, path: string) {
 // S6): the three mechanical shapes, in functions whose every caller goes on without them (none,
 // or each call site free at the strict level), never in an engine class. Run after the callers
 // report when --callers is given, and after write_shapes_tsv, which counts the callers.
-write_split_tsv :: proc(c: ^Corpus, path: string) {
+// With `every`, it lists every latent body instead, for the hand rewrites (docs/s5/todo.md).
+write_split_tsv :: proc(c: ^Corpus, path: string, every := false) {
 	b := strings.builder_make()
 	defer strings.builder_destroy(&b)
-	strings.write_string(&b, "# generated: pexlatent --shapes <tsv> --emit-split <this>\n# script\tstate\tfunction\thash\n")
+	fmt.sbprintf(&b, "# generated: pexlatent --shapes <tsv> %s <this>\n# script\tstate\tfunction\thash\n", "--emit-bodies" if every else "--emit-split")
 	n := 0
 	for &node, i in c.nodes {
 		r := &c.shapes[i]
-		if !node.latent || node.in_cycle || r.engine || (r.callers > 0 && !r.callers_free) {continue}
-		if r.shape != .Poll && r.shape != .Single && r.shape != .Seq_Const {continue}
+		if !node.latent {continue}
+		if !every {
+			if node.in_cycle || r.engine || (r.callers > 0 && !r.callers_free) {continue}
+			if r.shape != .Poll && r.shape != .Single && r.shape != .Seq_Const {continue}
+		}
 		for body in r.bodies {
 			fmt.sbprintf(&b, "%s\t%s\t%s\t%08x\n", strings.to_lower(r.script, context.temp_allocator), strings.to_lower(body.state, context.temp_allocator), node.fn, body.hash)
 			n += 1
@@ -445,7 +449,7 @@ write_split_tsv :: proc(c: ^Corpus, path: string) {
 	if err := os.write_entire_file(path, b.buf[:]); err != nil {
 		fmt.eprintfln("failed to write %s: %v", path, err)
 	}
-	fmt.printfln("split list: %d bodies -> %s", n, path)
+	fmt.printfln("%s: %d bodies -> %s", "bodies" if every else "split list", n, path)
 }
 
 shape_report :: proc(c: ^Corpus) {

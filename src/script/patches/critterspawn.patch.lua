@@ -1,3 +1,4 @@
+-- pex: onload 16cd1c2a
 -- CritterSpawn.OnLoad polled ShouldSpawn every fCheckPlayerDistanceTime until it spawned or
 -- bLooping went false. The poll is now OnTick in the waiting state, at that interval.
 local rt = require('skymod.rt')

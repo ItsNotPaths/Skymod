@@ -1,3 +1,4 @@
+-- pex: oncellattach a3079689
 -- As audiorepeateractivator01script.patch.lua, but bRunning follows IsEnabled at the start and
 -- after each wait.
 local rt = require('skymod.rt')

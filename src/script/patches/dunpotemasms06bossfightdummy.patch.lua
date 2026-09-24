@@ -1,3 +1,4 @@
+-- pex: onload 55b6c808
 -- OnLoad ran the whole fight: wait for stage 80, then attack every 8, 6 and 4 s while `phase` (set
 -- by the scene) stays ONE, TWO and THREE, raising the dead between phases, then banish Potema on
 -- FOUR and wait for her "end" animation event. Now OnTick in the fight state walks the steps.

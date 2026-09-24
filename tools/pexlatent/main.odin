@@ -97,11 +97,11 @@ Corpus :: struct {
 
 main :: proc() {
 	if len(os.args) < 2 {
-		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N] [--guards out.tsv] [--shapes out.tsv [--callers out.tsv] [--emit-split out.tsv]]")
+		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N] [--guards out.tsv] [--shapes out.tsv [--callers out.tsv] [--emit-split out.tsv] [--emit-bodies out.tsv]]")
 		os.exit(2)
 	}
 	top_n := 30
-	guards_out, shapes_out, callers_out, split_out := "", "", "", ""
+	guards_out, shapes_out, callers_out, split_out, bodies_out := "", "", "", "", ""
 	paths := make([dynamic]string)
 	for i in 1 ..< len(os.args) {
 		if os.args[i] == "--top" && i + 1 < len(os.args) {
@@ -114,6 +114,8 @@ main :: proc() {
 			callers_out = os.args[i + 1]
 		} else if os.args[i] == "--emit-split" && i + 1 < len(os.args) {
 			split_out = os.args[i + 1]
+		} else if os.args[i] == "--emit-bodies" && i + 1 < len(os.args) {
+			bodies_out = os.args[i + 1]
 		} else if strings.has_suffix(strings.to_lower(os.args[i], context.temp_allocator), ".bsa") {
 			append(&paths, os.args[i])
 		}
@@ -152,6 +154,7 @@ main :: proc() {
 			callers_report(&c)
 		}
 		if split_out != "" {write_split_tsv(&c, split_out)}
+		if bodies_out != "" {write_split_tsv(&c, bodies_out, every = true)}
 	}
 }
 

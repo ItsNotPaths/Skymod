@@ -1,3 +1,9 @@
+-- pex: fire 5d5af4fd
+-- pex: onload c7a28c74
+-- pex: reload 024bcf1f
+-- pex: setfiringstate 8535db7a
+-- pex: setreloadingstate 4ff9c76d
+-- pex: waitforcatapultloaded 0f071716
 -- Four waits: OnLoad polled until the catapult's 3D loaded, SetReloadingState and SetFiringState
 -- waited on its "reloaded" and "launch" events, and Fire stayed Busy through the volley's flight
 -- (CatapultMonitor.RegisterCatapultHit). They are now facts that OnTick and OnAnimationEvent read.

@@ -1,3 +1,6 @@
+-- pex: dothedamage b34ed940
+-- pex: onactivate 28903c5d
+-- pex: oncellattach b444dca8
 -- Two Papyrus poll loops become one OnTick: OnCellAttach checked the player's light level every
 -- 0.1 s, and DoTheDamage (started through Activate) hurt the player every 0.25 s while bDoDamage.
 local rt = require('skymod.rt')

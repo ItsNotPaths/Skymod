@@ -1,3 +1,8 @@
+-- pex: dropoilpools 2a3d7193
+-- pex: ondying 62b994c5
+-- pex: onhit 7e28d3b8
+-- pex: onload bf58d86c
+-- pex: spidercrumble bc0b94a6
 -- DropOilPools looped while bPlaceOil: in combat, drop an oil pool, then wait
 -- fTimeBetweenPlacement. The loop is now OnTick in the running state. SpiderCrumble's closing
 -- Wait(1) held nothing: every caller calls it last.

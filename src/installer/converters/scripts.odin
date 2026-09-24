@@ -4,6 +4,7 @@ package converters
 // to <content>/scripts, and mods ship their own Lua. The hand rewrites of latent functions ship
 // in the binary and are written beside it (docs/script-api.md section 10).
 
+import "core:fmt"
 import "core:hash"
 import "core:log"
 import "core:mem/virtual"
@@ -101,6 +102,11 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 			st.failed += 1
 			continue
 		}
+		for f in REWRITES {
+			if strings.equal_fold(f.name, strings.concatenate({stem, ".patch.lua"}, context.temp_allocator)) {
+				check_rewrite_pins(&p, f.name, string(f.data))
+			}
+		}
 		lua, _ := transpile.transpile(&p, opt, context.temp_allocator)
 		out, _ := filepath.join({out_dir, strings.concatenate({stem, ".lua"}, context.temp_allocator)}, context.temp_allocator)
 		if err := os.write_entire_file(out, transmute([]u8)lua); err != nil {
@@ -131,4 +137,36 @@ script_stem :: proc(path: string) -> (stem: string, ok: bool) {
 	stem = strings.clone(lower[len("scripts\\"):len(lower) - len(".pex")])
 	delete(lower)
 	return stem, true
+}
+
+// check_rewrite_pins warns for each body a rewrite was written against ("-- pex: [state.]fn hash"
+// header lines) whose code here differs, as LE and SE ship different bodies under one name.
+check_rewrite_pins :: proc(p: ^pex.Pex, name, patch: string) {
+	PIN :: "-- pex: "
+	text := patch
+	for line in strings.split_lines_iterator(&text) {
+		if !strings.has_prefix(line, PIN) {continue}
+		fields := strings.fields(line[len(PIN):], context.temp_allocator)
+		if len(fields) != 2 {
+			log.warnf("scripts: %s: bad pin line %q", name, line)
+			continue
+		}
+		key, want := fields[0], fields[1]
+		state, fn := "", key
+		if dot := strings.index_byte(key, '.'); dot >= 0 {state, fn = key[:dot], key[dot + 1:]}
+		got, found := u32(0), false
+		for &o in p.objects {
+			for &s in o.states {
+				if !strings.equal_fold(s.name, state) {continue}
+				for &f in s.functions {
+					if strings.equal_fold(f.name, fn) {got, found = pex.function_hash(&f), true}
+				}
+			}
+		}
+		if !found {
+			log.warnf("scripts: %s: pinned body %s is not in this game's script", name, key)
+		} else if fmt.tprintf("%08x", got) != want {
+			log.warnf("scripts: %s: pinned body %s is %08x here, written against %s", name, key, got, want)
+		}
+	}
 }

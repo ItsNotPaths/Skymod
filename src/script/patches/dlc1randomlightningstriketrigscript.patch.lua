@@ -1,3 +1,6 @@
+-- pex: castlightingbolts 866a7547
+-- pex: handlelightning ef6b1b41
+-- pex: oncellattach 4fd4a521
 -- HandleLightning looped while ShouldCastLightning: wait 8-10 s, then (cell attached) play the
 -- pre-strike sound and wait PreStrikeDelay, strike a random point of the linked chain, and
 -- interrupt a concentrated spell after a short wait. The loop is now OnTick in the running state.

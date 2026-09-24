@@ -1,3 +1,4 @@
+-- pex: oncellattach d7681b40
 -- OnCellAttach played the sound, then waited RandomFloat(delayMin, delayMax), while bRunning and
 -- loaded. The loop is now OnTick in the running state, on a timer.
 local rt = require('skymod.rt')
