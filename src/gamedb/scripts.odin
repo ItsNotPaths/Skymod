@@ -80,11 +80,12 @@ quest_alias_scripts :: proc(db: ^DB, quest: Form_ID, alias: i16) -> []esm.Script
 }
 
 // effective_scripts resolves what a PLACED REFERENCE actually runs: its base form's scripts, plus
-// the ones the reference declares itself, minus any the reference marks removed. A ref's own
-// attachment wins over the base's of the same name, which is what "inherited and modified" means.
+// the ones the reference declares itself, minus any the reference marks removed. A script both
+// carry takes the base's property values with the ref's on top: an "inherited and modified"
+// attachment lists only the properties it changes (DLC1VQ06ReadingTriggerScript: base 20, ref 1).
 //
-// Names fold case, because Papyrus identifiers do. The result is a fresh slice the caller owns;
-// the Script_Attach values inside it stay owned by the DB.
+// Names fold case, because Papyrus identifiers do. The result, and any merged property list, is
+// allocated with `allocator`; the other Script_Attach values stay owned by the DB.
 effective_scripts :: proc(
 	db: ^DB,
 	ref: Form_ID,
@@ -102,9 +103,10 @@ effective_scripts :: proc(
 
 	out := make([dynamic]esm.Script_Attach, 0, len(own) + len(inherited), allocator)
 	for a in own {
-		if !esm.script_attach_removed(a) {
-			append(&out, a)
-		}
+		if esm.script_attach_removed(a) {continue}
+		merged := a
+		if base, ok := attach_find(inherited, a.name); ok {merged.props = merge_props(base.props, a.props, allocator)}
+		append(&out, merged)
 	}
 	for a in inherited {
 		if !attach_named(own, a.name) {
@@ -126,10 +128,35 @@ clone_attachments :: proc(list: []esm.Script_Attach, allocator: runtime.Allocato
 
 @(private)
 attach_named :: proc(list: []esm.Script_Attach, name: string) -> bool {
+	_, ok := attach_find(list, name)
+	return ok
+}
+
+@(private)
+attach_find :: proc(list: []esm.Script_Attach, name: string) -> (esm.Script_Attach, bool) {
 	for a in list {
 		if strings.equal_fold(a.name, name) {
-			return true
+			return a, true
 		}
+	}
+	return {}, false
+}
+
+// merge_props is `base` with each property `top` also sets replaced by top's value, plus top's own.
+@(private)
+merge_props :: proc(base, top: []esm.Script_Prop, allocator: runtime.Allocator) -> []esm.Script_Prop {
+	out := make([dynamic]esm.Script_Prop, 0, len(base) + len(top), allocator)
+	for p in base {
+		if !prop_named(top, p.name) {append(&out, p)}
+	}
+	append(&out, ..top)
+	return out[:]
+}
+
+@(private)
+prop_named :: proc(list: []esm.Script_Prop, name: string) -> bool {
+	for p in list {
+		if strings.equal_fold(p.name, name) {return true}
 	}
 	return false
 }

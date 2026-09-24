@@ -2872,3 +2872,22 @@ test_esm_vmad_remaps_forms :: proc(t: ^testing.T) {
 	obj := fs.scripts[0].props[0].value.(esm.Prop_Object)
 	testing.expect_value(t, obj.form, esm.Form_ID(9) << 32 | 0x42)
 }
+
+// A ref that inherits a script and changes one property keeps the base form's other values
+// (DLC1VQ06ReadingTriggerScript: the base declares 20, the ref only the one it changes).
+@(test)
+test_effective_scripts_merge_props :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	defer delete(db.form_scripts)
+	BASE, REF :: gamedb.Form_ID(0x10), gamedb.Form_ID(0x11)
+	db.form_scripts[BASE] = {scripts = []esm.Script_Attach{{name = "Trigger", props = {{name = "Sound", value = i32(1)}, {name = "Quest", value = i32(2)}}}}}
+	db.form_scripts[REF] = {scripts = []esm.Script_Attach{{name = "trigger", status = 1, props = {{name = "SOUND", value = i32(9)}}}}}
+
+	got := gamedb.effective_scripts(&db, REF, BASE, context.temp_allocator)
+	testing.expect_value(t, len(got), 1)
+	testing.expect_value(t, len(got[0].props), 2)
+	for p in got[0].props {
+		want := i32(9) if strings.equal_fold(p.name, "sound") else i32(2)
+		testing.expect_value(t, p.value.(i32), want)
+	}
+}
