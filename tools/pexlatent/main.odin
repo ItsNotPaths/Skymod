@@ -147,11 +147,11 @@ main :: proc() {
 		for p in paths {scan_bsa(&c, p, shapes_object)}
 		write_shapes_tsv(&c, shapes_out)
 		shape_report(&c)
-		if split_out != "" {write_split_tsv(&c, split_out)}
 		if callers_out != "" {
 			write_callers_tsv(&c, callers_out)
 			callers_report(&c)
 		}
+		if split_out != "" {write_split_tsv(&c, split_out)}
 	}
 }
 

@@ -56,6 +56,8 @@ Shape_Row :: struct {
 	multi_state:         bool,
 	callers:             int,
 	bodies:              [dynamic]Body, // the bodies holding a latent site, for --emit-split
+	engine:              bool, // the script declares natives: an engine class every ref inherits
+	callers_free:        bool, // every call site to it is free at the strict level (--callers)
 }
 
 Body :: struct {
@@ -69,8 +71,17 @@ shapes_object :: proc(c: ^Corpus, p: ^pex.Pex, o: ^pex.Object) {
 	named := 0
 	for &st in o.states {if st.name != "" {named += 1}}
 	multi := named > 1 || (named == 1 && o.auto_state == "")
+	engine := false
 	for &st in o.states {
-		for &f in st.functions {shape_body(c, o, class, syms, &f, st.name, multi)}
+		for &f in st.functions {engine ||= f.is_native}
+	}
+	for &st in o.states {
+		for &f in st.functions {
+			shape_body(c, o, class, syms, &f, st.name, multi)
+			if ni, ok := c.index[fmt.tprintf("%s.%s", class, strings.to_lower(f.name, context.temp_allocator))]; ok && c.shapes != nil {
+				c.shapes[ni].engine = engine
+			}
+		}
 	}
 	for &pr in o.properties {
 		if pr.has_reader {shape_body(c, o, class, syms, &pr.reader, "", multi)}
@@ -413,8 +424,9 @@ write_shapes_tsv :: proc(c: ^Corpus, path: string) {
 }
 
 // write_split_tsv lists the bodies the transpiler splits at install (docs/short-term-plan.md
-// S6): the three mechanical shapes, in functions no latent function calls. Run after
-// write_shapes_tsv, which counts the callers.
+// S6): the three mechanical shapes, in functions whose every caller goes on without them (none,
+// or each call site free at the strict level), never in an engine class. Run after the callers
+// report when --callers is given, and after write_shapes_tsv, which counts the callers.
 write_split_tsv :: proc(c: ^Corpus, path: string) {
 	b := strings.builder_make()
 	defer strings.builder_destroy(&b)
@@ -422,7 +434,7 @@ write_split_tsv :: proc(c: ^Corpus, path: string) {
 	n := 0
 	for &node, i in c.nodes {
 		r := &c.shapes[i]
-		if !node.latent || node.in_cycle || r.callers > 0 {continue}
+		if !node.latent || node.in_cycle || r.engine || (r.callers > 0 && !r.callers_free) {continue}
 		if r.shape != .Poll && r.shape != .Single && r.shape != .Seq_Const {continue}
 		for body in r.bodies {
 			fmt.sbprintf(&b, "%s\t%s\t%s\t%08x\n", strings.to_lower(r.script, context.temp_allocator), strings.to_lower(body.state, context.temp_allocator), node.fn, body.hash)

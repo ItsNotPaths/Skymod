@@ -332,6 +332,7 @@ callers_report :: proc(c: ^Corpus) {
 			split += 1
 			if i not_in callees {split_no_site += 1;continue}
 			for l in Level {if !callee_bad[l][i] {split_ok[l] += 1}}
+			r.callers_free = !callee_bad[.No_Order][i] && !callee_bad[.No_Value][i] // and no caller uses the result
 		}
 	}
 	fmt.printfln("  levels: loose = tail/tail_value/after_indep, no_value = without tail_value, no_order = loose without waw/war")
