@@ -101,6 +101,47 @@ vmad_survey :: proc(path: string) {
 	}
 }
 
+// --vmad-names: every script name the plugin attaches (form, alias and fragment scripts), lower
+// case, one per line, sorted and unique. Removed attachments (status 3) are left out.
+vmad_names :: proc(path: string) {
+	data, err := os.read_entire_file_from_path(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("could not read %s", path)
+		os.exit(1)
+	}
+	defer delete(data)
+
+	s: Vmad_Survey
+	defer vmad_survey_destroy(&s)
+	esm.walk(data, vmad_names_visit, &s)
+
+	names := make([dynamic]string, context.temp_allocator)
+	for k in s.names {append(&names, k)}
+	slice.sort(names[:])
+	for n in names {fmt.println(n)}
+}
+
+@(private = "file")
+vmad_names_visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
+	s := (^Vmad_Survey)(user)
+	fl, backing, fok := esm.fields(rec, context.temp_allocator)
+	if !fok {return true}
+	defer delete(backing, context.temp_allocator)
+	if _, has := esm.find_field(fl, "VMAD"); !has {return true}
+	fs, ok := esm.decode_vmad(rec.type, fl)
+	if !ok {return true}
+	defer esm.free_form_scripts(fs)
+
+	add :: proc(s: ^Vmad_Survey, name: string) {
+		if name != "" {s.names[vmad_keep(s, strings.to_lower(name, context.temp_allocator))] += 1}
+	}
+	for a in fs.scripts {if !esm.script_attach_removed(a) {add(s, a.name)}}
+	for al in fs.aliases {for a in al.scripts {if !esm.script_attach_removed(a) {add(s, a.name)}}}
+	add(s, fs.frag_file)
+	for fr in fs.fragments {add(s, fr.script)}
+	return true
+}
+
 @(private = "file")
 vmad_visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	s := (^Vmad_Survey)(user)

@@ -15,6 +15,7 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --mesg [substr] # message (MESG) survey
 //   odin run tools/esmdump -- <plugin.esm> --perk [skill] # perk records + AVIF perk-tree survey
 //   odin run tools/esmdump -- <plugin.esm> --cobj [bench] # crafting recipe (COBJ) survey
+//   odin run tools/esmdump -- <plugin.esm> --vmad-names     # every script name the plugin attaches
 //   odin run tools/esmdump -- <plugin.esm> --ctda [edid]  # decoded conditions on PERK / COBJ
 //   odin run tools/esmdump -- <plugin.esm> --worlds         # worldspace survey (cells/refs/land)
 //   odin run tools/esmdump -- <plugin.esm> --world <edid>   # one worldspace's tallies
@@ -111,6 +112,10 @@ main :: proc() {
 	if len(os.args) >= 3 && os.args[2] == "--cobj" {
 		filter := len(os.args) >= 4 ? os.args[3] : ""
 		cobj_survey(path, filter)
+		return
+	}
+	if len(os.args) >= 3 && os.args[2] == "--vmad-names" {
+		vmad_names(path)
 		return
 	}
 	if len(os.args) >= 3 && os.args[2] == "--vmad" {
