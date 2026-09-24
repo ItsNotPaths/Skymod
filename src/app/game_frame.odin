@@ -475,12 +475,21 @@ frame_stream :: proc(g: ^Game) {
 @(private = "file")
 tick_scripts :: proc(g: ^Game) {
 	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
+	g.ws.player_at = player_placement(g)
 	if g.repl_ok {
 		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, g.loaded_cells[:], attached_cells(g.fr.active_scene), TICK_DT)
 	}
 	clear(&g.loaded_cells)
 	tick_activations(g)
 	if g.repl_ok {slua.tick_end(&g.repl.vm, TICK_DT)}
+}
+
+// player_placement is the cell under the player, interior or exterior grid cell, and their position.
+@(private = "file")
+player_placement :: proc(g: ^Game) -> worldstate.Placement {
+	if g.trav.mode == .Interior {return {g.trav.cur_int_cell, g.cam.pos}}
+	world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
+	return {gamedb.cell_under(&g.db, world_fid, g.cam.pos), g.cam.pos}
 }
 
 // attached_cells lists the cells attached to the player's scene: the active scene's full-detail
