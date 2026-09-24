@@ -1,803 +1,803 @@
 # generated: pexlatent --shapes <tsv> --emit-split <this>
 # script	state	function	hash
-qf_dbsidecontract01_0001ea5b		fragment_13	bd633d97
-dunsaarthalmasterscript		ondying	d7b3ecff
-dunmzinchaleftgateattentionscript	waiting	onactivate	8ada854b
-dunlabyrinthianwoodenmaskscript		oneffectstart	60071afa
-dunlabyrinthianwoodenmaskscript		oneffectfinish	fd63ed0f
-mg07wavetriggerscript		ontriggerenter	65c0d147
-mg01tolfdirscript		onspellcast	8f58d164
-qf_da07_000240b8		fragment_54	5503d148
-qf_da07_000240b8		fragment_70	ee816684
-qf_da07_000240b8		fragment_18	07b626ac
-defaultdisplayuniqueitemscript		positionitemanddisablephysics	e85e4fab
-ms10shipdestructorscript		onactivate	7df9f961
-qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_35	9fd35f76
-qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_28	f02fcd58
-qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_34	43b59424
-dunpoiwarlockcaptivescript		updateloop	54ea6f2f
-cwsiegescript		faildefensequest	5ad5157c
-cwsiegescript		failattackquest	d39ea57b
-cwsiegescript		succeeddefensequest	d865950b
-dlc1vq08batseffectscript		oneffectstart	22dda3c1
-pf_db09giannapostsoupstandpa_001058ac		fragment_0	59699651
-icewraithparticlesscript		ondying	7b8a74f1
-icewraithparticlesscript		onanimationevent	45d5a071
-defaultenabledisablelinkedref	waiting	ontriggerenter	cedd3d17
-defaultenabledisablelinkedref	waiting	onactivate	f3b9a5b1
-bwcnightingaleghostscript		ondying	cf442792
-bwcnightingaleghostscript		ghostflash	c7ceaaf3
-qf_mq103a_0002d75c		fragment_64	8b54b72d
-dlc2bloodskalbladescript		oncontainerchanged	dd08d1a7
-sf_mg08monkscene_0005a413		fragment_0	ec8cdafa
-qf_we31_000753ca		fragment_9	4b062516
-qf_dunblindcliffqst_00039b3b		fragment_14	3e7f7519
-dlc2mkmiraakrobeabilityeffectscript		onhit	7599b9db
-qf_db06_0001ea55		fragment_10	37ec03a1
-mg01questscript		startplayerhittimer	ef636fcd
-qf_cwsiegequickstart_0009726a		fragment_32	de1d66ad
-qf_cwsiegequickstart_0009726a		fragment_34	e5952697
-qf_cwsiegequickstart_0009726a		fragment_33	60d241aa
-qf_cwsiegequickstart_0009726a		fragment_35	74741a44
-defaultghostscript		ondying	1eb7ff78
-magiceffectshaderapply		oneffectstart	88c14d75
-qf_db10_0003ceda		fragment_67	8386f1f8
-qf_db10_0003ceda		fragment_64	af3642e9
-qf_db10_0003ceda		fragment_18	1ef94147
-qf_db10_0003ceda		fragment_24	f27d4fed
-dbshadowmeretriggerscript		ontriggerenter	bd8463c9
-qf_freeformwhiterunquest02_0009380b		fragment_0	fe77f814
-statsplayerposition		main	0bd6e75e
-cwcatapultweaponfirescript	fireloop	onbeginstate	e97e49e4
-e3demojumpaheadscript		transition	025e91a0
-physicstrap		firetrap	47b2cb23
-dunkilkreathcrystalpedastalscript		onactivate	0930be4a
-cwmission07stewardscript		monitorplayerdistance	6a59e638
-mgritualdremorascript		ondeath	1036113f
-dunhillgrundstombendcontroller	endsequenceactive	onbeginstate	8f730f07
-sf_da15pelagiusmeet_0002ac6d		fragment_0	2830bd6e
-dlc2explodingspidereggscript		watchplayer	57e5c692
-dlc2fishmanscript		ongetup	7ddfa3e1
-cwgarrisonobserversoldierscript		ondeath	26e3a279
-qf_dbsidecontract09_0001ea65		fragment_12	4ef6ac74
-da09script		teleportplayertosky	4ce0e737
-vampiresunismdeffectscript		oneffectstart	2409d851
-dlc1magieffectshaderdistancescript		oneffectstart	7bb51c1d
-qf_dbrecurringintromisc_00097255		fragment_0	bec41210
-dlc2book02dungeonbridgetrigger	buffer	onbeginstate	c87e3b95
-dlc2book02dungeonbridgetrigger	waiting	ontrigger	e568e10a
-ms04ghostshaderobject		fadeout	e2730fa9
-ms04ghostshaderobject		onload	1c7db6b9
-ms04ghostshaderobject		popin	7e655bdd
-ms04ghostshaderobject		fadein	d6117473
-byohbreezehomenavcutmanager		oncellattach	ac180066
-tg05ruinsdoorscript		onactivate	87872f99
-dundarklightleverscript		onactivate	be4f0792
-pf_tg08akarliahopengatepackag_000dcae5		fragment_0	28868e90
-dwespherecenturionportscript	listening	onactivate	26efb6d9
-tif__0002b836		fragment_0	e3de5989
-tif__00037b5e		fragment_0	2ac17818
-tif__00039830		fragment_0	baff6b80
-qf_dundarklightqst_0003fa89		fragment_21	e4af7ff3
-dunmiddenatronachforgescript	ready	onactivate	9ed985ec
-defaultnpcruntotrig		triggernpc	bd177aa7
-tif__000618a9		fragment_0	2ac17818
-tif__000618aa		fragment_0	2ac17818
-tif__000618ac		fragment_0	2ac17818
-tif__000618ad		fragment_0	2ac17818
-tif__000618af		fragment_0	2ac17818
-tif__000618b0		fragment_0	2ac17818
-tif__000618b2		fragment_0	2ac17818
-tif__000618b3		fragment_0	2ac17818
-tif__000618b5		fragment_0	2ac17818
-tif__000618b8		fragment_0	2ac17818
-tif__000618b9		fragment_0	2ac17818
-tif__000618bc		fragment_0	2ac17818
-tif__000618be		fragment_0	2ac17818
-tif__000618bf		fragment_0	2ac17818
-tif__000618c1		fragment_0	2ac17818
-tif__000618c2		fragment_0	2ac17818
-tif__000618c4		fragment_0	2ac17818
-tif__000618c5		fragment_0	2ac17818
-dlc1magicharkondeathfxscript		oneffectstart	c999be7f
-dlc1magicharkondeathfxscript		oneffectfinish	317ea63d
-werewolfpusheffectscript		oneffectstart	ca59a868
-dlc2ashspawnconstantfx		ondeath	d812af41
-dragonpriestactorscript		ondying	c9daa9d6
-sf_duntalkingstoneqst_attack_000b5f85		fragment_1	4693eac0
-qf_companionsmiscobjective_000d19b9		fragment_0	a87a11bc
-dlc2dunbook02tunnelscriptenabledisable	waiting	onactivate	0f4b8753
-dunmarkarthwizardscenepolldetection		polldetection	a64016b8
-dlc1dunredwaterskoomaeffectscript		oneffectstart	3129a1ab
-qf_db03_0001ea52		fragment_14	8e75e2d3
-dlc1crystalcasterscript		oncellattach	6828a3ab
-ghosttrap	hover	onbeginstate	4a9a3877
-dunilinaltassecondbossscript	waiting	oncombatstatechanged	2f0cb844
-dlc1nvampirebloodplaguescript		createashpile	add63097
-trappoisongas	tempcleared	onbeginstate	4ed7a4e9
-darkwatercavernderkeethusmovescript		ontriggerenter	9293a57f
-dlc1vq01puzzlecoffinscript	waiting	onactivate	f7262b91
-defaultcastontriggerscript	active	ontriggerenter	e68662c4
-wealiasscript		ondying	9584cfca
-dlc1elfhousedropscript		onactivate	bbba75d0
-sf_db09potageeatscene_0001bcba		fragment_0	daa83ffc
-qf_dbsidecontract06_0001ea62		fragment_8	e32088f8
-qf_da01_00028ad6		fragment_28	3a36b948
-qf_dbsidecontract10_0001ea66		fragment_6	0dece7f6
-da05questingbeastscript		ondeath	387780db
-qf_da16_000242af		fragment_120	a1116c55
-qf_da16_000242af		fragment_118	a41aaa99
-qf_mqcalldragon_00046b8e		fragment_10	69b8ff47
-cwsiegecitydoorscript		onactivate	4fe28f91
-dlc2spectraldragondeathscript		ondeath	81755d0f
-dlc2spectraldragondeathscript		onupdategametime	c207a3ec
-tg08bencountertrigger01script		ontriggerenter	e96f3f89
-dlc1fxdeathhoundscript		ondeath	fb90bdc3
-dunyngolhelmetscript		onactivate	d67d54c9
-qf_da15return_0010ff8f		fragment_6	a9b2f785
-dlc01soulcairncratterscript		ontriggerenter	f18e4d24
-qf_tg08_00021554		fragment_30	4f16bb9a
-dlc2expspideroilscript		dropoilpools	c0b1b7f3
-dunhaltedstreamcampghostdebris	hover	onbeginstate	4a95c61a
-dlc1ld_lavaimodscript		oneffectstart	b00bed28
-dlc1soulcairncreaturefx		ondying	0d97bb7c
-hangingkeyattachonload		onload	a1c54cef
-dlc1fadingghostscript		fadeout	892a6231
-dlc1fadingghostscript		fadein	84357075
-wifunctionsscript		startgametag	f20318a9
-dlc2bbstoprunescript		oneffectstart	0a02e8ce
-cwreinforcementcontrollerscript		registerdeath	db9d1611
-tif__000d3e7d		fragment_0	2ac17818
-tif__000d3e82		fragment_0	2ac17818
-tif__000d3e83		fragment_0	2ac17818
-dlc2kagrumezgemscript	fightstate	onbeginstate	6d1ac0b7
-dlc2kagrumezgemscript	default	onactivate	c3057735
-tif__000f500b		fragment_0	2ac17818
-tif__000ff125		fragment_0	06ee6408
-tif__000ff127		fragment_0	58b6bc46
-tif__000ff129		fragment_0	8efbfb83
-dlc1fxdwarvencenturionscript		ondying	3dda9635
-dlc1vq06questscript		scrollread	446d8138
-dlc1vq06questscript		addmoths	136c8d9e
-dlc2wb01torkildscript		transform	5bdbcbbb
-dlc2_qf_dlc2we09_020331c0		fragment_5	e63496df
-qf_db01miscobjective_000bc8b6		fragment_0	a87a11bc
-dlc1_qf_dlc1_wesc01_010034de		fragment_1	397011f6
-dunyngollightsoutscript		ontriggerenter	d8475f57
-qf_dbrecurring_0001ea5a		fragment_0	1b917543
-duntransmogrifyanimal		onload	525c4fc6
-da02script		pillarkill	c8f8e4cf
-da02script		resurrectcounduit	2d264d75
-mq105tombscript		onactivate	83a95d02
-fxdwarvencenturionscript		ondeath	169dd2d1
-dlc01wesc09script		runloop	72916e14
-magiccastanotherspellscript		oneffectstart	966cd269
-ms04memmoryeffectscript		popin	723d4973
-ms04memmoryeffectscript		onload	7744e663
-pdbentrancequestscript		onsleepstart	e1bf7401
-pressureplate	active	onbeginstate	5165a4eb
-byohproudspirenavcutmanager		oncellattach	70ef5845
-dlc1gargoylebrutehandfxscript		oneffectfinish	01a5beaa
-dunsightlesspitbossscript		onupdate	bdc6f9b0
-dlc2_qf_dlc2mq07_020179d7		fragment_22	1dd4beb9
-dlc2_qf_dlc2mq07_020179d7		fragment_15	e1ff9949
-dlc1radiantscript		stopquestandstartnewone	b0cad9ce
-dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_10	1c1e9637
-dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_1	e934583d
-dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_6	b43e66cd
-tg08bmercerinvisibilityeffectscript		oneffectstart	66321c2c
-dlc1_qf_dlc1vq07_01002853		fragment_22	18799a9e
-dlc1_qf_dlc1vq07_01002853		fragment_25	aafbb6ee
-dlc1_qf_dlc1vq07_01002853		fragment_44	6c8a8813
-dlc1dunharkonshieldeffectscript		oneffectstart	e00a315a
-dlc2encexplodingspiderscript		onload	5ace3411
-mg08paralysiseffectscript		oneffectstart	7b68c010
-dlc1skeletonambushscript	alldone	onbeginstate	5cb75df4
-qf_dbsidecontract03_0001ea5f		fragment_9	e72009a5
-dlc1vampirecastlecontrollerscript		enabledoortocourtyard	55ac01e7
-snowveilkeyholescript	mainstate	onactivate	00474f65
-dlc1horsequestgetskullscript		ontriggerenter	1ea67638
-sf_mgrarniel04finalscene_000e0d0b		fragment_0	2c4a3cda
-dunpoisoldiersraidonstart		updateloop	8126bf38
-dlc2dbdragonsbreatheffectscript		spawndragons	bfb11c76
-dlc2dbdragonsbreatheffectscript		despawndragons	78dc451d
-qf_wedl07_000b91e3		fragment_7	0eb7830f
-dlc2dunseekerinvisscript	waiting	oncombatstatechanged	5f4aea86
-dlc2dunkarstaagicewraithparticles		onanimationevent	45d5a071
-dlc1_bf_icechunkscript		ondestructionstagechanged	8071bcbf
-critterspawn		onload	6c144c4a
-dunmarkarthwizardplatesystemmanager		onload	e9c71afb
-dunmarkarthwizardplatesystemmanager	down	onbeginstate	3f4a74da
-dunmarkarthwizardplatesystemmanager	up	onbeginstate	d31ba970
-defaultstartsceneaterdelaytrigscript	waiting	ontriggerenter	ce66e440
-dungeirmundduplicatespellmanager		summon	1a2119d8
-dungeirmundduplicatespellmanager		banish	02127dda
-companionsbladefragmenttracking		setmountings	cabb6796
-qf_db01objective_000bc8b7		fragment_0	a87a11bc
-dunbluepalacewabbajackscript		arenatransformation	ca75a7c1
-howlsummonwolffxsscript		ghostflash	9ccbd1c8
-dlc2_qf_dlc2sv01_02019b4a		fragment_36	3cebf1dd
-defaultsetstageactrefaliasscript	waitingforplayer	onactivate	816dad48
-qf_tg05_00021551		fragment_15	4772a35d
-dunkagrenzelanimationactivationscript	listening	onactivate	8558e449
-defaultcastfromlinkontriggerscript	active	ontriggerenter	2396638e
-dlc2dunkarstaagghostscript		dissolvekarstaag	74953eb2
-mq104playerscript		onlocationchange	6df7d471
-t01dibellasaltarscript		onactivate	c57bb9a9
-dlc2fxinsturmentssummonscript		oneffectstart	e3823396
-dlc2fxinsturmentssummonscript		oneffectfinish	f60d269b
-fxreadelderscrollscript	wait	onbeginstate	ecabc5c6
-fxreadelderscrollscript	temploop	onbeginstate	e1431d04
-fxreadelderscrollscript	timetravel	onactivate	d8d5a1b5
-fxreadelderscrollscript	timetravelcleanup	onactivate	b4fb6522
-fxreadelderscrollscript	alduintimejump	onactivate	276f596f
-dlc2_tif__0201cdc9		fragment_0	8da5581c
-dlc2_tif__0201cdd5		fragment_0	a51d6c57
-pf_dunsnowypoighosttravelpack_00039162		fragment_0	746a466c
-defaultrumbleonactivate	active	onactivate	dfd9479d
-dlc2_tif__02033c5f		fragment_0	41f14454
-dlc1magicvampdrainfxrangescript		rundistancechecksandstuff	76990265
-dlc1vq08batsswapeffectscript		oneffectstart	e3171322
-dlc2summondremoramerchantscript		oneffectfinish	04ec9c0e
-dlc2_pf_dlc2mq06miraakwhirlwi_0202a6c9		fragment_1	3c317f50
-dlc2dbbooklevellighttrigscript		dothedamage	ef2f0ec0
-dlc2dbbooklevellighttrigscript		oncellattach	571462c8
-dunlostechocaveburnmushrooms		onactivate	41a988db
-dlc1dunharkonreanimatedminions		ondying	eb42768d
-dunmarkarthwizardbipressureplate	up	onbeginstate	237fc8da
-dunmarkarthwizardbipressureplate	down	onbeginstate	5e1c75cf
-qf_db08_0001ea57		fragment_10	f8b49235
-dlc2dbancientdragonbornscript		onload	acac875d
-dlc1sabrecatfxglowscript		onupdate	6233a36e
-dlc1sabrecatfxglowscript	waiting	ongainlos	ab9bceab
-dbsanctuarydb10loadcheck		runfireshakerumble	5fac7e7d
-dunfolgunthurbossbattlespell		oneffectstart	45b77534
-dunreachwaterrockjyrikbossbattle		endjyrikbattle	b585ef39
-qf_dunansilvundqst_0003d721		fragment_9	edb563d9
-qf_dunansilvundqst_0003d721		fragment_10	d8d84e45
-qf_dunansilvundqst_0003d721		fragment_6	aa249c4f
-dbsanctuaryfireshakerumble		loopmanager	36d581db
-qf_freeformwhiterunquest04_00094e3c		fragment_0	b4e7c5f3
-carriagesystemscript		stopriding	6e93eea1
-carriagesystemscript		onupdate	248d0390
-carriagesystemscript		playerissitting	d28fe51b
-carriagesystemscript		addpassenger	3da30191
-carriagesystemscript		rideincart	c84e4c2c
-mq105questscript		sprintstarttriggerchangestate	b7547718
-dlc1zfvpoientracetrigscript		ontriggerenter	f4da420f
-dlc2book01dungeongendeathtrackerparent		triggerendevent	ac4daa27
-dlc1_sf_dlc1_bf_duntempleqsts_01006c16		fragment_6	eed6ca21
-dunmiddenrewardchestscript	ready	ontriggerenter	cd04387c
-c00jorrvasrkstopfighttriggerscript		ontriggerenter	baaa71b9
-magicdispelspellonhitscript		oneffectstart	8b3093ab
-mg07labyrinthianbarrierscript		onload	1f8aaeee
-dlc1deerfxglowscript		onupdate	e55dfff7
-dlc1deerfxglowscript	waiting	ongainlos	2e8071ac
-dlc1_npcmentalmodelscript		axiscrossedover	f9f0481a
-cartdriverscript	normal	oncellload	5a4c1f07
-dlc2dunildariscript	ripheartout	onactivate	a06ec158
-dunstonehilllairdelayedlever	pushedposition	onactivate	ead56b1b
-dunstonehilllairdelayedlever	pulledposition	onactivate	02339a4b
-da15wabbajackeffectscript		castinvis	6cef3d1b
-da15wabbajackeffectscript		hsmtransfer	16064a98
-da15wabbajackeffectscript		spawnghostfriend	3bf77b73
-dlc2expspiderglowingscript		countdowntodeath	c29af63e
-dlc2expspiderglowingscript		spidercrumble	10921d75
-qf_da10_00022f08		fragment_72	e6fd14d9
-qf_da10_00022f08		fragment_55	3d781e75
-dlc1vampiretransformvisual		transformifnecessary	5e71bd7e
-da16mistfill		docoughing	5b9e561a
-dunrannveigsfasttrapdoorscript	defaultstate	ontriggerleave	b6dd8832
-playerwerewolfchangescript		actuallyshiftbackifnecessary	f51c2c5b
-db05fallingstatueactivate		triggerstatuefalling	558965e7
-magicattachashpileondeath		ondying	9597d8e1
-trailerdragonflyoffscript		onupdate	900c24c6
-dlc2duntempleofmiraakrumblescript		onactivate	43b6b0b4
-defaultstartsceneifnocombattrigscript	waiting	ontriggerenter	5359a6c5
-qf_dunhalldirscairnqst_0003ad4a		fragment_0	1974d8fd
-magicnighteyescript		oneffectstart	cfede71e
-sf_dungauldursonqst_finale_000ecee0		fragment_20	5cf86717
-sf_dungauldursonqst_finale_000ecee0		fragment_1	d63b5060
-sf_dungauldursonqst_finale_000ecee0		fragment_5	14a9c7d4
-qf_relationshipmarriageweddin_0007404e		fragment_17	c26c3989
-dunhalldirghostambushscript	waiting	onload	807c0458
-qf_e3demo_00093637		fragment_3	dde5d35b
-qf_e3demo_00093637		fragment_26	730c4c0f
-fxmagicanomalyscript		ondying	32627036
-oghmainfiniumscript		readoghmainfinium	dfe64627
-dlc2dunnchardakaqueductcontroller		activationcomplete	ed173b63
-sf_drgscene_000e670a		fragment_1	3214f0e2
-dunharmugstahlspider		oncombatstatechanged	ff9d49c7
-dunharmugstahlspider		ondeath	26ef6eeb
-qf_dunliarsretreatqst_000aa5d6		fragment_7	8df26609
-qf_dunliarsretreatqst_000aa5d6		fragment_1	d4017306
-audiorepeateractivator01script		oncellattach	3c249aa0
-dlc2wecultistambushplayerscript		stopquestifnotinlocationandcultistsnotloaded	9b69d414
-flameatronacheffectscript		ondying	44c6e19b
-dlc2burtspigganfxscript	alive	onanimationevent	cf2d9019
-dlc2burtspigganfxscript	alive	onhit	0b0a6c0a
-dlc1_qf_dlc1seranacureselfque_01005044		fragment_3	b90a45f0
-dlc2dunenabledisablelinkrefonacttimer	waiting	onactivate	d5436555
-fxgreybeardshoutscript	playing	onanimationevent	c9cc3233
-dlc2miraakfxtestscript		onload	fe7b719a
-dunfellglowbossbattle		teleport	ac2f6d43
-helgenhallcollapsescript		triggercollapse	6892cfe8
-qf_mg08_0001f258		fragment_10	fc61edf3
-dunfolgunthurbosstrigger	waiting	ontriggerenter	6d396c01
-mqhrothgarpilgrimmagetabletscript		onactivate	f7df4376
-dlc2toldarstombpuzzleplatescript		onactivate	11068953
-c00vilkastrainingscript		playersheathe	a6cbdb31
-dlc1lycanthropyregiftquestscript		regift	916e7588
-qf_dunhillgrundstombqst_0003e897		fragment_4	10900e8b
-dlc1_qf_dlc1_wesc06_01003511		fragment_1	51af54bf
-mg08paralysisabilityeffectscript		oneffectstart	e0b6fe8b
-dlc1ld_forgemasterbossbattle		runupdateloop	d35060a1
-dlcmoteareascript		onload	fab75b37
-qf_wicastmagic01_00070217		fragment_3	cc23b702
-qf_db05_0001ea54		fragment_7	0b320f1e
-dlc1dunharkonbossbattle		enddeaththroes	782ad309
-qf_dunforelhostqst_00035354		evalgrifterref	e9a5805b
-qf_tg09post_000e1782		fragment_2	c33cc936
-dlc1dunwaygatescript	waiting	onactivate	b1bf58f9
-qf_dunmidden01qst_00055977		fragment_12	172df05c
-critterbird		groundhop	0cdbf524
-critterfish		onstart	7fe07bbc
-duncgfxbirdfleescript	waiting	ontriggerenter	eb175db6
-da16dreamguardianambush	alldone	onbeginstate	c227160c
-dunkarthspirelighttunnelscript		ontriggerenter	e3a254f8
-qf_freeformwhiterunquest01_000934f9		fragment_0	a87a11bc
-da16barriereffectscript	waiting	onactivate	35e92c51
-summonskeletonlegionscript		oneffectstart	dc308806
-qf_dungauldursonqst_000e4d31		fragment_14	998e7661
-qf_dungauldursonqst_000e4d31		fragment_15	1ab14950
-qf_dungauldursonqst_000e4d31		fragment_16	710912f8
-qf_dungauldursonqst_000e4d31		fragment_5	6a7335e0
-mg08barrierrefscript		onhit	5afe166b
-qf_db01misc_0001ea4f		fragment_0	45bc883e
-dlc2_qf_dlc2dunnchardaktracki_020173be		fragment_10	e4919038
-dlc2dunfahlbtharzhelmeffectscript		oneffectstart	0d66066f
-mg03questscript		onupdate	c19fe6bc
-dlc2expspiderdeadspiderscript		onload	90cb72cc
-qf_dunustengravqst_0002125b		fragment_17	691705a3
-fxfakecritterscript		onactivate	65ef90c3
-powershrinescript	base	onactivate	62b64658
-qf_da03_0001bfc4		fragment_37	d031e234
-qf_da03_0001bfc4		fragment_38	4aa869ca
-qf_dbsidecontract08_0001ea64		fragment_6	0dece7f6
-qf_dbsidecontract12_0001ea68		fragment_9	0dece7f6
-dlc1nvampirenecklacegargoylescript		onload	2e5d9df2
-qf_wedl01_000b8141		fragment_1	5e8770b5
-dlc2foxblessingscript		oneffectstart	a8be5963
-trapbreakawaybase	unbroken	ontriggerenter	49de60a7
-qf_mg04monkscenequest_00076f39		fragment_0	b7a79ba0
-qf_dunfrostflowabyssqst_00048121		fragment_2	093af769
-dlc2dunkolbjorncataleverpuzzle	waitingforplayer	onactivate	a4b36308
-dlc2dunfahlbtharzsteampuzzlecontroller		opendoor	f1c102ea
-dlc2dunfahlbtharzsteampuzzlecontroller		endsteamvent	fc9f1c0c
-dlc1rnpcplaysceneafterinterval		ontriggerenter	1a06b73b
-dunforsakencavems12script	waiting	onactivate	74c7fdc9
-hallofstorieskeyholescript	mainstate	onactivate	542125c6
-qf_mgritual03_00099f27		fragment_9	aa5c47cd
-dlc1onaddhorseskull		oncontainerchanged	a15ebf7a
-da13dremorafxwhenenabledscript		ondead	154551f7
-c00jorrvaskrfightathisscript		onenterbleedout	1432c98e
-qf_mg01shoutupdate_000b812e		fragment_0	ed987009
-dunreachwaterrockenabledelegate		onload	44d024bf
-dlc2_qf_dlc2rr00_0201bfe9		fragment_1	1cbeedcd
-sf_mg06doorscene_0004d8d0		fragment_16	dcd92717
-sf_mg06doorscene_0004d8d0		fragment_0	74e9ce90
-dlc1gargoylebossscript	damageable	onbeginstate	c046224d
-dlc2nb01corpseforce		onactivate	8eddf400
-qf_weroad01_001034df		fragment_12	103fb853
-qf_weroad01_001034df		fragment_7	a51c10c0
-da11verulusscript		onactivate	83bb52a4
-mgrappb01spelleffectscript		oneffectstart	51c2cd4c
-da10ghosttrap	hover	onbeginstate	d38940bc
-defaultdisableonloadafterwait		onload	15f979f8
-magicimodscript		oneffectstart	4174c260
-qf_mq104b_0002610c		fragment_35	69fd2e67
-qf_mq104b_0002610c		fragment_39	d5016b48
-qf_dbolavareadingmiscobjectiv_0002e655		fragment_0	a87a11bc
-mgritual04augurtriggerscript		ontriggerenter	f79fbe97
-dunshroudhearthspinnerpuzzlecontroller		onactivate	f4dcc591
-e3arveltrapscript	listening	ondeath	43434db6
-fxdwarvenspherescript		ondeath	e569601a
-defaultdisplayiteminlistscript		positionitemanddisablephysics	b0d32565
-qf_db02_0001ea51		fragment_26	c0c640b9
-qf_db02_0001ea51		fragment_5	b10b1135
-dlc2_qf_dlc2dunhaknirtreasure_02024002		fragment_1	2553206b
-tg08bfightcontroller		mercerdrainspelldone	70ca8688
-tg08bfightcontroller	active	onbeginstate	4237389c
-dlc2audiorepeateractivator01script		oncellattach	3285f549
-c04glenmorilwitchheadscript		oncontainerchanged	e4419a65
-dunkilkreathbeamshooterscript		onactivate	94175b61
-dunda14portalscript	waiting	ontriggerenter	c7050a2f
-defaultforceevaluatepackagetrigger		ontriggerenter	6cd1e3bd
-dlc1_prkf_dlc1vampiricgrip_0100599a		fragment_1	f0bae588
-dlc1cavewormtriggercontrolscript	gothit	onbeginstate	87219c1d
-playerbookshelfcontainerscript		onactivate	d26de1d6
-playerbookshelfcontainerscript		onitemadded	63e7ce41
-companionshousekeepingscript		setupcompanions	3e6c8f22
-dlc1_bf_iceshieldtrigscript		onupdate	f5a18ccd
-dunhalldirbossbattleforms		ondying	84205164
-mq304lostsoulscript		testforalduinhit	dbb31a26
-magicanomalyspawnerscript	waiting	ontriggerenter	a0bfd104
-dunpoitrollbattleonstart		updateloop	31b917b3
-defaultcastfromlinkonactivatescript	active	onactivate	2396638e
-dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_41	e7278649
-dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_52	694f131d
-dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_51	a131742d
-dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_14	0ac03691
-qf_dbsidecontract05_0001ea61		fragment_7	e32088f8
-dlc1vq05dragondeathscript	done	ondying	d7a14623
-dlc1vq05dragondeathscript	waiting	ondying	c9672e95
-magicattachashpile		oneffectstart	ef697ba0
-dlc2dunkarstaagbonefxscript		onupdate	f46a4e22
-dunshafttrapscript		onupdate	a86c27e4
-karthspireredoubtcagedoorscript		onactivate	9877113e
-spellsummondraugrbomb		onhit	13d041dc
-mqgreybeardabsorbscript		dragonabsorbeffect	e5cce4c4
-mqgreybeardabsorbscript		absorbeffect	3d7043b3
-dlc1huntercavepressureplate		ontriggerenter	56910d9d
-dunhillgrundstombboss		doteleport	43e7e381
-dlc2soulstealscript		absorbsoulfrommiraak	203a482d
-dunraldbtharwebtriggerscript	waiting	ontriggerenter	4b3c1d5d
-dunkarthshamanscript		ondeath	38d3f74c
-dlc2dunhighpointcasttrigscript	active	onactivate	aee5c19b
-sf_da15pelagiusend_0002ac6e		fragment_1	263c42c8
-sf_da15pelagiusend_0002ac6e		fragment_4	733c7f64
-dlc1vq01puzzlebuttonscript	waiting	onactivate	9fe4ffa3
-dunpoiavalanche		onload	6b104ee3
-dunpoiavalanche		onactivate	a9422146
-c03sacredfontscript		onactivate	f487a297
-fxchargenfxscript		onload	cda801f8
-magictrap	pause	onbeginstate	735e97e9
-dlc1batseffectscript		onanimationevent	013679ef
-dlc1batseffectscript		oneffectfinish	f29ebb3c
-dlc1arkngthamzdestructionscript		onactivate	f23f31ac
-dunustengravrumblescript		onactivate	62aea29b
-dlc2kagrumezlightningscript	buffer	onbeginstate	526a5ec1
-qf_mq201_00035d5f		fragment_15	7ba62fcc
-qf_mg02_0001f252		fragment_9	2cd3a042
-c06ysgramorstatuescript	blade	onbeginstate	e70967f0
-testphilhealerhealcheckeffectscript		oneffectstart	71c9bb60
-da09gemscript		playscene	dee6733c
-dunyngolglow		onactivate	8d058715
-dunyngolglow		jumpat	38e8265a
-fxdragonmoundscript	waiting	onactivate	a9e5a249
-dunvalthumebloodbowl		onactivate	210e52dc
-markarthwarrensdoorscript		onopen	5eb0d172
-byohrelationshipadoptionscript		adoptchild	e8c700fd
-dlc1magiccastfromsunscript		castspellfromsun	3c0f500e
-da16magicbarrier	active	onbeginstate	f4a90e73
-byohhousebuildingscript		buildhousepart	f1c82fdd
-dlc1ld_towerrumbleshakemanager		runrumbleloop	74d0ecce
-magicimodonplayerhitscript		oneffectstart	5f6eb3b6
-qf_db04a_0002ad16		fragment_9	873c0338
-favorquestscript		onupdategametime	63b57cab
-dlc1aurielblessexplosionplacescript		oninit	e5282240
-traptriggertimeinterval	timedfirestate	onupdate	acc60c82
-tg05lockeddoorscript	locked	onactivate	e2641667
-altarofmolagbalscript		onactivate	6c79e2a9
-dlc1activatorflameonscript	waiting	onactivate	bf5b1b47
-dlc2_qf_dlc2tt1_02017e8d		fragment_0	4055fd3e
-dlc2fxscrib		ondying	45bf87cd
-wispshadeactorscript		oneffectstart	0ca30237
-mqshouttrigger		firetriggerevent	20c651af
-qf_dunravenscarqst_0003d26c		fragment_2	99374f4c
-werewolftransformvisual		oneffectstart	b9c5b633
-qf_dunragnqst_0003763c		fragment_8	ead21c95
-dunmzinchaleftpuzzlecompletionscript	waiting	onactivate	9e31fef1
-dunhalldirbossbattle2		startfinalbattle	96d1cdeb
-dunhalldirbossbattle2		onhit	ce58335a
-dlc1_bf_frozenexplodeondying		onload	8e5e7988
-dundeadmensrotatingdoormanager	ready	onactivate	6d9b217c
-dlc2expspidercraftingscript		filldynamiclist	d3ccd1e2
-mg07savosghosttrigger1script		ontrigger	1c8f5f8f
-qf_dunlabyrinthian_00091f1a		fragment_6	e6b63cfb
-dlc2ttr4bspelleffectscript		oneffectstart	f078c1ee
-dlc2ttr4bspelleffectscript		oneffectfinish	e37dd82d
-dlc2ttr4bspelleffectscript		onupdate	3357bafa
-fxskeletonnecroscript		ondying	b035701d
-dlc2spectraldragonsummonscript		onload	926c47df
-dunserpentsbluffpressureplate		updateloop	7423660e
-qf_dbsidecontract02_0001ea5e		fragment_2	e72009a5
-dungeirmundsbossduplicates		onload	f9530ccb
-poi_iceformscript		oneffectstart	8a99c611
-t02amuletscript		onequipped	49a1aadc
-t02amuletscript		onunequipped	ea898c76
-dlc1_bf_fallingdebriscontrollerscript		foundplayer	69672819
-dunustengravstatuescript		onactivate	787dd441
-qf_dunbardsleapsummitqst_000ae014		fragment_4	e45e9dfd
-dlc01wesc03script		onload	0b7fdb6f
-dlc1magicsoulrendscript		oneffectstart	037d58cc
-dlc1magicsoulrendscript		ondeath	04cdbe14
-fxsetblendvariablescript		onload	ee96ed76
-dlc01teleportscript		ontriggerenter	b4be2864
-ferrysystemscript		onupdate	5142b9ac
-ferrysystemscript		playerissitting	3cf96791
-mg02tolfdiraliasscript		oncombatstatechanged	b640b639
-dunvalthumeresurrection		onactivate	37d1f733
-ms06rotatingdoorscript		onload	c4ec2a1e
-ms06rotatingdoorscript	rightpos	onbeginstate	14077d6e
-ms06rotatingdoorscript	leftpos	onbeginstate	bf15839c
-wispactorscript		ondying	7c68e94f
-wispactorscript		onactivate	0db1608d
-qf_wedl01b_000bfb61		fragment_1	5e8770b5
-dunshimmermistfalmerbossscript	waiting	onhit	374b4719
-qf_dbdestroy_000934fb		fragment_2	3bbeafdd
-defaultcastatlinkontriggerscript	active	ontriggerenter	e68662c4
-qf_mq103b_0002610b		fragment_55	b4f76fc1
-dlc1_qf_dlc1vq08post_0101a1c1		fragment_0	87f2e4cd
-trappoisongascough		coughloop	2d39228c
-fcaddingrediantanddeletescript		onactivate	4c29cf5d
-dunshimmermistbossscript	waiting	oncombatstatechanged	b89c5e6d
-dunreachwaterrockghostscript		destroyghost	839945bc
-dlc1magicplaysoundoneffectstart		oneffectstart	b78f1e57
-dbdawnstarciceronoattacktrigscript		ontriggerenter	7474015b
-valthumecontainerpuzzlescript		onactivate	3eb9b248
-duncgplayerinsquaretriggerscript		onupdate	8e2112ea
-dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_5	1df4387b
-dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_2	d8cfb65c
-dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_14	f4de1511
-sf_ciceronightmothertalkscene_0003bb83		fragment_0	1f27a3ff
-qf_db07_0001ea56		fragment_18	0537fcac
-dlc2dialoguerrquestscript		finishboatride	efb2d932
-dlc1huntercavepressureplatetimed		ontriggerenter	19abbce9
-c00jorrvaskrfightscenescript		startvolley	0a55e4cb
-c00jorrvaskrfightscenescript		fightend	87f1aa52
-dunpoiraiders		updateloop	e67b745e
-dlc2miraakscript		aftermiraakfadeout	30582992
-qf_duntalkingstoneqst_0004ba6c		fragment_17	8de4e64d
-qf_freeformwhiterunquest03_000946fd		fragment_0	d6f47ec4
-byohurchincarryscriptcheck		startloop	2fec3590
-dlc1drainbloodpointscript		oneffectfinish	379064f6
-dunustenpuztrigscript		onload	66238686
-dlc2defaultaddspell		oncellattach	ab48f5e6
-defaultactivateonload	preactivation	onload	9344044e
-dlc1_bf_falmerstatuescript		onactivate	bf97d80b
-dunreachwaterrockpedestalmanager		onactivate	7cc42632
-dunreachwaterrockpedestalmanager		reforgeamulet	8a6d2463
-dlc2hmdaedradeathscript		ondying	770a23b8
-dlc2dbbooklevelenabledisablescript	waiting	onactivate	c6c24f08
-dlc2dbbooklevelenabledisablescript	waiting	ontriggerenter	8d1a50b1
-dlc2dunfahlbtharztowersimplescript	open	onactivate	be18d861
-dlc2dunfahlbtharztowersimplescript	closed	onactivate	7e7bdf7a
-magicbanishscript		oneffectstart	565dbe37
-tg08binvisibilityexplosioneffectscript		oneffectstart	b6aff2b7
-qf_mq101dragonattack_000d0593		fragment_243	088a1dbd
-qf_mq101dragonattack_000d0593		fragment_232	aa5395fb
-db10playerpinnedtriggerscript		ontriggerenter	aabb74ce
-dlc2dunhaknirbossbattlescript		ondying	fbbec6ed
-qf_dunthrowvoiceqst_001075b1		fragment_0	6e4df842
-dlc1ld_puzzlehinttriggerscript		updateloop	a5af23c5
-byohfishhatcherycontainerscript		onitemadded	0f829c98
-dlc1ld_doortriggertogglescript		enabledoortrigger	39082c59
-qf_cwsiege_000954e1		fragment_37_whiterunsetup	cfc94de6
-qf_cwsiege_000954e1		fragment_37_markarthsetup	24694967
-qf_cwsiege_000954e1		lowerwhiterundrawbridgedelayed	c2f70233
-qf_cwsiege_000954e1		fragment_0	287e9017
-dundeadmensbardghostscript		onload	31f21811
-dundeadmensbardghostscript		fadein	9191aad6
-dundeadmensbardghostscript		popin	be64409d
-sf_c03postrampage_000aec02		fragment_0	59c09e13
-mgritual02effectscript		oneffectstart	ecea1d02
-dunvolskyggepuzzlelever01		oninit	80e0958e
-tg08btowerfallscript	quake	onbeginstate	8bcbf6c0
-dlc2rr02questscript		tilisucountdown	9c3a2464
-qf_darkbrotherhoodsanctuaryre_00087ba2		fragment_4	143447a7
-magicimodbeginloopend		oneffectstart	b00bed28
-dunfolgunthurbossbattle		onhit	64d39a41
-magicsoultrapfxscript		oneffectfinish	e22159fc
-fxskuldafnportal		closeportal	806c5ca3
-qf_dbtorturetreasuremiscobjec_00037a2d		fragment_0	0f89f5c2
-qf_dbtorturetreasuremiscobjec_00037a51		fragment_0	0f89f5c2
-qf_dbtorturetreasuremiscobjec_00037a53		fragment_0	0f89f5c2
-qf_dbtorturetreasuremiscobjec_00037ae3		fragment_0	0f89f5c2
-byohhousecraftingtriggerscript		startcrafting	1e9e4a8f
-byohhousecraftingtriggerscript		ontriggerleave	bc778483
-qf_mq206_00036193		fragment_4	bbbee62b
-qf_mq206_00036193		fragment_23	7fec842b
-helgenrandomsoundscript		onupdate	8f92ff98
-dlc1dunstatuehitscript		onanimationevent	71ae34ef
-dlc1dunstatuehitscript	beencorrectlyhit	onbeginstate	25eb9a4f
-dunhalldirbossformghostscript		ondying	8023c1d5
-dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_2	386c2f70
-dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_5	3f0045f4
-dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_14	454a15c9
-e3demowolfencounterscript		ontriggerenter	31354882
-qf_dbolavareadingtreasureobje_0002e656		fragment_0	a87a11bc
-norrotatingdoorleverscript		oninit	c4ec2a1e
-wideadbodycleanupscript		ondeath	9c0587e1
-dlc2dundbdeadactortrig	waitingforfirstcorpse	ontriggerenter	cf47cf06
-dlc2toldarstombpuzzleplatmasterscript		ontriggerleave	7a5af879
-playerpotionrackcontainerscript		onitemadded	3ce56c81
-playerpotionrackcontainerscript		onactivate	add9a393
-playerpotionrackcontainerscript		onload	494b0d8a
-dlc1vq04portalareaeffecttriggerscript		ontriggerenter	958fb9eb
-c01questscript		fightstart	b2c4432a
-qf_vc01_0005c625		fragment_9	f18efd18
-dlc1_qf_dlc1ld_01004d6b		fragment_59	67fa1c64
-dlc1_qf_dlc1ld_01005817		fragment_148	ec3db026
-defaultbipressureplate	down	onbeginstate	692d7787
-defaultbipressureplate	up	onbeginstate	fe4f08fc
-defaultbipressureplate	down	ontriggerleave	bf3570e2
-dlc1_qf_dlc1rh06_01007201		fragment_0	9158240d
-c00vilkasentertrainingareatriggerscrip		ontriggerenter	de5b10c1
-dunhagsendhagravenbattlemanager		teleporttosafepoint	415784e9
-dungeirmundsbosstrigger	waiting	ontriggerenter	72035388
-dlc1magiceatenbybatsscript		oneffectstart	34c93503
-defaultinteriordoorshutscript		onopen	b6473e4e
-weaponrackactivatescript		handleweaponplacement	29d19226
-dlc2fxinsturmentsattachscript		oneffectstart	d9b6cb3f
-dunriftenjailloadcheck		onreset	fcfcc300
-traptriggerbase		onactivate	4f1e8009
-traptriggerbase	inactive	ontriggerleave	63838cc4
-traptriggerbase	active	onbeginstate	8deb2cb9
-traptriggerbase	inactive	onbeginstate	8ded08ee
-dungeirmundsbossbattle		ondeath	0301b0e6
-cwfieldcocrimefactionscript		oninit	e1c129a0
-mqtotwhazardscript		onhit	eb17d5e3
-dundeadmensrespitesealeddoor		setupsealeddoor	8316150d
-qf_dbsidecontract07_0001ea63		fragment_6	4ef6ac74
-qf_dbsidecontract11_0001ea67		fragment_7	4c498cc8
-sf_mg06visionscene_00034ccd		fragment_0	18a1c34e
-dlc2mkmiraakmaskshoutscript		oneffectstart	e6aa3dff
-t03rootblockeractivatorscript		onhit	98202579
-qf_mq305_00046ef2		fragment_35	e2f1dbda
-mannequinactivatorscript		onactivate	b3470e62
-qf_dunvaltheimkeepqst_000adfe7		fragment_2	8b37adcd
-qf_dunvaltheimkeepqst_000adfe7		fragment_5	b0855387
-ms04ghostshaderscript		fadeout	6adfa80f
-ms04ghostshaderscript		popin	be64409d
-ms04ghostshaderscript		fadein	9191aad6
-ms04ghostshaderscript		onload	1c7db6b9
-dlc2dbconjureancientsscript		onanimationevent	fd220ff1
-sprigganfxscript		onenterbleedout	dd502952
-sprigganfxscript		oncombatstatechanged	76ecd6b1
-sprigganfxscript		ondeath	42497dc6
-dlc2ashspawndeathscript		ondying	c032190a
-dlc1dunwaygatedoorscript	waiting	onactivate	49a68c5d
-dunharmugstahlspiderdead		ongrab	b135a96d
-qf_tg09_00021555		fragment_8	8a9d7edf
-qf_tg09_00021555		fragment_17	230cf086
-qf_tg09_00021555		fragment_10	4c443ae8
-dlc2disableonloadafterwait	readytodisable	onload	0236d184
-astridendscript		onhit	acd7a7b2
-dunkilkreathcrystalnodescript		onactivate	489ceafe
-dlc1_qf_dlc1dunredwaterdenqst_01007c4f		wakeupplayer	072fe8cf
-dlc1_qf_dlc1dunredwaterdenqst_01007c4f		knockoutplayer	e19c3056
-dlc1_qf_dlc1dunredwaterdenqst_01007c4f		fragment_8	5b366fd7
-dlc2dunkarstaagbattlescript		startbattle	2ab7b51b
-defaultautosavescript		ontriggerenter	423d554b
-defaultsetstageactscript	waitingforplayer	onactivate	816dad48
-skyhavensconcescript		turnonlight	ac5b276b
-c03rampagequest		startrampage	7614777e
-dunpitanimationactivationscript	listening	onactivate	49fa762e
-patchdlc1doorfixscript		onload	493494a2
-rpdefault_ferrysystem		onupdate	d5369a2a
-wrdrawbridge01script		onload	2f9f0b3a
-fxalduinscript	soulexplode	onbeginstate	b675f857
-fxalduinscript	earthquake	onbeginstate	e69b9e34
-qf_db01_0001ea50		fragment_9	bc0ebcb4
-sf_mg04augurspeakscene_0004fbf4		fragment_2	f48a2f9a
-qf_mq101_0003372b		fragment_56	de093899
-qf_mq101_0003372b		fragment_4	abe07904
-qf_mq101_0003372b		fragment_27	d0da4cae
-qf_mq101_0003372b		fragment_59	ae45c590
-qf_mq101_0003372b		fragment_156	f53b536e
-qf_mq101_0003372b		fragment_190	f56421d4
-qf_mq101_0003372b		fragment_101	48285751
-qf_mq101_0003372b		fragment_57	4232f846
-defaultteleportability		teleport	400de402
-dlc2_qf_dlc2cultistambush_0203546d		fragment_0	a812ab04
-abforswornbriarheartscript		onitemremoved	18d0c2c1
-da16torporeffectscript		oneffectstart	e99e3833
-dlc01soulcairnreapertrigscript		onactivate	5975ee79
-qf_ms02_00040a5e		fragment_47	e9a632e2
-fxdustdroptrigscript	active	onbeginstate	e248d196
-fxdustdroptrigscript	waiting	onbeginstate	98698628
-defaultactivatedelayedtogglelinkedref		onactivate	fe34cd55
-disintegratewhenspellwearsoff		oneffectfinish	609673cd
-dragonpriestambushscript	waiting	onload	274eb6dd
-sf_tg05spkillscene_00032e64		fragment_8	134f8dd3
-dlc2dunfrostmoontransformscript		oncombatstatechanged	b76d3673
-dlc2dunfrostmoontransformscript		onraceswitchcomplete	13d9bf43
-dlc2attachashpileondeath25		ondying	9597d8e1
-qf_dbsidecontract04_0001ea60		fragment_6	0dece7f6
-dlc2_qf_dlc2dunkolbjornqst_0201810b		fragment_8	9a290253
-dlc2_qf_dlc2dunkolbjornqst_0201810b		fragment_9	566575cd
-dlc2dbsummonancientscript		onhit	3fca6da0
-dlc01wesc04script		onload	a4fd56c5
-mq101dragonattackquestscript		towerdragonroar	5b506929
-tg03brewingvatscript		onactivate	92ef6dd2
-qf_dbrecurringcontrolquest_00097256		fragment_0	bec41210
-mqkilldragonscript		mq06deathsequence	b84c76d7
-qf_da14_0001bb9b		fragment_54	3a81b605
-blackreachelevatorbuttonscript	waiting	onactivate	1ea685ee
-summontargetfxactivatorscript		onload	78152553
-sovngardewatcherscript		onload	ab335406
-defaultsealeddoor		onload	d2c47e71
-qf_wedl08_000bbd9d		fragment_10	670c7122
-fxdustdroponactivatescript	waiting	onactivate	df78e1bb
-dbrecurringcontrolquestscript		onupdate	00a78cef
-dlc2standingstonefx		standingstoneexplode	9e28ed8d
-defaultghostscriptrefalias		ondying	c99ac695
-defaultghostscriptrefalias		ghostflash	c2ef5cac
-fxatronachstormscript		ondying	1addfe59
-rpdefault_carriagesystem		onupdate	2f03fa86
-dunpoitundramarshdogscript		updateloop	cbed7b0f
-dunmossmothervaldrinjured		updateloop	b8237178
-tg08risingwaterscript	risingphase1	onactivate	0d8163c0
-fxbirdfleescript	waiting	ontriggerenter	034710d6
-qf_db02a_00022f47		fragment_7	f68f0575
-dunfolgunthurdragonkeyholeactivator	ready	onactivate	c1e1c7ee
-fxbirdfleeonactivatescript	waiting	onactivate	bf17b1df
-dundarklightilliaunlockscript		onactivate	84c508b0
-cwattackcityscript		onupdate	0cdcc7e7
-dlc1rnpcondeathplaysceneafterdelay		ondeath	54b67cd6
-dlc1dbdunnorpullbarsacrificescript	waitingforactivate	onactivate	144cc0af
-qf_dunstonehillbarrowqst_000cf915		fragment_32	f9c2f9af
-qf_dunstonehillbarrowqst_000cf915		fragment_21	4edb5e01
-qf_dunstonehillbarrowqst_000cf915		fragment_34	1156e43f
-qf_dunstonehillbarrowqst_000cf915		fragment_11	630f2f04
-qf_dunstonehillbarrowqst_000cf915		fragment_39	02c801de
-qf_dunstonehillbarrowqst_000cf915		fragment_0	a78d5ae6
-cwfinalescript		playerenteredcastle	89cf2606
-dunbloatedmansindingscript		updateloop	6afe6ea9
-dunbloatedmansindingscript		onhit	6b9c58c9
-qf_db09_0001ea58		fragment_4	9c1f934d
-bwclightdamagescript		ontriggerenter	58deeaf7
-dlc01wesc08script		onload	fd805cec
-dlc1_qf_dlc1_bf_duntempleqst_01006bda		fragment_18	ec87f3ae
-dlc1_qf_dlc1_bf_duntempleqst_01006bda		fragment_29	dd8da7ca
-dlc01soulcairnlightningrodscript	waiting	onactivate	90ea3c6b
-qf_dunmarkarthwizardsquarters_00087105		fragment_24	bac7d094
-qf_dunmarkarthwizardsquarters_00087105		fragment_15	30d688bc
-qf_dunmarkarthwizardsquarters_00087105		fragment_16	0215d327
-qf_dunmarkarthwizardsquarters_00087105		fragment_40	b642e88c
-critterdragonfly		onstart	f571012d
-da06hammertriggerscript		onactivate	d4830e1d
-dlc2mq06miraakbossbattle		miraakdeath	3c8b8ced
-dlc2mq06miraakbossbattle		dragonkillsceneended	8e179133
-dlc1vq03mothpriestfightscript		fightloop	639c5015
-dlc2dunkolbjornrotdoorchainscript	off	onactivate	20ebe9f2
-dlc2dunkolbjornrotdoorchainscript	on	onactivate	3e5708a1
-qf_freeformwhiterunquest05_00094e3f		fragment_0	57c51600
-dlc2fxscribscript		ondeath	4a1bb505
-dunlabyrinthianelementaldoor	active	onmagiceffectapply	586419d2
-qf_dbeviction_0006f9a5		fragment_3	d4e13863
-qf_ccbgssse001_crab_mq2_050009da		fragment_2	862c8d41
-ccbgssse001_crabmq4battlezonescript		ontriggerenter	716a162f
-ccbgssse001_crabmq4battlezonescript		ontriggerleave	6bbe8739
-qf_ccbgssse001_crab_mq4_050009e9		fragment_0	19bd898c
-qf_ccbgssse001_crab_mq4_050009e9		fragment_11	806f6297
-qf_ccbgssse001_crab_mq4_050009e9		fragment_12	a2beafb5
-qf_ccbgssse001_crab_mq4_050009e9		fragment_14	28b7eab3
-ccbgssse001_dwarvencolumnscript		enablerealcolumn	e3ae3b55
-ccbgssse001_tif__05000ec3		fragment_0	676c1027
-ccbgssse001_crabmq4crabctrlr		onload	bc8016c1
-ccbgssse001_mudcraballyscript		removemudcrabally	df77dc55
-qf_ccbgssse001_misc_windhelm_050009d5		fragment_4	082587c9
-ccbgssse001_crabmq4crabspawner	wavetwo	crabkilled	592d86f3
-ccbgssse001_crabmq4crabspawner	wavethree	crabkilled	79d7fd41
-ccbgssse001_crabmq4crabspawner	waveone	crabkilled	d950159f
-ccbgssse001_crabmq4crabspawner	wavethree	flamingpotcrabkilled	e0fb8f9f
-ccbgssse001_critterspawn		oncritterdied	48b96a9f
-ccbgssse001_fishingsystemscript		cleanupfishingrodactivator	04455a4b
-qf_ccbgssse001_misc_falkreat_050009ec		fragment_11	b129bd26
-ccbgssse001_itemcollectobjectivescript		onitemaddedorremoved	c54f36ec
-ccbgssse001_itemcollectobjectivescript		displayallobjectives	b390336a
-ccbgssse001_catapultctrlscript		waitforcatapultloaded	dfaad576
-ccbgssse025_manholecoversfxscript		onactivate	f0e3518a
-qf_ccbgssse025_miscquest_ner_050010bf		fragment_5	46f3c8da
-qf_ccbgssse025_questb_02000913		fragment_6	8e88505a
-qf_ccbgssse025_elytrapetacqu_050010c0		fragment_4	fa0276d3
-qf_ccbgssse025_elytrapetacqu_050010c3		fragment_1	fa0276d3
-ccbgssse025_staadaquestscript		unsummonstaadaimpl	f19e9a3f
-survival_magicimodbeginloopend		oneffectstart	ab288ba9
-survival_playerhitinfo		onhit	f9116ab7
-survival_freezingwatercheck		oneffectfinish	1e07cddd
-survival_regionchangescript		oneffectfinish	0ac156ef
-survival_playerlocationinfo		regionentered	2ccdc3e4
-survival_beasttransformwatcherscript		onraceswitchcomplete	138def05
+qf_dbsidecontract01_0001ea5b		fragment_13	bfba3197
+dunsaarthalmasterscript		ondying	d0b2b4df
+dunmzinchaleftgateattentionscript	waiting	onactivate	2905692b
+dunlabyrinthianwoodenmaskscript		oneffectstart	afa2e67a
+dunlabyrinthianwoodenmaskscript		oneffectfinish	dd6b13af
+mg07wavetriggerscript		ontriggerenter	5869ea27
+mg01tolfdirscript		onspellcast	b4cf78c4
+qf_da07_000240b8		fragment_54	9f0305e8
+qf_da07_000240b8		fragment_70	714fa3e4
+qf_da07_000240b8		fragment_18	4d35f94c
+defaultdisplayuniqueitemscript		positionitemanddisablephysics	182d9a4b
+ms10shipdestructorscript		onactivate	c9188481
+qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_35	c91aa616
+qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_28	16519e58
+qf_ms05_dundeadmensrespiteqst_00016c8d		fragment_34	c9f98f64
+dunpoiwarlockcaptivescript		updateloop	f99a13ef
+cwsiegescript		faildefensequest	bc54d13c
+cwsiegescript		failattackquest	3058cb3b
+cwsiegescript		succeeddefensequest	d6d91deb
+dlc1vq08batseffectscript		oneffectstart	6bcc4801
+pf_db09giannapostsoupstandpa_001058ac		fragment_0	6a2c1871
+icewraithparticlesscript		ondying	7da6a491
+icewraithparticlesscript		onanimationevent	58e1f451
+defaultenabledisablelinkedref	waiting	ontriggerenter	2b76ed97
+defaultenabledisablelinkedref	waiting	onactivate	b2c0b871
+bwcnightingaleghostscript		ondying	7541e4f2
+bwcnightingaleghostscript		ghostflash	c7de9813
+qf_mq103a_0002d75c		fragment_64	781e95ad
+dlc2bloodskalbladescript		oncontainerchanged	fb8e8a87
+sf_mg08monkscene_0005a413		fragment_0	e45b8d7a
+qf_we31_000753ca		fragment_9	8bfe6236
+qf_dunblindcliffqst_00039b3b		fragment_14	cdde88d9
+dlc2mkmiraakrobeabilityeffectscript		onhit	e6e6aafb
+qf_db06_0001ea55		fragment_10	f4c8f621
+mg01questscript		startplayerhittimer	8fab68ad
+qf_cwsiegequickstart_0009726a		fragment_32	d736be6d
+qf_cwsiegequickstart_0009726a		fragment_34	7f9a6f57
+qf_cwsiegequickstart_0009726a		fragment_33	98b664aa
+qf_cwsiegequickstart_0009726a		fragment_35	34a4ffc4
+defaultghostscript		ondying	f9b99e98
+magiceffectshaderapply		oneffectstart	2303f6b5
+qf_db10_0003ceda		fragment_67	47eaf398
+qf_db10_0003ceda		fragment_64	cf9eed29
+qf_db10_0003ceda		fragment_18	78a3ab27
+qf_db10_0003ceda		fragment_24	6cea776d
+dbshadowmeretriggerscript		ontriggerenter	8eb44ce9
+qf_freeformwhiterunquest02_0009380b		fragment_0	0a39e6f4
+statsplayerposition		main	5d040afe
+cwcatapultweaponfirescript	fireloop	onbeginstate	f5d2a3a4
+e3demojumpaheadscript		transition	371b7580
+physicstrap		firetrap	e071f403
+dunkilkreathcrystalpedastalscript		onactivate	c59a37ea
+cwmission07stewardscript		monitorplayerdistance	6660a4b8
+mgritualdremorascript		ondeath	a27c401f
+dunhillgrundstombendcontroller	endsequenceactive	onbeginstate	abdbf3e7
+sf_da15pelagiusmeet_0002ac6d		fragment_0	cb8aea6e
+dlc2explodingspidereggscript		watchplayer	c61a5112
+dlc2fishmanscript		ongetup	d5f45ee1
+cwgarrisonobserversoldierscript		ondeath	a2076999
+qf_dbsidecontract09_0001ea65		fragment_12	ff49d194
+da09script		teleportplayertosky	d59e05b7
+vampiresunismdeffectscript		oneffectstart	f1933db1
+dlc1magieffectshaderdistancescript		oneffectstart	671a2abd
+qf_dbrecurringintromisc_00097255		fragment_0	f8f1ee90
+dlc2book02dungeonbridgetrigger	buffer	onbeginstate	3d264635
+dlc2book02dungeonbridgetrigger	waiting	ontrigger	b553082a
+ms04ghostshaderobject		fadeout	42bbf2c9
+ms04ghostshaderobject		onload	e2f42af9
+ms04ghostshaderobject		popin	65d3c37d
+ms04ghostshaderobject		fadein	17d87fd3
+byohbreezehomenavcutmanager		oncellattach	499f3e66
+tg05ruinsdoorscript		onactivate	7cb57a79
+dundarklightleverscript		onactivate	0d5413f2
+pf_tg08akarliahopengatepackag_000dcae5		fragment_0	7c89ee50
+dwespherecenturionportscript	listening	onactivate	255b1ed9
+tif__0002b836		fragment_0	c38e5c49
+tif__00037b5e		fragment_0	327dee98
+tif__00039830		fragment_0	44e02600
+qf_dundarklightqst_0003fa89		fragment_21	1c7dae53
+dunmiddenatronachforgescript	ready	onactivate	aa81766c
+defaultnpcruntotrig		triggernpc	0099a747
+tif__000618a9		fragment_0	327dee98
+tif__000618aa		fragment_0	327dee98
+tif__000618ac		fragment_0	327dee98
+tif__000618ad		fragment_0	327dee98
+tif__000618af		fragment_0	327dee98
+tif__000618b0		fragment_0	327dee98
+tif__000618b2		fragment_0	327dee98
+tif__000618b3		fragment_0	327dee98
+tif__000618b5		fragment_0	327dee98
+tif__000618b8		fragment_0	327dee98
+tif__000618b9		fragment_0	327dee98
+tif__000618bc		fragment_0	327dee98
+tif__000618be		fragment_0	327dee98
+tif__000618bf		fragment_0	327dee98
+tif__000618c1		fragment_0	327dee98
+tif__000618c2		fragment_0	327dee98
+tif__000618c4		fragment_0	327dee98
+tif__000618c5		fragment_0	327dee98
+dlc1magicharkondeathfxscript		oneffectstart	7b9cb63f
+dlc1magicharkondeathfxscript		oneffectfinish	bca28abd
+werewolfpusheffectscript		oneffectstart	ea38cc28
+dlc2ashspawnconstantfx		ondeath	9d1cd6e1
+dragonpriestactorscript		ondying	2679d0b6
+sf_duntalkingstoneqst_attack_000b5f85		fragment_1	29702de0
+qf_companionsmiscobjective_000d19b9		fragment_0	f0bd085c
+dlc2dunbook02tunnelscriptenabledisable	waiting	onactivate	c8fc6c53
+dunmarkarthwizardscenepolldetection		polldetection	2500df78
+dlc1dunredwaterskoomaeffectscript		oneffectstart	088c682b
+qf_db03_0001ea52		fragment_14	b36e87d3
+dlc1crystalcasterscript		oncellattach	4bd02deb
+ghosttrap	hover	onbeginstate	f9eaa317
+dunilinaltassecondbossscript	waiting	oncombatstatechanged	f1a39ac4
+dlc1nvampirebloodplaguescript		createashpile	43730c17
+trappoisongas	tempcleared	onbeginstate	fb592f89
+darkwatercavernderkeethusmovescript		ontriggerenter	43434d9f
+dlc1vq01puzzlecoffinscript	waiting	onactivate	9674e431
+defaultcastontriggerscript	active	ontriggerenter	33a45ba4
+wealiasscript		ondying	6f20fb8a
+dlc1elfhousedropscript		onactivate	97048670
+sf_db09potageeatscene_0001bcba		fragment_0	3727c2fc
+qf_dbsidecontract06_0001ea62		fragment_8	3f6efa98
+qf_da01_00028ad6		fragment_28	049883a8
+qf_dbsidecontract10_0001ea66		fragment_6	6b3295d6
+da05questingbeastscript		ondeath	09bf117b
+qf_da16_000242af		fragment_120	82195a95
+qf_da16_000242af		fragment_118	1db56239
+qf_mqcalldragon_00046b8e		fragment_10	8514f587
+cwsiegecitydoorscript		onactivate	175ffe11
+dlc2spectraldragondeathscript		ondeath	d779d44f
+dlc2spectraldragondeathscript		onupdategametime	ab823b2c
+tg08bencountertrigger01script		ontriggerenter	e5aaaf29
+dlc1fxdeathhoundscript		ondeath	83b59d03
+dunyngolhelmetscript		onactivate	8aa73609
+qf_da15return_0010ff8f		fragment_6	44e8aee5
+dlc01soulcairncratterscript		ontriggerenter	80f8f4a4
+qf_tg08_00021554		fragment_30	a24df59a
+dlc2expspideroilscript		dropoilpools	2a3d7193
+dunhaltedstreamcampghostdebris	hover	onbeginstate	8728f2da
+dlc1ld_lavaimodscript		oneffectstart	84f822c8
+dlc1soulcairncreaturefx		ondying	04fde4bc
+hangingkeyattachonload		onload	89758d2f
+dlc1fadingghostscript		fadeout	cde80b31
+dlc1fadingghostscript		fadein	525e4bd5
+wifunctionsscript		startgametag	8f911c89
+dlc2bbstoprunescript		oneffectstart	445aadce
+cwreinforcementcontrollerscript		registerdeath	2dfefd91
+tif__000d3e7d		fragment_0	327dee98
+tif__000d3e82		fragment_0	327dee98
+tif__000d3e83		fragment_0	327dee98
+dlc2kagrumezgemscript	fightstate	onbeginstate	9c455cb7
+dlc2kagrumezgemscript	default	onactivate	cdfac0f5
+tif__000f500b		fragment_0	327dee98
+tif__000ff125		fragment_0	00130708
+tif__000ff127		fragment_0	71d37806
+tif__000ff129		fragment_0	148abd03
+dlc1fxdwarvencenturionscript		ondying	d6cb4035
+dlc1vq06questscript		scrollread	e3a147b8
+dlc1vq06questscript		addmoths	6da260be
+dlc2wb01torkildscript		transform	6db1459b
+dlc2_qf_dlc2we09_020331c0		fragment_5	1369c83f
+qf_db01miscobjective_000bc8b6		fragment_0	f0bd085c
+dlc1_qf_dlc1_wesc01_010034de		fragment_1	0c6505b6
+dunyngollightsoutscript		ontriggerenter	494012b7
+qf_dbrecurring_0001ea5a		fragment_0	2b98b3c3
+duntransmogrifyanimal		onload	a1d0d2a6
+da02script		pillarkill	f04ffbef
+da02script		resurrectcounduit	15856f35
+mq105tombscript		onactivate	f8494ae2
+fxdwarvencenturionscript		ondeath	de2c79f1
+dlc01wesc09script		runloop	a8ab2474
+magiccastanotherspellscript		oneffectstart	f17c8a49
+ms04memmoryeffectscript		popin	f5e0cbb3
+ms04memmoryeffectscript		onload	8c814e83
+pdbentrancequestscript		onsleepstart	3d4d7001
+pressureplate	active	onbeginstate	b96c426b
+byohproudspirenavcutmanager		oncellattach	227717a5
+dlc1gargoylebrutehandfxscript		oneffectfinish	4c95060a
+dunsightlesspitbossscript		onupdate	25e16ab0
+dlc2_qf_dlc2mq07_020179d7		fragment_22	be946499
+dlc2_qf_dlc2mq07_020179d7		fragment_15	8fccefa9
+dlc1radiantscript		stopquestandstartnewone	aadf4fee
+dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_10	57016497
+dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_1	1d397f9d
+dlc1_sf_dlc1hunterbaseintroen_01008a8c		fragment_6	52504bad
+tg08bmercerinvisibilityeffectscript		oneffectstart	b2ad380c
+dlc1_qf_dlc1vq07_01002853		fragment_22	6fc2753e
+dlc1_qf_dlc1vq07_01002853		fragment_25	7af9a16e
+dlc1_qf_dlc1vq07_01002853		fragment_44	5a736cd3
+dlc1dunharkonshieldeffectscript		oneffectstart	e3512f7a
+dlc2encexplodingspiderscript		onload	cb8feeb1
+mg08paralysiseffectscript		oneffectstart	e8d1e5b0
+dlc1skeletonambushscript	alldone	onbeginstate	26dda294
+qf_dbsidecontract03_0001ea5f		fragment_9	06fdf625
+dlc1vampirecastlecontrollerscript		enabledoortocourtyard	b3fbaa07
+snowveilkeyholescript	mainstate	onactivate	a44bd905
+dlc1horsequestgetskullscript		ontriggerenter	e1e5e178
+sf_mgrarniel04finalscene_000e0d0b		fragment_0	f768af1a
+dunpoisoldiersraidonstart		updateloop	e13b2b98
+dlc2dbdragonsbreatheffectscript		spawndragons	f1a7d376
+dlc2dbdragonsbreatheffectscript		despawndragons	6337215d
+qf_wedl07_000b91e3		fragment_7	ac81182f
+dlc2dunseekerinvisscript	waiting	oncombatstatechanged	fc81d946
+dlc2dunkarstaagicewraithparticles		onanimationevent	58e1f451
+dlc1_bf_icechunkscript		ondestructionstagechanged	f3bfed5f
+critterspawn		onload	16cd1c2a
+dunmarkarthwizardplatesystemmanager		onload	6651095b
+dunmarkarthwizardplatesystemmanager	down	onbeginstate	26046b5a
+dunmarkarthwizardplatesystemmanager	up	onbeginstate	d0f57470
+defaultstartsceneaterdelaytrigscript	waiting	ontriggerenter	c6f12c00
+dungeirmundduplicatespellmanager		summon	3f311a38
+dungeirmundduplicatespellmanager		banish	02b39d5a
+companionsbladefragmenttracking		setmountings	19b83816
+qf_db01objective_000bc8b7		fragment_0	f0bd085c
+dunbluepalacewabbajackscript		arenatransformation	e8d24ca1
+howlsummonwolffxsscript		ghostflash	537b43a8
+dlc2_qf_dlc2sv01_02019b4a		fragment_36	a58323fd
+defaultsetstageactrefaliasscript	waitingforplayer	onactivate	472a8388
+qf_tg05_00021551		fragment_15	2bf6f9bd
+dunkagrenzelanimationactivationscript	listening	onactivate	656dbfc9
+defaultcastfromlinkontriggerscript	active	ontriggerenter	cf5b722e
+dlc2dunkarstaagghostscript		dissolvekarstaag	c87a8892
+mq104playerscript		onlocationchange	57328111
+t01dibellasaltarscript		onactivate	683e43a9
+dlc2fxinsturmentssummonscript		oneffectstart	e8c6a7b6
+dlc2fxinsturmentssummonscript		oneffectfinish	fbddc8bb
+fxreadelderscrollscript	wait	onbeginstate	77e8f346
+fxreadelderscrollscript	temploop	onbeginstate	73c9c7e4
+fxreadelderscrollscript	timetravel	onactivate	c2c763f5
+fxreadelderscrollscript	timetravelcleanup	onactivate	47560322
+fxreadelderscrollscript	alduintimejump	onactivate	82b14fef
+dlc2_tif__0201cdc9		fragment_0	ef053abc
+dlc2_tif__0201cdd5		fragment_0	5ecb4df7
+pf_dunsnowypoighosttravelpack_00039162		fragment_0	f73d504c
+defaultrumbleonactivate	active	onactivate	c4cc6f3d
+dlc2_tif__02033c5f		fragment_0	1035af14
+dlc1magicvampdrainfxrangescript		rundistancechecksandstuff	9e20ebc5
+dlc1vq08batsswapeffectscript		oneffectstart	326ebfa2
+dlc2summondremoramerchantscript		oneffectfinish	8750396e
+dlc2_pf_dlc2mq06miraakwhirlwi_0202a6c9		fragment_1	8dfc1210
+dlc2dbbooklevellighttrigscript		dothedamage	b34ed940
+dlc2dbbooklevellighttrigscript		oncellattach	b444dca8
+dunlostechocaveburnmushrooms		onactivate	c16c4ebb
+dlc1dunharkonreanimatedminions		ondying	341a20ed
+dunmarkarthwizardbipressureplate	up	onbeginstate	9bb55b3a
+dunmarkarthwizardbipressureplate	down	onbeginstate	3df419ef
+qf_db08_0001ea57		fragment_10	1f0039b5
+dlc2dbancientdragonbornscript		onload	6226fa7d
+dlc1sabrecatfxglowscript		onupdate	706ec68e
+dlc1sabrecatfxglowscript	waiting	ongainlos	6e664d8b
+dbsanctuarydb10loadcheck		runfireshakerumble	bc6c84dd
+dunfolgunthurbossbattlespell		oneffectstart	75f1e934
+dunreachwaterrockjyrikbossbattle		endjyrikbattle	357b26f9
+qf_dunansilvundqst_0003d721		fragment_9	667d3839
+qf_dunansilvundqst_0003d721		fragment_10	fe062f25
+qf_dunansilvundqst_0003d721		fragment_6	6f85c7cf
+dbsanctuaryfireshakerumble		loopmanager	3d7ee1bb
+qf_freeformwhiterunquest04_00094e3c		fragment_0	8ea15013
+carriagesystemscript		stopriding	4384dba1
+carriagesystemscript		onupdate	fa66a410
+carriagesystemscript		playerissitting	f6adc09b
+carriagesystemscript		addpassenger	b0250bb1
+carriagesystemscript		rideincart	854f2dcc
+mq105questscript		sprintstarttriggerchangestate	27659158
+dlc1zfvpoientracetrigscript		ontriggerenter	da9eb72f
+dlc2book01dungeongendeathtrackerparent		triggerendevent	4ab4e2e7
+dlc1_sf_dlc1_bf_duntempleqsts_01006c16		fragment_6	a4481de1
+dunmiddenrewardchestscript	ready	ontriggerenter	f9473b3c
+c00jorrvasrkstopfighttriggerscript		ontriggerenter	23523ab9
+magicdispelspellonhitscript		oneffectstart	382828ab
+mg07labyrinthianbarrierscript		onload	1a30cf0e
+dlc1deerfxglowscript		onupdate	e3fc83f7
+dlc1deerfxglowscript	waiting	ongainlos	6d6cba0c
+dlc1_npcmentalmodelscript		axiscrossedover	eb72123a
+cartdriverscript	normal	oncellload	dd287aa7
+dlc2dunildariscript	ripheartout	onactivate	5f8c14f8
+dunstonehilllairdelayedlever	pushedposition	onactivate	754a155b
+dunstonehilllairdelayedlever	pulledposition	onactivate	8580ef6b
+da15wabbajackeffectscript		castinvis	caa73e5b
+da15wabbajackeffectscript		hsmtransfer	367f0458
+da15wabbajackeffectscript		spawnghostfriend	0840bc93
+dlc2expspiderglowingscript		countdowntodeath	07c03c7e
+dlc2expspiderglowingscript		spidercrumble	8f763d35
+qf_da10_00022f08		fragment_72	9f3f30f9
+qf_da10_00022f08		fragment_55	de207295
+dlc1vampiretransformvisual		transformifnecessary	900c6d3e
+da16mistfill		docoughing	ef549b5a
+dunrannveigsfasttrapdoorscript	defaultstate	ontriggerleave	2f092c92
+playerwerewolfchangescript		actuallyshiftbackifnecessary	fe6f601b
+db05fallingstatueactivate		triggerstatuefalling	01f1fe07
+magicattachashpileondeath		ondying	cf933a41
+trailerdragonflyoffscript		onupdate	24cac066
+dlc2duntempleofmiraakrumblescript		onactivate	f6af3cd4
+defaultstartsceneifnocombattrigscript	waiting	ontriggerenter	8af16ec5
+qf_dunhalldirscairnqst_0003ad4a		fragment_0	d431cc1d
+magicnighteyescript		oneffectstart	788de75e
+sf_dungauldursonqst_finale_000ecee0		fragment_20	dfa06157
+sf_dungauldursonqst_finale_000ecee0		fragment_1	9deb84a0
+sf_dungauldursonqst_finale_000ecee0		fragment_5	9ff0d9f4
+qf_relationshipmarriageweddin_0007404e		fragment_17	60f50789
+dunhalldirghostambushscript	waiting	onload	0a5277b8
+qf_e3demo_00093637		fragment_3	277dea1b
+qf_e3demo_00093637		fragment_26	7372902f
+fxmagicanomalyscript		ondying	a7c5ca56
+oghmainfiniumscript		readoghmainfinium	14801a67
+dlc2dunnchardakaqueductcontroller		activationcomplete	562820c3
+sf_drgscene_000e670a		fragment_1	1958fc02
+dunharmugstahlspider		oncombatstatechanged	f6ac34c7
+dunharmugstahlspider		ondeath	2145098b
+qf_dunliarsretreatqst_000aa5d6		fragment_7	850f2229
+qf_dunliarsretreatqst_000aa5d6		fragment_1	6cd6c726
+audiorepeateractivator01script		oncellattach	d7681b40
+dlc2wecultistambushplayerscript		stopquestifnotinlocationandcultistsnotloaded	4cadd494
+flameatronacheffectscript		ondying	565a7ddb
+dlc2burtspigganfxscript	alive	onanimationevent	487bc9f9
+dlc2burtspigganfxscript	alive	onhit	5a854e2a
+dlc1_qf_dlc1seranacureselfque_01005044		fragment_3	cf4405f0
+dlc2dunenabledisablelinkrefonacttimer	waiting	onactivate	757c41d5
+fxgreybeardshoutscript	playing	onanimationevent	4fa9ed73
+dlc2miraakfxtestscript		onload	7e581b1a
+dunfellglowbossbattle		teleport	1e0d5ce3
+helgenhallcollapsescript		triggercollapse	9ce4bc68
+qf_mg08_0001f258		fragment_10	5ff7a193
+dunfolgunthurbosstrigger	waiting	ontriggerenter	4b05f381
+mqhrothgarpilgrimmagetabletscript		onactivate	52393b16
+dlc2toldarstombpuzzleplatescript		onactivate	93178033
+c00vilkastrainingscript		playersheathe	58ce4251
+dlc1lycanthropyregiftquestscript		regift	65689948
+qf_dunhillgrundstombqst_0003e897		fragment_4	b760348b
+dlc1_qf_dlc1_wesc06_01003511		fragment_1	d831883f
+mg08paralysisabilityeffectscript		oneffectstart	1884adeb
+dlc1ld_forgemasterbossbattle		runupdateloop	e9d9b681
+dlcmoteareascript		onload	479a99f7
+qf_wicastmagic01_00070217		fragment_3	a0b0dec2
+qf_db05_0001ea54		fragment_7	4d6771de
+dlc1dunharkonbossbattle		enddeaththroes	e075ff69
+qf_dunforelhostqst_00035354		evalgrifterref	5d3ab21b
+qf_tg09post_000e1782		fragment_2	58c12416
+dlc1dunwaygatescript	waiting	onactivate	1cf0f3f9
+qf_dunmidden01qst_00055977		fragment_12	d313e09c
+critterbird		groundhop	989032e4
+critterfish		onstart	00c96bdc
+duncgfxbirdfleescript	waiting	ontriggerenter	673b9456
+da16dreamguardianambush	alldone	onbeginstate	752a6d2c
+dunkarthspirelighttunnelscript		ontriggerenter	79f182f8
+qf_freeformwhiterunquest01_000934f9		fragment_0	f0bd085c
+da16barriereffectscript	waiting	onactivate	b96112f1
+summonskeletonlegionscript		oneffectstart	91cf6366
+qf_dungauldursonqst_000e4d31		fragment_14	dbfbf8c1
+qf_dungauldursonqst_000e4d31		fragment_15	62674e30
+qf_dungauldursonqst_000e4d31		fragment_16	91707418
+qf_dungauldursonqst_000e4d31		fragment_5	5ee18680
+mg08barrierrefscript		onhit	36fa0c0b
+qf_db01misc_0001ea4f		fragment_0	08bf8d3e
+dlc2_qf_dlc2dunnchardaktracki_020173be		fragment_10	5ddb3118
+dlc2dunfahlbtharzhelmeffectscript		oneffectstart	5bae4f4f
+mg03questscript		onupdate	b6fb45bc
+dlc2expspiderdeadspiderscript		onload	150c78ac
+qf_dunustengravqst_0002125b		fragment_17	0e284be3
+fxfakecritterscript		onactivate	f7efc283
+powershrinescript	base	onactivate	8b8a0bb8
+qf_da03_0001bfc4		fragment_37	9a472694
+qf_da03_0001bfc4		fragment_38	14b937ea
+qf_dbsidecontract08_0001ea64		fragment_6	6b3295d6
+qf_dbsidecontract12_0001ea68		fragment_9	6b3295d6
+dlc1nvampirenecklacegargoylescript		onload	45e53e32
+qf_wedl01_000b8141		fragment_1	fcf27655
+dlc2foxblessingscript		oneffectstart	52229303
+trapbreakawaybase	unbroken	ontriggerenter	63d1aec7
+qf_mg04monkscenequest_00076f39		fragment_0	ab6e5560
+qf_dunfrostflowabyssqst_00048121		fragment_2	dd877829
+dlc2dunkolbjorncataleverpuzzle	waitingforplayer	onactivate	3cd3f528
+dlc2dunfahlbtharzsteampuzzlecontroller		opendoor	9d2b43aa
+dlc2dunfahlbtharzsteampuzzlecontroller		endsteamvent	83122e4c
+dlc1rnpcplaysceneafterinterval		ontriggerenter	c682051b
+dunforsakencavems12script	waiting	onactivate	8f6a6e09
+hallofstorieskeyholescript	mainstate	onactivate	80731666
+qf_mgritual03_00099f27		fragment_9	b107c3cd
+dlc1onaddhorseskull		oncontainerchanged	5c60a3ba
+da13dremorafxwhenenabledscript		ondead	a0f10517
+c00jorrvaskrfightathisscript		onenterbleedout	abc2da6e
+qf_mg01shoutupdate_000b812e		fragment_0	21d3e629
+dunreachwaterrockenabledelegate		onload	ccd79a5f
+dlc2_qf_dlc2rr00_0201bfe9		fragment_1	c069c28d
+sf_mg06doorscene_0004d8d0		fragment_16	1ecb0ad7
+sf_mg06doorscene_0004d8d0		fragment_0	87bf4410
+dlc1gargoylebossscript	damageable	onbeginstate	08e6aacd
+dlc2nb01corpseforce		onactivate	1aa7cc40
+qf_weroad01_001034df		fragment_12	6c082bb3
+qf_weroad01_001034df		fragment_7	164001e0
+da11verulusscript		onactivate	d3590924
+mgrappb01spelleffectscript		oneffectstart	b528572c
+da10ghosttrap	hover	onbeginstate	7450f6bc
+defaultdisableonloadafterwait		onload	913157b8
+magicimodscript		oneffectstart	1f96b720
+qf_mq104b_0002610c		fragment_35	964face7
+qf_mq104b_0002610c		fragment_39	fb7c3b88
+qf_dbolavareadingmiscobjectiv_0002e655		fragment_0	f0bd085c
+mgritual04augurtriggerscript		ontriggerenter	0e7044b7
+dunshroudhearthspinnerpuzzlecontroller		onactivate	5060f1b1
+e3arveltrapscript	listening	ondeath	c84ccd76
+fxdwarvenspherescript		ondeath	60ba991a
+defaultdisplayiteminlistscript		positionitemanddisablephysics	dd4c6185
+qf_db02_0001ea51		fragment_26	a5cd4d99
+qf_db02_0001ea51		fragment_5	ec6efad5
+dlc2_qf_dlc2dunhaknirtreasure_02024002		fragment_1	ee06162b
+tg08bfightcontroller		mercerdrainspelldone	1fe3a668
+tg08bfightcontroller	active	onbeginstate	9c1f5bbc
+dlc2audiorepeateractivator01script		oncellattach	a3079689
+c04glenmorilwitchheadscript		oncontainerchanged	b41ee9c5
+dunkilkreathbeamshooterscript		onactivate	b92911a1
+dunda14portalscript	waiting	ontriggerenter	0b720d2f
+defaultforceevaluatepackagetrigger		ontriggerenter	9bf65e7d
+dlc1_prkf_dlc1vampiricgrip_0100599a		fragment_1	74745108
+dlc1cavewormtriggercontrolscript	gothit	onbeginstate	910579dd
+playerbookshelfcontainerscript		onactivate	4b551f76
+playerbookshelfcontainerscript		onitemadded	f5e9c081
+companionshousekeepingscript		setupcompanions	fa3b7f82
+dlc1_bf_iceshieldtrigscript		onupdate	ff6e25ad
+dunhalldirbossbattleforms		ondying	ed868b84
+mq304lostsoulscript		testforalduinhit	95913646
+magicanomalyspawnerscript	waiting	ontriggerenter	bb566024
+dunpoitrollbattleonstart		updateloop	bdf71b53
+defaultcastfromlinkonactivatescript	active	onactivate	cf5b722e
+dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_41	083fa6e9
+dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_52	55c38ddd
+dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_51	da0fc38d
+dlc1_qf_dlc1ld_bthalft_0100cfff		fragment_14	a41452f1
+qf_dbsidecontract05_0001ea61		fragment_7	3f6efa98
+dlc1vq05dragondeathscript	done	ondying	cd6f2603
+dlc1vq05dragondeathscript	waiting	ondying	e1fb0675
+magicattachashpile		oneffectstart	34b65520
+dlc2dunkarstaagbonefxscript		onupdate	97721562
+dunshafttrapscript		onupdate	db5a3c84
+karthspireredoubtcagedoorscript		onactivate	7d3b117e
+spellsummondraugrbomb		onhit	5c4fb43c
+mqgreybeardabsorbscript		dragonabsorbeffect	b881bd04
+mqgreybeardabsorbscript		absorbeffect	2bab56f3
+dlc1huntercavepressureplate		ontriggerenter	88f3671d
+dunhillgrundstombboss		doteleport	15858221
+dlc2soulstealscript		absorbsoulfrommiraak	c7b4b78d
+dunraldbtharwebtriggerscript	waiting	ontriggerenter	de3b8cbd
+dunkarthshamanscript		ondeath	3d87128c
+dlc2dunhighpointcasttrigscript	active	onactivate	e29c8c5b
+sf_da15pelagiusend_0002ac6e		fragment_1	401dc3e8
+sf_da15pelagiusend_0002ac6e		fragment_4	1ee6b564
+dlc1vq01puzzlebuttonscript	waiting	onactivate	3dceafc3
+dunpoiavalanche		onload	138f2383
+dunpoiavalanche		onactivate	db1641e6
+c03sacredfontscript		onactivate	9e862c77
+fxchargenfxscript		onload	958488f8
+magictrap	pause	onbeginstate	f2091d69
+dlc1batseffectscript		onanimationevent	4db812ef
+dlc1batseffectscript		oneffectfinish	ddd4e1bc
+dlc1arkngthamzdestructionscript		onactivate	bd8e290c
+dunustengravrumblescript		onactivate	112b517b
+dlc2kagrumezlightningscript	buffer	onbeginstate	0cf18dc1
+qf_mq201_00035d5f		fragment_15	c73ef9ec
+qf_mg02_0001f252		fragment_9	b6373f82
+c06ysgramorstatuescript	blade	onbeginstate	1a4c2010
+testphilhealerhealcheckeffectscript		oneffectstart	01d7b2e0
+da09gemscript		playscene	ca3d937c
+dunyngolglow		onactivate	eb6efdb5
+dunyngolglow		jumpat	2388369a
+fxdragonmoundscript	waiting	onactivate	b1e832c9
+dunvalthumebloodbowl		onactivate	daa22c5c
+markarthwarrensdoorscript		onopen	83c52412
+byohrelationshipadoptionscript		adoptchild	b6bb835d
+dlc1magiccastfromsunscript		castspellfromsun	32b8b10e
+da16magicbarrier	active	onbeginstate	9d12e513
+byohhousebuildingscript		buildhousepart	dacdf33d
+dlc1ld_towerrumbleshakemanager		runrumbleloop	36df87ee
+magicimodonplayerhitscript		oneffectstart	bb8d68d6
+qf_db04a_0002ad16		fragment_9	054800b8
+favorquestscript		onupdategametime	9ac49bab
+dlc1aurielblessexplosionplacescript		oninit	0e263c80
+traptriggertimeinterval	timedfirestate	onupdate	d651c062
+tg05lockeddoorscript	locked	onactivate	d048a367
+altarofmolagbalscript		onactivate	6202bea9
+dlc1activatorflameonscript	waiting	onactivate	ba9487c7
+dlc2_qf_dlc2tt1_02017e8d		fragment_0	36f690be
+dlc2fxscrib		ondying	1341468d
+wispshadeactorscript		oneffectstart	c5166897
+mqshouttrigger		firetriggerevent	d6a2af2f
+qf_dunravenscarqst_0003d26c		fragment_2	bfa6218c
+werewolftransformvisual		oneffectstart	79489073
+qf_dunragnqst_0003763c		fragment_8	bf2f27d5
+dunmzinchaleftpuzzlecompletionscript	waiting	onactivate	16100f91
+dunhalldirbossbattle2		startfinalbattle	892c664b
+dunhalldirbossbattle2		onhit	2a2d4b5a
+dlc1_bf_frozenexplodeondying		onload	e51c13e8
+dundeadmensrotatingdoormanager	ready	onactivate	b330079c
+dlc2expspidercraftingscript		filldynamiclist	362457c2
+mg07savosghosttrigger1script		ontrigger	126da7cf
+qf_dunlabyrinthian_00091f1a		fragment_6	b4f451db
+dlc2ttr4bspelleffectscript		oneffectstart	611265ae
+dlc2ttr4bspelleffectscript		oneffectfinish	7d6c6c0d
+dlc2ttr4bspelleffectscript		onupdate	2c6c60ba
+fxskeletonnecroscript		ondying	35ce2add
+dlc2spectraldragonsummonscript		onload	6cea5c9f
+dunserpentsbluffpressureplate		updateloop	d10206ee
+qf_dbsidecontract02_0001ea5e		fragment_2	06fdf625
+dungeirmundsbossduplicates		onload	26c5bcab
+poi_iceformscript		oneffectstart	8d02fff1
+t02amuletscript		onequipped	c394ee3c
+t02amuletscript		onunequipped	8cb38dd6
+dlc1_bf_fallingdebriscontrollerscript		foundplayer	f9f4cb39
+dunustengravstatuescript		onactivate	e17e13a1
+qf_dunbardsleapsummitqst_000ae014		fragment_4	17a6861d
+dlc01wesc03script		onload	59bba0ef
+dlc1magicsoulrendscript		oneffectstart	41adfb4c
+dlc1magicsoulrendscript		ondeath	275d1f14
+fxsetblendvariablescript		onload	20be49f6
+dlc01teleportscript		ontriggerenter	99dd8fa4
+ferrysystemscript		onupdate	87ea81ac
+ferrysystemscript		playerissitting	91eca991
+mg02tolfdiraliasscript		oncombatstatechanged	164a2cd9
+dunvalthumeresurrection		onactivate	4cca8493
+ms06rotatingdoorscript		onload	97ddd73e
+ms06rotatingdoorscript	rightpos	onbeginstate	267eac0e
+ms06rotatingdoorscript	leftpos	onbeginstate	92a499bc
+wispactorscript		ondying	1ace1f4f
+wispactorscript		onactivate	c30f8acd
+qf_wedl01b_000bfb61		fragment_1	fcf27655
+dunshimmermistfalmerbossscript	waiting	onhit	cb4c3159
+qf_dbdestroy_000934fb		fragment_2	1488a85d
+defaultcastatlinkontriggerscript	active	ontriggerenter	33a45ba4
+qf_mq103b_0002610b		fragment_55	8aa2e201
+dlc1_qf_dlc1vq08post_0101a1c1		fragment_0	a58a9aad
+trappoisongascough		coughloop	eeead1ec
+fcaddingrediantanddeletescript		onactivate	bc7e6bfd
+dunshimmermistbossscript	waiting	oncombatstatechanged	f13dbb6d
+dunreachwaterrockghostscript		destroyghost	83ded7fc
+dlc1magicplaysoundoneffectstart		oneffectstart	d271f437
+dbdawnstarciceronoattacktrigscript		ontriggerenter	55970d3b
+valthumecontainerpuzzlescript		onactivate	2efc4e88
+duncgplayerinsquaretriggerscript		onupdate	cb2ea1aa
+dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_5	5900925b
+dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_2	362cd27c
+dlc1_qf_dlc1ldicedragonfight_010088e5		fragment_14	f946c191
+sf_ciceronightmothertalkscene_0003bb83		fragment_0	ec5a611f
+qf_db07_0001ea56		fragment_18	7d35184c
+dlc2dialoguerrquestscript		finishboatride	32a160f2
+dlc1huntercavepressureplatetimed		ontriggerenter	640b2a29
+c00jorrvaskrfightscenescript		startvolley	e1fe4a6b
+c00jorrvaskrfightscenescript		fightend	a5158ad2
+dunpoiraiders		updateloop	1ec3b0be
+dlc2miraakscript		aftermiraakfadeout	21efff32
+qf_duntalkingstoneqst_0004ba6c		fragment_17	a8bd5a6d
+qf_freeformwhiterunquest03_000946fd		fragment_0	a6cbe7a4
+byohurchincarryscriptcheck		startloop	c6166010
+dlc1drainbloodpointscript		oneffectfinish	278fcbf6
+dunustenpuztrigscript		onload	6089ac86
+dlc2defaultaddspell		oncellattach	99456e26
+defaultactivateonload	preactivation	onload	b4ec220e
+dlc1_bf_falmerstatuescript		onactivate	82a9bf8b
+dunreachwaterrockpedestalmanager		onactivate	5ebb0152
+dunreachwaterrockpedestalmanager		reforgeamulet	1965ffe3
+dlc2hmdaedradeathscript		ondying	6a042498
+dlc2dbbooklevelenabledisablescript	waiting	onactivate	b7766088
+dlc2dbbooklevelenabledisablescript	waiting	ontriggerenter	33084151
+dlc2dunfahlbtharztowersimplescript	open	onactivate	0d4193a1
+dlc2dunfahlbtharztowersimplescript	closed	onactivate	5a085f7a
+magicbanishscript		oneffectstart	1d74ef77
+tg08binvisibilityexplosioneffectscript		oneffectstart	7db835b7
+qf_mq101dragonattack_000d0593		fragment_243	d5f008dd
+qf_mq101dragonattack_000d0593		fragment_232	6faca53b
+db10playerpinnedtriggerscript		ontriggerenter	1624ffce
+dlc2dunhaknirbossbattlescript		ondying	2e4de88d
+qf_dunthrowvoiceqst_001075b1		fragment_0	2acd9f82
+dlc1ld_puzzlehinttriggerscript		updateloop	99a66925
+byohfishhatcherycontainerscript		onitemadded	a13851f8
+dlc1ld_doortriggertogglescript		enabledoortrigger	a12cc939
+qf_cwsiege_000954e1		fragment_37_whiterunsetup	181a3f86
+qf_cwsiege_000954e1		fragment_37_markarthsetup	7a3eff87
+qf_cwsiege_000954e1		lowerwhiterundrawbridgedelayed	5c4e6253
+qf_cwsiege_000954e1		fragment_0	072efe17
+dundeadmensbardghostscript		onload	a90bde51
+dundeadmensbardghostscript		fadein	f94420b6
+dundeadmensbardghostscript		popin	4c1ee17d
+sf_c03postrampage_000aec02		fragment_0	ba63e873
+mgritual02effectscript		oneffectstart	c8b1faa2
+dunvolskyggepuzzlelever01		oninit	35af9cce
+tg08btowerfallscript	quake	onbeginstate	e61a5140
+dlc2rr02questscript		tilisucountdown	57d94e24
+qf_darkbrotherhoodsanctuaryre_00087ba2		fragment_4	b9cf1167
+magicimodbeginloopend		oneffectstart	84f822c8
+dunfolgunthurbossbattle		onhit	99fee441
+magicsoultrapfxscript		oneffectfinish	e797053c
+fxskuldafnportal		closeportal	cab79263
+qf_dbtorturetreasuremiscobjec_00037a2d		fragment_0	dc42f5a2
+qf_dbtorturetreasuremiscobjec_00037a51		fragment_0	dc42f5a2
+qf_dbtorturetreasuremiscobjec_00037a53		fragment_0	dc42f5a2
+qf_dbtorturetreasuremiscobjec_00037ae3		fragment_0	dc42f5a2
+byohhousecraftingtriggerscript		startcrafting	3520c84f
+byohhousecraftingtriggerscript		ontriggerleave	92c41c03
+qf_mq206_00036193		fragment_4	fa7078eb
+qf_mq206_00036193		fragment_23	4cf61f6b
+helgenrandomsoundscript		onupdate	9119d738
+dlc1dunstatuehitscript		onanimationevent	eda76eef
+dlc1dunstatuehitscript	beencorrectlyhit	onbeginstate	feb7c7ef
+dunhalldirbossformghostscript		ondying	4cefe7f5
+dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_2	2810f830
+dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_5	62c341f4
+dlc1_qf_dlc1ldicedragonfight0_01019dd2		fragment_14	a04b3fa9
+e3demowolfencounterscript		ontriggerenter	649ef9c2
+qf_dbolavareadingtreasureobje_0002e656		fragment_0	f0bd085c
+norrotatingdoorleverscript		oninit	97ddd73e
+wideadbodycleanupscript		ondeath	0661a661
+dlc2dundbdeadactortrig	waitingforfirstcorpse	ontriggerenter	ebfdbb46
+dlc2toldarstombpuzzleplatmasterscript		ontriggerleave	1a41e919
+playerpotionrackcontainerscript		onitemadded	3185d281
+playerpotionrackcontainerscript		onactivate	aaea6553
+playerpotionrackcontainerscript		onload	ca45996a
+dlc1vq04portalareaeffecttriggerscript		ontriggerenter	6f9bc3ab
+c01questscript		fightstart	5f00fa2a
+qf_vc01_0005c625		fragment_9	549b1418
+dlc1_qf_dlc1ld_01004d6b		fragment_59	675d5884
+dlc1_qf_dlc1ld_01005817		fragment_148	a0e26886
+defaultbipressureplate	down	onbeginstate	d0cda5e7
+defaultbipressureplate	up	onbeginstate	d9f51edc
+defaultbipressureplate	down	ontriggerleave	62203162
+dlc1_qf_dlc1rh06_01007201		fragment_0	13dbdf0d
+c00vilkasentertrainingareatriggerscrip		ontriggerenter	2c3dec61
+dunhagsendhagravenbattlemanager		teleporttosafepoint	70d86009
+dungeirmundsbosstrigger	waiting	ontriggerenter	94f29088
+dlc1magiceatenbybatsscript		oneffectstart	921f6ae3
+defaultinteriordoorshutscript		onopen	dcdb778e
+weaponrackactivatescript		handleweaponplacement	704b9ee6
+dlc2fxinsturmentsattachscript		oneffectstart	b34e759f
+dunriftenjailloadcheck		onreset	2ce97fa0
+traptriggerbase		onactivate	edb98ee9
+traptriggerbase	inactive	ontriggerleave	a40cca24
+traptriggerbase	active	onbeginstate	022b78d9
+traptriggerbase	inactive	onbeginstate	15f754ee
+dungeirmundsbossbattle		ondeath	c0aae186
+cwfieldcocrimefactionscript		oninit	1250b660
+mqtotwhazardscript		onhit	d5ba31a3
+dundeadmensrespitesealeddoor		setupsealeddoor	609bf24d
+qf_dbsidecontract07_0001ea63		fragment_6	ff49d194
+qf_dbsidecontract11_0001ea67		fragment_7	31ebf928
+sf_mg06visionscene_00034ccd		fragment_0	3ddf8e6e
+dlc2mkmiraakmaskshoutscript		oneffectstart	a365da7f
+t03rootblockeractivatorscript		onhit	5fcefdb9
+qf_mq305_00046ef2		fragment_35	d6eabdfa
+mannequinactivatorscript		onactivate	47ff2842
+qf_dunvaltheimkeepqst_000adfe7		fragment_2	cc3620cd
+qf_dunvaltheimkeepqst_000adfe7		fragment_5	d3801087
+ms04ghostshaderscript		fadeout	157ce86f
+ms04ghostshaderscript		popin	4c1ee17d
+ms04ghostshaderscript		fadein	f94420b6
+ms04ghostshaderscript		onload	e2f42af9
+dlc2dbconjureancientsscript		onanimationevent	a4b58eb1
+sprigganfxscript		onenterbleedout	454bb3b2
+sprigganfxscript		oncombatstatechanged	97b70291
+sprigganfxscript		ondeath	b7255266
+dlc2ashspawndeathscript		ondying	3315ffca
+dlc1dunwaygatedoorscript	waiting	onactivate	3c2c609d
+dunharmugstahlspiderdead		ongrab	46f6b36d
+qf_tg09_00021555		fragment_8	6fb5379f
+qf_tg09_00021555		fragment_17	4a1197a6
+qf_tg09_00021555		fragment_10	6615dbe8
+dlc2disableonloadafterwait	readytodisable	onload	ddbd86c4
+astridendscript		onhit	442fd9b2
+dunkilkreathcrystalnodescript		onactivate	de1c23be
+dlc1_qf_dlc1dunredwaterdenqst_01007c4f		wakeupplayer	2b7102ef
+dlc1_qf_dlc1dunredwaterdenqst_01007c4f		knockoutplayer	a9171776
+dlc1_qf_dlc1dunredwaterdenqst_01007c4f		fragment_8	48733257
+dlc2dunkarstaagbattlescript		startbattle	18880d1b
+defaultautosavescript		ontriggerenter	06eef3eb
+defaultsetstageactscript	waitingforplayer	onactivate	472a8388
+skyhavensconcescript		turnonlight	8e37d60b
+c03rampagequest		startrampage	8d3c4fde
+dunpitanimationactivationscript	listening	onactivate	926c0a6e
+patchdlc1doorfixscript		onload	939115a2
+rpdefault_ferrysystem		onupdate	b1b832ea
+wrdrawbridge01script		onload	50d7e33a
+fxalduinscript	soulexplode	onbeginstate	98a1fd57
+fxalduinscript	earthquake	onbeginstate	0ba06d34
+qf_db01_0001ea50		fragment_9	f74a8fd4
+sf_mg04augurspeakscene_0004fbf4		fragment_2	443066da
+qf_mq101_0003372b		fragment_56	20849679
+qf_mq101_0003372b		fragment_4	58299364
+qf_mq101_0003372b		fragment_27	1941028e
+qf_mq101_0003372b		fragment_59	c5f00130
+qf_mq101_0003372b		fragment_156	e9ac7a8e
+qf_mq101_0003372b		fragment_190	82cbc1b4
+qf_mq101_0003372b		fragment_101	ff0eebd1
+qf_mq101_0003372b		fragment_57	b1607586
+defaultteleportability		teleport	a16175a2
+dlc2_qf_dlc2cultistambush_0203546d		fragment_0	75274284
+abforswornbriarheartscript		onitemremoved	7c535021
+da16torporeffectscript		oneffectstart	c3a8f4b3
+dlc01soulcairnreapertrigscript		onactivate	44c6fe99
+qf_ms02_00040a5e		fragment_47	fa6ce142
+fxdustdroptrigscript	active	onbeginstate	c30b5396
+fxdustdroptrigscript	waiting	onbeginstate	60ed3be8
+defaultactivatedelayedtogglelinkedref		onactivate	ee9bc035
+disintegratewhenspellwearsoff		oneffectfinish	d3775a2d
+dragonpriestambushscript	waiting	onload	390d129d
+sf_tg05spkillscene_00032e64		fragment_8	37242913
+dlc2dunfrostmoontransformscript		oncombatstatechanged	b60c09d3
+dlc2dunfrostmoontransformscript		onraceswitchcomplete	ec6b0ea3
+dlc2attachashpileondeath25		ondying	cf933a41
+qf_dbsidecontract04_0001ea60		fragment_6	6b3295d6
+dlc2_qf_dlc2dunkolbjornqst_0201810b		fragment_8	040f3b33
+dlc2_qf_dlc2dunkolbjornqst_0201810b		fragment_9	667db2ad
+dlc2dbsummonancientscript		onhit	a3c515a0
+dlc01wesc04script		onload	22ad15a5
+mq101dragonattackquestscript		towerdragonroar	5d819a49
+tg03brewingvatscript		onactivate	bf57c952
+qf_dbrecurringcontrolquest_00097256		fragment_0	f8f1ee90
+mqkilldragonscript		mq06deathsequence	e829d277
+qf_da14_0001bb9b		fragment_54	86d0b845
+blackreachelevatorbuttonscript	waiting	onactivate	cd9787ae
+summontargetfxactivatorscript		onload	e95f8913
+sovngardewatcherscript		onload	cd6692a6
+defaultsealeddoor		onload	a886e071
+qf_wedl08_000bbd9d		fragment_10	37c371e2
+fxdustdroponactivatescript	waiting	onactivate	d8a35bfb
+dbrecurringcontrolquestscript		onupdate	ba8fcb0f
+dlc2standingstonefx		standingstoneexplode	0fc30bed
+defaultghostscriptrefalias		ondying	b0aa2875
+defaultghostscriptrefalias		ghostflash	5163e38c
+fxatronachstormscript		ondying	6a3bb9f9
+rpdefault_carriagesystem		onupdate	f3034c86
+dunpoitundramarshdogscript		updateloop	fed5f18f
+dunmossmothervaldrinjured		updateloop	5af0a958
+tg08risingwaterscript	risingphase1	onactivate	5b320600
+fxbirdfleescript	waiting	ontriggerenter	717e8956
+qf_db02a_00022f47		fragment_7	a5ff4575
+dunfolgunthurdragonkeyholeactivator	ready	onactivate	a6b1e36e
+fxbirdfleeonactivatescript	waiting	onactivate	f3d6fc3f
+dundarklightilliaunlockscript		onactivate	7f8d2530
+cwattackcityscript		onupdate	cb2c5227
+dlc1rnpcondeathplaysceneafterdelay		ondeath	af022c96
+dlc1dbdunnorpullbarsacrificescript	waitingforactivate	onactivate	0270148f
+qf_dunstonehillbarrowqst_000cf915		fragment_32	b663052f
+qf_dunstonehillbarrowqst_000cf915		fragment_21	1e7c2281
+qf_dunstonehillbarrowqst_000cf915		fragment_34	91350d7f
+qf_dunstonehillbarrowqst_000cf915		fragment_11	6042c6a4
+qf_dunstonehillbarrowqst_000cf915		fragment_39	ce3c773e
+qf_dunstonehillbarrowqst_000cf915		fragment_0	131a3c26
+cwfinalescript		playerenteredcastle	67408d46
+dunbloatedmansindingscript		updateloop	3479f5e9
+dunbloatedmansindingscript		onhit	960db769
+qf_db09_0001ea58		fragment_4	20427c0d
+bwclightdamagescript		ontriggerenter	3b34bc37
+dlc01wesc08script		onload	9bc70acc
+dlc1_qf_dlc1_bf_duntempleqst_01006bda		fragment_18	4fbc57ce
+dlc1_qf_dlc1_bf_duntempleqst_01006bda		fragment_29	f0e0eb4a
+dlc01soulcairnlightningrodscript	waiting	onactivate	1866598b
+qf_dunmarkarthwizardsquarters_00087105		fragment_24	27b5ef74
+qf_dunmarkarthwizardsquarters_00087105		fragment_15	2b62dc3c
+qf_dunmarkarthwizardsquarters_00087105		fragment_16	c3e42327
+qf_dunmarkarthwizardsquarters_00087105		fragment_40	30fc24ec
+critterdragonfly		onstart	f24fb24d
+da06hammertriggerscript		onactivate	e9926bbd
+dlc2mq06miraakbossbattle		miraakdeath	075038ad
+dlc2mq06miraakbossbattle		dragonkillsceneended	60bd1113
+dlc1vq03mothpriestfightscript		fightloop	e48d4cb5
+dlc2dunkolbjornrotdoorchainscript	off	onactivate	2249d192
+dlc2dunkolbjornrotdoorchainscript	on	onactivate	aff9ca41
+qf_freeformwhiterunquest05_00094e3f		fragment_0	ceefe840
+dlc2fxscribscript		ondeath	9f529aa5
+dunlabyrinthianelementaldoor	active	onmagiceffectapply	bca57ed2
+qf_dbeviction_0006f9a5		fragment_3	237b3903
+qf_ccbgssse001_crab_mq2_050009da		fragment_2	90a33361
+ccbgssse001_crabmq4battlezonescript		ontriggerenter	3cf3932f
+ccbgssse001_crabmq4battlezonescript		ontriggerleave	562886f9
+qf_ccbgssse001_crab_mq4_050009e9		fragment_0	9ebb532c
+qf_ccbgssse001_crab_mq4_050009e9		fragment_11	93b6e757
+qf_ccbgssse001_crab_mq4_050009e9		fragment_12	e112c815
+qf_ccbgssse001_crab_mq4_050009e9		fragment_14	84da1893
+ccbgssse001_dwarvencolumnscript		enablerealcolumn	73fc8915
+ccbgssse001_tif__05000ec3		fragment_0	3c8300c7
+ccbgssse001_crabmq4crabctrlr		onload	35932e81
+ccbgssse001_mudcraballyscript		removemudcrabally	39b7d815
+qf_ccbgssse001_misc_windhelm_050009d5		fragment_4	cfee9729
+ccbgssse001_crabmq4crabspawner	wavetwo	crabkilled	7c7628f3
+ccbgssse001_crabmq4crabspawner	wavethree	crabkilled	dc176c41
+ccbgssse001_crabmq4crabspawner	waveone	crabkilled	1062715f
+ccbgssse001_crabmq4crabspawner	wavethree	flamingpotcrabkilled	812e841f
+ccbgssse001_critterspawn		oncritterdied	d1cd00df
+ccbgssse001_fishingsystemscript		cleanupfishingrodactivator	33d40c6b
+qf_ccbgssse001_misc_falkreat_050009ec		fragment_11	22346186
+ccbgssse001_itemcollectobjectivescript		onitemaddedorremoved	bbc969ac
+ccbgssse001_itemcollectobjectivescript		displayallobjectives	29206d4a
+ccbgssse001_catapultctrlscript		waitforcatapultloaded	0f071716
+ccbgssse025_manholecoversfxscript		onactivate	32618a6a
+qf_ccbgssse025_miscquest_ner_050010bf		fragment_5	ec18259a
+qf_ccbgssse025_questb_02000913		fragment_6	a2b3223a
+qf_ccbgssse025_elytrapetacqu_050010c0		fragment_4	c9090113
+qf_ccbgssse025_elytrapetacqu_050010c3		fragment_1	c9090113
+ccbgssse025_staadaquestscript		unsummonstaadaimpl	cf61aedf
+survival_magicimodbeginloopend		oneffectstart	2c8554e9
+survival_playerhitinfo		onhit	34220e17
+survival_freezingwatercheck		oneffectfinish	ed6888dd
+survival_regionchangescript		oneffectfinish	4e24f6af
+survival_playerlocationinfo		regionentered	838ea4e4
+survival_beasttransformwatcherscript		onraceswitchcomplete	412234c5

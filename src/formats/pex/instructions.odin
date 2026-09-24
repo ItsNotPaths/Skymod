@@ -131,7 +131,8 @@ read_instruction :: proc(r: ^Reader, p: ^Pex) -> (ins: Instruction) {
 }
 
 // function_hash names a body's code: the splitter's stage names carry it, so a stage saved from
-// one version of a function matches no stage of another. Line numbers are left out.
+// one version of a function matches no stage of another. Line numbers are left out, and names and
+// strings hash in lower case: Papyrus ignores their case, and LE and SE spell them differently.
 function_hash :: proc(f: ^Function) -> u32 {
 	h := hash.fnv32a({})
 	for ins in f.instructions {
@@ -142,7 +143,11 @@ function_hash :: proc(f: ^Function) -> u32 {
 			i, fl := a.i, a.f
 			h = hash.fnv32a({kind}, h)
 			switch a.kind {
-			case .Identifier, .String: h = hash.fnv32a(transmute([]u8)a.str, h)
+			case .Identifier, .String:
+				for c in transmute([]u8)a.str {
+					l := c + 32 if c >= 'A' && c <= 'Z' else c
+					h = hash.fnv32a({l}, h)
+				}
 			case .Integer:             h = hash.fnv32a(mem.ptr_to_bytes(&i), h)
 			case .Float:               h = hash.fnv32a(mem.ptr_to_bytes(&fl), h)
 			case .Bool:                h = hash.fnv32a({b}, h)
