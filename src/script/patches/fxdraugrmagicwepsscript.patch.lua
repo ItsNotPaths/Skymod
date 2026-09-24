@@ -7,10 +7,10 @@ return function(C)
 	C.__vars.TickRate = rt.float(0.1)
 	C.__vars.pendingActor = rt.form("Actor")
 	C.__vars.waiting = rt.bool(false)
-	C.__vars.fxT = rt.timer(-1.0) -- negative: no streak-effect wait pending
+	C.__vars.fxT = rt.timer(rt.None) -- None: no streak-effect wait pending
 
 	function C:OnEquipped(akActor)
-		if self.waiting or self.fxT >= 0 then return end -- a second start is dropped
+		if self.waiting or self.fxT ~= rt.None then return end -- a second start is dropped
 		self.pendingActor = akActor
 		self.waiting = true
 	end
@@ -22,8 +22,8 @@ return function(C)
 			if self.doonce == 0 then self.fxT = 0.3 end
 			return
 		end
-		if self.fxT < 0 or self.fxT > 0 then return end
-		self.fxT = -1.0
+		if self.fxT == rt.None or self.fxT > 0 then return end
+		self.fxT = rt.None
 		self.fxdraugrmagicswordstreakeffect:Play(self.pendingActor, -1)
 		self.doonce = 1
 	end

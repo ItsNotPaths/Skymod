@@ -9,8 +9,9 @@ return function(C)
 	local Waiting, Busy = rt.state(C, "Waiting"), rt.state(C, "Busy")
 
 	function Waiting:OnActivate(akActivatorRef)
+		if akActivatorRef ~= rt.static("Game", "GetPlayer") then return end -- Busy and back at once in Papyrus
 		self:GotoState("Busy")
-		if akActivatorRef == rt.static("Game", "GetPlayer") then self.FishingSystem:OnFishingTriggerActivated() end
+		self.FishingSystem:OnFishingTriggerActivated()
 		self:OnTick()
 	end
 

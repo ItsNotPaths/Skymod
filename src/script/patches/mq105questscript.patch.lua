@@ -28,7 +28,7 @@ return function(C)
 		self.OutroDust1:Activate(player(), false)
 		self.OutroTrigger:KnockAreaEffect(0.25, 250.0)
 		rt.static("Game", "ShakeController", 0.5, 0.5, fTotalTime)
-		rt.static("Game", "ShakeCamera", { afDuration = 0.1 * fTotalTime })
+		rt.static("Game", "ShakeCamera", { afStrength = 0.1 * fTotalTime })
 	end
 
 	local split_tick = C.__fn.ontick
@@ -49,7 +49,7 @@ return function(C)
 		else
 			self.speech = S.Idle
 			self.OutroTrigger:KnockAreaEffect(0.2, 250.0)
-			rt.static("Game", "ShakeCamera", { afDuration = 0.01 * t })
+			rt.static("Game", "ShakeCamera", { afStrength = 0.01 * t })
 			self.OutroDust1:Activate(player(), false)
 		end
 		trace(self, "GreybeardSpeakingEffect step " .. tostring(step))

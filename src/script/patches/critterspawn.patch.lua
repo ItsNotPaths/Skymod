@@ -4,6 +4,7 @@
 local rt = require('skymod.rt')
 
 return function(C)
+	local split_tick = C.__fn.ontick -- this class's S6 split waits; an OnTick here must run them
 	C.__vars.TickRate = rt.float(C.__vars.fcheckplayerdistancetime.default)
 	local Waiting = rt.state(C, "WaitingForPlayer")
 
@@ -15,6 +16,7 @@ return function(C)
 
 	-- OnUnload, OnCellDetach and ShouldSpawn clear bLooping; the state follows it.
 	function Waiting:OnTick()
+		if split_tick then split_tick(self) end
 		if self.bLooping and self:ShouldSpawn() then
 			self:SpawnInitialCritterBatch()
 			self.bLooping = false

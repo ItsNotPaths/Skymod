@@ -67,25 +67,25 @@ return function(C)
 	end
 
 	function C:OnTick()
-		if self:GetState() == "updating" then
-			if self.iintrigger > 0 and not self.wordlearned then
-				if self:isLooking() then
-					self:StartFX()
-					self.fxOn, self.doonce = true, false
-				elseif self.fxOn then
-					self:StopFX()
-					self.fxOn = false
-				elseif not self.doonce then
-					self.doonce = true
-					self.wordwall:PlayAnimation("DarkXWild")
-				end
-			else
-				if self.fxOn then
-					self:StopFX()
-					self.fxOn = false
-				end
-				if self:GetState() ~= "done" then self:GotoState("") end
+		local updating = self:GetState() == "updating"
+		if updating and self.iintrigger > 0 and not self.wordlearned then
+			if self:isLooking() then
+				self:StartFX()
+				self.fxOn, self.doonce = true, false
+			elseif self.fxOn then
+				self:StopFX()
+				self.fxOn = false
+			elseif not self.doonce then
+				self.doonce = true
+				self.wordwall:PlayAnimation("DarkXWild")
 			end
+		else
+			-- the loop's tail: learning the word moved StartFX to "done", and the fx still clears
+			if self.fxOn then
+				self:StopFX()
+				self.fxOn = false
+			end
+			if updating then self:GotoState("") end
 		end
 		if self.learn == Learn.Waiting and self.learnT <= 0 then
 			self.wordwall:PlayAnimation("Learned")

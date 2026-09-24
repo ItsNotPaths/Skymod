@@ -11,7 +11,11 @@ return function(C)
 	C.__vars.burstT = rt.timer(0.0) -- spacing between ActivateNextEnemy calls, inside a burst
 	C.__vars.runT = rt.timer(0.0)   -- UpdateLoop's own Wait(1) between RunUpdate passes
 
+	C.__vars.looping = rt.bool(false) -- UpdateLoop's while runs; only UpdateLoop starts it
+
 	function C:UpdateLoop()
+		if self.looping then return end -- a second start while one runs is dropped
+		self.looping = true
 		self.runT = 0.0 -- run RunUpdate at once, as Papyrus did before its first Wait(1)
 	end
 
@@ -23,13 +27,13 @@ return function(C)
 	end
 
 	function C:OnTick()
-		if self.isactive and not self.breakloop then
+		if self.looping and self.isactive and not self.breakloop then
 			if self.runT <= 0 then
 				self.runT = self.runT + 1.0
 				self:RunUpdate()
 			end
-		else
-			self.breakloop = false
+		elseif self.looping then
+			self.looping, self.breakloop = false, false -- the while ends; the next OnLoad starts it again
 		end
 		while self.busy and self.burstT <= 0 do
 			if self:CountActiveEnemies(self.battlemanager, self.currentenemylink) < self.simultaneousenemies

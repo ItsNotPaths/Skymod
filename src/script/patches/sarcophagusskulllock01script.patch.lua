@@ -26,6 +26,7 @@ return function(C)
 		player():RemoveItem(key)
 		self.itemThatUnlockedMe = item
 		go(self, Slot.Inserting)
+		self:RegisterForAnimationEvent(self, "Done") -- the insert's end; Papyrus waited on it directly
 		self:PlayAnimation("Insert")
 	end
 
@@ -48,6 +49,7 @@ return function(C)
 			rt.cast(self.myPartnerSlot, "sarcophagusskulllock01script"):UnlockSequence()
 		end
 		self.armed = true
+		self:RegisterForAnimationEvent(self, "Done")
 		self:PlayAnimation("Unlock")
 	end
 

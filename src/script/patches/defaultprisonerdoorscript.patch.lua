@@ -7,7 +7,8 @@ local rt = require('skymod.rt')
 return function(C)
 	C.__vars.TickRate = rt.float(0.1)
 	C.__vars.t = rt.timer(0.0)
-	C.__vars.pi = rt.int(-1)
+	C.__vars.pi = rt.int(-1) -- the next prisoner to walk; -1: no walk under way
+	C.__vars.evaluating = rt.form("Actor") -- the prisoner whose EvaluatePackage is due after its 0.1 s
 	local Waiting = rt.state(C, "WaitingToBeOpened")
 
 	local function prisoners(self)
@@ -15,25 +16,24 @@ return function(C)
 	end
 
 	function Waiting:OnOpen(triggerRef)
-		self.pi = 0
-		self.t = 0
+		if self.pi >= 0 then return end -- a second open during the walk is dropped
+		self.pi, self.t = 0, 0
 		self:OnTick()
 	end
 
 	function Waiting:OnTick()
-		if self.pi < 0 then return end
-		if self.t > 0 then return end
-		local list = prisoners(self)
-		rt.static("Debug", "Trace", string.format("DEBUG pi=%s t=%s list1=%s list1type=%s #list=%s", tostring(self.pi), tostring(self.t), tostring(list[1]), type(list[1]), #list))
-		if self.pi > 0 then
-			local p = rt.cast(list[self.pi], "actor")
-			p:EvaluatePackage()
+		if self.pi < 0 or self.t > 0 then return end
+		if self.evaluating then
+			rt.cast(self.evaluating, "actor"):EvaluatePackage()
+			self.evaluating = rt.None
 		end
+		local list = prisoners(self)
 		while self.pi < #list do
-			self.pi = self.pi + 1
 			local p = list[self.pi]
+			self.pi = self.pi + 1
 			if p then
 				rt.cast(p, "actor"):RemoveFromFaction(self.dunprisonerfaction)
+				self.evaluating = p
 				self.t = self.t + 0.1
 				return
 			end

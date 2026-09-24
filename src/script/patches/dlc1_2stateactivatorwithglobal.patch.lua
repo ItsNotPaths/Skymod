@@ -27,6 +27,14 @@ return function(C)
 		end
 	end
 
+	-- SetOpen set isOpen (which waited out the animation) and then the global. finish() writes the
+	-- global when the run ends; with no run under way (the setter did nothing) it is written here.
+	function C:SetOpen(abOpen)
+		if abOpen == nil then abOpen = true end
+		self.isOpen = abOpen
+		if self.moving == "" then self.myGlobalVar:SetValue(abOpen and 1 or 0) end
+	end
+
 	C.__fn["__propset_isopen"] = function(self, newOpenState)
 		if self.moving ~= "" then
 			self.want = newOpenState and 1 or 0

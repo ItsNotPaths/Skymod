@@ -16,7 +16,11 @@ return function(C)
 	C.__vars.killT = rt.timer(0.0)  -- ActivateAndKillAllEnemies: spacing while activating the rest
 	C.__vars.killing = rt.bool(false)
 
+	C.__vars.looping = rt.bool(false) -- UpdateLoop's while runs; only UpdateLoop starts it
+
 	function C:UpdateLoop()
+		if self.looping then return end -- a second start while one runs is dropped
+		self.looping = true
 		self.runT = 0.0 -- run RunUpdate at once, as Papyrus did before its first Wait(1)
 	end
 
@@ -34,13 +38,13 @@ return function(C)
 	end
 
 	function C:_pcsRunTick()
-		if self.isactive and not self.breakloop then
+		if self.looping and self.isactive and not self.breakloop then
 			if self.runT <= 0 then
 				self.runT = self.runT + 1.0
 				self:RunUpdate()
 			end
-		else
-			self.breakloop = false
+		elseif self.looping then
+			self.looping, self.breakloop = false, false -- the while ends; the next OnLoad starts it again
 		end
 	end
 

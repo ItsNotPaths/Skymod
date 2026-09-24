@@ -48,14 +48,16 @@ return function(C)
 	function C:OnTick()
 		tick_before(self)
 		if self.fire == C.Fire.Idle then return end
-		if self.fire == C.Fire.Cooldown and (self.overrideloop or not alive(self)) then
-			trace(self, "overrideLoop or unloaded, stopping early")
+		if self.fire == C.Fire.Cooldown and not alive(self) then
+			trace(self, "unloaded, stopping early")
 			if concentration(self) then
 				self.concentrationcastloop = false
 				self:InterruptCast()
 			end
 			return stop_firing(self)
 		end
+		-- overrideLoop only cuts the cooldown short; `loop` still decides below, as in Papyrus
+		if self.fire == C.Fire.Cooldown and self.overrideloop then self.fireClock = 0 end
 		if self.fireClock > 0 then return end
 		if self.fire == C.Fire.Spinup then
 			if not alive(self) then return stop_firing(self) end

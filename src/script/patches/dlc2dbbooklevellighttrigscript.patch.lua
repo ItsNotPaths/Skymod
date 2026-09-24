@@ -1,6 +1,6 @@
--- pex: dothedamage b34ed940
+-- pex: dothedamage b34ed940 34c6a7a5
 -- pex: onactivate 28903c5d
--- pex: oncellattach b444dca8
+-- pex: oncellattach b444dca8 5e4a2d5b
 -- Two Papyrus poll loops become one OnTick: OnCellAttach checked the player's light level every
 -- 0.1 s, and DoTheDamage (started through Activate) hurt the player every 0.25 s while bDoDamage.
 local rt = require('skymod.rt')
@@ -8,6 +8,7 @@ local rt = require('skymod.rt')
 local function player() return rt.static("Game", "GetPlayer") end
 
 return function(C)
+	local split_tick = C.__fn.ontick -- this class's S6 split waits; an OnTick here must run them
 	C.__vars.TickRate = rt.float(0.05) -- divides both waits
 	C.__vars.damageT = rt.timer(0.0)
 	local Running = rt.state(C, "Running")
@@ -44,6 +45,7 @@ return function(C)
 	end
 
 	function Running:OnTick()
+		if split_tick then split_tick(self) end
 		if self.bCheckLightLevel then
 			self.bDoDamage = player():GetLightLevel() < 30
 			if self.bDoDamage and not self.bDoingDamage then self:Activate(self) end

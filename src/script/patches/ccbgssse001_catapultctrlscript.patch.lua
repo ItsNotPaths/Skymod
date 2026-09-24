@@ -10,6 +10,7 @@
 local rt = require('skymod.rt')
 
 return function(C)
+	local split_tick = C.__fn.ontick -- this class's S6 split waits; an OnTick here must run them
 	C.__vars.TickRate = rt.float(0.5)
 	C.__vars.setupOwed = rt.bool(false) -- OnLoad ran before the catapult was loaded
 	C.__vars.hitOwed = rt.bool(false)   -- a volley is in the air
@@ -69,6 +70,7 @@ return function(C)
 	end
 
 	function C:OnTick()
+		if split_tick then split_tick(self) end
 		if self.setupOwed and self:GetLinkedRef():Is3DLoaded() then
 			self.setupOwed = false
 			setup(self)

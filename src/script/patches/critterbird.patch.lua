@@ -74,7 +74,7 @@ return function(C)
 				self:takeFlight()
 			end
 		end
-		if self.goalPerch and self:GetDistance(self.goalPerch) < 32 then
+		if self.action == "" and self.goalPerch and self:GetDistance(self.goalPerch) < 32 then -- not mid-takeoff
 			self:GotoState("Flying")
 			self:landAtPerch(self.goalPerch)
 		end

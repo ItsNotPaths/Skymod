@@ -11,7 +11,6 @@ return function(C)
 	C.Act = rt.sequence("Idle", "Enabling", "Disabling1", "Disabling2")
 	C.__vars.act = C.Act.Idle
 	C.__vars.actT = rt.timer(0.0)
-	C.__vars.wantDisable = rt.bool(false)
 	local S = C.Act
 
 	local function begin_disable(self)
@@ -34,7 +33,6 @@ return function(C)
 			trace(self, " enabling from Alduin's shout")
 			self.act = S.Enabling
 			self.actT = rt.static("Utility", "RandomFloat", 0.0, 3.0)
-			self.wantDisable = doDisable
 		elseif doDisable then
 			begin_disable(self)
 		end
@@ -46,7 +44,8 @@ return function(C)
 		if self.act == S.Enabling then
 			self:setFogState(true)
 			trace(self, " enabling from Alduin's shout DONE")
-			if self.wantDisable then begin_disable(self) else self.act = S.Idle end
+			-- Papyrus checks stage 100 again once the enable is done
+			if self.MQ305:GetStageDone(100) then begin_disable(self) else self.act = S.Idle end
 		elseif self.act == S.Disabling1 then
 			self:setFogState(false)
 			self.act = S.Disabling2

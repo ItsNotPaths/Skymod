@@ -5,10 +5,10 @@ local rt = require('skymod.rt')
 
 return function(C)
 	local split_tick = C.__fn.ontick
-	C.__vars.f21T = rt.timer(-1.0) -- negative: fragment not running
+	C.__vars.f21T = rt.timer(rt.None) -- None: fragment not running
 
 	function C:Fragment_21()
-		if self.f21T >= 0 then return end -- a run happens once
+		if self.f21T ~= rt.None then return end -- a run happens once
 		self.scene_aicantar1:Stop()
 		self.scene_labamb1:Stop()
 		self.f21T = 1.0
@@ -16,8 +16,8 @@ return function(C)
 
 	function C:OnTick()
 		split_tick(self)
-		if self.f21T < 0 or self.f21T > 0 then return end
-		self.f21T = -1.0
+		if self.f21T == rt.None or self.f21T > 0 then return end
+		self.f21T = rt.None
 		self.scene_aicantar2:Start()
 		rt.cast(self.bolteddoor, "doorbar"):SetBarPosition(true)
 		self.quarters02inchaos = true

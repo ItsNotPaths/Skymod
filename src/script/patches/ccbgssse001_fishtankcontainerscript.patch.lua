@@ -77,10 +77,10 @@ return function(C)
 				local t = self["slot" .. n .. "t"]
 				if t == nil then
 					if ref:Is3DLoaded() then
+						ref:SetScale(0.75) -- on load, before the settle wait, as in Papyrus
 						self["slot" .. n .. "t"] = rt.static("Utility", "RandomFloat", 0.0, 0.3)
 					end
 				elseif t <= 0 then
-					ref:SetScale(0.75)
 					self["slot" .. n .. "settled"] = true
 				end
 			end

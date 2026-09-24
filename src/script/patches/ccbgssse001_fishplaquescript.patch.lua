@@ -13,14 +13,14 @@ return function(C)
 	function C:DisplayFish(akFish)
 		local theFish = self.plaquecontainer:DropObject(akFish, 1)
 		if not theFish then return end
-		self:GetLinkedRef(self.ccbgssse001_fishplaqueactivatorkw):MoveTo(self, false)
+		self:GetLinkedRef(self.ccbgssse001_fishplaqueactivatorkw):MoveTo{ akTarget = self, abMatchRotation = false }
 		self:PositionFishAndDisablePhysics(theFish)
 	end
 
 	function C:PositionFishAndDisablePhysics(akFishOnDisplayRef)
 		if not akFishOnDisplayRef then return end
 		if self.pendingFish then return end -- a second start while one is under way is dropped
-		akFishOnDisplayRef:MoveTo(self.playerref, true)
+		akFishOnDisplayRef:MoveTo(self.playerref)
 		akFishOnDisplayRef:BlockActivation(true)
 		self.pendingFish = akFishOnDisplayRef
 	end
@@ -41,7 +41,7 @@ return function(C)
 		elseif self.ccbgssse001_fishplaquexlargefishlist:HasForm(akFishForm) then
 			displayMarker = self:GetLinkedRef(self.ccbgssse001_fishplaquexlargefishmarkerkw)
 		end
-		f:MoveTo(displayMarker, true)
+		f:MoveTo(displayMarker)
 
 		-- DisplayFish's own tail, moved here since it must follow positioning, not the start of it.
 		self.plaquefishalias:ForceRefTo(f)

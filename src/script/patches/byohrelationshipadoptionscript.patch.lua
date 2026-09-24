@@ -1,6 +1,6 @@
--- pex: dirtymovefamily 0e796505
--- pex: movefamily ae763481
--- pex: playerlocationchanged 0555d8bd
+-- pex: dirtymovefamily 0e796505 ab049512
+-- pex: movefamily ae763481 650e9c58
+-- pex: playerlocationchanged 0555d8bd e712944e
 -- MoveFamily and DirtyMoveFamily each polled the Scheduler quest with Utility.Wait(0.5), then
 -- retried SetStage(0) up to 10 times the same way. Both waits are now stages walked by OnTick in
 -- one shared "Moving" state; each keeps its own stage field, so the two runs never block one
@@ -15,6 +15,7 @@ local function T(s) rt.static("Debug", "Trace", "adoption: " .. s) end
 local function player() return rt.static("Game", "GetPlayer") end
 
 return function(C)
+	local split_tick = C.__fn.ontick -- this class's S6 split waits; an OnTick here must run them
 	C.__vars.move = Move.Idle
 	C.__vars.moveClock = rt.timer(0.0)
 	C.__vars.moveFailCount = rt.int(0)
@@ -225,6 +226,7 @@ return function(C)
 
 	local Moving = rt.state(C, "Moving")
 	function Moving:OnTick()
+		if split_tick then split_tick(self) end
 		local sched = self.BYOHRelationshipAdoptionScheduler
 
 		if self.moveClock <= 0 and self.move ~= Move.Idle then

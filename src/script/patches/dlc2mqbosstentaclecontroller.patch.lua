@@ -1,5 +1,5 @@
--- pex: attacktargetarea 7a928277
--- pex: attackwithfullsweep 5bb09da8
+-- pex: attacktargetarea 7a928277 2dd61cc3
+-- pex: attackwithfullsweep 5bb09da8 2d02c6a9
 -- Both activated a tentacle chain link, waited attackTimer, walked to GetLinkedRef(), and
 -- repeated until the chain ran out. AttackWithFullSweep does that for all six chains in a row.
 -- Now OnTick walks the same chain(s) on a timer; atkChainIdx is 0 for the single-target attack
@@ -18,7 +18,8 @@ local function tick_attack(self)
 		self.atkChainIdx = self.atkChainIdx + 1
 		self.atkNext = full_start(self, self.atkChainIdx)
 	end
-	self.atkNext:Activate(self)
+	-- the targeted attack activates links as the controller; the sweep lets each link activate itself
+	self.atkNext:Activate(self.atkChainIdx == 0 and self or self.atkNext)
 	self.atkT = self.atkT + self.attackTimer
 	self.atkNext = self.atkNext:GetLinkedRef()
 end

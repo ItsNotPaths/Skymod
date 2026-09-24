@@ -40,6 +40,7 @@ return function(C)
 			self.da13peryitevisionimod:applyCrossFade(2.0)
 			self.da13visionobjectsparent:enable()
 			self.peryite:activate(rt.static("Game", "GetPlayer"))
+			self:registerForSingleUpdate(1.0) -- the heading poll in OnUpdate
 		end
 		if self.endOwed and self.endT <= 0 then
 			self.endOwed = false

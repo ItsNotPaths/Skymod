@@ -125,6 +125,7 @@ return function(C)
 		if self.dupStage ~= S.Idle then return end
 		self.dupStage = S.Ghost
 		self.t = 0.0
+		self.BanishFXManager:GetReference():Activate(rt.static("Game", "GetPlayer")) -- dismiss surviving duplicates
 	end
 
 	function C:AssessDuplicates()

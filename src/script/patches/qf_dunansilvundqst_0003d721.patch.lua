@@ -65,7 +65,7 @@ return function(C)
 				if self.fragIdx < #f.aliases then
 					self:ansilvundSummonEffect(self[f.aliases[self.fragIdx]])
 				else
-					self.summonT = self[f.dur] - DELAY * #f.aliases
+					self.summonT = self.controllershakeduration01 - DELAY * #f.aliases -- Duration01 in all three fragments, as in Papyrus
 				end
 			end
 			return

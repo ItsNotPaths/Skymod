@@ -9,6 +9,7 @@ local rt = require('skymod.rt')
 local function trace(self, msg) rt.static("Debug", "Trace", tostring(self) .. " " .. msg) end
 
 return function(C)
+	local split_tick = C.__fn.ontick -- this class's S6 split waits; an OnTick here must run them
 	-- each stage names the step that runs when `wait` runs out
 	C.Portal = rt.sequence("Closed", "Massive", "Spawn1", "Spawn2", "Spawn3", "Settle", "Watch", "Vanish", "Gone")
 	C.__vars.portal = C.Portal.Closed
@@ -39,6 +40,7 @@ return function(C)
 	-- the "waiting" state's own OnTriggerEnter timer is already cleared before GotoState("opened")
 	-- runs, so the class's split OnTick has nothing left to do here; no need to chain it.
 	function opened:OnTick()
+		if split_tick then split_tick(self) end
 		if self.wait > 0 then return end
 		local step = self.portal
 		if step == C.Portal.Massive then

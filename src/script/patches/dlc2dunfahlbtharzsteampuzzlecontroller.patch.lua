@@ -1,5 +1,5 @@
 -- pex: addsteam c150e073
--- pex: controllights d926ca03
+-- pex: controllights d926ca03 75110df2
 -- AddSteam walked the light meter to the new charge one light at a time (each fill waited for
 -- the meter's animation, then LightChangeRate), then opened the door or, over the limit, vented,
 -- emptied the meter, punished and reset the resonators. Now `steam` is AddSteam's step and
@@ -8,7 +8,7 @@
 local rt = require('skymod.rt')
 
 return function(C)
-	C.Steam = rt.sequence("Idle", "Filling", "Venting")
+	C.Steam = rt.sequence("Idle", "Filling", "Venting", "Ending")
 	local S = C.Steam
 	C.__vars.steam = S.Idle
 	C.__vars.resonator = rt.form("DLC2dunFahlbtharzResonatorScript")
@@ -97,10 +97,14 @@ return function(C)
 				self.steam = S.Venting
 				return self:ControlLights(0)
 			end
-		else
+		elseif self.steam == S.Venting then
 			self:PunishFailure()
 			self:ResetResonators()
 			self:EndSteamVent()
+			self.steam = S.Ending
+			return
+		elseif self.vars["endsteamvent.t"] ~= rt.None then
+			return -- isBusy holds through EndSteamVent's 2 s, as in Papyrus
 		end
 		self.steam = S.Idle
 		self.isBusy = false

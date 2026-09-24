@@ -3,7 +3,6 @@
 -- On a dead target, OnEffectFinish played the bats, waited 0.4 s, then sprayed blood twice
 -- (impulse, 0.28 s, impulse, 0.38 s), stopped the splats and held the effect 5 s. Now OnTick
 -- walks the spray; `sprays` counts the ones left. The closing 5 s hold did nothing and is gone.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)
@@ -27,6 +26,7 @@ return function(C)
 	end
 
 	function C:DecalSpray(BleedingActor, xTimes)
+		if self.sprays > 0 then return end -- a second start during a spray is dropped
 		self.bleeder = BleedingActor
 		self.sprays = xTimes
 		if xTimes > 0 then self.spray_t = 0.0 first(self) end

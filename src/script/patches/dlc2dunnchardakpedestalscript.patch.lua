@@ -3,7 +3,7 @@
 -- pex: filled.onactivate 5eca0c7c
 -- pex: insertcubeneloth 11190515
 -- pex: insertcubeplayer f4c7d8cc
--- pex: onload b7871161
+-- pex: onload b7871161 bb0ff298
 -- pex: playfx 71d9995f
 -- pex: removecubeneloth 7f0525a1
 -- pex: removecubeplayer 7a11774e
@@ -39,14 +39,19 @@ return function(C)
 		return b and b.boiler.name ~= "Idle"
 	end
 
-	local function settle(self, state)
-		self.run = R.Idle
-		self:GotoState(state)
+	-- the aqueduct controller that asked hears back once the insert is over, as in Papyrus
+	local function answer(self)
 		local who = self.asked_by
 		if who then
 			self.asked_by = rt.None
 			rt.cast(who, "DLC2dunNchardakAqueductController"):ActivationComplete()
 		end
+	end
+
+	local function settle(self, state)
+		self.run = R.Idle
+		self:GotoState(state)
+		answer(self)
 	end
 
 	local function extrude(self, by_player)
@@ -84,7 +89,8 @@ return function(C)
 		self:GotoState("Busy")
 		if not self.shouldExtrude then return hold(self, true, false) end
 		if self.nextEventIsBackward and self.ifExtrudeUseOnlyOnce then
-			return self.FailureMessageAlreadyOpen:Show() -- stays Busy, as in Papyrus
+			self.FailureMessageAlreadyOpen:Show() -- stays Busy, as in Papyrus
+			return answer(self)
 		end
 		extrude(self, true)
 	end
