@@ -87,19 +87,24 @@ main :: proc() {
 	events := slua.drain(&vm)
 	trans_took := time.since(start)
 	if args.driver != "" {
-		code, err := os.read_entire_file(args.driver, context.allocator)
-		if err != nil || !slua.do_string(&vm, string(code)) {
+		guarded := fmt.tprintf("local rt = require('skymod.rt'); rt.guard('driver', assert(loadfile(%q)))", args.driver)
+		if !slua.do_string(&vm, guarded) {
 			fmt.eprintfln("--driver %s failed; its error is in the warnings below", args.driver)
 		}
 	}
 	start = time.now()
 	updates := 0
 	for tick in 0 ..< args.seconds * TICK_HZ {
-		tally.tick = tick
+		tally.tick = tick + 1 // a trace in this tick runs after tick + 1 clock advances
 		slua.tick_begin(&vm, &db, &ws, &trans, nil, cells, 1.0 / TICK_HZ)
+		// The script half of the app's activate: no doors, menus or pickups.
+		for a in ws.activations {
+			if !a.default_only {slua.send(&vm, a.target, "OnActivate", a.by)}
+		}
+		clear(&ws.activations)
 		updates += slua.tick_end(&vm, 1.0 / TICK_HZ)
 		if args.driver != "" {
-			slua.do_string(&vm, fmt.tprintf("if driver_tick then driver_tick(%f) end", f32(tick + 1) / TICK_HZ))
+			slua.do_string(&vm, fmt.tprintf("if driver_tick then require('skymod.rt').guard('driver_tick', driver_tick, %f) end", f32(tick + 1) / TICK_HZ))
 		}
 		free_all(context.temp_allocator)
 	}
