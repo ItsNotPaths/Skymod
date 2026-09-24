@@ -50,6 +50,7 @@ Created_Ref :: struct {
 	scale: f32,
 }
 
+// HOLE(world, gap): created refs are never cleaned up. Skyrim drops a cell's temporary created refs when the cell resets (10 game days, 30 when cleared), which waits on the game clock.
 // create_ref mints a runtime ref in the 0xFF space (no ESM baseline), stores its full placement, and
 // indexes it by cell so the loader can spawn it. Returns the new FormID. The world layer turns it
 // into an Instance (spawn_created) when its cell is/loads resident.
