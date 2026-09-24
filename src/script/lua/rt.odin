@@ -3,7 +3,6 @@ package script_lua
 // The engine half of `skymod.rt`, the runtime every converted script requires. rt.lua is the
 // language half; these are the few things it cannot do without the registry or gamedb.
 
-// HOLE(script, gap): gamedb classifies only the record kinds scripts were seen calling natives on; any other base form (ARMO, BOOK, MISC…) resolves as ObjectReference and its own natives cannot be reached.
 // HOLE(script, gap): Utility.Wait returns at once, so a poll loop in a handler (CritterSpawn's OnLoad) spins until rt.lua's instruction budget ends it — 20-125 ms per re-attaching cell ring. The S5 rewrite turns these into guards; docs/script-rewrite.md "Perf findings".
 
 import "core:c"
@@ -12,11 +11,15 @@ import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../gamedb"
+import "../../worldstate"
 
 @(private)
 RT_SRC :: #load("rt.lua", string)
+@(private)
+PARAMS_SRC :: #load("params.lua", string) // generated: tools/pexdump --emit-params
 
-// setup_rt registers the hooks rt.lua calls and makes `require('skymod.rt')` load it.
+// setup_rt registers the hooks rt.lua calls and makes `require('skymod.rt')` and
+// `require('skymod.params')` load them.
 @(private)
 setup_rt :: proc(vm: ^VM) -> bool {
 	L := vm.L
@@ -25,6 +28,9 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		fn:   lua.CFunction,
 	}{
 		{"__native", rt_native},
+		{"__method", rt_method},
+		{"__has_method", rt_has_method},
+		{"__none_value", rt_none_value},
 		{"__class_of", rt_class_of},
 		{"__is_a", rt_is_a},
 		{"__warn", rt_warn},
@@ -36,15 +42,22 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		lua.setglobal(L, h.name)
 	}
 
-	if lua.L_loadbuffer(L, raw_data(RT_SRC), len(RT_SRC), "=skymod.rt") != .OK {
-		log.errorf("lua: rt.lua: %s", to_string(L, -1))
+	return preload(L, "skymod.params", PARAMS_SRC) && preload(L, "skymod.rt", RT_SRC)
+}
+
+// preload compiles `src` and registers it as package.preload[name].
+@(private)
+preload :: proc(L: ^lua.State, name: cstring, src: string) -> bool {
+	chunk := strings.clone_to_cstring(strings.concatenate({"=", string(name)}, context.temp_allocator), context.temp_allocator)
+	if lua.L_loadbuffer(L, raw_data(src), len(src), chunk) != .OK {
+		log.errorf("lua: %s: %s", name, to_string(L, -1))
 		lua.pop(L, 1)
 		return false
 	}
 	lua.getglobal(L, "package")
 	lua.getfield(L, -1, "preload")
 	lua.pushvalue(L, -3)
-	lua.setfield(L, -2, "skymod.rt")
+	lua.setfield(L, -2, name)
 	lua.pop(L, 3)
 	return true
 }
@@ -70,13 +83,44 @@ rt_native :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
+// __method(ref, fn, ...) calls native `fn` on a form, resolved up its engine class chain.
+@(private)
+rt_method :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	form, _ := ref_form(L, 1)
+	push_value(L, call_method(vm, L, form, to_string(L, 2), 3))
+	return 1
+}
+
+// __has_method(ref, fn) reports whether a native `fn` exists on the form's engine class chain.
+@(private)
+rt_has_method :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	form, _ := ref_form(L, 1)
+	_, ok := script.method_class(vm.reg, to_string(L, 2), gamedb.form_kind(vm.ctx.db, form))
+	lua.pushboolean(L, b32(ok))
+	return 1
+}
+
+// __none_value(fn) is what a call named fn returns on None: the native's zero, else None.
+@(private)
+rt_none_value :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	v, _ := script.none_value(to_string(L, 1))
+	push_value(L, v)
+	return 1
+}
+
 // __class_of(ref) names the engine class a ref's methods resolve through.
 @(private)
 rt_class_of :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	form, _ := ref_form(L, 1)
-	chain := engine_chain(vm.ctx.db, form)
+	chain := engine_chain(vm.ctx.db, vm.ctx.ws, form)
 	lua.pushstring(L, strings.clone_to_cstring(chain[0], context.temp_allocator))
 	return 1
 }
@@ -88,7 +132,7 @@ rt_is_a :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	form, _ := ref_form(L, 1)
 	want := to_string(L, 2)
-	for class in engine_chain(vm.ctx.db, form) {
+	for class in engine_chain(vm.ctx.db, vm.ctx.ws, form) {
 		if strings.equal_fold(class, want) {
 			lua.pushboolean(L, true)
 			return 1
@@ -111,10 +155,10 @@ ACTOR_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 @(private)
 OBJECT_REF_CHAIN := []string{"ObjectReference", "Form"}
 
-// engine_chain is a form's engine class chain, most-derived first. A placed ref is an Actor when
-// its base is an NPC_ (the player always is); other refs are ObjectReferences.
+// engine_chain is a form's engine class chain, most-derived first. A placed or created ref is an
+// Actor when its base is an NPC_ (the player always is); other refs are ObjectReferences.
 @(private)
-engine_chain :: proc(db: ^gamedb.DB, form: script.Form_ID) -> []string {
+engine_chain :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: script.Form_ID) -> []string {
 	kind := gamedb.form_kind(db, form)
 	if kind != .Unknown {
 		return script.class_chain(kind)
@@ -124,6 +168,9 @@ engine_chain :: proc(db: ^gamedb.DB, form: script.Form_ID) -> []string {
 	}
 	if db != nil {
 		if r, ok := gamedb.ref_by_formid(db, form); ok && gamedb.is_actor(db, r.base) {
+			return ACTOR_CHAIN
+		}
+		if cr, ok := worldstate.get_created(ws, form); ok && gamedb.is_actor(db, cr.base) {
 			return ACTOR_CHAIN
 		}
 	}

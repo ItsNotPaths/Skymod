@@ -128,13 +128,13 @@ files.lever = [[
     self.fired = self.fired + 1
     self.pulled = false
   end
-  function C:Pos() return self.pos end
+  function C:GetPos() return self.pos end
   return C
 ]]
 local lever = rt.instance(ref(0x2000), "Lever")
 local other = rt.instance(ref(0x2001), "Lever")
 assert(lever.pulled == false and lever.TickRate == 0.5, "fields read by name")
-assert(lever:Pos().y == 2, "a method defined with `function C:Name()`")
+assert(lever:GetPos().y == 2, "a method defined with `function C:Name()`")
 assert(lever:IsDisabled() == false, "a native through `self:Name()`")
 lever.pos.x = 9
 assert(other.pos.x == 1, "each instance gets its own vec3")
@@ -159,7 +159,133 @@ end)
 assert(saved.pos.n == 3 and saved.pos.value[0] == 9, "a vec3 saves as three floats")
 assert(saved.TickRate == nil and saved.fired.value == 1, "only changed fields are saved")
 rt.restore_var(ref(0x2000), "lever", "pos", { 4, 5, 6 })
-assert(lever:Pos().x == 4 and lever.pos.z == 6, "a saved vec3 comes back as a vec3")
+assert(lever:GetPos().x == 4 and lever.pos.z == 6, "a saved vec3 comes back as a vec3")
+
+-- names: converted members and properties by their Papyrus names, errors for the rest
+assert(inst.Count == 3 and inst.count == 3, "a property reads through its backer, any case")
+inst.Count = 5
+assert(inst.vars["::count_var"] == 5, "and writes through it")
+assert(not pcall(function() return lever.pulld end), "a read of an unknown name errors")
+assert(not pcall(function() lever.TickRate = 1 end), "TickRate is fixed")
+assert(rawequal(None.anything, None) and not None.anything, "a read on None is None")
+assert(rawequal(None:Anything(), None), "a call on None is None")
+assert(lever:IsAnimRunning("x") == false, "an instance reaches natives its class files lack")
+
+-- a bare ref reaches the fields of the scripts on it
+assert(ref(0x2000).fired == 1, "field read through the ref")
+ref(0x2000).fired = 7
+assert(lever.fired == 7, "field write through the ref")
+assert(not pcall(function() return ref(0x2000).nothing end), "unknown name on a ref errors")
+
+-- auto state: entered at creation, without OnBeginState; rt.state adds handlers to a state
+files.door = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Door", "ObjectReference")
+  C.__vars = { began = rt.bool(false) }
+  C.__autostate = "Waiting"
+  local Waiting = rt.state(C, "Waiting")
+  function Waiting:OnBeginState() self.began = true end
+  function Waiting:Knock() return "waiting" end
+  return C
+]]
+local door = rt.instance(ref(0x2004), "Door")
+assert(door.vars["::state"] == "Waiting" and not door.began, "starts in its auto state, no OnBeginState")
+assert(door:Knock() == "waiting", "a handler added with rt.state")
+
+-- sequences: ordered stages that save by name
+files.boat = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Boat", "ObjectReference")
+  C.Stage = rt.sequence("Docked", "Sailing", "Arrived")
+  C.__vars = { stage = C.Stage.Docked }
+  return C
+]]
+local boat = rt.instance(ref(0x2005), "Boat")
+local S = boat.class.Stage
+assert(boat.stage == S.Docked and S.Docked < S.Sailing and S.Arrived >= S.Sailing, "stages compare by position")
+boat.stage = S.Arrived
+local stages = {}
+rt.save_vars(function(form, _, name, value) if name and form == ref(0x2005) then stages[name] = value end end)
+assert(stages.stage == "Arrived", "a stage saves as its name")
+rt.restore_var(ref(0x2005), "boat", "stage", "Sailing")
+assert(boat.stage == S.Sailing, "and restores to the same stage")
+rt.restore_var(ref(0x2005), "boat", "stage", "Sunk")
+assert(boat.stage == S.Docked, "an unknown saved stage falls back to the first")
+
+-- a bare ref: its scripts' functions before its engine class; a field two scripts share is an error
+files.second = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Second", "ObjectReference")
+  C.__vars = { fired = rt.int(3) }
+  return C
+]]
+rt.instance(ref(0x2000), "Second")
+assert(not pcall(function() return ref(0x2000).fired end), "a field on two scripts is ambiguous")
+assert(ref(0x2004):Knock() == "waiting", "a bare ref reaches its script's state function")
+
+-- a native's call on None returns that native's zero
+assert(None:IsDisabled() == false and None:GetScale() + 1 == 1.0, "None calls give the type's zero")
+
+-- a property with get/set functions, by name
+files.valued = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Valued", "ObjectReference")
+  C.__vars = { ["::raw"] = rt.int(2) }
+  C.__fn["__propget_amount"] = function(self) return self.vars["::raw"] * 10 end
+  C.__fn["__propset_amount"] = function(self, v) self.vars["::raw"] = v // 10 end
+  return C
+]]
+local valued = rt.instance(ref(0x2006), "Valued")
+assert(valued.Amount == 20, "a full property reads through its getter")
+valued.Amount = 50
+assert(valued.vars["::raw"] == 5, "and writes through its setter")
+
+-- stages step by position; past the end warns and stays
+boat.stage = S.Docked
+assert(boat.stage + 1 == S.Sailing and 1 + S.Sailing == S.Arrived, "stage + n")
+assert(S.Arrived + 1 == S.Arrived, "past the end stays")
+
+-- arguments: script functions declare parameters; natives take their CK defaults, or named ones
+files.launcher = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Launcher", "ObjectReference")
+  C.__vars = {}
+  function C:Launch(target, speed, loud) return tostring(target) .. "/" .. speed .. "/" .. tostring(loud) end
+  rt.params(C, "Launch", { { "target" }, { "speed", 1.5 }, { "loud", false } })
+  return C
+]]
+local launcher = rt.instance(ref(0x2007), "Launcher")
+assert(launcher:Launch("t") == "t/1.5/false", "defaults fill the missing arguments")
+assert(launcher:Launch{ target = "t", loud = true } == "t/1.5/true", "named arguments")
+assert(not pcall(function() launcher:Launch{ speed = 2 } end), "a required argument is required")
+assert(not pcall(function() launcher:Launch{ target = "t", sped = 2 } end), "an unknown name is an error")
+local plain = ref(0x3000)
+plain:Disable()
+assert(plain:IsDisabled() == true, "a native with every argument defaulted")
+
+-- round 3: None passed on purpose is an argument; GetState starts empty; a name on two scripts
+-- or on both a member and a function is an error; rt.call on None returns the native's zero
+assert(launcher:Launch(None) == "None/1.5/false", "None is an argument, not a missing one")
+assert(valued.vars["::state"] == "", "the empty state before any GotoState")
+assert(rawequal(rt.call(None, "GetScale"), 0.0), "rt.call on None gives the native's zero")
+files.clash = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Clash", "ObjectReference")
+  C.__vars = { ["phase"] = { type = "Int", default = 1 } }
+  C.__fn["phase"] = function(self) return 2 end
+  return C
+]]
+local clash = rt.instance(ref(0x2008), "Clash")
+assert(not pcall(function() return clash.Phase end), "a member and a function of one name is an error")
+files.third = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Third", "ObjectReference")
+  C.__vars = {}
+  function C:Knock() return "third" end
+  return C
+]]
+rt.instance(ref(0x2004), "Third")
+assert(not pcall(function() return ref(0x2004):Knock() end), "two scripts' different functions are ambiguous")
 
 rt.reset()
 rt.advance(1 / 60, 0)

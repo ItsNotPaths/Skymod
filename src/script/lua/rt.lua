@@ -4,7 +4,8 @@
 -- Receivers are one of three things: a ref (engine userdata wrapping a form), a script instance
 -- (a table per form and attached script), or None (the engine sentinel; nil counts as None).
 
-local native, class_of, is_a, warn, script_layers = __native, __class_of, __is_a, __warn, __script_layers
+local native, method, has_method, none_value = __native, __method, __has_method, __none_value
+local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local sethook, gethook = debug.sethook, debug.gethook
@@ -88,6 +89,8 @@ function rt.class(name, parent)
     __vars = {},
     __autoprop = {},
     __cache = {},
+    __names = {},
+    __params = {},
   }, Class)
   classes[low(name)] = cls
   return cls
@@ -168,6 +171,52 @@ function rt.vec3(x, y, z) return setmetatable({ x = x or 0.0, y = y or 0.0, z = 
 local function is_vec3(v) return getmetatable(v) == Vec3 end
 local function copy_vec3(v) return rt.vec3(v.x, v.y, v.z) end
 
+-- A sequence is an ordered set of named stages, compared by position (`self.stage < S.Dead`). In
+-- `__vars` a stage declares the field; it saves as its name, so adding or reordering stages keeps
+-- old saves meaningful.
+local Stage = { __name = "stage" }
+Stage.__lt = function(a, b) return a.pos < b.pos end
+Stage.__le = function(a, b) return a.pos <= b.pos end
+Stage.__tostring = function(st) return st.name end
+local function is_stage(v) return getmetatable(v) == Stage end
+
+function rt.sequence(...)
+  local names = { ... }
+  local seq, list = {}, {}
+  for i = 0, #names - 1 do
+    list[i] = setmetatable({ name = names[i], pos = i, seq = seq, list = list, first = names[0] }, Stage)
+    seq[names[i]] = list[i]
+  end
+  return seq
+end
+
+-- `stage + n` is the stage n places on; past either end it warns and stays.
+Stage.__add = function(st, n)
+  if type(st) == "number" then st, n = n, st end
+  local to = st.list[st.pos + n]
+  if to then return to end
+  warn("stage " .. st.name .. " + " .. tostring(n) .. " is past the end of its sequence; it stays")
+  return st
+end
+
+-- spec_of turns a `__vars` entry into its { type, default } shape.
+local function spec_of(v)
+  if is_vec3(v) then return { type = "Vec3", default = v } end
+  if is_stage(v) then return { type = "Stage", default = v } end
+  return v
+end
+
+-- rt.state returns a class's state table, made on first use; `function Busy:OnActivate()` on it
+-- lands lowercase, as converted state handlers are.
+local State = { __newindex = function(st, k, v) rawset(st, low(k), v) end }
+function rt.state(cls, name)
+  local l = low(name)
+  local st = setmetatable(cls.__states[l] or {}, State)
+  cls.__states[l] = st
+  cls.__cache = {}
+  return st
+end
+
 -- Clocks: the engine moves them every tick (rt.advance). Sign is the direction, game marks game time.
 local clock_kinds = {
   timer = { sign = -1 },
@@ -194,14 +243,41 @@ end
 Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
 
 local instances = {} -- ref -> lowercase script name -> instance
+local ordered = {}   -- ref -> its instances in the order they were made (VMAD order)
 local clocked = {}   -- instances whose class declares a clock field
-local ticking = {}   -- { inst, phase } for each instance whose class defines OnTick, oldest first
+
+-- The tick schedule. An instance whose class defines OnTick joins the group of its TickRate, which
+-- never changes, and takes a fixed slot in it: (its place in the group) mod (the group's period in
+-- ticks). A tick visits only the slots that are due, so equal rates spread over the period and an
+-- idle slot costs nothing. The period needs the tick length, so it is set on the first tick.
+local groups = {} -- rate in seconds (0 = every tick) -> { every = ticks or nil, n, slots, waiting }
+local rates = {}  -- the group keys, in the order the groups were made
+local ticks = 0
+
+local function place(g, inst)
+  local slot = g.n % g.every
+  g.n = g.n + 1
+  local list = g.slots[slot] or {}
+  g.slots[slot] = list
+  list[#list] = inst
+end
+
+local function schedule(inst, rate)
+  rate = rate or 0
+  local g = groups[rate]
+  if not g then
+    g = { n = 0, slots = {}, waiting = {} }
+    groups[rate] = g
+    rates[#rates] = rate
+  end
+  if g.every then place(g, inst) else g.waiting[#g.waiting] = inst end
+end
 
 -- snapshot copies a member's start value; an array is copied so writes into it show as changes.
 local function snapshot(vars)
   local base = {}
   for k, v in pairs(vars) do
-    if type(v) == "table" and not is_instance(v) then
+    if type(v) == "table" and not is_instance(v) and not is_stage(v) then
       local c = setmetatable({}, getmetatable(v))
       for i, e in pairs(v) do c[i] = e end
       v = c
@@ -249,10 +325,17 @@ function rt.instance(form, script, props)
   end
   local specs = {}
   for i = #chain - 1, 0, -1 do
-    for k, v in pairs(chain[i].__vars) do specs[k] = is_vec3(v) and { type = "Vec3", default = v } or v end
+    for k, v in pairs(chain[i].__vars) do specs[k] = spec_of(v) end
   end
   local vars = {}
   for k, s in pairs(specs) do vars[k] = type_default(s.type, s.default) end
+  vars["::state"] = "" -- the empty state, as GetState() reports it before any GotoState
+  for i = 0, #chain - 1 do -- the nearest auto state; OnBeginState does not run for it (CK)
+    if chain[i].__autostate then
+      vars["::state"] = chain[i].__autostate
+      break
+    end
+  end
   if cls.__clocks == nil then
     cls.__clocks = clock_fields(specs)
     cls.__ticks = defines(cls, "ontick")
@@ -277,8 +360,11 @@ function rt.instance(form, script, props)
     instances[form] = per
   end
   per[low(script)] = inst
+  local list = ordered[form] or {}
+  ordered[form] = list
+  list[#list] = inst
   if #cls.__clocks > 0 then clocked[#clocked] = inst end
-  if cls.__ticks then ticking[#ticking] = { inst = inst, phase = #ticking } end
+  if cls.__ticks then schedule(inst, vars.TickRate) end
   return inst
 end
 
@@ -289,7 +375,7 @@ local function find_instance(ref, lname)
   local per = instances[ref]
   if not per then return nil end
   if per[lname] then return per[lname] end
-  for _, inst in pairs(per) do
+  for _, inst in ipairs(ordered[ref]) do
     if is_subclass(inst.class, lname) then return inst end
   end
   return nil
@@ -464,10 +550,64 @@ local function args_out(...)
   return ...
 end
 
+-- ── arguments ───────────────────────────────────────────────────────────────
+-- A parameter list is { {name, default}, ... } in declaration order; an entry with no default is
+-- required. A call may leave out trailing arguments, which take their defaults, or pass one plain
+-- table of named arguments: `self:MoveTo{ akTarget = m, afZOffset = 50.0 }`.
+
+local ok_params, generated = pcall(require, 'skymod.params') -- "class.fn" -> list, from the CK sources
+local native_params = ok_params and generated or {}
+local params_by_fn = {} -- lowercase fn -> the first native's list, for calls whose class resolves engine-side
+for key, list in pairs(native_params) do
+  local fn = key:match("%.(.*)$")
+  if params_by_fn[fn] == nil then params_by_fn[fn] = list end
+end
+
+local function with_defaults(list, ...)
+  local n, first = select('#', ...), ...
+  local named = n == 1 and type(first) == "table" and getmetatable(first) == nil
+  if not named and n >= #list then return ... end
+  local out = {}
+  for i = 0, #list - 1 do
+    local p = list[i]
+    local v
+    if named then v = first[p[0]] elseif i < n then v = (select(i + 1, ...)) end
+    if rawequal(v, nil) then -- a None passed on purpose is an argument (None == nil in Papyrus equality)
+      if #p < 2 then error("missing argument '" .. p[0] .. "'", 3) end
+      v = p[1]
+    end
+    out[i] = v
+  end
+  if named then
+    for k in pairs(first) do
+      local known = false
+      for i = 0, #list - 1 do known = known or list[i][0] == k end
+      if not known then error("no parameter '" .. tostring(k) .. "'", 3) end
+    end
+  end
+  return table.unpack(out, 0, #list - 1)
+end
+
+-- rt.params declares a script function's parameters, for hand-written scripts:
+-- `rt.params(C, "Launch", { {"target"}, {"speed", 1.0} })`.
+function rt.params(cls, name, list) cls.__params[low(name)] = list end
+
+local function params_of(cls, lname)
+  local c = cls
+  while c do
+    local p = c.__params[lname]
+    if p then return p end
+    c = parent_of(c)
+  end
+end
+
 function rt.native(class, fn, global)
+  local p = native_params[low(class .. "." .. fn)]
   if global then
+    if p then return function(...) return native(class, fn, nil, args_out(with_defaults(p, ...))) end end
     return function(...) return native(class, fn, nil, args_out(...)) end
   end
+  if p then return function(self, ...) return native(class, fn, form_of(self), args_out(with_defaults(p, ...))) end end
   return function(self, ...) return native(class, fn, form_of(self), args_out(...)) end
 end
 
@@ -475,17 +615,22 @@ end
 
 local function state_of(recv) return is_instance(recv) and recv.vars["::state"] or nil end
 
--- resolve finds `lname` for a receiver: its own class chain, and for a plain ref also the scripts
--- attached to its form, since a property typed as a script holds the bare form.
+-- resolve finds `lname` for a receiver: an instance's own class chain; for a plain ref the scripts
+-- attached to its form first (a property typed as a script holds the bare form), then its engine class.
 local function resolve(recv, lname)
   if is_instance(recv) then return lookup(recv.class, state_of(recv), lname), recv end
+  local found, owner
+  for _, inst in ipairs(ordered[recv] or {}) do
+    local f = lookup(inst.class, state_of(inst), lname)
+    if f and found and f ~= found then
+      error("'" .. lname .. "' is a different function on more than one script on " .. tostring(recv) .. "; rt.cast to one", 3)
+    end
+    if f and not found then found, owner = f, inst end
+  end
+  if found then return found, owner end
   local cls = rt.load(class_of(recv))
   local f = cls and lookup(cls, nil, lname)
   if f then return f, recv end
-  for _, inst in pairs(instances[recv] or {}) do
-    f = lookup(inst.class, state_of(inst), lname)
-    if f then return f, inst end
-  end
   return nil
 end
 
@@ -493,22 +638,57 @@ function rt.call(recv, name, ...)
   local lname = low(name)
   if is_none(recv) then
     warn_once("none:" .. lname, "'" .. name .. "' called on None")
-    return None
+    return none_value(name)
   end
   local f, self = resolve(recv, lname)
-  if f then return f(self, ...) end
-  if not is_instance(recv) then return native(class_of(recv), name, recv, args_out(...)) end
-  warn_once("call:" .. lname, "no function '" .. name .. "' on " .. tostring(recv))
-  return None
+  if f then
+    local p = is_instance(self) and params_of(self.class, lname)
+    if p then return f(self, with_defaults(p, ...)) end
+    return f(self, ...)
+  end
+  local p = params_by_fn[lname]
+  if p then return method(form_of(recv), name, args_out(with_defaults(p, ...))) end
+  return method(form_of(recv), name, args_out(...))
 end
 
--- Hand-written code reads and writes fields as `self.x` and calls as `self:Name()`. A read that is
--- no field becomes a call through rt.call; a write to an undeclared field is an error, so a typo
--- cannot make a member that is never saved. Converted code uses `vars` and rt.call directly.
-local methods = {} -- name -> caller, shared by every instance
-Instance.__index = function(inst, k)
-  local v = inst.vars[k]
-  if not rawequal(v, nil) then return v end -- None == nil in Papyrus equality
+-- ── names ───────────────────────────────────────────────────────────────────
+-- Hand-written code reads and writes fields as `self.x`, and calls as `self:Name()`; a bare ref
+-- reaches the fields and functions of the scripts on it the same way. Converted code uses `vars`
+-- and rt.call directly.
+
+-- name_of says what `k` is on an instance: the vars key holding it, true for a function, PROP for a
+-- property with get/set functions, or false. In order: a field as written, a script function, a
+-- converted member (lowercase) or a property's backer, a full property, then a native. Cached per class.
+local PROP = {}
+local function name_of(inst, k)
+  local names = inst.class.__names
+  local n = names[k]
+  if n ~= nil then return n end
+  local vars, l = inst.vars, low(k)
+  if not rawequal(vars[k], nil) then -- None == nil in Papyrus equality
+    n = k
+  elseif defines(inst.class, l) then
+    if not rawequal(vars[l], nil) then
+      error("'" .. tostring(k) .. "' is both a member and a function of " .. inst.class.__name .. "; use self.vars." .. l .. " or rt.call", 3)
+    end
+    n = true
+  elseif not rawequal(vars[l], nil) then
+    n = l
+  else
+    local c = inst.class
+    while c and not n do
+      n = c.__autoprop[l]
+      c = parent_of(c)
+    end
+    if not n and defines(inst.class, "__propget_" .. l) then n = PROP end
+    n = n or has_method(inst.form, k)
+  end
+  names[k] = n
+  return n
+end
+
+local methods = {} -- name -> caller, shared by every receiver
+local function caller(k)
   local m = methods[k]
   if not m then
     m = function(self, ...) return rt.call(self, k, ...) end
@@ -516,16 +696,71 @@ Instance.__index = function(inst, k)
   end
   return m
 end
+
+local function no_name(recv, k) error("no field or function '" .. tostring(k) .. "' on " .. tostring(recv), 3) end
+
+Instance.__index = function(inst, k)
+  local n = name_of(inst, k)
+  if type(n) == "string" then return inst.vars[n] end
+  if n == PROP then return rt.get(inst, k) end
+  if n then return caller(k) end
+  no_name(inst, k)
+end
+
+-- A write must name a declared field, so a typo cannot make a member that is never saved.
 Instance.__newindex = function(inst, k, v)
-  if rawequal(inst.vars[k], nil) then error("no field '" .. tostring(k) .. "' on " .. tostring(inst), 2) end
+  local n = name_of(inst, k)
+  if n == PROP then return rt.set(inst, k, v) end
+  if type(n) ~= "string" then no_name(inst, k) end
+  if n == "TickRate" then error("TickRate is fixed when the instance is made", 2) end
   if v == nil then v = None end
-  inst.vars[k] = v
+  inst.vars[n] = v
+end
+
+-- field_owner is the one script on ref `r` with a field or property `k`. Two is an error: which
+-- one was meant needs `rt.cast(r, "Script")`.
+local function field_owner(r, k)
+  local owner
+  for _, inst in ipairs(ordered[r] or {}) do
+    local n = name_of(inst, k)
+    if type(n) == "string" or n == PROP then
+      if owner then error("'" .. tostring(k) .. "' is a field of more than one script on " .. tostring(r) .. "; rt.cast to one", 3) end
+      owner = inst
+    end
+  end
+  return owner
+end
+
+local function engine_prop(r, k)
+  local cls = rt.load(class_of(r))
+  return cls and defines(cls, "__propget_" .. low(k))
+end
+
+local Ref = debug.getregistry()["skymod.ref"]
+Ref.__index = function(r, k)
+  local owner = field_owner(r, k)
+  if owner then return owner[k] end
+  if engine_prop(r, k) then return rt.get(r, k) end
+  if resolve(r, low(k)) or has_method(r, k) then return caller(k) end
+  no_name(r, k)
+end
+Ref.__newindex = function(r, k, v)
+  local owner = field_owner(r, k)
+  if owner then
+    owner[k] = v
+  elseif engine_prop(r, k) then
+    rt.set(r, k, v)
+  else
+    no_name(r, k)
+  end
 end
 
 function rt.static(class, name, ...)
   local cls = rt.load(class)
   local f = cls and lookup(cls, nil, low(name))
   if f then return f(...) end
+  local p = native_params[low(class .. "." .. name)]
+  if p then return native(class, name, nil, args_out(with_defaults(p, ...))) end
   return native(class, name, nil, args_out(...))
 end
 
@@ -570,7 +805,7 @@ function rt.drain()
   local q = queue
   queue = {}
   for _, e in ipairs(q) do
-    for _, inst in pairs(instances[e.form] or {}) do
+    for _, inst in ipairs(ordered[e.form] or {}) do
       rt.event(inst, e.name, table.unpack(e.args, 0, e.args.n - 1))
     end
   end
@@ -589,16 +824,20 @@ function rt.advance(dt, game_dt)
   end
 end
 
--- rt.tick calls OnTick on the ticking instances that are due, once per tick after the queue drains.
--- A `TickRate` field (seconds) thins the calls to every n ticks; each instance is offset by its
--- place in the list, so equal rates do not all land on one tick.
-local ticks = 0
+-- rt.tick calls OnTick on the instances due this tick, once per tick after the queue drains: group
+-- by group in the order they were made, each slot in the order its instances were made.
 function rt.tick(dt)
-  for i = 0, #ticking - 1 do
-    local t = ticking[i]
-    local rate = t.inst.vars.TickRate
-    local every = rate and math.max(1, math.floor(rate / dt + 0.5)) or 1
-    if (ticks + t.phase) % every == 0 then rt.event(t.inst, "OnTick") end
+  for i = 0, #rates - 1 do
+    local g = groups[rates[i]]
+    if not g.every then
+      g.every = math.max(1, math.floor(rates[i] / dt + 0.5))
+      for j = 0, #g.waiting - 1 do place(g, g.waiting[j]) end
+      g.waiting = nil
+    end
+    local list = g.slots[ticks % g.every]
+    if list then
+      for j = 0, #list - 1 do rt.event(list[j], "OnTick") end
+    end
   end
   ticks = ticks + 1
 end
@@ -634,7 +873,7 @@ end
 
 -- rt.save_vars calls emit(form) for every form with scripts, then emit(form, script, member,
 -- value, length) for each member that differs from its start value. An array arrives as a
--- 0-based table of forms and scalars with its length, a vec3 as three floats.
+-- 0-based table of forms and scalars with its length, a vec3 as three floats, a stage as its name.
 function rt.save_vars(emit)
   for form, per in pairs(instances) do
     emit(form)
@@ -647,6 +886,8 @@ function rt.save_vars(emit)
             emit(form, script, name, out, #v)
           elseif is_vec3(v) then
             emit(form, script, name, { v.x, v.y, v.z }, 3)
+          elseif is_stage(v) then
+            emit(form, script, name, v.name)
           else
             emit(form, script, name, form_of(v))
           end
@@ -660,8 +901,16 @@ end
 function rt.restore_var(form, script, name, value)
   local inst = instances[form] and instances[form][script]
   if not inst then return end
+  local base = inst.base[name]
   if type(value) == "table" then
-    value = is_vec3(inst.base[name]) and rt.vec3(value[0], value[1], value[2]) or rt.as_array(value)
+    value = is_vec3(base) and rt.vec3(value[0], value[1], value[2]) or rt.as_array(value)
+  elseif is_stage(base) then
+    local st = base.seq[value]
+    if not st then
+      warn(tostring(inst) .. ": saved stage '" .. tostring(value) .. "' no longer exists, back to " .. base.first)
+      st = base.seq[base.first]
+    end
+    value = st
   end
   inst.vars[name] = value
 end
@@ -669,8 +918,10 @@ end
 -- rt.reset drops every instance and queued event: a loaded save rebuilds them.
 function rt.reset()
   instances = {}
+  ordered = {}
   clocked = {}
-  ticking = {}
+  groups = {}
+  rates = {}
   ticks = 0
   queue = {}
 end
@@ -687,7 +938,7 @@ local function find_prop(recv, lp, kind)
       if f then return recv, nil, f end
       c = parent_of(c)
     end
-    for _, i in pairs(instances[recv] or {}) do
+    for _, i in ipairs(ordered[recv] or {}) do
       if find_prop(i, lp, kind) then
         inst = i
         break

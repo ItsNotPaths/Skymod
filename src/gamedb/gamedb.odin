@@ -85,6 +85,16 @@ Form_Kind :: enum u8 {
 	ImageSpaceModifier, // IMAD
 	LeveledItem,        // LVLI
 	Message,            // MESG
+	MusicType,          // MUSC
+	SoundCategory,      // SNCT
+	ShaderParticleGeometry,// SPGD
+	Package,            // PACK
+	LeveledSpell,       // LVSP
+	LeveledActor,       // LVLN
+	TopicInfo,          // INFO
+	Topic,              // DIAL
+	Light,              // LIGH
+	Armor,              // ARMO
 	Ref_Alias,          // a quest's reference alias (an alias handle, not a record)
 	Location_Alias,     // a quest's location alias
 }
@@ -477,6 +487,26 @@ base_class :: proc(s: string) -> (Form_Kind, bool) {
 		return .LeveledItem, true
 	case "MESG":
 		return .Message, true
+	case "MUSC":
+		return .MusicType, true
+	case "SNCT":
+		return .SoundCategory, true
+	case "SPGD":
+		return .ShaderParticleGeometry, true
+	case "PACK":
+		return .Package, true
+	case "LVSP":
+		return .LeveledSpell, true
+	case "LVLN":
+		return .LeveledActor, true
+	case "INFO":
+		return .TopicInfo, true
+	case "DIAL":
+		return .Topic, true
+	case "LIGH":
+		return .Light, true
+	case "ARMO":
+		return .Armor, true
 	}
 	return .Unknown, false
 }
@@ -534,6 +564,26 @@ class_name :: proc "contextless" (kind: Form_Kind) -> string {
 		return "LeveledItem"
 	case .Message:
 		return "Message"
+	case .MusicType:
+		return "MusicType"
+	case .SoundCategory:
+		return "SoundCategory"
+	case .ShaderParticleGeometry:
+		return "ShaderParticleGeometry"
+	case .Package:
+		return "Package"
+	case .LeveledSpell:
+		return "LeveledSpell"
+	case .LeveledActor:
+		return "LeveledActor"
+	case .TopicInfo:
+		return "TopicInfo"
+	case .Topic:
+		return "Topic"
+	case .Light:
+		return "Light"
+	case .Armor:
+		return "Armor"
 	case .Ref_Alias:
 		return "ReferenceAlias"
 	case .Location_Alias:

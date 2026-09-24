@@ -131,6 +131,15 @@ zero_of :: proc(type_name: string) -> Value {
 	return nil
 }
 
+// none_value is what a call named `fn` returns on None: the zero of the first declared native of that
+// name (Papyrus: a call on None returns its type's default). ok is false when no native has the name.
+none_value :: proc(fn: string) -> (v: Value, ok: bool) {
+	for e in native_manifest {
+		if strings.equal_fold(e.fn, fn) {return zero_of(e.ret), true}
+	}
+	return nil, false
+}
+
 // is_implemented / is_declared expose registry coverage (used by tests + tooling).
 is_implemented :: proc(reg: ^Registry, class, fn: string) -> bool {
 	return key_temp(class, fn) in reg.natives
@@ -178,6 +187,16 @@ KIND_CHAIN := [gamedb.Form_Kind][2]string {
 	.ImageSpaceModifier = {gamedb.class_name(.ImageSpaceModifier), "Form"},
 	.LeveledItem        = {gamedb.class_name(.LeveledItem), "Form"},
 	.Message            = {gamedb.class_name(.Message), "Form"},
+	.MusicType          = {gamedb.class_name(.MusicType), "Form"},
+	.SoundCategory      = {gamedb.class_name(.SoundCategory), "Form"},
+	.ShaderParticleGeometry= {gamedb.class_name(.ShaderParticleGeometry), "Form"},
+	.Package            = {gamedb.class_name(.Package), "Form"},
+	.LeveledSpell       = {gamedb.class_name(.LeveledSpell), "Form"},
+	.LeveledActor       = {gamedb.class_name(.LeveledActor), "Form"},
+	.TopicInfo          = {gamedb.class_name(.TopicInfo), "Form"},
+	.Topic              = {gamedb.class_name(.Topic), "Form"},
+	.Light              = {gamedb.class_name(.Light), "Form"},
+	.Armor              = {gamedb.class_name(.Armor), "Form"},
 	.Ref_Alias          = {gamedb.class_name(.Ref_Alias), "Alias"},
 	.Location_Alias     = {gamedb.class_name(.Location_Alias), "Alias"},
 }

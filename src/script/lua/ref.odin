@@ -70,6 +70,8 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.pushlightuserdata(L, vm)
 	lua.pushcclosure(L, none_index, 1)
 	lua.setfield(L, -2, "__index")
+	lua.pushcfunction(L, none_call)
+	lua.setfield(L, -2, "__call")
 	lua.pushcfunction(L, none_tostring)
 	lua.setfield(L, -2, "__tostring")
 	lua.pushcfunction(L, papyrus_eq)
@@ -161,22 +163,24 @@ ref_method :: proc "c" (L: ^lua.State) -> c.int {
 		return 0
 	}
 
-	n := lua.gettop(L)
-	args := make([dynamic]script.Value, 0, int(n) - 1, context.temp_allocator)
-	for i in 2 ..= int(n) {
-		append(&args, to_value(L, c.int(i)))
-	}
+	push_value(L, call_method(vm, L, form, fn, 2))
+	return 1
+}
 
-	// Resolve the form's kind (QUST/GLOB/FACT/…) so a Quest handle dispatches up {Quest, Form},
-	// a GlobalVariable up {GlobalVariable, Form}, etc. — not the object-ref chain. Unknown forms
-	// (object refs) keep the naive chain. db may be nil (headless) → Unknown.
-	kind := gamedb.form_kind(vm.ctx.db, form)
-	class, _ := script.method_class(vm.reg, fn, kind)
+// call_method calls native `fn` on `form` with the Lua arguments from `first` on. The form's kind
+// (QUST/GLOB/FACT/…) picks the class chain, so a Quest handle dispatches up {Quest, Form}, not the
+// object-ref chain. db may be nil (headless) → Unknown → the object-ref chain.
+@(private)
+call_method :: proc(vm: ^VM, L: ^lua.State, form: script.Form_ID, fn: string, first: c.int) -> script.Value {
+	n := lua.gettop(L)
+	args := make([dynamic]script.Value, 0, max(int(n - first + 1), 0), context.temp_allocator)
+	for i in first ..= n {
+		append(&args, to_value(L, i))
+	}
+	class, _ := script.method_class(vm.reg, fn, gamedb.form_kind(vm.ctx.db, form))
 	cc := vm.ctx
 	cc.self = form
-	ret := script.call(vm.reg, class, fn, &cc, args[:])
-	push_value(L, ret)
-	return 1
+	return script.call(vm.reg, class, fn, &cc, args[:])
 }
 
 // ref_tostring → `[Class 0xFORMID "editorid"]`. The class is the ref-chain class the
@@ -246,24 +250,33 @@ ref_ctor :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// none_index absorbs any `None:Method(...)` — log once (per method name) and return
-// None, so a None propagates through a call chain instead of erroring. Upvalue 1=^VM.
+// none_index answers a name read on None (logged once per name). A native's name gives a caller
+// that returns that native's zero, so `None:GetValue() + 1` is 1.0 as in Papyrus; any other name
+// is None, so `None.x` is falsy and `None:f()` calls None, which none_call absorbs.
 @(private)
 none_index :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
 	context = vm.host_context
-	// arg 2 = key; return an absorber closure carrying ^VM + key.
+	name := to_string(L, 2)
+	warn_none_once(vm, name)
+	if v, ok := script.none_value(name); ok {
+		push_value(L, v)
+		lua.pushcclosure(L, none_returns, 1)
+		return 1
+	}
+	push_none(L)
+	return 1
+}
+
+// none_returns is a native's call on None: it returns its upvalue, the native's zero.
+@(private)
+none_returns :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pushvalue(L, upvalueindex(1))
-	lua.pushvalue(L, 2)
-	lua.pushcclosure(L, none_absorb, 2)
 	return 1
 }
 
 @(private)
-none_absorb :: proc "c" (L: ^lua.State) -> c.int {
-	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
-	context = vm.host_context
-	warn_none_once(vm, to_string(L, upvalueindex(2)))
+none_call :: proc "c" (L: ^lua.State) -> c.int {
 	push_none(L)
 	return 1
 }
@@ -308,5 +321,5 @@ warn_none_once :: proc(vm: ^VM, method: string) {
 		return
 	}
 	vm.none_warned[method] = true
-	log.warnf("script: None:%s() absorbed → None", method)
+	log.warnf("script: None.%s absorbed → None", method)
 }

@@ -66,6 +66,13 @@ register_builtins :: proc(reg: ^Registry) {
 
 	register(reg, "Message", "Show", n_message_show)
 
+	// No handler runs inside a menu: a world-pausing menu stops the ticks (docs/script-api.md section 7).
+	register(reg, "Utility", "IsInMenuMode", n_is_in_menu_mode)
+
+	// Skymod facts a rewritten script waits on (docs/script-api.md section 4); not Papyrus natives.
+	register(reg, "ObjectReference", "IsAnimRunning", n_is_anim_running)
+	register(reg, "Game", "IsVideoPlaying", n_is_video_playing)
+
 	register_math(reg) // Math.* — pure callstatic leaves
 	register_quest(reg) // Quest.* — the quest-state store
 	register_alias(reg) // quest aliases
@@ -92,10 +99,17 @@ n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
 	return !ref_enabled(c.ws, c.db, c.self)
 }
 
-// n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
+// n_is_3d_loaded: an enabled ref, placed or created, whose cell is attached to the player's scene.
 n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
-	r, ok := gamedb.ref_by_formid(c.db, c.self)
-	return ok && gamedb.ref_attach_cell(c.db, r) in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
+	cell: Form_ID
+	if r, ok := gamedb.ref_by_formid(c.db, c.self); ok {
+		cell = gamedb.ref_attach_cell(c.db, r)
+	} else if cr, created := worldstate.get_created(c.ws, c.self); created {
+		cell = cr.cell
+	} else {
+		return false
+	}
+	return cell in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
 }
 
 // ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline
@@ -197,6 +211,20 @@ n_set_open :: proc(c: ^Call, args: []Value) -> Value {
 
 n_get_player :: proc(c: ^Call, args: []Value) -> Value {
 	return PLAYER
+}
+
+n_is_in_menu_mode :: proc(c: ^Call, args: []Value) -> Value {
+	return false
+}
+
+// HOLE(animation, gap): IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
+n_is_anim_running :: proc(c: ^Call, args: []Value) -> Value {
+	return false
+}
+
+// HOLE(ui, gap): IsVideoPlaying(asFile) reads false; there is no video player, so a wait on a Bink ends at once.
+n_is_video_playing :: proc(c: ^Call, args: []Value) -> Value {
+	return false
 }
 
 n_trace :: proc(c: ^Call, args: []Value) -> Value {
