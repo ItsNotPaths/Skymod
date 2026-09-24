@@ -37,7 +37,7 @@ content_ready :: proc(base: string) -> bool {
 	if err != nil {
 		return false
 	}
-	return strings.has_prefix(string(data), fmt.tprintf("format = %d\n", FORMAT_VERSION))
+	return strings.has_prefix(string(data), manifest_head())
 }
 
 // Edition is which Skyrim generation an install root holds, autodetected from the
@@ -118,12 +118,12 @@ install :: proc(source, base: string) -> bool {
 	if !sok {
 		return false
 	}
-	log.infof("installer: converted %d script(s) to Lua, %d unreadable", sst.converted, sst.failed)
+	log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
 
 	m := manifest_path(base)
 	defer delete(m)
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "format = %d", FORMAT_VERSION)
+	strings.write_string(&b, manifest_head())
 	fmt.sbprintfln(&b, "source = %s", source)
 	fmt.sbprintfln(&b, "installed = %s", stamp())
 	for a in archives {
@@ -191,6 +191,13 @@ list_by_ext :: proc(dir: string, ext: string) -> []string {
 	}
 	slice.sort(out[:])
 	return out[:]
+}
+
+// manifest_head is the manifest's first lines, which content_ready matches: another format or
+// another set of shipped rewrites means the install runs again.
+@(private)
+manifest_head :: proc() -> string {
+	return fmt.tprintf("format = %d\nrewrites = %x\n", FORMAT_VERSION, converters.rewrites_hash())
 }
 
 @(private)

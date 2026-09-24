@@ -1,8 +1,10 @@
 package converters
 
 // PEX -> Lua, once, at install. The engine never reads Papyrus: it loads the Lua this writes
-// to <content>/scripts, and mods ship their own Lua.
+// to <content>/scripts, and mods ship their own Lua. The hand rewrites of latent functions ship
+// in the binary and are written beside it (docs/script-api.md section 10).
 
+import "core:hash"
 import "core:log"
 import "core:mem/virtual"
 import "core:os"
@@ -15,6 +17,20 @@ import "../../transpile"
 Script_Stats :: struct {
 	converted: int,
 	failed:    int, // parse failures; the file is skipped
+	rewrites:  int,
+}
+
+// REWRITES are <name>.patch.lua files; the loader applies each over the transpiled <name>.lua.
+REWRITES := #load_directory("../../script/patches")
+
+// rewrites_hash identifies the shipped set, so an install made with another set runs again.
+rewrites_hash :: proc() -> u64 {
+	h := hash.fnv64a({})
+	for f in REWRITES {
+		h = hash.fnv64a(transmute([]u8)f.name, h)
+		h = hash.fnv64a(f.data, h)
+	}
+	return h
 }
 
 // convert_scripts transpiles every scripts\*.pex in `archives` into <out_dir>/<name>.lua, name
@@ -82,6 +98,14 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 			return st, false
 		}
 		st.converted += 1
+	}
+	for f in REWRITES {
+		out, _ := filepath.join({out_dir, f.name}, context.temp_allocator)
+		if err := os.write_entire_file(out, f.data); err != nil {
+			log.errorf("scripts: could not write %q: %v", out, err)
+			return st, false
+		}
+		st.rewrites += 1
 	}
 	return st, true
 }
