@@ -58,9 +58,9 @@ in_list() {
 }
 
 # file<TAB>line<TAB>system<TAB>severity<TAB>text
-rows="$(grep -rnP '//\s*HOLE\(' --include='*.odin' --include='*.lua' --include='*.sh' \
+rows="$(grep -rnP '(//|--)\s*HOLE\(' --include='*.odin' --include='*.lua' --include='*.sh' \
         src tools build 2>/dev/null | grep -v '^build/skeleton.sh:' \
-    | perl -ne 'next unless /^([^:]+):(\d+):.*?\/\/\s*HOLE\(\s*(\w+)\s*(?:,\s*(\w+)\s*)?\):\s*(.*?)\s*$/;
+    | perl -ne 'next unless /^([^:]+):(\d+):.*?(?:\/\/|--)\s*HOLE\(\s*(\w+)\s*(?:,\s*(\w+)\s*)?\):\s*(.*?)\s*$/;
                 printf "%s\t%s\t%s\t%s\t%s\n", $1, $2, $3, ($4 // "gap"), $5' || true)"
 
 bad=0
