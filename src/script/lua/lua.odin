@@ -92,6 +92,7 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 }
 
 destroy :: proc(vm: ^VM) {
+	for k in vm.none_warned {delete(k)}
 	delete(vm.none_warned)
 	free_script_index(vm)
 	if vm.L != nil {

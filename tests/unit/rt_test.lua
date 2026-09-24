@@ -169,6 +169,8 @@ assert(not pcall(function() return lever.pulld end), "a read of an unknown name 
 assert(not pcall(function() lever.TickRate = 1 end), "TickRate is fixed")
 assert(rawequal(None.anything, None) and not None.anything, "a read on None is None")
 assert(rawequal(None:Anything(), None), "a call on None is None")
+None.anything = 5 -- a write on None is dropped, as in Papyrus
+assert(rawequal(None.anything, None), "a write on None is dropped")
 assert(lever:IsAnimRunning("x") == false, "an instance reaches natives its class files lack")
 
 -- a bare ref reaches the fields of the scripts on it

@@ -70,6 +70,9 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.pushlightuserdata(L, vm)
 	lua.pushcclosure(L, none_index, 1)
 	lua.setfield(L, -2, "__index")
+	lua.pushlightuserdata(L, vm)
+	lua.pushcclosure(L, none_newindex, 1)
+	lua.setfield(L, -2, "__newindex")
 	lua.pushcfunction(L, none_call)
 	lua.setfield(L, -2, "__call")
 	lua.pushcfunction(L, none_tostring)
@@ -268,6 +271,20 @@ none_index :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
+// none_newindex drops a write on None and logs it once per name, as Papyrus does.
+@(private)
+none_newindex :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	name := to_string(L, 2)
+	key := strings.concatenate({"=", name}, context.temp_allocator)
+	if key not_in vm.none_warned {
+		vm.none_warned[strings.clone(key)] = true
+		log.warnf("script: write to None.%s dropped", name)
+	}
+	return 0
+}
+
 // none_returns is a native's call on None: it returns its upvalue, the native's zero.
 @(private)
 none_returns :: proc "c" (L: ^lua.State) -> c.int {
@@ -320,6 +337,6 @@ warn_none_once :: proc(vm: ^VM, method: string) {
 	if method in vm.none_warned {
 		return
 	}
-	vm.none_warned[method] = true
+	vm.none_warned[strings.clone(method)] = true
 	log.warnf("script: None.%s absorbed → None", method)
 }
