@@ -132,6 +132,7 @@ Cell :: struct {
 	has_grid:      bool, // false for interiors / the worldspace persistent cell
 	water_height:  f32, // flat water-plane Z (esm.WATER_NONE = no water; sentinel already resolved to the worldspace default at index time)
 	water_type:    Form_ID, // XCWT water-type WATR formID (0 = none/default; reserved for appearance)
+	location:      Form_ID, // XLCN location LCTN (0 = none; an exterior then falls back to its worldspace's)
 }
 
 // DB is the in-memory record index. All strings / dynamic arrays are owned and freed
@@ -185,6 +186,7 @@ DB :: struct {
 	world_cells:   map[Form_ID][dynamic]Form_ID, // WRLD formID -> its exterior cell formIDs
 	world_persist: map[Form_ID]Form_ID, // WRLD formID -> its PERSISTENT cell formID (worldspace-wide refs)
 	world_water:   map[Form_ID]f32, // WRLD formID -> default water height (a cell's XCLW sentinel resolves here)
+	world_location: map[Form_ID]Form_ID, // WRLD formID -> its XLCN location (a cell without one is here)
 	cell_at_grid:  map[Grid_Key]Form_ID, // (world, gx, gy) -> exterior cell formID (streaming)
 	cell_heights:  map[Form_ID][]f32, // cell formID -> LAND_GRID² cumulative heightmap (owned)
 	cell_base_tex: map[Form_ID][4]Form_ID, // cell formID -> per-quadrant base LTEX formID (0=none)
@@ -654,6 +656,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		world_cells   = make(map[Form_ID][dynamic]Form_ID, 64, allocator),
 		world_persist = make(map[Form_ID]Form_ID, 64, allocator),
 		world_water   = make(map[Form_ID]f32, 64, allocator),
+		world_location = make(map[Form_ID]Form_ID, 64, allocator),
 		cell_at_grid  = make(map[Grid_Key]Form_ID, 16384, allocator),
 		cell_heights  = make(map[Form_ID][]f32, 1024, allocator),
 		cell_base_tex = make(map[Form_ID][4]Form_ID, 1024, allocator),
@@ -831,6 +834,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.world_cells)
 	delete(db.world_persist)
 	delete(db.world_water)
+	delete(db.world_location)
 	delete(db.cell_at_grid)
 	for _, h in db.cell_heights {
 		delete(h)
@@ -1000,10 +1004,21 @@ ref_by_formid :: proc(db: ^DB, form_id: Form_ID) -> (Ref, bool) {
 // persistent ref, which sits in the worldspace's persistent cell and goes with the grid cell under
 // its position (as the streamer places it). 0 when that grid cell does not exist.
 ref_attach_cell :: proc(db: ^DB, r: Ref) -> Form_ID {
-	c, ok := db.cells[r.cell_form_id]
-	if !ok || c.interior || c.has_grid {return r.cell_form_id}
-	gx, gy := i32(math.floor(r.pos.x / CELL_SIZE)), i32(math.floor(r.pos.y / CELL_SIZE))
-	cell, _ := cell_at(db, c.world_form_id, gx, gy)
+	return grid_cell(db, r.cell_form_id, r.pos)
+}
+
+// grid_cell is the cell under `pos` in `cell`: the cell itself, unless it is a worldspace's
+// persistent cell, which has no grid; then the grid cell at `pos` (0 when none exists).
+grid_cell :: proc(db: ^DB, cell: Form_ID, pos: [3]f32) -> Form_ID {
+	c, ok := db.cells[cell]
+	if !ok || c.interior || c.has_grid {return cell}
+	return cell_under(db, c.world_form_id, pos)
+}
+
+// cell_under is the exterior cell of `world` at `pos` (0 when none exists).
+cell_under :: proc(db: ^DB, world: Form_ID, pos: [3]f32) -> Form_ID {
+	gx, gy := i32(math.floor(pos.x / CELL_SIZE)), i32(math.floor(pos.y / CELL_SIZE))
+	cell, _ := cell_at(db, world, gx, gy)
 	return cell
 }
 
@@ -1210,7 +1225,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 
 	switch {
 	case s == "WRLD":
-		index_world(db, rec)
+		index_world(db, rec, ctx.fm)
 	case s == "CELL":
 		index_cell(db, rec, ctx)
 	case s == "REFR":
@@ -1483,7 +1498,7 @@ quest_objective_text :: proc(db: ^DB, quest: Form_ID, obj: u16) -> (string, bool
 }
 
 @(private)
-index_world :: proc(db: ^DB, rec: esm.Record) {
+index_world :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
 	if !ok {
 		return
@@ -1506,6 +1521,9 @@ index_world :: proc(db: ^DB, rec: esm.Record) {
 	// precedes its CELL children in the walk, so it's recorded before any cell reads it.
 	if wh, wok := esm.world_water_height(fl); wok && abs(wh) <= esm.WATER_MAX_PLAUSIBLE {
 		db.world_water[rec.form_id] = wh
+	}
+	if l, lok := esm.subrecord_formid(fl, "XLCN"); lok {
+		db.world_location[rec.form_id] = esm.remap_form(fm, l)
 	}
 }
 
@@ -1541,6 +1559,9 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	if wt, tok := esm.cell_water_type(fl); tok {
 		cell.water_type = esm.remap_form(ctx.fm, wt) // XCWT references a WATR form
+	}
+	if l, lok := esm.subrecord_formid(fl, "XLCN"); lok {
+		cell.location = esm.remap_form(ctx.fm, l)
 	}
 	if gx, gy, gok := esm.cell_grid(fl); gok {
 		cell.gx, cell.gy, cell.has_grid = gx, gy, true
