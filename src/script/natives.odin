@@ -45,8 +45,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "SetScale", n_set_scale)
 	register(reg, "ObjectReference", "GetScale", n_get_scale)
 	register(reg, "ObjectReference", "Delete", n_delete)
-	// HOLE(world): DeleteWhenAble deletes at once and the converted MoveToWhenUnloaded polls; both become
-	// engine facts, "delete when detached" and "move when both unloaded" (docs/script-rewrite.md).
+	// HOLE(world, gap): DeleteWhenAble is converted ObjectReference.psc, a Wait(5) poll on the parent cell that shadows this native; it becomes a saved "delete when detached" fact and an objectreference.patch.lua (script-api.md section 5). It keeps 359 dependent call sites latent (S6 phase 2b).
+	// HOLE(world, gap): MoveToWhenUnloaded is converted too, a Wait(5) poll until neither location is loaded; it needs GetCurrentLocation and a loaded location before it can become a "move when both unloaded" fact.
 	register(reg, "ObjectReference", "DeleteWhenAble", n_delete)
 	register(reg, "ObjectReference", "MoveTo", n_move_to)
 	register(reg, "ObjectReference", "Lock", n_lock)
