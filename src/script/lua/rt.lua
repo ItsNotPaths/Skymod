@@ -91,6 +91,7 @@ function rt.class(name, parent)
     __autoprop = {},
     __cache = {},
     __names = {},
+    __plain = {}, -- name -> vars key, for a field read and written as stored (Instance's fast path)
     __params = {},
   }, Class)
   classes[low(name)] = cls
@@ -727,9 +728,12 @@ end
 local function no_name(recv, k) error("no field or function '" .. tostring(k) .. "' on " .. tostring(recv), 3) end
 
 Instance.__index = function(inst, k)
-  local n = name_of(inst, k)
+  local n = inst.class.__plain[k]
+  if n then return inst.vars[n] end
+  n = name_of(inst, k)
   if type(n) == "string" then
     local v, t = inst.vars[n], inst.class.__script_typed[n]
+    if not t and n ~= "TickRate" then inst.class.__plain[k] = n end
     if t and type(v) == "userdata" then return find_instance(v, t) or v end
     return v
   end
@@ -740,10 +744,13 @@ end
 
 -- A write must name a declared field, so a typo cannot make a member that is never saved.
 Instance.__newindex = function(inst, k, v)
-  local n = name_of(inst, k)
-  if n == PROP then return rt.set(inst, k, v) end
-  if type(n) ~= "string" then no_name(inst, k) end
-  if n == "TickRate" then error("TickRate is fixed when the instance is made", 2) end
+  local n = inst.class.__plain[k]
+  if not n then
+    n = name_of(inst, k)
+    if n == PROP then return rt.set(inst, k, v) end
+    if type(n) ~= "string" then no_name(inst, k) end
+    if n == "TickRate" then error("TickRate is fixed when the instance is made", 2) end
+  end
   if v == nil then v = None end
   inst.vars[n] = v
 end
