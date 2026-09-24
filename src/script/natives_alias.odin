@@ -17,6 +17,8 @@ register_alias :: proc(reg: ^Registry) {
 	register(reg, "Alias", "RegisterForSingleUpdate", n_register_single_update)
 	register(reg, "Alias", "RegisterForUpdate", n_register_update)
 	register(reg, "Alias", "UnregisterForUpdate", n_unregister_for_update)
+	register(reg, "Alias", "RegisterForAnimationEvent", n_register_anim_event)
+	register(reg, "Alias", "UnregisterForAnimationEvent", n_unregister_anim_event)
 	register(reg, "ReferenceAlias", "GetReference", n_alias_get)
 	register(reg, "ReferenceAlias", "ForceRefTo", n_alias_force)
 	register(reg, "ReferenceAlias", "Clear", n_alias_clear)
@@ -47,13 +49,14 @@ fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID
 	}
 }
 
-// clear_aliases empties a stopping quest's aliases and stops their update registrations.
+// clear_aliases empties a stopping quest's aliases and stops their update and animation registrations.
 clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) {
 	for a in gamedb.quest_aliases_of(db, quest) {
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
 		worldstate.clear_alias(ws, h)
 		worldstate.unregister_updates(ws, h)
+		worldstate.unregister_anim_events(ws, h)
 	}
 }
 

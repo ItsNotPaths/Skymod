@@ -12,6 +12,7 @@ import script ".."
 import "../../formats/esm"
 import "../../formid"
 import "../../gamedb"
+import "../../worldstate"
 
 // attach creates the instances for `scripts` on `form` and, when `init` is set, fires their
 // OnInit. Returns how many instances were made.
@@ -77,6 +78,17 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	for r in refs {
 		made += attach_ref(vm, db, r)
 	}
+
+	// created refs persist, so they attach at game start too
+	created := make([dynamic]script.Form_ID, 0, len(vm.ctx.ws.created), context.temp_allocator)
+	for id in vm.ctx.ws.created {append(&created, id)}
+	slice.sort(created[:])
+	for id in created {made += attach_created(vm, db, id)}
+
+	effects := make([dynamic]script.Form_ID, 0, len(vm.ctx.ws.effects), context.temp_allocator)
+	for h in vm.ctx.ws.effects {append(&effects, h)}
+	slice.sort(effects[:])
+	for h in effects {made += attach_known(vm, h, gamedb.form_scripts(db, vm.ctx.ws.effects[h].effect))}
 	return made
 }
 
@@ -102,13 +114,78 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 }
 
 // HOLE(script, gap): a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
-// HOLE(script, gap): refs made at runtime (PlaceAtMe, the overlay's created refs) get no scripts.
 @(private)
 attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
-	if r.deleted {return 0}
+	if r.deleted || worldstate.is_deleted(vm.ctx.ws, r.form_id) {return 0}
 	scripts := gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator)
 	if len(scripts) == 0 {return 0}
 	return attach_known(vm, r.form_id, scripts)
+}
+
+// attach_created gives a created ref the scripts of its base. In an attached cell it joins the
+// cell's refs, so the next tick's transitions send it OnLoad.
+@(private)
+attach_created :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) -> int {
+	ws := vm.ctx.ws
+	cr, ok := worldstate.get_created(ws, id)
+	if !ok || worldstate.is_deleted(ws, id) {return 0}
+	scripts := gamedb.effective_scripts(db, id, cr.base, context.temp_allocator)
+	if len(scripts) == 0 {return 0}
+	made := attach_known(vm, id, scripts)
+	c := script.Call{ws = ws, db = db}
+	if refs, attached := &ws.attached[script.ref_grid_cell(&c, id)]; attached && !slice.contains(refs[:], id) {
+		append(refs, id)
+	}
+	return made
+}
+
+// sync_refs gives refs created since the last call their scripts, OnInit included, so a script's
+// PlaceAtMe returns a ref whose OnInit has run. It drops the scripts of refs deleted since: they
+// leave the tick schedule, and their registrations and saved members go. Effects started or ended
+// since get their instance and OnEffectStart, or OnEffectFinish.
+sync_refs :: proc(vm: ^VM) {
+	ws := vm.ctx.ws
+	for len(ws.new_effects) > 0 || len(ws.ended_effects) > 0 {
+		started := slice.clone(ws.new_effects[:], context.temp_allocator)
+		clear(&ws.new_effects)
+		for h in started {
+			e := ws.effects[h]
+			attach_known(vm, h, gamedb.form_scripts(vm.ctx.db, e.effect))
+			send_own(vm, h, "OnEffectStart", e.target, e.caster)
+		}
+		ended := slice.clone(ws.ended_effects[:], context.temp_allocator)
+		clear(&ws.ended_effects)
+		for h in ended {
+			e, ok := &ws.effects[h]
+			if !ok {continue}
+			e.finished = true
+			worldstate.unregister_anim_events(ws, h)
+			worldstate.unregister_updates(ws, h)
+			send_own(vm, h, "OnEffectFinish", e.target, e.caster)
+		}
+	}
+	for len(ws.new_refs) > 0 || len(ws.gone_refs) > 0 {
+		gone := slice.clone(ws.gone_refs[:], context.temp_allocator)
+		clear(&ws.gone_refs)
+		for id in gone {
+			detach(vm, id)
+			worldstate.forget_scripts(ws, id)
+		}
+		made := slice.clone(ws.new_refs[:], context.temp_allocator)
+		clear(&ws.new_refs)
+		for id in made {attach_created(vm, vm.ctx.db, id)}
+	}
+}
+
+// detach is rt.detach: the form's instances go.
+@(private)
+detach :: proc(vm: ^VM, form: script.Form_ID) {
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "detach") {return}
+	push_ref(L, form)
+	if lua.pcall(L, 1, 0, 0) != 0 {log.errorf("lua: rt.detach: %s", to_string(L, -1))}
 }
 
 // push_props pushes a {lowercase name = value} table of a script's authored property values.

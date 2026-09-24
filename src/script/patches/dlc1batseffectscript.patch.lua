@@ -1,7 +1,6 @@
 -- pex: battyloops f632adce
 -- BattyLoops moved the bats toward the caster every 0.2 s while bBatsLoopContinue, then sent them
 -- home and deleted them 0.25 s later. Now `bats` is that run and a stopwatch paces it.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

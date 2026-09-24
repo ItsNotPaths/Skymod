@@ -261,6 +261,22 @@ assert(launcher:Launch("t") == "t/1.5/false", "defaults fill the missing argumen
 assert(launcher:Launch{ target = "t", loud = true } == "t/1.5/true", "named arguments")
 assert(not pcall(function() launcher:Launch{ speed = 2 } end), "a required argument is required")
 assert(not pcall(function() launcher:Launch{ target = "t", sped = 2 } end), "an unknown name is an error")
+-- a converted script function takes its CK defaults from the generated table, also on a subclass
+files.arenascript = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("ArenaScript", "Quest")
+  C.__vars = {}
+  C.__fn["picknextfight"] = function(self, offset) return offset end
+  return C
+]]
+files.arenachild = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("ArenaChild", "ArenaScript")
+  C.__vars = {}
+  return C
+]]
+assert(rt.instance(ref(0x2101), "ArenaScript"):PickNextFight() == 0, "a converted function's default")
+assert(rt.instance(ref(0x2102), "ArenaChild"):PickNextFight() == 0, "the default through the class chain")
 local plain = ref(0x3000)
 plain:Disable()
 assert(plain:IsDisabled() == true, "a native with every argument defaulted")
@@ -311,6 +327,27 @@ files.badvars = [[
 local okbad, errbad = pcall(rt.instance, ref(0x200A), "BadVars")
 assert(not okbad and tostring(errbad):find("__vars.TickRate"), "a bare number in __vars names the field")
 assert(rt.guard("test", function() return 1 end) and not rt.guard("test", function() while true do end end), "rt.guard budgets")
+
+-- animation events reach only the forms that registered for them on the sender
+files.bell = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Bell", "ObjectReference")
+  C.__vars = { heard = rt.int(0) }
+  function C:OnAnimationEvent(src, name) self.heard = self.heard + 1 end
+  return C
+]]
+local bell = rt.instance(ref(0x2103), "Bell")
+rt.anim_event(ref(0x2103), "Ring")
+rt.drain()
+assert(bell.heard == 0, "no registration, no event")
+bell:RegisterForAnimationEvent(ref(0x2103), "Ring")
+rt.anim_event(ref(0x2103), "ring")
+rt.drain()
+assert(bell.heard == 1, "a registered event arrives, names fold case")
+bell:UnregisterForAnimationEvent(ref(0x2103), "Ring")
+rt.anim_event(ref(0x2103), "Ring")
+rt.drain()
+assert(bell.heard == 1, "unregistered again")
 
 rt.reset()
 rt.advance(1 / 60, 0)

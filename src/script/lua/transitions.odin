@@ -4,7 +4,6 @@ package script_lua
 // comparing the cells attached to the player's scene, and each ref's enable state, with the last
 // tick (docs/script-rewrite.md "Events: edges, transitions, timers").
 
-import "core:slice"
 import script ".."
 import "../../gamedb"
 import "../../worldstate"
@@ -36,9 +35,11 @@ transitions_destroy :: proc(t: ^Transitions) {
 tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, now: []script.Form_ID) {
 	if !t.indexed {index_persistent(db, t)}
 
+	still := make(map[script.Form_ID]bool, len(now), context.temp_allocator)
+	for cell in now {still[cell] = true}
 	gone := make([dynamic]script.Form_ID, context.temp_allocator)
 	for cell in ws.attached {
-		if !slice.contains(now, cell) {append(&gone, cell)}
+		if cell not_in still {append(&gone, cell)}
 	}
 	for cell in gone {
 		refs := ws.attached[cell]
@@ -58,12 +59,13 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 
 	for cell in now {
 		if cell in ws.attached {continue}
-		refs := scripted_refs(db, t, cell)
+		refs := scripted_refs(db, ws, t, cell)
 		ws.attached[cell] = refs
 		for r in refs {send(vm, r, "OnCellAttach")}
 		for r in refs {sync_loaded(vm, db, ws, t, r)}
 		for r in refs {send(vm, r, "OnCellLoad")}
 	}
+	if len(gone) > 0 {script.settle_moves(db, ws)}
 }
 
 // sync_loaded sends OnLoad or OnUnload when a ref's enable state differs from what its scripts
@@ -82,9 +84,9 @@ sync_loaded :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tr
 }
 
 // scripted_refs lists the refs that attach with `cell` and carry scripts: its refs and actors,
-// plus the exterior persistent refs over it. The caller owns the list.
+// the exterior persistent refs over it, and the created refs in it. The caller owns the list.
 @(private)
-scripted_refs :: proc(db: ^gamedb.DB, t: ^Transitions, cell: script.Form_ID) -> [dynamic]script.Form_ID {
+scripted_refs :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, cell: script.Form_ID) -> [dynamic]script.Form_ID {
 	out := make([dynamic]script.Form_ID)
 	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
 		for r in list {
@@ -92,6 +94,10 @@ scripted_refs :: proc(db: ^gamedb.DB, t: ^Transitions, cell: script.Form_ID) -> 
 		}
 	}
 	append(&out, ..t.persistent[cell][:])
+	c := script.Call{ws = ws, db = db}
+	for id, cr in ws.created {
+		if len(gamedb.form_scripts(db, cr.base)) > 0 && script.ref_grid_cell(&c, id) == cell {append(&out, id)}
+	}
 	return out
 }
 

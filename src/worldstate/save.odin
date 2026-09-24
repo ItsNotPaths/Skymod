@@ -105,6 +105,21 @@ Saved_Keyword_Data :: struct {
 	value: f32,
 }
 
+Saved_Move :: struct {
+	ref:  Form_ID,
+	move: Pending_Move,
+}
+
+Saved_Anim_Reg :: struct {
+	sender, form: Form_ID,
+	event:        string,
+}
+
+Saved_Effect :: struct {
+	handle: Form_ID,
+	effect: Active_Effect,
+}
+
 Saved_Script :: struct {
 	form: Form_ID,
 	vars: []Script_Var,
@@ -196,6 +211,10 @@ Save_Body :: struct {
 	scripts:       []Saved_Script,
 	list_adds:     []Saved_List_Add,
 	keyword_data:  []Saved_Keyword_Data,
+	pending_moves: []Saved_Move,
+	anim_regs:     []Saved_Anim_Reg,
+	effects:       []Saved_Effect,
+	next_effect:   u32,
 	player:        Player_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -320,6 +339,14 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	}
 	keyword_data := make([dynamic]Saved_Keyword_Data, 0, len(ws.keyword_data), context.temp_allocator)
 	for key, value in ws.keyword_data {append(&keyword_data, Saved_Keyword_Data{key, value})}
+	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
+	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
+	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
+	for h, e in ws.effects {append(&effects, Saved_Effect{h, e})}
+	anim_regs := make([dynamic]Saved_Anim_Reg, context.temp_allocator)
+	for sender, list in ws.anim_regs {
+		for r in list {append(&anim_regs, Saved_Anim_Reg{sender, r.form, r.event})}
+	}
 	body := Save_Body {
 		deltas       = deltas,
 		created      = created,
@@ -337,6 +364,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		scripts       = scripts[:],
 		list_adds     = list_adds[:],
 		keyword_data  = keyword_data[:],
+		pending_moves = moves[:],
+		anim_regs     = anim_regs[:],
+		effects       = effects[:],
+		next_effect   = ws.next_effect,
 		player        = ws.player,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -404,7 +435,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
 	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
-		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT {return fid, true}
+		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) {return fid, true}
 		quest, id, is_alias := formid.alias_key(fid)
 		src := quest if is_alias else fid
 		ns, rok := remap[u32(src >> 32)]
@@ -465,6 +496,30 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		location, lok := rf(remap, have_remap, k.key.location)
 		keyword, kok := rf(remap, have_remap, k.key.keyword)
 		if lok && kok {ws.keyword_data[{location, keyword}] = k.value}
+	}
+	for m in body.pending_moves {
+		ref, rok := rf(remap, have_remap, m.ref)
+		target, tok := rf(remap, have_remap, m.move.target)
+		if rok && tok {ws.pending_moves[ref] = {target, m.move.offset}}
+	}
+	ws.next_effect = body.next_effect
+	for s in body.effects {
+		e := s.effect
+		ok := true
+		for f in ([4]^Form_ID{&e.effect, &e.spell, &e.target, &e.caster}) {
+			id, fok := rf(remap, have_remap, f^)
+			f^ = id
+			ok &&= fok
+		}
+		if ok {
+			ws.effects[s.handle] = e
+			index_effect(ws, s.handle, e.target)
+		}
+	}
+	for a in body.anim_regs {
+		sender, sok := rf(remap, have_remap, a.sender)
+		form, fok := rf(remap, have_remap, a.form)
+		if sok && fok {register_anim_event(ws, sender, form, a.event)}
 	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
@@ -555,6 +610,9 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}
 	for a in body.list_adds {add_slot(&seen, a.list);add_slot(&seen, a.form)}
 	for k in body.keyword_data {add_slot(&seen, k.key.location);add_slot(&seen, k.key.keyword)}
+	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
+	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
+	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
 	for sc in body.scripts {
 		add_slot(&seen, sc.form)
 		for v in sc.vars {add_value_slots(&seen, v.value)}
@@ -609,7 +667,7 @@ add_slot :: proc(seen: ^map[u32]bool, fid: Form_ID) {
 	if fid == 0 {return}
 	quest, _, is_alias := formid.alias_key(fid)
 	s := u32((quest if is_alias else fid) >> 32)
-	if s == formid.CREATED_SLOT {return}
+	if s == formid.CREATED_SLOT || s == formid.EFFECT_SLOT {return}
 	seen[s] = true
 }
 

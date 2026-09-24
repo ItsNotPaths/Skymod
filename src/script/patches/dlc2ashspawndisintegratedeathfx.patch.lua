@@ -1,7 +1,6 @@
 -- pex: ondying cfc36860
 -- OnDying: shaders on, [alpha 0 after fDelayAlpha], the ash pile after fDelay, the end after
 -- fDelayEnd. Now OnTick in Dissolving walks the steps on one stopwatch.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

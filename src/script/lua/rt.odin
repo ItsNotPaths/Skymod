@@ -36,6 +36,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__is_a", rt_is_a},
 		{"__warn", rt_warn},
 		{"__script_layers", rt_script_layers},
+		{"__anim_event", rt_anim_event},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -80,7 +81,9 @@ rt_native :: proc "c" (L: ^lua.State) -> c.int {
 	}
 	cc := vm.ctx
 	cc.self = form
-	push_value(L, script.call(vm.reg, class, fn, &cc, args[:]))
+	v := script.call(vm.reg, class, fn, &cc, args[:])
+	sync_refs(vm)
+	push_value(L, v)
 	return 1
 }
 
@@ -90,7 +93,9 @@ rt_method :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	form, _ := ref_form(L, 1)
-	push_value(L, call_method(vm, L, form, to_string(L, 2), 3))
+	v := call_method(vm, L, form, to_string(L, 2), 3)
+	sync_refs(vm)
+	push_value(L, v)
 	return 1
 }
 

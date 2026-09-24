@@ -2,7 +2,6 @@
 -- Each cast turned the player (then the cow, horse, dog) into the next creature: a flash, 0.3 s,
 -- the swap, 0.2 s, then the quest's Spell2Cast moved on. Now OnTick in Changing does the swap and
 -- the count; `form_was` is the Spell2Cast this cast started from.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

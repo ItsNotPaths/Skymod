@@ -10,7 +10,6 @@
 -- stage of the `updating` run and `locked` is its published fact. A call that waited for the lock
 -- is owed and settled when the run ends. The subclasses' NeedUpdateGameTime is called again as
 -- each pause ends (PauseNeedTick).
--- HOLE(magic, gap): the disease run dispels an effect instance.
 local rt = require('skymod.rt')
 
 return function(C)

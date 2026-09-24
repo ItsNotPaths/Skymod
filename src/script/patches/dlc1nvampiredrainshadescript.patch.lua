@@ -2,7 +2,6 @@
 -- pex: ondying e48d9cce
 -- OnDying exploded the victim, burned it to ash for fDelayEnd (unless immune), waited 0.1 s and
 -- raised the necro lord. Now OnTick in the Burning state walks those steps.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

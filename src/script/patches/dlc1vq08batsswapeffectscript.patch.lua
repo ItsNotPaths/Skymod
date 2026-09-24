@@ -3,7 +3,6 @@
 -- OnUpdate moved the bats toward Harkon every 0.2 s while bBatsLoopContinue, then sent them home
 -- and deleted them 0.25 s later; OnEffectFinish cleared the flag 2 s after the reform. Now OnTick
 -- paces both: `bats` is the flight, `stop_t` the 2 s before the flag clears.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

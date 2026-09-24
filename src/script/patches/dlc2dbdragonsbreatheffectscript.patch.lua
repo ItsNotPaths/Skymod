@@ -1,7 +1,6 @@
 -- pex: onanimationevent e54d074d
 -- BeginCastLeft armed the dragon arms and, 1 s later, spawned the dragons. Now a timer holds the
 -- second. As in Papyrus, a RitualSpellOut in that second does not stop the spawn.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

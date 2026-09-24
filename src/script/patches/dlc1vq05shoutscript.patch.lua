@@ -3,7 +3,6 @@
 -- The shout woke the first enabled grave group: shout, 1 s, cast at the five targets, 2 s,
 -- explosions, activate the group, 3 s, disable it. Now OnTick in Raising walks those steps;
 -- `graves` is the group being raised.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

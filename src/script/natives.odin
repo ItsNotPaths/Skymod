@@ -17,7 +17,6 @@ import smath "../math"
 // HOLE(animation, blocker): the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 // HOLE(ai, blocker): Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
 // HOLE(ai, blocker): the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
-// HOLE(magic, blocker): Cast/AddSpell/RemoveSpell — MGEF records indexed, the subsystem that applies them is not.
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
@@ -45,8 +44,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "SetScale", n_set_scale)
 	register(reg, "ObjectReference", "GetScale", n_get_scale)
 	register(reg, "ObjectReference", "Delete", n_delete)
-	// HOLE(world, gap): MoveToWhenUnloaded is converted too, a Wait(5) poll until neither location is loaded; it needs GetCurrentLocation and a loaded location before it can become a "move when both unloaded" fact.
 	register(reg, "ObjectReference", "DeleteWhenAble", n_delete_when_able)
+	register(reg, "ObjectReference", "MoveToWhenUnloaded", n_move_to_when_unloaded)
 	register(reg, "ObjectReference", "MoveTo", n_move_to)
 	register(reg, "ObjectReference", "Lock", n_lock)
 	register(reg, "ObjectReference", "IsLocked", n_is_locked)
@@ -55,6 +54,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Form", "RegisterForSingleUpdate", n_register_single_update)
 	register(reg, "Form", "RegisterForUpdate", n_register_update)
 	register(reg, "Form", "UnregisterForUpdate", n_unregister_for_update)
+	register(reg, "Form", "RegisterForAnimationEvent", n_register_anim_event)
+	register(reg, "Form", "UnregisterForAnimationEvent", n_unregister_anim_event)
 	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
 	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
 
@@ -80,6 +81,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_actor(reg) // Actor values + faction/relationship store
 	register_ref_reads(reg) // position, links, cell and location of a ref
 	register_forms(reg) // FormList, Location, keywords, race, game time
+	register_magic(reg) // spells start and end scripted magic effects
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────
@@ -130,6 +132,17 @@ n_register_update :: proc(c: ^Call, args: []Value) -> Value {
 
 n_unregister_for_update :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.unregister_updates(c.ws, c.self)
+	return nil
+}
+
+// RegisterForAnimationEvent(akSender, asEventName): true, as nothing here can fail to register.
+n_register_anim_event :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.register_anim_event(c.ws, arg_form(args, 0), c.self, arg_str(args, 1))
+	return true
+}
+
+n_unregister_anim_event :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.unregister_anim_event(c.ws, arg_form(args, 0), c.self, arg_str(args, 1))
 	return nil
 }
 
@@ -187,12 +200,47 @@ n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
 // teleport self to the target ref's (overlay⊕baseline) position + offsets; self
 // lands in the target's cell. Rotation-match is deferred (identity orientation).
 n_move_to :: proc(c: ^Call, args: []Value) -> Value {
-	target := arg_form(args, 0)
-	dst := ref_pos(c, target)
-	dst += smath.Vec3{arg_f32(args, 1, 0), arg_f32(args, 2, 0), arg_f32(args, 3, 0)}
-	worldstate.set_moved(c.ws, c.self, ref_cell(c, target), smath.translate(dst), dst)
-	worldstate.mark_scene_dirty(c.ws, c.self)
+	move_to(c, c.self, arg_form(args, 0), move_offset(args))
 	return nil
+}
+
+move_to :: proc(c: ^Call, form, target: Form_ID, offset: smath.Vec3) {
+	dst := ref_pos(c, target) + offset
+	worldstate.set_moved(c.ws, form, ref_cell(c, target), smath.translate(dst), dst)
+	worldstate.mark_scene_dirty(c.ws, form)
+}
+
+move_offset :: proc(args: []Value) -> smath.Vec3 {
+	return {arg_f32(args, 1, 0), arg_f32(args, 2, 0), arg_f32(args, 3, 0)}
+}
+
+// MoveToWhenUnloaded: at once when neither the ref's location nor the target's is loaded, else
+// when a cell detach unloads both (settle_moves; the converted Wait(5) loop is replaced by
+// objectreference.patch.lua, script-api.md section 5).
+n_move_to_when_unloaded :: proc(c: ^Call, args: []Value) -> Value {
+	move := worldstate.Pending_Move{arg_form(args, 0), move_offset(args)}
+	if both_unloaded(c, c.self, move.target) {
+		move_to(c, c.self, move.target, move.offset)
+	} else {
+		c.ws.pending_moves[c.self] = move
+	}
+	return nil
+}
+
+// settle_moves runs the pending MoveToWhenUnloaded moves whose locations have both unloaded.
+settle_moves :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {
+	c := Call{ws = ws, db = db}
+	done := make([dynamic]Form_ID, context.temp_allocator)
+	for ref, move in ws.pending_moves {
+		if !both_unloaded(&c, ref, move.target) {continue}
+		move_to(&c, ref, move.target, move.offset)
+		append(&done, ref)
+	}
+	for ref in done {delete_key(&ws.pending_moves, ref)}
+}
+
+both_unloaded :: proc(c: ^Call, a, b: Form_ID) -> bool {
+	return !location_loaded(c, ref_location(c, a)) && !location_loaded(c, ref_location(c, b))
 }
 
 n_lock :: proc(c: ^Call, args: []Value) -> Value {

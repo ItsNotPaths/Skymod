@@ -97,6 +97,7 @@ Form_Kind :: enum u8 {
 	Armor,              // ARMO
 	Ref_Alias,          // a quest's reference alias (an alias handle, not a record)
 	Location_Alias,     // a quest's location alias
+	Active_Effect,      // a magic effect on a target (an effect handle, not a record)
 }
 
 // Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
@@ -590,6 +591,8 @@ class_name :: proc "contextless" (kind: Form_Kind) -> string {
 		return "ReferenceAlias"
 	case .Location_Alias:
 		return "LocationAlias"
+	case .Active_Effect:
+		return "ActiveMagicEffect"
 	}
 	return "ObjectReference"
 }
@@ -1331,6 +1334,7 @@ form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 		a, _ := quest_alias(db, quest, id)
 		return .Location_Alias if a.location else .Ref_Alias
 	}
+	if formid.is_effect(form) {return .Active_Effect}
 	return db.form_kinds[form] // absent → zero value == .Unknown
 }
 

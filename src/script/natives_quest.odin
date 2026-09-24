@@ -127,10 +127,11 @@ n_quest_start :: proc(c: ^Call, args: []Value) -> Value {
 	return true
 }
 
-// A stopped quest's aliases empty, and its updates stop.
+// A stopped quest's aliases empty, and its update and animation registrations stop.
 n_quest_stop :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.quest_set_running(c.ws, c.self, false)
 	worldstate.unregister_updates(c.ws, c.self)
+	worldstate.unregister_anim_events(c.ws, c.self)
 	clear_aliases(c.ws, c.db, c.self)
 	return nil
 }

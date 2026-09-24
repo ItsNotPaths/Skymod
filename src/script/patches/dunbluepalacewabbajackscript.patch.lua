@@ -4,7 +4,6 @@
 -- mare's first nightmare started a 120 s window after which, unless every dream was fixed, the
 -- dreams undid one per second. Now the first dispatch waits on a timer, and the window runs on
 -- the mare controller (dunbluepalacenightmarescript.StartRevert), whose dreams it is about.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

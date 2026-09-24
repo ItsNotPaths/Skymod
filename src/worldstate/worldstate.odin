@@ -65,6 +65,11 @@ Overlay :: struct {
 	script_state:    map[Form_ID][dynamic]Script_Var, // form -> its scripts' changed members; presence = their OnInit ran
 	list_adds:       map[Form_ID][dynamic]Form_ID, // FLST -> forms FormList.AddForm put after its authored members
 	keyword_data:    map[Keyword_Key]f32,          // Location.SetKeywordData values; absent reads 0
+	pending_moves:   map[Form_ID]Pending_Move,     // MoveToWhenUnloaded: ref -> the move that waits for both locations to unload
+	anim_regs:       map[Form_ID][dynamic]Anim_Reg, // sender -> RegisterForAnimationEvent registrations on it
+	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
+	next_effect:     u32,                          // the last effect handle's counter
+	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 }
 
@@ -80,6 +85,13 @@ Runtime :: struct {
 	activations:     [dynamic]Activation,
 	// Items scripts moved since the last tick; the tick sends their inventory events.
 	item_moves:      [dynamic]Item_Move,
+	// Refs created and deleted since the VM last looked. It gives the new ones their scripts
+	// (OnInit inside the native that made them) and drops the scripts of the gone ones.
+	new_refs:        [dynamic]Form_ID,
+	gone_refs:       [dynamic]Form_ID,
+	// Effects started and ended since the VM last looked: it sends OnEffectStart / OnEffectFinish.
+	new_effects:     [dynamic]Form_ID,
+	ended_effects:   [dynamic]Form_ID,
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -103,6 +115,10 @@ init :: proc(ws: ^World_State) {
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
 	ws.item_moves = make([dynamic]Item_Move)
+	ws.new_refs = make([dynamic]Form_ID)
+	ws.gone_refs = make([dynamic]Form_ID)
+	ws.new_effects = make([dynamic]Form_ID)
+	ws.ended_effects = make([dynamic]Form_ID)
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
 }
 
@@ -111,6 +127,10 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.scene_dirty)
 	delete(ws.activations)
 	delete(ws.item_moves)
+	delete(ws.new_refs)
+	delete(ws.gone_refs)
+	delete(ws.new_effects)
+	delete(ws.ended_effects)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
@@ -138,6 +158,10 @@ init_overlay :: proc(o: ^Overlay) {
 	o.script_state = make(map[Form_ID][dynamic]Script_Var)
 	o.list_adds = make(map[Form_ID][dynamic]Form_ID)
 	o.keyword_data = make(map[Keyword_Key]f32)
+	o.pending_moves = make(map[Form_ID]Pending_Move)
+	o.anim_regs = make(map[Form_ID][dynamic]Anim_Reg)
+	o.effects = make(map[Form_ID]Active_Effect)
+	o.effects_on = make(map[Form_ID][dynamic]Form_ID)
 	o.player.level = 1 // default until real leveling / save round-trip sets it
 }
 
@@ -158,6 +182,10 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.alias_holders {delete(list)}
 	for _, vars in o.script_state {free_script_vars(vars)}
 	for _, &list in o.list_adds {delete(list)}
+	for _, &list in o.anim_regs {
+		for r in list {delete(r.event)}
+		delete(list)
+	}
 	delete(o.ref_deltas)
 	delete(o.by_cell)
 	delete(o.created)
@@ -176,6 +204,11 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.script_state)
 	delete(o.list_adds)
 	delete(o.keyword_data)
+	delete(o.pending_moves)
+	delete(o.anim_regs)
+	delete(o.effects)
+	for _, &list in o.effects_on {delete(list)}
+	delete(o.effects_on)
 	o^ = {}
 }
 

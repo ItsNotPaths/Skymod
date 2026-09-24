@@ -10,9 +10,9 @@ package main
 //   odin run tools/pexdump -- <archive.bsa>           # whole corpus: parse-rate + call histogram
 //   odin run tools/pexdump -- <archive.bsa> --sigs    # + dump every native signature
 //   odin run tools/pexdump -- <archive.bsa> --top N   # top-N call targets (default 40)
-//   odin run tools/pexdump -- <archive.bsa> --dis <script>  # disassemble one script's bytecode
+//   odin run tools/pexdump -- <archive.bsa> --dis <script>  # disassemble one script's bytecode, with each body's pin hash
 //   odin run tools/pexdump -- --emit-manifest <LE root> <SE root>  # regenerate the native manifest
-//   odin run tools/pexdump -- --emit-params <psc dir>              # regenerate native defaults (params.lua)
+//   odin run tools/pexdump -- --emit-params <psc dir>              # regenerate argument defaults (params.lua)
 //
 // No SDL — pure formats code, runs headless.
 
@@ -235,8 +235,8 @@ dis_mode :: proc(path, name: string) {
 			for &st in o.states {
 				for &f in st.functions {
 					if f.is_native || len(f.instructions) == 0 {continue}
-					fmt.printfln("\n  [%s] %s(%d params, %d locals) -> %s",
-						st.name == "" ? "default" : st.name, f.name, len(f.params), len(f.locals), f.return_type)
+					fmt.printfln("\n  [%s] %s(%d params, %d locals) -> %s  pin %08x",
+						st.name == "" ? "default" : st.name, f.name, len(f.params), len(f.locals), f.return_type, pex.function_hash(&f))
 					for pv in f.params {fmt.printfln("      param %s %s", pv.type_name, pv.name)}
 					for lv in f.locals {fmt.printfln("      local %s %s", lv.type_name, lv.name)}
 					for ins, idx in f.instructions {
@@ -375,11 +375,11 @@ corpus_mode :: proc(path: string) {
 	}
 }
 
-// ── native defaults ──────────────────────────────────────────────────────────
-// Emits skymod.params: for every native declared with a default argument, its parameters in order
-// with their default values (docs/script-api.md section 1). Read from the Creation Kit's .psc
-// sources (the .pex does not keep defaults: the compiler writes them into each call). Parameter
-// names and literal defaults only.
+// ── argument defaults ────────────────────────────────────────────────────────
+// Emits skymod.params: for every function declared with a default argument, its parameters in
+// order with their default values (docs/script-api.md section 1), natives and script functions in
+// two tables. Read from the Creation Kit's .psc sources (the .pex does not keep defaults: the
+// compiler writes them into each call). Parameter names and literal defaults only.
 
 emit_params :: proc(dir: string) {
 	infos, err := os.read_all_directory_by_path(dir, context.allocator)
@@ -387,7 +387,7 @@ emit_params :: proc(dir: string) {
 		fmt.eprintfln("emit-params: cannot read %s", dir)
 		os.exit(1)
 	}
-	lines := make([dynamic]string)
+	natives, scripts: map[string]string // "class.fn" -> line; a function declared in several states is one entry
 	for fi in infos {
 		if !strings.has_suffix(strings.to_lower(fi.name), ".psc") {continue}
 		p, _ := filepath.join({dir, fi.name}, context.temp_allocator)
@@ -406,27 +406,39 @@ emit_params :: proc(dir: string) {
 			}
 			open := strings.index(low, "function ")
 			close := strings.last_index(l, ")")
-			if class == "" || open < 0 || close < 0 || !strings.contains(low[close:], "native") {continue}
+			// a declaration: nothing or one return type before the keyword
+			if class == "" || open < 0 || close < open || len(strings.fields(l[:open], context.temp_allocator)) > 1 {continue}
 			head := l[open + len("function "):close]
 			paren := strings.index(head, "(")
 			if paren < 0 {continue}
-			if entry, ok := param_entry(class, strings.trim_space(head[:paren]), head[paren + 1:]); ok {
-				append(&lines, entry)
-			}
+			entry, ok := param_entry(class, strings.trim_space(head[:paren]), head[paren + 1:])
+			if !ok {continue}
+			key := entry[:strings.index(entry, "=")]
+			table := strings.contains(low[close:], "native") ? &natives : &scripts
+			if key not_in table {table[strings.clone(key)] = entry}
 		}
 		free_all(context.temp_allocator)
 	}
-	slice.sort(lines[:])
-	fmt.eprintfln("emit-params: %d natives with defaults", len(lines))
-	fmt.println("-- GENERATED — DO NOT EDIT BY HAND. Each native declared with a default argument: its")
+	fmt.eprintfln("emit-params: %d natives and %d script functions with defaults", len(natives), len(scripts))
+	fmt.println("-- GENERATED — DO NOT EDIT BY HAND. Each function declared with a default argument: its")
 	fmt.println("-- parameters in order, { name } required or { name, default }. Regenerate with:")
 	fmt.println("--   odin run tools/pexdump -- --emit-params <extracted Scripts.zip dir> > src/script/lua/params.lua")
 	fmt.println("return {")
-	for e in lines {fmt.println(e)}
+	emit_table("natives", natives)
+	emit_table("scripts", scripts)
 	fmt.println("}")
 }
 
-// param_entry is one native's Lua line, or false when none of its parameters has a default.
+emit_table :: proc(name: string, table: map[string]string) {
+	lines := make([dynamic]string, context.temp_allocator)
+	for _, e in table {append(&lines, e)}
+	slice.sort(lines[:])
+	fmt.printfln("%s = {{", name)
+	for e in lines {fmt.println(e)}
+	fmt.println("},")
+}
+
+// param_entry is one function's Lua line, or false when none of its parameters has a default.
 param_entry :: proc(class, fn, params: string) -> (string, bool) {
 	b := strings.builder_make()
 	fmt.sbprintf(&b, "\t[\"%s.%s\"] = {{ ", strings.to_lower(class), strings.to_lower(fn))

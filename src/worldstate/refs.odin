@@ -64,6 +64,7 @@ create_ref :: proc(ws: ^World_State, base, cell: Form_ID, pos, rot: [3]f32, scal
 		list = &ws.created_by_cell[cell]
 	}
 	append(list, id)
+	append(&ws.new_refs, id)
 	return id
 }
 
@@ -139,6 +140,13 @@ set_delete_when_detached :: proc(ws: ^World_State, form_id, cell: Form_ID) {
 	upsert(ws, form_id, cell).live += {.Delete_When_Detached}
 }
 
+// Pending_Move is a MoveToWhenUnloaded that waits: MoveTo(target, offset) once neither the ref's
+// location nor the target's is loaded (script-api.md section 5).
+Pending_Move :: struct {
+	target: Form_ID,
+	offset: smath.Vec3,
+}
+
 // delete_detached deletes the refs of `cell` that waited for it to detach.
 delete_detached :: proc(ws: ^World_State, cell: Form_ID) {
 	for id in refs_in(ws, cell) {
@@ -146,6 +154,7 @@ delete_detached :: proc(ws: ^World_State, cell: Form_ID) {
 		if .Delete_When_Detached not_in d.live {continue}
 		d.live -= {.Delete_When_Detached}
 		d.live += {.Deleted}
+		append(&ws.gone_refs, id)
 	}
 }
 
@@ -181,6 +190,13 @@ set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 set_deleted :: proc(ws: ^World_State, form_id, cell: Form_ID) {
 	d := upsert(ws, form_id, cell)
 	d.live += {.Deleted}
+	append(&ws.gone_refs, form_id)
+}
+
+// is_deleted reports whether a runtime Delete removed the ref.
+is_deleted :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	d, ok := ws.ref_deltas[form_id]
+	return ok && .Deleted in d.live
 }
 
 // get returns the delta for a form, if one exists.

@@ -1,7 +1,6 @@
 -- pex: oneffectfinish afeec7ad
 -- OnEffectFinish played the shield's destroy or stop animation and waited for its "End" before
 -- disabling it. Now OnTick waits for that animation to end.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

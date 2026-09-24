@@ -629,3 +629,45 @@ test_registry_form_reads :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, script.call(&reg, "Utility", "GetCurrentGameTime", &c, nil).(f32), f32(3.5))
 }
+
+// MoveToWhenUnloaded waits while either location is loaded (an attached cell in it or in a child
+// of it), and moves when the cell detaches.
+@(test)
+test_move_to_when_unloaded :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	F :: script.Form_ID
+	HERE, THERE, HOLD, CITY, FAR, REF, TARGET :: F(0x100), F(0x101), F(0x300), F(0x301), F(0x302), F(0x500), F(0x501)
+
+	db: gamedb.DB
+	defer {delete(db.cells);delete(db.locations);delete(db.ref_by_id)}
+	db.cells[HERE] = {form_id = HERE, interior = true, location = CITY}
+	db.cells[THERE] = {form_id = THERE, interior = true, location = FAR}
+	db.locations[CITY] = {parent = HOLD}
+	db.ref_by_id[REF] = {form_id = REF, cell_form_id = HERE}
+	db.ref_by_id[TARGET] = {form_id = TARGET, cell_form_id = THERE, pos = {1, 2, 3}}
+
+	c := script.Call{self = HOLD, ws = &ws, db = &db}
+	testing.expect_value(t, script.call(&reg, "Location", "IsLoaded", &c, nil).(bool), false)
+	ws.attached[HERE] = make([dynamic]F)
+	testing.expect_value(t, script.call(&reg, "Location", "IsLoaded", &c, nil).(bool), true)
+
+	c.self = REF
+	script.call(&reg, "ObjectReference", "MoveToWhenUnloaded", &c, {TARGET, f32(0), f32(0), f32(10)})
+	testing.expect(t, REF in ws.pending_moves, "waits while its location is loaded")
+	script.settle_moves(&db, &ws)
+	testing.expect(t, REF in ws.pending_moves, "still attached, still waiting")
+
+	delete(ws.attached[HERE])
+	delete_key(&ws.attached, HERE)
+	script.settle_moves(&db, &ws)
+	testing.expect(t, REF not_in ws.pending_moves, "moved once both unloaded")
+	d, _ := worldstate.get(&ws, REF)
+	testing.expect_value(t, d.cell, THERE)
+	testing.expect_value(t, d.pos, [3]f32{1, 2, 13})
+}

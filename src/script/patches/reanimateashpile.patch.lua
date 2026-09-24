@@ -4,7 +4,6 @@
 -- TurnToAsh started the disintegration, attached the ash pile fDelay later and ended it fDelayEnd
 -- after that; its callers then set AshPileCreated. Now AshPileCreated is set when the burn
 -- starts, and OnTick in Burning walks the two steps.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

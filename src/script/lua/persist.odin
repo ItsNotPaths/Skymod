@@ -127,6 +127,8 @@ reload_scripts :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	top := lua.gettop(L)
 	if push_rt_fn(L, "reset") && lua.pcall(L, 0, 0, 0) != 0 {log.errorf("lua: rt.reset: %s", to_string(L, -1))}
 	lua.settop(L, top)
+	clear(&vm.ctx.ws.new_refs)
+	clear(&vm.ctx.ws.gone_refs)
 	made := start_game(vm, db)
 	for cell in vm.ctx.ws.attached {made += attach_cell(vm, db, cell)}
 	return made

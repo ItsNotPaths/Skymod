@@ -2,7 +2,6 @@
 -- At 5:00 and 19:00 the disease showed its message and faded the screen in for 2 s before
 -- removing the fade; then it checked whether the change was due. Now OnTick in Fading holds
 -- the 2 s and does the check after, as before.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

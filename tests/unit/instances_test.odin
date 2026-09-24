@@ -97,6 +97,39 @@ return C
 `
 
 @(private = "file")
+SPAWNER_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Spawner", nil)
+C.__fn["spawn"] = function(self)
+  __placed = rt.call(self.form, "PlaceAtMe", ref(0xB))
+  __inits_at_return = __inits or 0
+end
+return C
+`
+
+@(private = "file")
+MADE_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Made", nil)
+C.__vars = { TickRate = rt.float(0) }
+C.__fn["oninit"] = function(self) __inits = (__inits or 0) + 1 end
+C.__fn["onload"] = function(self) __loads = (__loads or 0) + 1 end
+C.__fn["ontick"] = function(self) __ticks = (__ticks or 0) + 1 end
+return C
+`
+
+@(private = "file")
+GLOW_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Glow", nil)
+__fx = {}
+C.__fn["oneffectstart"] = function(self, target, caster)
+  __fx[#__fx] = "start:" .. tostring(target === self:GetTargetActor())
+end
+C.__fn["oneffectfinish"] = function(self) __fx[#__fx] = "finish"; self.vars["::state"] = "fading" end
+C.__states["fading"] = {}
+C.__states["fading"]["ontick"] = function(self) __fx[#__fx] = "tick"; self.vars["::state"] = "" end
+return C
+`
+
+@(private = "file")
 TICK_A_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("TickA", nil)
 C.__fn["onupdate"] = function(self) __a = (__a or 0) + 1 end
@@ -513,4 +546,67 @@ test_script_members_survive_a_save :: proc(t: ^testing.T) {
     assert(v["::count_var"] === 6 and rt.aget(v["::list_var"], 1) === 9 and rt.aget(v["::list_var"], 2) === 3)
     assert(v["::seen"] === true and v["::target"] === ref(0x14) and v["::untouched"] === 4)
     assert(__inits == 2, "OnInit ran for the new form only: " .. tostring(__inits))`), "members restored")
+}
+
+// A placed ref of a scripted base gets its scripts inside PlaceAtMe (OnInit has run when it
+// returns), joins its attached cell (OnLoad on the next tick), and ticks. Deleted, it stops ticking
+// and its saved state goes.
+@(test)
+test_created_refs_run_scripts :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_created", {{"spawner.lua", SPAWNER_LUA}, {"made.lua", MADE_LUA}})
+	defer fixture_destroy(&f)
+	trans: slua.Transitions
+	defer slua.transitions_destroy(&trans)
+
+	CELL :: gamedb.Form_ID(0x100)
+	SPAWNER :: script.Form_ID(0x600)
+	f.db.cells = make(map[gamedb.Form_ID]gamedb.Cell, context.temp_allocator)
+	f.db.cells[CELL] = {form_id = CELL, interior = true}
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[SPAWNER] = {form_id = SPAWNER, cell_form_id = CELL}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[0xB] = {scripts = []esm.Script_Attach{{name = "Made"}}}
+	slua.attach(&f.vm, SPAWNER, []esm.Script_Attach{{name = "Spawner"}}, false)
+	slua.tick_transitions(&f.vm, &f.db, &f.ws, &trans, {CELL})
+
+	ok := slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x600), "Spawn")
+assert(__inits_at_return == 1, "OnInit ran inside PlaceAtMe")`)
+	testing.expect(t, ok, "OnInit inside the call")
+	slua.tick_transitions(&f.vm, &f.db, &f.ws, &trans, {CELL})
+	slua.tick_end(&f.vm, 1.0 / 60)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__loads == 1 and __ticks == 1, tostring(__loads) .. "/" .. tostring(__ticks))`), "joins its cell and ticks")
+
+	slua.save_scripts(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `__placed:Delete()`), "delete")
+	slua.tick_end(&f.vm, 1.0 / 60)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__ticks == 1)`), "a deleted ref stops ticking")
+	for id in f.ws.created {testing.expect(t, id not_in f.ws.script_state, "its saved state goes")}
+}
+
+// A spell's scripted effect gets an instance on its target: OnEffectStart, its duration, then
+// OnEffectFinish. The instance stays while its state ticks, then leaves.
+@(test)
+test_effect_lifecycle :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_effects", {{"glow.lua", GLOW_LUA}})
+	defer fixture_destroy(&f)
+
+	SPELL, MGEF :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901)
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 2}}}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); assert(rt.call(ref(0x700), "AddSpell", ref(0x900)) == true)`), "AddSpell")
+	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "AddSpell", ref(0x900)) == false)`), "a second AddSpell is refused")
+	testing.expect_value(t, len(f.ws.effects), 1)
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	slua.tick_end(&f.vm, 1)
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	slua.tick_end(&f.vm, 1)
+	testing.expect_value(t, len(f.ws.effects), 1)
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect_value(t, len(f.ws.effects), 0)
+	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "start:true,finish,tick", got)`), "start, finish, one tick, gone")
 }

@@ -1,5 +1,7 @@
 package worldstate
 
+import "core:strings"
+
 // Update_Timers is one form's OnUpdate registrations, as real seconds left until each fires. The
 // single and the repeating one are independent, and registering again replaces that kind (Papyrus).
 // A registration belongs to the form: its OnUpdate goes to every script on it.
@@ -59,6 +61,62 @@ unregister_updates :: proc(ws: ^World_State, form: Form_ID) {
 	delete_key(&ws.updates, form)
 }
 
+// Anim_Reg is one RegisterForAnimationEvent: `form` hears `event` from the sender. The name is
+// lower case and owned.
+Anim_Reg :: struct {
+	form:  Form_ID,
+	event: string,
+}
+
+// register_anim_event is RegisterForAnimationEvent. A registration belongs to the registering
+// form, as update registrations do.
+register_anim_event :: proc(ws: ^World_State, sender, form: Form_ID, event: string) {
+	if sender not_in ws.anim_regs {ws.anim_regs[sender] = make([dynamic]Anim_Reg)}
+	list := &ws.anim_regs[sender]
+	for r in list {if r.form == form && strings.equal_fold(r.event, event) {return}}
+	append(list, Anim_Reg{form, strings.to_lower(event)})
+}
+
+// unregister_anim_event is UnregisterForAnimationEvent.
+unregister_anim_event :: proc(ws: ^World_State, sender, form: Form_ID, event: string) {
+	drop_anim_regs(ws, sender, form, event)
+}
+
+// unregister_anim_events drops every registration `form` holds: a stopped quest or alias, an
+// ended effect, a deleted ref.
+unregister_anim_events :: proc(ws: ^World_State, form: Form_ID) {
+	senders := make([dynamic]Form_ID, context.temp_allocator)
+	for sender in ws.anim_regs {append(&senders, sender)}
+	for sender in senders {drop_anim_regs(ws, sender, form, "")}
+}
+
+// drop_anim_regs removes `form`'s registrations on `sender`: for `event`, or all when it is "".
+@(private = "file")
+drop_anim_regs :: proc(ws: ^World_State, sender, form: Form_ID, event: string) {
+	list, ok := &ws.anim_regs[sender]
+	if !ok {return}
+	for i := len(list) - 1; i >= 0; i -= 1 {
+		r := list[i]
+		if r.form != form || (event != "" && !strings.equal_fold(r.event, event)) {continue}
+		delete(r.event)
+		ordered_remove(list, i)
+	}
+	if len(list) == 0 {
+		delete(list^)
+		delete_key(&ws.anim_regs, sender)
+	}
+}
+
+// anim_registrants lists the forms that hear `event` from `sender`, in registration order.
+anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	list, _ := ws.anim_regs[sender]
+	for r in list {
+		if strings.equal_fold(r.event, event) {append(&out, r.form)}
+	}
+	return out[:]
+}
+
 // move_items records items moving for the next tick's inventory events.
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)
@@ -114,6 +172,16 @@ clear_alias :: proc(ws: ^World_State, alias: Form_ID) {
 }
 
 // reset_script_state marks `form`'s scripts initialized with no changed members.
+// forget_scripts drops what a deleted ref's scripts left in the world: registrations, filters and
+// saved members. The ref never returns, so nothing needs its OnInit record.
+forget_scripts :: proc(ws: ^World_State, form: Form_ID) {
+	unregister_updates(ws, form)
+	remove_item_filters(ws, form)
+	unregister_anim_events(ws, form)
+	if vars, ok := ws.script_state[form]; ok {free_script_vars(vars)}
+	delete_key(&ws.script_state, form)
+}
+
 reset_script_state :: proc(ws: ^World_State, form: Form_ID) {
 	if vars, ok := ws.script_state[form]; ok {free_script_vars(vars)}
 	ws.script_state[form] = nil

@@ -10,6 +10,15 @@ Form_ID :: u64
 CREATED_SLOT :: u32(0xFFFF_FFFF)
 CREATED_FORM_BASE :: Form_ID(CREATED_SLOT) << 32
 
+// An effect handle addresses one active magic effect (an effect on a target) as a form, so its
+// script instance, registrations and saved members key like any other form's. High word
+// EFFECT_SLOT, low word a counter. No load order reaches the slot, so a save passes it through.
+EFFECT_SLOT :: u32(0x8000_0000)
+
+effect_handle :: proc(n: u32) -> Form_ID {return Form_ID(EFFECT_SLOT) << 32 | Form_ID(n)}
+
+is_effect :: proc(h: Form_ID) -> bool {return u32(h >> 32) == EFFECT_SLOT}
+
 // An alias handle addresses one quest alias as a form, so its scripts, registrations and filters key
 // like any other form's. High word ALIAS_TAG | alias id << 16 | the quest's slot, low word the quest's
 // local id: the slot stays where a save's remap finds it.

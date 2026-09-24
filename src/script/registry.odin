@@ -185,6 +185,9 @@ is_declared :: proc(reg: ^Registry, class, fn: string) -> bool {
 // are never on a ref. Package-level (not a literal) so the returned slice is stable.
 REF_CLASS_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 
+// EFFECT_CLASS_CHAIN: ActiveMagicEffect extends nothing in Papyrus.
+EFFECT_CLASS_CHAIN := []string{"ActiveMagicEffect"}
+
 // KIND_CHAIN is the method-resolution order for each Form-SUBTYPE handle: a Quest/GlobalVariable/
 // Weapon/… form resolves methods up its own class then Form (Papyrus's hierarchy). The class name
 // comes from gamedb.class_name (the single source of truth). Package-level so class_chain returns a
@@ -227,6 +230,7 @@ KIND_CHAIN := [gamedb.Form_Kind][2]string {
 	.Armor              = {gamedb.class_name(.Armor), "Form"},
 	.Ref_Alias          = {gamedb.class_name(.Ref_Alias), "Alias"},
 	.Location_Alias     = {gamedb.class_name(.Location_Alias), "Alias"},
+	.Active_Effect      = {"ActiveMagicEffect", "ActiveMagicEffect"}, // unused — see EFFECT_CLASS_CHAIN
 }
 
 // class_chain picks the method-resolution order for a form's kind. Unknown (object
@@ -234,6 +238,9 @@ KIND_CHAIN := [gamedb.Form_Kind][2]string {
 class_chain :: proc(kind: gamedb.Form_Kind) -> []string {
 	if kind == .Unknown {
 		return REF_CLASS_CHAIN
+	}
+	if kind == .Active_Effect {
+		return EFFECT_CLASS_CHAIN
 	}
 	return KIND_CHAIN[kind][:]
 }

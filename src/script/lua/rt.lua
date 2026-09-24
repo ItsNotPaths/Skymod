@@ -398,6 +398,32 @@ end
 
 function rt.instances_of(form) return instances[form] end
 
+local function drop(list, inst)
+  for j = 0, #list - 1 do
+    if rawequal(list[j], inst) then
+      for k = j, #list - 2 do list[k] = list[k + 1] end
+      list[#list - 1] = nil
+      return true
+    end
+  end
+  return false
+end
+
+-- rt.detach drops a deleted form's instances. They leave the tick schedule, and events queued
+-- for the form find no one.
+function rt.detach(form)
+  for _, inst in ipairs(ordered[form] or {}) do
+    local g = inst.class.__ticks and groups[inst.vars.TickRate or 0]
+    if g and not (g.waiting and drop(g.waiting, inst)) then
+      for _, list in pairs(g.slots) do
+        if drop(list, inst) then break end
+      end
+    end
+  end
+  instances[form] = nil
+  ordered[form] = nil
+end
+
 -- find_instance is the script instance on `ref` whose chain includes class `lname`.
 local function find_instance(ref, lname)
   local per = instances[ref]
@@ -584,7 +610,8 @@ end
 -- table of named arguments: `self:MoveTo{ akTarget = m, afZOffset = 50.0 }`.
 
 local ok_params, generated = pcall(require, 'skymod.params') -- "class.fn" -> list, from the CK sources
-local native_params = ok_params and generated or {}
+local native_params = ok_params and generated.natives or {}
+local script_params = ok_params and generated.scripts or {} -- converted script functions
 local params_by_fn = {} -- lowercase fn -> the first native's list, for calls whose class resolves engine-side
 for key, list in pairs(native_params) do
   local fn = key:match("%.(.*)$")
@@ -623,7 +650,7 @@ function rt.params(cls, name, list) cls.__params[low(name)] = list end
 local function params_of(cls, lname)
   local c = cls
   while c do
-    local p = c.__params[lname]
+    local p = c.__params[lname] or script_params[low(c.__name) .. "." .. lname]
     if p then return p end
     c = parent_of(c)
   end
@@ -796,7 +823,11 @@ end
 function rt.static(class, name, ...)
   local cls = rt.load(class)
   local f = cls and lookup(cls, nil, low(name))
-  if f then return f(...) end
+  if f then
+    local p = params_of(cls, low(name))
+    if p then return f(with_defaults(p, ...)) end
+    return f(...)
+  end
   local p = native_params[low(class .. "." .. name)]
   if p then return native(class, name, nil, args_out(with_defaults(p, ...))) end
   return native(class, name, nil, args_out(...))
@@ -806,7 +837,11 @@ function rt.parent(self, class, name, ...)
   local cls = rt.load(class)
   local up = cls and parent_of(cls)
   local f = up and lookup(up, state_of(self), low(name))
-  if f then return f(self, ...) end
+  if f then
+    local p = params_of(up, low(name))
+    if p then return f(self, with_defaults(p, ...)) end
+    return f(self, ...)
+  end
   warn_once("parent:" .. low(class) .. "." .. low(name), "no parent '" .. name .. "' above " .. class)
   return None
 end
@@ -849,6 +884,30 @@ function rt.send(form, name, ...)
   if not instances[form] then return false end
   queue[#queue] = { form = form, name = name, args = table.pack(...) }
   return true
+end
+
+-- rt.anim_event(sender, name) sends an animation event through the registrations (drivers use it
+-- in place of the animation system).
+rt.anim_event = __anim_event
+
+-- rt.ticking: an instance on `form` has OnTick in its current state.
+function rt.ticking(form)
+  for _, inst in ipairs(ordered[form] or {}) do
+    if lookup(inst.class, state_of(inst), "ontick") then return true end
+  end
+  return false
+end
+
+-- check_anim_handler: a script on `form` with an OnAnimationEvent handler never hears `event`,
+-- because its form did not register for it. Say so once (script-api.md section 4).
+function rt.check_anim_handler(form, event)
+  for _, inst in ipairs(ordered[form] or {}) do
+    if lookup(inst.class, state_of(inst), "onanimationevent") then
+      local name = inst.class.__name
+      warn_once("anim:" .. low(name) .. ":" .. low(event),
+        name .. " handles OnAnimationEvent but did not register for '" .. event .. "' on its own ref")
+    end
+  end
 end
 
 function rt.drain()

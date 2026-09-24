@@ -22,6 +22,7 @@ register_ref_reads :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "GetParentCell", n_get_parent_cell)
 	register(reg, "ObjectReference", "GetWorldSpace", n_get_world_space)
 	register(reg, "ObjectReference", "GetCurrentLocation", n_get_current_location)
+	register(reg, "Location", "IsLoaded", n_location_is_loaded)
 	register(reg, "ObjectReference", "GetBaseObject", n_get_base_object)
 	register(reg, "Actor", "GetActorBase", n_get_base_object)
 	register(reg, "ObjectReference", "GetOpenState", n_get_open_state)
@@ -81,10 +82,34 @@ n_get_world_space :: proc(c: ^Call, args: []Value) -> Value {
 
 // n_get_current_location is the cell's location, else its worldspace's.
 n_get_current_location :: proc(c: ^Call, args: []Value) -> Value {
-	cell, ok := gamedb.cell_by_formid(c.db, ref_grid_cell(c, c.self))
-	if !ok {return nil}
+	return form_or_none(ref_location(c, c.self))
+}
+
+ref_location :: proc(c: ^Call, form: Form_ID) -> Form_ID {
+	return cell_location(c.db, ref_grid_cell(c, form))
+}
+
+// cell_location is a cell's XLCN location, else its worldspace's; 0 when it has neither.
+cell_location :: proc(db: ^gamedb.DB, cell_id: Form_ID) -> Form_ID {
+	cell, ok := gamedb.cell_by_formid(db, cell_id)
+	if !ok {return 0}
 	if cell.location != 0 {return cell.location}
-	return form_or_none(c.db.world_location[cell.world_form_id])
+	return db.world_location[cell.world_form_id]
+}
+
+// location_loaded: an attached cell is in `location` or in a child of it. Reads the attached set
+// only; loads nothing.
+location_loaded :: proc(c: ^Call, location: Form_ID) -> bool {
+	if location == 0 {return false}
+	for cell in c.ws.attached {
+		l := cell_location(c.db, cell)
+		if l == location || gamedb.location_is_child(c.db, l, location) {return true}
+	}
+	return false
+}
+
+n_location_is_loaded :: proc(c: ^Call, args: []Value) -> Value {
+	return location_loaded(c, c.self)
 }
 
 n_get_base_object :: proc(c: ^Call, args: []Value) -> Value {

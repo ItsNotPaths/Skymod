@@ -4,7 +4,6 @@
 -- createAshPile burned the victim for fDelayEnd; spawnSweetRoll and spawnGold waited around it
 -- (0.7 + 0.1 s before the sweet roll's ash, 0.1 s after the gold's). Now `ash` and `step` are
 -- the two runs, stepped by OnTick after the split functions' ticks.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

@@ -4,7 +4,9 @@ package script_lua
 // game_tick drains the queue. Timers are the third kind: tick_updates counts OnUpdate registrations
 // down and sends the ones that come due (docs/script-rewrite.md "Events: edges, transitions, timers").
 
+import "core:c"
 import "core:log"
+import "core:slice"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
@@ -19,15 +21,17 @@ send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
 	for r in recipients(vm.ctx.ws, form) {send_own(vm, r, event, ..args)}
 }
 
-// recipients is who hears a ref's events: the ref, then each alias it fills ("ReferenceAliases
-// receive events from the ObjectReference they are pointing at").
+// recipients is who hears a ref's events: the ref, each alias it fills ("ReferenceAliases receive
+// events from the ObjectReference they are pointing at"), then each effect on it (an
+// ActiveMagicEffect receives its target's events).
 @(private = "file")
 recipients :: proc(ws: ^worldstate.World_State, form: script.Form_ID) -> []script.Form_ID {
 	holders, _ := ws.alias_holders[form]
-	out := make([]script.Form_ID, 1 + len(holders), context.temp_allocator)
-	out[0] = form
-	copy(out[1:], holders[:])
-	return out
+	out := make([dynamic]script.Form_ID, 0, 1 + len(holders), context.temp_allocator)
+	append(&out, form)
+	append(&out, ..holders[:])
+	append(&out, ..worldstate.effects_on(ws, form))
+	return out[:]
 }
 
 // send_own queues `event` for every script on `form` alone, and reports whether `form` has any.
@@ -65,6 +69,33 @@ send_own :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) -> b
 	return bool(lua.toboolean(L, -1))
 }
 
+// send_anim_event delivers an animation event from `sender` to each form that registered for it,
+// and to no one else (CK: "will not be relayed to attached aliases or effects"). When `sender`
+// itself did not register, its scripts that handle OnAnimationEvent get a one-time warning.
+send_anim_event :: proc(vm: ^VM, sender: script.Form_ID, event: string) {
+	regs := worldstate.anim_registrants(vm.ctx.ws, sender, event)
+	for r in regs {send_own(vm, r, "OnAnimationEvent", sender, event)}
+	if slice.contains(regs, sender) {return}
+
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "check_anim_handler") {return}
+	push_ref(L, sender)
+	lua.pushstring(L, strings.clone_to_cstring(event, context.temp_allocator))
+	if lua.pcall(L, 2, 0, 0) != 0 {log.errorf("lua: rt.check_anim_handler: %s", to_string(L, -1))}
+}
+
+// __anim_event(sender, name) is send_anim_event for Lua: drivers stand in for the animation system.
+@(private)
+rt_anim_event :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	sender, _ := ref_form(L, 1)
+	send_anim_event(vm, sender, to_string(L, 2))
+	return 0
+}
+
 // tick_updates is the scheduler: every OnUpdate registration counts down by `dt`, and a due one
 // queues OnUpdate on its form. A due form with no script instances yet (after a Continue, a ref
 // whose cell has not loaded) stays due until one exists.
@@ -82,6 +113,40 @@ tick_updates :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 		if !u.single_on && !u.repeat_on {append(&stopped, form)}
 	}
 	for form in stopped {delete_key(&ws.updates, form)}
+}
+
+// tick_effects runs effect durations down. An ended effect whose OnEffectFinish went out, and whose
+// instance's state no longer ticks, leaves (docs/script-api.md section 3).
+tick_effects :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
+	gone := make([dynamic]script.Form_ID, context.temp_allocator)
+	for h, &e in ws.effects {
+		if !e.ended && !e.lasts {
+			e.elapsed += dt
+			if e.elapsed >= e.duration {worldstate.end_effect(ws, h)}
+		}
+		if e.finished && !ticking(vm, h) {append(&gone, h)}
+	}
+	for h in gone {
+		detach(vm, h)
+		worldstate.forget_scripts(ws, h)
+		worldstate.remove_effect(ws, h)
+	}
+	sync_refs(vm)
+}
+
+// ticking reports whether an instance on `form` has OnTick in its current state.
+@(private = "file")
+ticking :: proc(vm: ^VM, form: script.Form_ID) -> bool {
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "ticking") {return false}
+	push_ref(L, form)
+	if lua.pcall(L, 1, 1, 0) != 0 {
+		log.errorf("lua: rt.ticking: %s", to_string(L, -1))
+		return false
+	}
+	return bool(lua.toboolean(L, -1))
 }
 
 // tick_items sends the inventory events of the items scripts moved since the last tick: OnItemRemoved
@@ -127,6 +192,8 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 // then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.
 tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, loaded, attached: []script.Form_ID, dt: f32) {
 	advance_clocks(vm, dt)
+	sync_refs(vm)
+	tick_effects(vm, ws, dt)
 	for cell in loaded {attach_cell(vm, db, cell)}
 	tick_transitions(vm, db, ws, t, attached)
 	tick_updates(vm, ws, dt)

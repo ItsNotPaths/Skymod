@@ -31,6 +31,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.add_item_filter(&src, 0x000C0DE0, 0xF)
 	ws.add_to_list(&src, 0x000F1570, 0x000ABCDE)
 	src.keyword_data[{0x0001C0C0, 0x000CEEEE}] = 2
+	src.pending_moves[0x000A0001] = {0x000A0002, {0, 0, 50}}
+	fx := ws.start_effect(&src, {effect = 0x000A0003, spell = 0x000A0004, target = 0x000A0001, duration = 5, elapsed = 2})
 	alias, _ := formid.alias_handle(0x000C0DE0, 3)
 	ws.fill_alias(&src, alias, 0x000ABCDE)
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
@@ -98,6 +100,10 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, dst.item_filters[0x000C0DE0][0], 0xF)
 	testing.expect_value(t, ws.list_added(&dst, 0x000F1570)[0], 0x000ABCDE)
 	testing.expect_value(t, dst.keyword_data[{0x0001C0C0, 0x000CEEEE}], 2)
+	testing.expect_value(t, dst.pending_moves[0x000A0001], ws.Pending_Move{0x000A0002, {0, 0, 50}})
+	testing.expect_value(t, dst.effects[fx].elapsed, 2)
+	testing.expect_value(t, dst.next_effect, src.next_effect)
+	testing.expect_value(t, len(ws.effects_on(&dst, 0x000A0001)), 1)
 	testing.expect_value(t, dst.aliases[alias], 0x000ABCDE)
 	testing.expect_value(t, dst.alias_holders[0x000ABCDE][0], alias)
 	testing.expect(t, dd.disabled, "disabled value lost")

@@ -115,6 +115,7 @@ main :: proc() {
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
 	fmt.printfln("updates: %d OnUpdate and item events over %d s of ticks (%d registered forms left), run in %v", updates, args.seconds, len(ws.updates), update_took)
+	fmt.printfln("effects: %d live, the last handle %d", len(ws.effects), ws.next_effect)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)
