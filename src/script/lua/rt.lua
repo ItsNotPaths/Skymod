@@ -228,6 +228,18 @@ local clock_kinds = {
   gamestopwatch = { sign = 1, game = true },
 }
 
+-- Every clock field of every instance, flat: one list per kind, holding (vars table, key) pairs
+-- at 2i and 2i+1, so rt.advance is one tight loop per kind with a constant step.
+local clocks = { timer = {}, stopwatch = {}, gametimer = {}, gamestopwatch = {} }
+
+local function add_clocks(vars, fields)
+  for _, c in ipairs(fields) do
+    local list = clocks[c.kind]
+    list[#list] = vars
+    list[#list] = c.name
+  end
+end
+
 -- Keys an instance keeps for itself, so no field may use them.
 local reserved = { form = true, class = true, vars = true, base = true }
 
@@ -260,7 +272,6 @@ Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
 
 local instances = {} -- ref -> lowercase script name -> instance
 local ordered = {}   -- ref -> its instances in the order they were made (VMAD order)
-local clocked = {}   -- instances whose class declares a clock field
 
 -- The tick schedule. An instance whose class defines OnTick joins the group of its TickRate, which
 -- never changes, and takes a fixed slot in it: (its place in the group) mod (the group's period in
@@ -319,8 +330,7 @@ end
 local function clock_fields(specs)
   local list = {}
   for k, s in pairs(specs) do
-    local kind = clock_kinds[low(s.type)]
-    if kind then list[#list] = { name = k, sign = kind.sign, game = kind.game } end
+    if clock_kinds[low(s.type)] then list[#list] = { name = k, kind = low(s.type) } end
   end
   return list
 end
@@ -380,7 +390,7 @@ function rt.instance(form, script, props)
   local list = ordered[form] or {}
   ordered[form] = list
   list[#list] = inst
-  if #cls.__clocks > 0 then clocked[#clocked] = inst end
+  add_clocks(vars, cls.__clocks)
   if cls.__ticks then schedule(inst, vars.TickRate) end
   return inst
 end
@@ -847,14 +857,19 @@ end
 
 -- rt.advance moves every clock field: real clocks by `dt` seconds, game clocks by `game_dt` hours.
 -- Once per tick, before any handler of that tick runs. A clock a script set to None stays None.
-function rt.advance(dt, game_dt)
-  for _, inst in ipairs(clocked) do
-    local vars = inst.vars
-    for _, c in ipairs(inst.class.__clocks) do
-      local v = vars[c.name]
-      if type(v) == "number" then vars[c.name] = v + c.sign * (c.game and game_dt or dt) end
-    end
+local function step(list, d)
+  for i = 0, #list - 1, 2 do
+    local vars, k = list[i], list[i + 1]
+    local v = vars[k]
+    if type(v) == "number" then vars[k] = v + d end
   end
+end
+
+function rt.advance(dt, game_dt)
+  step(clocks.timer, -dt)
+  step(clocks.stopwatch, dt)
+  step(clocks.gametimer, -game_dt)
+  step(clocks.gamestopwatch, game_dt)
 end
 
 -- rt.tick calls OnTick on the instances due this tick, once per tick after the queue drains: group
@@ -952,7 +967,7 @@ end
 function rt.reset()
   instances = {}
   ordered = {}
-  clocked = {}
+  clocks = { timer = {}, stopwatch = {}, gametimer = {}, gamestopwatch = {} }
   groups = {}
   rates = {}
   ticks = 0
