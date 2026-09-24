@@ -310,7 +310,7 @@ local zeros = {
 }
 local function type_default(t, v)
   if is_vec3(v) then return copy_vec3(v) end
-  if v ~= nil then return v end
+  if not rawequal(v, nil) then return v end -- a declared None stays None (None == nil in Papyrus equality)
   local z = zeros[low(t)]
   if z == nil then return None end
   return z
