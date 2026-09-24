@@ -55,6 +55,12 @@ Shape_Row :: struct {
 	gotostate, result:   bool,
 	multi_state:         bool,
 	callers:             int,
+	bodies:              [dynamic]Body, // the bodies holding a latent site, for --emit-split
+}
+
+Body :: struct {
+	state: string,
+	hash:  u32,
 }
 
 shapes_object :: proc(c: ^Corpus, p: ^pex.Pex, o: ^pex.Object) {
@@ -112,6 +118,7 @@ shape_body :: proc(c: ^Corpus, o: ^pex.Object, class: string, syms: map[string]s
 		append(&sites, idx)
 	}
 	if len(sites) == 0 {return}
+	if fn != "" {append(&r.bodies, Body{strings.clone(state), pex.function_hash(f)})}
 	r.dur = max(r.dur, dur)
 
 	all_w := make([]bool, n, context.temp_allocator)
@@ -403,6 +410,30 @@ write_shapes_tsv :: proc(c: ^Corpus, path: string) {
 	if err := os.write_entire_file(path, b.buf[:]); err != nil {
 		fmt.eprintfln("failed to write %s: %v", path, err)
 	}
+}
+
+// write_split_tsv lists the bodies the transpiler splits at install (docs/short-term-plan.md
+// S6): the three mechanical shapes, in functions no latent function calls. Run after
+// write_shapes_tsv, which counts the callers.
+write_split_tsv :: proc(c: ^Corpus, path: string) {
+	b := strings.builder_make()
+	defer strings.builder_destroy(&b)
+	strings.write_string(&b, "# generated: pexlatent --shapes <tsv> --emit-split <this>\n# script\tstate\tfunction\thash\n")
+	n := 0
+	for &node, i in c.nodes {
+		r := &c.shapes[i]
+		if !node.latent || node.in_cycle || r.callers > 0 {continue}
+		if r.shape != .Poll && r.shape != .Single && r.shape != .Seq_Const {continue}
+		for body in r.bodies {
+			fmt.sbprintf(&b, "%s\t%s\t%s\t%08x\n", strings.to_lower(r.script, context.temp_allocator), strings.to_lower(body.state, context.temp_allocator), node.fn, body.hash)
+			n += 1
+		}
+		free_all(context.temp_allocator)
+	}
+	if err := os.write_entire_file(path, b.buf[:]); err != nil {
+		fmt.eprintfln("failed to write %s: %v", path, err)
+	}
+	fmt.printfln("split list: %d bodies -> %s", n, path)
 }
 
 shape_report :: proc(c: ^Corpus) {

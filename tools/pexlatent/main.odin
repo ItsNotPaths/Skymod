@@ -97,11 +97,11 @@ Corpus :: struct {
 
 main :: proc() {
 	if len(os.args) < 2 {
-		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N] [--guards out.tsv] [--shapes out.tsv [--callers out.tsv]]")
+		fmt.eprintln("usage: pexlatent <archive.bsa> [more.bsa ...] [--top N] [--guards out.tsv] [--shapes out.tsv [--callers out.tsv] [--emit-split out.tsv]]")
 		os.exit(2)
 	}
 	top_n := 30
-	guards_out, shapes_out, callers_out := "", "", ""
+	guards_out, shapes_out, callers_out, split_out := "", "", "", ""
 	paths := make([dynamic]string)
 	for i in 1 ..< len(os.args) {
 		if os.args[i] == "--top" && i + 1 < len(os.args) {
@@ -112,6 +112,8 @@ main :: proc() {
 			shapes_out = os.args[i + 1]
 		} else if os.args[i] == "--callers" && i + 1 < len(os.args) {
 			callers_out = os.args[i + 1]
+		} else if os.args[i] == "--emit-split" && i + 1 < len(os.args) {
+			split_out = os.args[i + 1]
 		} else if strings.has_suffix(strings.to_lower(os.args[i], context.temp_allocator), ".bsa") {
 			append(&paths, os.args[i])
 		}
@@ -145,6 +147,7 @@ main :: proc() {
 		for p in paths {scan_bsa(&c, p, shapes_object)}
 		write_shapes_tsv(&c, shapes_out)
 		shape_report(&c)
+		if split_out != "" {write_split_tsv(&c, split_out)}
 		if callers_out != "" {
 			write_callers_tsv(&c, callers_out)
 			callers_report(&c)

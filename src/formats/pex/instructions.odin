@@ -13,6 +13,9 @@ package pex
 //   callparent  <name> <dest>        <argc> <args...>    (2 fixed)
 // These three are what the native-call histogram walks (see manifest.odin).
 
+import "core:hash"
+import "core:mem"
+
 Opcode :: enum u8 {
 	Nop              = 0x00,
 	IAdd             = 0x01,
@@ -125,4 +128,27 @@ read_instruction :: proc(r: ^Reader, p: ^Pex) -> (ins: Instruction) {
 	}
 	ins.args = args[:]
 	return ins
+}
+
+// function_hash names a body's code: the splitter's stage names carry it, so a stage saved from
+// one version of a function matches no stage of another. Line numbers are left out.
+function_hash :: proc(f: ^Function) -> u32 {
+	h := hash.fnv32a({})
+	for ins in f.instructions {
+		op := u8(ins.op)
+		h = hash.fnv32a({op}, h)
+		for a in ins.args {
+			kind, b := u8(a.kind), u8(a.b)
+			i, fl := a.i, a.f
+			h = hash.fnv32a({kind}, h)
+			switch a.kind {
+			case .Identifier, .String: h = hash.fnv32a(transmute([]u8)a.str, h)
+			case .Integer:             h = hash.fnv32a(mem.ptr_to_bytes(&i), h)
+			case .Float:               h = hash.fnv32a(mem.ptr_to_bytes(&fl), h)
+			case .Bool:                h = hash.fnv32a({b}, h)
+			case .Null:
+			}
+		}
+	}
+	return h
 }
