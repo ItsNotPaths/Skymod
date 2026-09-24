@@ -147,6 +147,7 @@ drain :: proc(vm: ^VM) -> int {
 
 // TIME_SCALE is Skyrim's default game seconds per real second. Game clocks run at it until the
 // game clock exists (the world hole in worldstate.odin).
+// HOLE(world, gap): a game-time skip (sleep, the Wait menu, fast travel, jail) must advance every game clock field by the skipped hours in one step; with no game clock there are no skips, so a WaitGameTime rewrite only ever advances at TimeScale.
 TIME_SCALE :: 20
 
 // advance_clocks moves every script clock field by one tick.
