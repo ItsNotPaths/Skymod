@@ -13,7 +13,7 @@ package main
 //   --seconds <n>        how long ticks run after the attach, default 10
 //   --trace              print Debug.Trace and Notification lines with the tick time they ran at
 //   --all-warnings       print every warning row, not the top 40
-//   --where <script>     only list the refs (with their cells), quests and aliases that carry <script>
+//   --where <script>     repeatable: only list the refs (with their cells), quests and aliases that carry <script>
 //
 // <scripts dir> is converted Lua, e.g. <base>/content/basescripts/scripts after an install.
 
@@ -35,8 +35,8 @@ TICK_HZ :: 60
 
 Args :: struct {
 	root, scripts, patches: string,
-	driver, find:           string,
-	cells:                  [dynamic]string, // hex form ids, or "all"
+	driver:                 string,
+	cells, find:            [dynamic]string, // cells: hex form ids, or "all"; find: --where scripts
 	seconds:                int,
 	trace, all_warnings:    bool,
 }
@@ -54,8 +54,8 @@ main :: proc() {
 	args := parse_args()
 	db, ok := load_plugins(args.root)
 	if !ok {os.exit(1)}
-	if args.find != "" {
-		print_where(&db, args.find)
+	if len(args.find) > 0 {
+		for name in args.find {print_where(&db, name)}
 		return
 	}
 
@@ -157,7 +157,7 @@ parse_args :: proc() -> Args {
 			case "--driver":
 				a.driver = value
 			case "--where":
-				a.find = value
+				append(&a.find, value)
 			case "--seconds":
 				n, ok := strconv.parse_int(value)
 				if !ok || n < 0 {usage_exit()}
@@ -186,6 +186,7 @@ usage_exit :: proc() {
 
 // print_where lists every placed ref, quest, alias and other form that carries `name`.
 print_where :: proc(db: ^gamedb.DB, name: string) {
+	fmt.printfln("== %s", name)
 	carries :: proc(list: []esm.Script_Attach, name: string) -> bool {
 		for a in list {
 			if strings.equal_fold(a.name, name) && !esm.script_attach_removed(a) {return true}
