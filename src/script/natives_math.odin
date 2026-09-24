@@ -6,6 +6,7 @@ package script
 // leaf primitives every transpiled utility script bottoms out on, so they're free to do now.
 
 import "core:math"
+import "core:math/rand"
 
 register_math :: proc(reg: ^Registry) {
 	register(reg, "Math", "abs", n_math_abs)
@@ -21,6 +22,22 @@ register_math :: proc(reg: ^Registry) {
 	register(reg, "Math", "sin", n_math_sin)
 	register(reg, "Math", "sqrt", n_math_sqrt)
 	register(reg, "Math", "tan", n_math_tan)
+	register(reg, "Utility", "RandomInt", n_random_int)
+	register(reg, "Utility", "RandomFloat", n_random_float)
+}
+
+// Utility.RandomInt(aiMin = 0, aiMax = 100) and RandomFloat(afMin = 0.0, afMax = 1.0): both ends
+// inclusive, and a reversed range swaps.
+n_random_int :: proc(c: ^Call, args: []Value) -> Value {
+	lo, hi := arg_i32(args, 0, 0), arg_i32(args, 1, 100)
+	if lo > hi {lo, hi = hi, lo}
+	return lo + i32(rand.int63_max(i64(hi) - i64(lo) + 1))
+}
+
+n_random_float :: proc(c: ^Call, args: []Value) -> Value {
+	lo, hi := arg_f32(args, 0, 0), arg_f32(args, 1, 1)
+	if lo > hi {lo, hi = hi, lo}
+	return lo + rand.float32() * (hi - lo)
 }
 
 // Papyrus trig is in DEGREES (sin(90)=1) — the CK/game convention — so sin/cos/tan convert
