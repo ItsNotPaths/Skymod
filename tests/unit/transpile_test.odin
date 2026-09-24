@@ -70,7 +70,7 @@ T_METHOD :: 9 // "Foo"
 //   3  CallMethod Foo Test ::NoneVar  -- void sink, T1 makes it a bare statement
 //   4  Return     true
 @(private = "file")
-build_transpile_pex :: proc() -> []u8 {
+build_transpile_pex :: proc(jump_on_int := false) -> []u8 {
 	b := make([dynamic]u8)
 
 	tw32(&b, pex.MAGIC)
@@ -133,7 +133,7 @@ build_transpile_pex :: proc() -> []u8 {
 
 	append(&b, u8(pex.Opcode.CmpGe));ti(&b, T_TEMP);ti(&b, T_PARAM);tn(&b, 0)
 	append(&b, u8(pex.Opcode.Cast));ti(&b, T_TEMP);ti(&b, T_TEMP)
-	append(&b, u8(pex.Opcode.JmpF));ti(&b, T_TEMP);tn(&b, 3)
+	append(&b, u8(pex.Opcode.JmpF));ti(&b, T_PARAM if jump_on_int else T_TEMP);tn(&b, 3)
 	append(&b, u8(pex.Opcode.CallMethod));ti(&b, T_METHOD);ti(&b, T_OBJ);ti(&b, T_NONE);tn(&b, 0)
 	append(&b, u8(pex.Opcode.Return));tb(&b, true)
 
@@ -474,4 +474,17 @@ test_transpile_none_names_header :: proc(t: ^testing.T) {
 	has(t, src, `Evil.__fn["clear"] = function(self, _u__temp0)`)
 	has(t, src, "local __temp0 = 0")
 	has(t, src, "__temp0 = _u__temp0")
+}
+
+// A jump that tests an Int directly is cast: Papyrus counts 0 false, Lua counts it true.
+@(test)
+test_transpile_casts_int_condition :: proc(t: ^testing.T) {
+	data := build_transpile_pex(jump_on_int = true)
+	defer delete(data)
+	p, pok := pex.parse(data)
+	defer pex.destroy(&p)
+	testing.expect(t, pok, "fixture parses")
+	src, _ := transpile.transpile(&p, transpile.Options{no_inline = true})
+	defer delete(src)
+	testing.expectf(t, strings.contains(src, `if not rt.cast(_kend, "bool") then goto L5 end`), "int jump not cast:\n%s", src)
 }

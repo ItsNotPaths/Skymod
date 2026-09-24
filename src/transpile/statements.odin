@@ -48,12 +48,12 @@ write_stmt :: proc(e: ^Emitter, idx: int, ins: pex.Instruction) {
 	case .JmpT:
 		t, _ := jump_target(idx, ins)
 		sbprint(e, "if ")
-		write_read(e, arg(ins, 0), idx)
+		write_condition(e, arg(ins, 0), idx)
 		sbprintf(e, " then goto L%d end", t)
 	case .JmpF:
 		t, _ := jump_target(idx, ins)
 		sbprint(e, "if not ")
-		write_read(e, arg(ins, 0), idx)
+		write_condition(e, arg(ins, 0), idx)
 		sbprintf(e, " then goto L%d end", t)
 
 	// callmethod <name> <self> <dest> <args...>
@@ -212,6 +212,20 @@ dest_type :: proc(e: ^Emitter, v: pex.Value) -> string {
 		if strings.equal_fold(m.name, v.str) {return m.type_name}
 	}
 	return ""
+}
+
+// write_condition renders a jump's condition. The compiler usually casts to Bool first, but a
+// jump can test an Int, Float or String directly (4 sites in SE), and Lua counts 0 and "" true.
+@(private)
+write_condition :: proc(e: ^Emitter, v: pex.Value, at: int) {
+	switch strings.to_lower(dest_type(e, v), context.temp_allocator) {
+	case "int", "float", "string":
+		sbprint(e, "rt.cast(")
+		write_read(e, v, at)
+		sbprint(e, ", \"bool\")")
+	case:
+		write_read(e, v, at)
+	}
 }
 
 // write_read renders one value in a READ position. When T2 folded the instruction that
