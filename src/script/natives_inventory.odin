@@ -21,6 +21,25 @@ register_inventory :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "AddInventoryEventFilter", n_add_inventory_event_filter)
 	register(reg, "ObjectReference", "RemoveInventoryEventFilter", n_remove_inventory_event_filter)
 	register(reg, "ObjectReference", "RemoveAllInventoryEventFilters", n_remove_all_inventory_event_filters)
+	register(reg, "Courier", "RemoveRef", n_courier_remove_ref)
+}
+
+// Courier.RemoveRef(courier, container, item, toPlayer, countGlobal): the courier's bag gives an
+// item back or drops it, and the global that gates the courier's dialogue counts one item fewer.
+// WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13).
+// HOLE(dialogue, gap): while the courier talks to the player the removal must wait for the
+// dialogue to end: one saved entry per item, applied when it ends. Nothing talks yet, so it
+// applies at once.
+n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
+	container, to_player, count := arg_form(args, 1), arg_bool(args, 3, false), arg_form(args, 4)
+	base, ref := item_of(c, arg_form(args, 2))
+	if worldstate.inv_count(c.ws, container, base) <= 0 {return nil}
+	move_items(c, {base = base, ref = ref, from = container, to = PLAYER if to_player else 0, count = 1})
+	if count != 0 {
+		v, _ := worldstate.get_global(c.ws, count)
+		worldstate.set_global(c.ws, count, v - 1)
+	}
+	return nil
 }
 
 // HOLE(script, gap): a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
