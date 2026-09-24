@@ -1,5 +1,5 @@
--- pex: teleportaway 02bd4ae9
--- pex: teleportmiraak 5b40800c
+-- pex: teleportaway 02bd4ae9 7f1ac8b0
+-- pex: teleportmiraak 5b40800c 94ea8de3
 -- TeleportAway's dragon-kill branch polled DragonToKill.IsFlying()/IsDead() every 1 s before going
 -- on; its off-cliff branch waited 0.2 s. TeleportMiraak itself waited 0.1 s before moving Miraak.
 -- Now OnTick carries both: a poll phase for the dragon wait, and TeleportMiraak's own timer, with

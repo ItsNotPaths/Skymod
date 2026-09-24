@@ -128,6 +128,7 @@ call_effects :: proc(c: ^Corpus, w: ^Walk, ins: pex.Instruction, leaf: string, e
 		return false
 	}
 	if strings.has_prefix(name, "utility.wait") {return true} // no state, the wait itself
+	if strings.has_prefix(name, "debug.trace") {return false} // writes only the log
 	dot := strings.index_byte(name, '.')
 	key := fmt.tprintf("n:%s.%s", name[:dot], native_family(name[dot + 1:]))
 	row, known := c.guards.natives[name]

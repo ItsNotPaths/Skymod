@@ -1,4 +1,4 @@
--- pex: processhitevent 64bbd0ad
+-- pex: processhitevent 64bbd0ad 5cb2304f
 -- pex: waitandshake 33a72087
 -- ProcessHitEvent played the hit side's animation, called waitAndShake (a fixed 2 s shake), then
 -- enabled the next trigger and advanced that side's state; the final trigger shook twice more

@@ -1,4 +1,4 @@
--- pex: onitemadded 6a48e491
+-- pex: onitemadded 6a48e491 a549db02
 -- A planter keeps one plantable item and hands the rest back, with a message each time, then sets
 -- the planted flora once per container session. WaitMenuMode(0) before each message is gone: the
 -- handler runs after the container menu has closed (script-api.md section 7). The Wait(0) that let

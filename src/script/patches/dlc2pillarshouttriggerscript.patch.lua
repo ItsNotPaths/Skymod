@@ -1,5 +1,5 @@
--- pex: gatherspectators be9b5653
--- pex: monsterappears 1ddb6662
+-- pex: gatherspectators be9b5653 d090438f
+-- pex: monsterappears 1ddb6662 a78b3353
 -- pex: onhit c6847738
 -- OnHit ran GatherSpectators (poll DLC2PillarDestroyed:IsStopped, then a now-immediate
 -- SendStoryEventAndWait), then StoneExplodes and the stone update, then MonsterAppears (poll the

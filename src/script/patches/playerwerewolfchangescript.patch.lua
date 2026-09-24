@@ -1,4 +1,4 @@
--- pex: shiftback cddfc09d
+-- pex: shiftback cddfc09d 755052f7
 -- ShiftBack polled bIsSynced every 0.1 s, then called ActuallyShiftBackIfNecessary, whose 5 s wait
 -- the S6 split keeps in "actuallyshiftbackifnecessary.t". The run is now `back`; callers wait
 -- while it is not Idle.

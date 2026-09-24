@@ -1,4 +1,4 @@
--- pex: deathsequence e71b714a
+-- pex: deathsequence e71b714a 8b4076fc
 -- DeathSequence waited through about twenty beats per dying dragon. It now picks the variant and
 -- starts the run on the dragon's own dragonActorSCRIPT. MQ06DeathSequence keeps its S6 split form.
 local rt = require('skymod.rt')

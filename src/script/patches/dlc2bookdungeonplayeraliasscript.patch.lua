@@ -1,4 +1,4 @@
--- pex: onenterbleedout 1c63b945
+-- pex: onenterbleedout 1c63b945 6368943b
 -- The alias guarded PlayerInBleedout with its own bInBleedout flag, set around the blocking call.
 -- The controller now publishes bPlayerBleedingOut for the whole run; the guard reads that.
 local rt = require('skymod.rt')

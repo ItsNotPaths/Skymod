@@ -1,4 +1,4 @@
--- pex: fragment_29 51548fb5
+-- pex: fragment_29 51548fb5 17c37ca1
 -- Stage 29 put the cube in the exterior pedestal, waited for it to settle, then disabled the door
 -- trigger. Now OnTick waits while that pedestal is Busy.
 local rt = require('skymod.rt')

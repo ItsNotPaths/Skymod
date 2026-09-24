@@ -1,7 +1,7 @@
--- pex: completechange 20623987
+-- pex: completechange 20623987 0319753f
 -- pex: playerchangedlocationcompletechange 73187c85
--- pex: harkonbitesplayer f63604d2
--- pex: receiveharkonsgift f51ac462
+-- pex: harkonbitesplayer f63604d2 1a9072f9
+-- pex: receiveharkonsgift f51ac462 27633a4a
 -- ReceiveHarkonsGift waited for PlayerVampireQuest.VampireChange (or 3 s if the player already was
 -- a vampire) before the cure and the powers; HarkonBitesPlayer waited for the gift, or 5 s on a
 -- refusal. Each is now a run stepped by OnTick in "Busy"; callers wait while `gift` is not Idle.

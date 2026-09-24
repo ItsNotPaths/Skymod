@@ -1,4 +1,4 @@
--- pex: beginsurgery dbfba956
+-- pex: beginsurgery dbfba956 30f21b54
 -- Surgery polled the surgeon's dialogue every 0.5 s, opened the limited race menu, then waited in
 -- menu mode until it closed. ShowLimitedRaceMenu yields like Message.Show, so only the dialogue
 -- poll is left. As in the original, a player who cannot use the face menu keeps controls disabled.

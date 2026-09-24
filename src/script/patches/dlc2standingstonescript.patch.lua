@@ -1,5 +1,5 @@
--- pex: waiting.onactivate 48142e52
--- pex: workonpillar 8c71d84a
+-- pex: waiting.onactivate 48142e52 18add802
+-- pex: workonpillar 8c71d84a 2ac3f64d
 -- WorkOnPillar ran a fixed sequence of four fades (2 s each) then polled IsFurnitureInUse every
 -- 1 s. Now a stage plus a timer walk the same sequence in OnTick. Waiting.OnActivate no longer
 -- waits itself, but when it starts WorkOnPillar it must stay Busy until WorkOnPillar's own tail

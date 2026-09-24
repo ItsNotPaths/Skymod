@@ -1,10 +1,10 @@
--- pex: book01dungeonhmintro 529cdd94
--- pex: checkforhmintro ff2e0c6c
--- pex: moveplayerhome 0e3bb597
--- pex: moveplayertodungeon 30c7a426
--- pex: playerinbleedout 943c0d51
--- pex: readapocryphabook bed4d17c
--- pex: readbook 7e938c6e
+-- pex: book01dungeonhmintro 529cdd94 ec385126
+-- pex: checkforhmintro ff2e0c6c cfa86ff4
+-- pex: moveplayerhome 0e3bb597 41ff68fe
+-- pex: moveplayertodungeon 30c7a426 2335c8ca
+-- pex: playerinbleedout 943c0d51 969f7b3b
+-- pex: readapocryphabook bed4d17c e4a61412
+-- pex: readbook 7e938c6e 3f8f6acc
 -- The black books' controller. Reading waited for the book to open (1.5 s), maybe for the player
 -- to sheathe (2 s), then moved them to Apocrypha (5 s warp, 2 s before the water spell) or home
 -- (1.5 s fade, 3 s before the hand fix), then played Hermaeus Mora's intro once. Each wait is now

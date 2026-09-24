@@ -1,4 +1,4 @@
--- pex: power.onactivate 1662df5b
+-- pex: power.onactivate 1662df5b 8c99e836
 -- With power, the room played Stage1 and waited for Ready (done), then showed the book, played
 -- Stage2 and set stage 550. If the cell unloaded mid-animation the wait returned false: the
 -- same steps ran without going to done. Now Ready, or OnCellDetach, finishes it.

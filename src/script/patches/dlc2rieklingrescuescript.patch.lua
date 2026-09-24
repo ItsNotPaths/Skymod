@@ -1,5 +1,5 @@
--- pex: movetobehindplayer a29e618f
--- pex: rieklingsappear 04dff256
+-- pex: movetobehindplayer a29e618f 292781e5
+-- pex: rieklingsappear 04dff256 477699f0
 -- MoveToBehindPlayer polled IsWeaponDrawn every 1 s (bail at 30) before moving; RieklingsAppear
 -- called it once per alias in turn, so the loop must wait for one move before starting the next.
 -- A shared timer/busy pair drives both, and OnTick advances the alias loop as each move ends.

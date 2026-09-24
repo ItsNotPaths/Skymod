@@ -1,7 +1,7 @@
 -- pex: fadein 23d3238f
 -- pex: fadeout 511de094
--- pex: firsttimetravel 713fe08e
--- pex: setsail 9b8eeb92
+-- pex: firsttimetravel 713fe08e edd7b922
+-- pex: setsail 9b8eeb92 e70abdf2
 -- SetSail waited for Gjalund to stop talking, faded out (2.1 s), travelled and faded in (3 s).
 -- The first trip to Solstheim instead rode the boat: fade in, 7 s, the ride idle's
 -- BoatRideFadeOut event, fade out, 2 s of FinishBoatRide, then up to 3 s for the boat to load.

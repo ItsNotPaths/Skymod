@@ -1,6 +1,6 @@
--- pex: disarmed.onbeginstate 0fc259ae
--- pex: onupdate db5e4cc5
--- pex: reset.onbeginstate 18518c54
+-- pex: disarmed.onbeginstate 0fc259ae ca1e8f6e
+-- pex: onupdate db5e4cc5 1b3d6eef
+-- pex: reset.onbeginstate 18518c54 3067188b
 -- Reset, Disarmed and OnUpdate waited for the warning animation's "End" (Active registered it).
 -- Then OnUpdate played the explosion and waited poisonReleaseDelay before the gas. Now the "End"
 -- event finishes each, in the state that waits for it, and a timer releases the gas.

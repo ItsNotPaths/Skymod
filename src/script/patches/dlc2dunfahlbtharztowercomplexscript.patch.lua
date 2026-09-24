@@ -1,5 +1,5 @@
--- pex: managebridges de52dcf1
--- pex: waiting.onactivate 9f58e78c
+-- pex: managebridges de52dcf1 f97dd787
+-- pex: waiting.onactivate 9f58e78c 1f6187e3
 -- ManageBridges toggled a floor bool, played the mover's animation, waited `waitTimer` (floor 1
 -- only; floor 2 has no wait), then released the pillar and set the tower markers. OnActivate goes
 -- busy and calls it; the "waiting" handler stays hidden while busy, so a second activate is

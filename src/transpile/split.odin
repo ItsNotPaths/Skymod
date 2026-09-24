@@ -6,6 +6,7 @@ package transpile
 // the wait. Two or more waits add a stage, saying which wait's code comes next.
 
 import "core:fmt"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "../formats/pex"
@@ -41,7 +42,7 @@ plan_splits :: proc(e: ^Emitter, o: ^pex.Object) -> [dynamic]Split {
 			want, listed := e.opt.split[split_key(o.name, st.name, f.name)]
 			if !listed || f.is_native {continue}
 			s := Split{f = &f, state = st.name, hash = pex.function_hash(&f), n = len(out) + 1}
-			if s.hash != want {continue}
+			if !slice.contains(want[:], s.hash) {continue}
 			s.key = strings.to_lower(st.name == "" ? f.name : fmt.tprintf("%s.%s", st.name, f.name), context.temp_allocator)
 			s.sites = make([dynamic]int, context.temp_allocator)
 			real := false
@@ -313,8 +314,8 @@ write_stage_name :: proc(e: ^Emitter, s: ^Split, k: int) {
 
 // parse_split_list reads `pexlatent --emit-split` output into Options.split. '#' lines are
 // comments; a malformed row is skipped.
-parse_split_list :: proc(text: string, allocator := context.allocator) -> map[string]u32 {
-	out := make(map[string]u32, allocator = allocator)
+parse_split_list :: proc(text: string, allocator := context.allocator) -> map[string][dynamic]u32 {
+	out := make(map[string][dynamic]u32, allocator = allocator)
 	rest := text
 	for line in strings.split_lines_iterator(&rest) {
 		if line == "" || line[0] == '#' {continue}
@@ -322,7 +323,14 @@ parse_split_list :: proc(text: string, allocator := context.allocator) -> map[st
 		if len(cols) != 4 {continue}
 		h, ok := strconv.parse_u64_of_base(cols[3], 16)
 		if !ok {continue}
-		out[split_key(cols[0], cols[1], cols[2], allocator)] = u32(h)
+		key := split_key(cols[0], cols[1], cols[2], allocator)
+		if hashes, had := &out[key]; had {
+			delete(key, allocator)
+			append(hashes, u32(h))
+		} else {
+			out[key] = make([dynamic]u32, 0, 1, allocator)
+			append(&out[key], u32(h))
+		}
 	}
 	return out
 }

@@ -1,6 +1,6 @@
--- pex: dothedamage c15d755d
--- pex: onactivate 1712aec2
--- pex: oncellattach 6fbdd2bc
+-- pex: dothedamage c15d755d 31a362bb
+-- pex: onactivate 1712aec2 aa00f34e
+-- pex: oncellattach 6fbdd2bc 4cb37096
 -- DoTheDamage looped every 0.5 s while bDoDamage; OnCellAttach waited 3 s (if linked) to start a
 -- translation chain, then polled the player's light level forever, every 0.5 s. `damageT` carries
 -- the damage cadence; `attach`/`attachT` carry the one-shot link wait, then the endless poll.

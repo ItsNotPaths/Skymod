@@ -1,6 +1,6 @@
--- pex: shiftback 88a7521d
--- pex: actuallyshiftbackifnecessary e8e5eae9
--- pex: onanimationevent e41b841d
+-- pex: shiftback 88a7521d bc91518d
+-- pex: actuallyshiftbackifnecessary e8e5eae9 999c8a6c
+-- pex: onanimationevent e41b841d 571dffc7
 -- ShiftBack polled bIsSynced every 0.1 s, then ActuallyShiftBackIfNecessary turned the Vampire
 -- Lord back: it waited for PlayerVampireQuest.VampireProgression (a 2 s fade) and ended on a 5 s
 -- wait. It is now the run `back`, stepped by OnTick in "Busy"; callers wait while it is not Idle.

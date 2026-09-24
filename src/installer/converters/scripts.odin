@@ -9,7 +9,9 @@ import "core:hash"
 import "core:log"
 import "core:mem/virtual"
 import "core:os"
+import "base:runtime"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "../../formats/bsa"
 import "../../formats/pex"
@@ -21,7 +23,8 @@ Script_Stats :: struct {
 	rewrites:  int,
 }
 
-// REWRITES are <name>.patch.lua files; the loader applies each over the transpiled <name>.lua.
+// REWRITES are <name>[.<variant>].patch.lua files. The install writes the variant that fits this
+// game as <name>.patch.lua, and the loader applies it over the transpiled <name>.lua.
 REWRITES := #load_directory("../../script/patches")
 
 // SPLIT_LIST names the bodies the transpiler splits at their waits (generated: pexlatent
@@ -89,7 +92,10 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 
 	opt := transpile.Options{split = transpile.parse_split_list(SPLIT_LIST)}
 	defer {
-		for k in opt.split {delete(k)}
+		for k, v in opt.split {
+			delete(k)
+			delete(v)
+		}
 		delete(opt.split)
 	}
 	for stem, src in winner {
@@ -102,11 +108,6 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 			st.failed += 1
 			continue
 		}
-		for f in REWRITES {
-			if strings.equal_fold(f.name, strings.concatenate({stem, ".patch.lua"}, context.temp_allocator)) {
-				check_rewrite_pins(&p, f.name, string(f.data))
-			}
-		}
 		lua, _ := transpile.transpile(&p, opt, context.temp_allocator)
 		out, _ := filepath.join({out_dir, strings.concatenate({stem, ".lua"}, context.temp_allocator)}, context.temp_allocator)
 		if err := os.write_entire_file(out, transmute([]u8)lua); err != nil {
@@ -114,16 +115,36 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 			return st, false
 		}
 		st.converted += 1
-	}
-	for f in REWRITES {
-		out, _ := filepath.join({out_dir, f.name}, context.temp_allocator)
-		if err := os.write_entire_file(out, f.data); err != nil {
-			log.errorf("scripts: could not write %q: %v", out, err)
-			return st, false
+		if rewrite, found := rewrite_for(&p, stem); found {
+			out, _ = filepath.join({out_dir, strings.concatenate({stem, ".patch.lua"}, context.temp_allocator)}, context.temp_allocator)
+			if err := os.write_entire_file(out, rewrite); err != nil {
+				log.errorf("scripts: could not write %q: %v", out, err)
+				return st, false
+			}
+			st.rewrites += 1
 		}
-		st.rewrites += 1
 	}
 	return st, true
+}
+
+// rewrite_for picks the shipped rewrite of `stem` whose pinned bodies all match this game's code:
+// `<stem>.patch.lua`, or a variant `<stem>.<name>.patch.lua` written for an edition that ships a
+// different body. When none matches, the converted script runs as it is.
+rewrite_for :: proc(p: ^pex.Pex, stem: string) -> (data: []u8, found: bool) {
+	variants := make([dynamic]runtime.Load_Directory_File, context.temp_allocator)
+	for f in REWRITES {
+		name := strings.to_lower(f.name, context.temp_allocator)
+		if !strings.has_suffix(name, ".patch.lua") {continue}
+		base := name[:len(name) - len(".patch.lua")]
+		if dot := strings.index_byte(base, '.'); dot >= 0 {base = base[:dot]}
+		if base == stem {append(&variants, f)}
+	}
+	for f in variants {
+		if rewrite_pins_match(p, f.name, string(f.data), false) {return f.data, true}
+	}
+	for f in variants {rewrite_pins_match(p, f.name, string(f.data), true)}
+	if len(variants) > 0 {log.warnf("scripts: %s: no rewrite matches this game's code; the converted script runs", stem)}
+	return nil, false
 }
 
 // script_stem reads an archive path as a script: "scripts\Foo.pex" -> "foo", owned by the caller.
@@ -139,19 +160,22 @@ script_stem :: proc(path: string) -> (stem: string, ok: bool) {
 	return stem, true
 }
 
-// check_rewrite_pins warns for each body a rewrite was written against ("-- pex: [state.]fn hash"
-// header lines) whose code here differs, as LE and SE ship different bodies under one name.
-check_rewrite_pins :: proc(p: ^pex.Pex, name, patch: string) {
+// rewrite_pins_match reports whether every body a rewrite was written against ("-- pex:
+// [state.]fn hash [hash...]" header lines, one hash per compiled form it fits) has one of its
+// hashes here. `report` logs each mismatch.
+rewrite_pins_match :: proc(p: ^pex.Pex, name, patch: string, report: bool) -> bool {
 	PIN :: "-- pex: "
+	ok := true
 	text := patch
 	for line in strings.split_lines_iterator(&text) {
 		if !strings.has_prefix(line, PIN) {continue}
 		fields := strings.fields(line[len(PIN):], context.temp_allocator)
-		if len(fields) != 2 {
-			log.warnf("scripts: %s: bad pin line %q", name, line)
+		if len(fields) < 2 {
+			if report {log.warnf("scripts: %s: bad pin line %q", name, line)}
+			ok = false
 			continue
 		}
-		key, want := fields[0], fields[1]
+		key, want := fields[0], fields[1:]
 		state, fn := "", key
 		if dot := strings.index_byte(key, '.'); dot >= 0 {state, fn = key[:dot], key[dot + 1:]}
 		got, found := u32(0), false
@@ -164,9 +188,12 @@ check_rewrite_pins :: proc(p: ^pex.Pex, name, patch: string) {
 			}
 		}
 		if !found {
-			log.warnf("scripts: %s: pinned body %s is not in this game's script", name, key)
-		} else if fmt.tprintf("%08x", got) != want {
-			log.warnf("scripts: %s: pinned body %s is %08x here, written against %s", name, key, got, want)
+			if report {log.warnf("scripts: %s: pinned body %s is not in this game's script", name, key)}
+			ok = false
+		} else if !slice.contains(want, fmt.tprintf("%08x", got)) {
+			if report {log.warnf("scripts: %s: pinned body %s is %08x here, written against %v", name, key, got, want)}
+			ok = false
 		}
 	}
+	return ok
 }

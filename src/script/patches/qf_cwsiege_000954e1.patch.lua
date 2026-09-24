@@ -1,5 +1,5 @@
--- pex: fragment_5 0b2896fa
--- pex: fragment_25 83742300
+-- pex: fragment_5 0b2896fa 968e584e
+-- pex: fragment_25 83742300 7c067929
 -- Fragment_5 sets up one city's siege: wait for DoneTurningOnAliases, dispatch per city (Solitude
 -- and Windhelm-attack call SetupInteriorSiege and must wait for it), then a shared tail that
 -- waits for CWPrepareCity on defense. Three waits become three stages of one field, driven from

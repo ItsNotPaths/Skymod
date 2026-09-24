@@ -1,5 +1,5 @@
 -- pex: ready.onactivate 6b0d9bde
--- pex: referenceattach c1cec1a7
+-- pex: referenceattach c1cec1a7 cfd2abb6
 -- Placing shards played the crest's animation for each and waited for it; taking the crest did
 -- the same. ReferenceAttach waited up to about 25 s for the crest's 3D, then replayed every
 -- animation up to animState, each after the last. Now OnTick polls the crest's animation;

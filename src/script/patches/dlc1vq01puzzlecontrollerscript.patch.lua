@@ -1,4 +1,4 @@
--- pex: solution.onactivate d96262c5
+-- pex: solution.onactivate d96262c5 c16ffeb3
 -- pex: start.onactivate ae7021da
 -- Start waited 3 s before lighting the first line. The solution played Line06 and "open" on the
 -- puzzle base, each waited for. Now a timer and OnTick polls on the base's animations do it.

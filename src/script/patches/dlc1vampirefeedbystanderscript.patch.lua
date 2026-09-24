@@ -1,5 +1,5 @@
--- pex: checkbystanders 73018442
--- pex: checkbystanderssendalarmandstopquest 8ca90d17
+-- pex: checkbystanders 73018442 c188c3e7
+-- pex: checkbystanderssendalarmandstopquest 8ca90d17 7120fab4
 -- CheckBystanders scanned the alias array, double-checking IsDetectedBy 0.25 s apart per
 -- bystander (the first check primes detection between non-hostiles and is discarded). It is
 -- callable on its own, so it starts (or reads) the scan and returns the last known answer.

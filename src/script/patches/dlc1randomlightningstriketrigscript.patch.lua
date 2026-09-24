@@ -1,4 +1,4 @@
--- pex: castlightingbolts 866a7547
+-- pex: castlightingbolts 866a7547 f361a77e
 -- pex: handlelightning ef6b1b41
 -- pex: oncellattach 4fd4a521
 -- HandleLightning looped while ShouldCastLightning: wait 8-10 s, then (cell attached) play the

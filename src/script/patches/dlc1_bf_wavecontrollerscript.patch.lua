@@ -1,4 +1,4 @@
--- pex: countdead 39e5e3f5
+-- pex: countdead 39e5e3f5 7921cbbf
 -- pex: onactivate 0a34162d
 -- OnActivate woke up to 8 linked statues, a random SpawnTimeMin..Max apart. CountDead, once enough
 -- had died, waited to set the quest stage and again to wake the next wave. Now OnTick walks

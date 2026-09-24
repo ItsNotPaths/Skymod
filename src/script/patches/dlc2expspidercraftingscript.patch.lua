@@ -1,5 +1,5 @@
--- pex: ready.onactivate 81b07fe2
--- pex: scanforrecipes bac4b688
+-- pex: ready.onactivate 81b07fe2 1302dd3b
+-- pex: scanforrecipes bac4b688 98342ff2
 -- ScanForRecipes scanned a formlist (no wait), and on a match waited 0.33 s before giving the
 -- item and swapping the recipe book; the match index is a fact (`scanI`) that survives the wait.
 -- OnActivate (ready state) tries the Sigil lists first if installed (an extra 0.1 s gap after),

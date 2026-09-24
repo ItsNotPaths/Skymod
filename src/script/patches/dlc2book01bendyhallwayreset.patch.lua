@@ -1,4 +1,4 @@
--- pex: oncellattach 9cc9253f
+-- pex: oncellattach 9cc9253f aab58048
 -- On attach the reset waited 0.25 s, then set the two extending halls to their default state one
 -- after the other (each waited for its animation), then re-armed the hall triggers. Now `reset`
 -- steps that in OnTick: the delay, then each hall while its default animation plays.

@@ -1,6 +1,6 @@
--- pex: endwait c61bc026
--- pex: restraindragon db5fe90e
--- pex: validateworldspace dc3b9f49
+-- pex: endwait c61bc026 3a30f4d5
+-- pex: restraindragon db5fe90e e0c546c6
+-- pex: validateworldspace dc3b9f49 0736b80b
 -- RestrainDragon polled GetFlyingState every 1 s before restraining; EndWait waited 2 s before its
 -- calm-removal tail; ValidateWorldspace called EndWait and then ReleaseDragon right after, which
 -- must now wait for EndWait's tail when EndWait actually started one (its own HasSpell guard

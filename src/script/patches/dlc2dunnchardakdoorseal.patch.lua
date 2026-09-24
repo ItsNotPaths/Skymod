@@ -1,4 +1,4 @@
--- pex: onupdate 3d7018a6
+-- pex: onupdate 3d7018a6 cd99f13f
 -- Restoring a seal held `busy` while its pedestal reset (1.5 s + its return delay), so a seal
 -- change asked for meanwhile waited (1 s re-registers). Now the pedestal's Busy state is part of
 -- that busy test; the rest of OnUpdate is as converted.

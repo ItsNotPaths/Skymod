@@ -1,5 +1,5 @@
--- pex: hermaeusmoraappear.onbeginstate cdb3db93
--- pex: hermaeusmoradisappear.onbeginstate 661925ca
+-- pex: hermaeusmoraappear.onbeginstate cdb3db93 301ea9eb
+-- pex: hermaeusmoradisappear.onbeginstate 661925ca a0e2a812
 -- Appear walked myHMface[lastState..newState) disabling, waiting, re-enabling and polling
 -- Is3DLoaded (capped at iMaxCount) before the blend; Disappear walked [0..lastState) with a plain
 -- wait. Now a stage index plus a timer walk the same range in OnTick, one face at a time.

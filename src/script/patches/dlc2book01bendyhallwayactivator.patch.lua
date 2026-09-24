@@ -1,4 +1,4 @@
--- pex: mybend 4fc2b4fc
+-- pex: mybend 4fc2b4fc 3cb37abe
 -- myBend sent the hallway its bend and waited for it before re-arming. Now it stays done while
 -- the hallway is Bending; `rearm` says it goes back to Waiting then, `hall` is the hallway.
 local rt = require('skymod.rt')

@@ -1,5 +1,5 @@
 -- pex: openbook be36fed5
--- pex: showrewards 41e8b61c
+-- pex: showrewards 41e8b61c 0a38b278
 -- pex: waiting.onactivate 019d8ccb
 -- OpenBook played Stage1 and waited for "Open"; ShowRewards then lit the constellations along the
 -- LinkCustom01 chain 0.1 s apart and enabled the way back. Activating went Busy until the read and

@@ -1,4 +1,4 @@
--- pex: ontriggerenter e56fae81
+-- pex: ontriggerenter e56fae81 f0cf7d3f
 -- OnTriggerEnter ran one of two blocks the first time the player entered the coffin: DB04 seals
 -- the eavesdropper in, DB10 sends it into the lake. Each was a chain of one-shot steps; now a
 -- sequence stage plus one stopwatch, in OnTick, continues from either block into the other.

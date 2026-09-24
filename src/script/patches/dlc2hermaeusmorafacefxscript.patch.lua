@@ -1,6 +1,6 @@
 -- pex: hermaeusmoraappear.onbeginstate e4ef59fd
 -- pex: hermaeusmoradisappear.onbeginstate 41237d95
--- pex: waitfor3d 980ffa40
+-- pex: waitfor3d 980ffa40 c8c45ab1
 -- Each state stepped through 8 face refs in order; odd faces disabled, waited, re-enabled and
 -- polled Is3DLoaded (capped at iMaxCount) before setting the blend. Now OnTick in each state walks
 -- the same 8 faces on a stage index plus a timer. WaitFor3D itself had no side effect besides the

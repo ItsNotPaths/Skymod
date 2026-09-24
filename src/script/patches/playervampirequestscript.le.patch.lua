@@ -1,5 +1,5 @@
--- pex: vampirechange 4372a7c1
--- pex: vampirefeed 0d54825b
+-- pex: vampirechange 5129e11e
+-- pex: vampirefeed 35978e8a
 -- pex: vampireprogression 380069a0 7d4092b2
 -- VampireProgression hid stages 2-4 behind a 2 s crossfade before it swapped the spells.
 -- VampireChange and VampireFeed each waited under a 2 s crossfade (Change then 1 s more).
@@ -139,7 +139,6 @@ return function(C)
 		self.change = Ch.Idle
 		rt.static("Game", "EnablePlayerControls")
 		if self.VC01:GetStageDone(200) then self.VC01:SetStage(25) end
-		target:SendVampirismStateChanged(true)
 	end
 
 	function C:VampireFeed()

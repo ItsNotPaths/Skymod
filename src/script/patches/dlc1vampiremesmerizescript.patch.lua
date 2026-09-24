@@ -1,9 +1,8 @@
--- pex: oneffectfinish 01e3f578
--- pex: oneffectstart c8135742
+-- pex: oneffectfinish 01e3f578 b6144553
+-- pex: oneffectstart c8135742 214e57b2
 -- OnEffectStart waited 1 s for the spell's other effects, then took or dispelled the target and
 -- set DoneStarting; OnEffectFinish polled DoneStarting every second before releasing the target.
 -- Now OnTick in Starting ends the start, and a finish that came early (`finished`) runs after it.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

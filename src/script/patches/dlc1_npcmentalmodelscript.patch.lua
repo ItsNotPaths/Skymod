@@ -1,5 +1,5 @@
--- pex: dismiss 2cd1fe0a
--- pex: finishwaiting 464a5349
+-- pex: dismiss 2cd1fe0a f40e4040
+-- pex: finishwaiting 464a5349 b5786f89
 -- FinishWaiting re-evaluated Serana's package once Dismiss (2 s DismissFollower) returned. It now
 -- waits for DialogueFollower to leave "Dismissing" (`packageOwed`). Dismiss is unchanged: its
 -- SetPlayerTeammate(false) repeats what DismissFollower already did at once.

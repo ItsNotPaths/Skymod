@@ -1,7 +1,6 @@
--- pex: oneffectstart 28f6de35
+-- pex: oneffectstart 28f6de35 41ce4b0a
 -- OnEffectStart played the transformation idle and, 10 s later, made sure the race had changed
 -- (the SetRace animation event usually did it first). Now a timer holds the 10 s.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

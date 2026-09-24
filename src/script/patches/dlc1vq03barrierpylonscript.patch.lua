@@ -1,4 +1,4 @@
--- pex: lowerthebarrier e19b053e
+-- pex: lowerthebarrier e19b053e 0b2a6681
 -- LowerTheBarrier played Activate01 and waited for "Done", then walked a timed chain: the stones
 -- 2, 0.5, 0.3 and 0.2 s apart, the barrier's fade 0.4 s later, its removal 1 s after that and the
 -- light 0.6 s after. Now the event starts the chain and OnTick in Lowering walks it on a stopwatch.

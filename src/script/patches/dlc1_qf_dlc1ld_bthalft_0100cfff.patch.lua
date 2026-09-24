@@ -1,9 +1,9 @@
 -- pex: fragment_0 52efd410
 -- pex: fragment_10 d57528c2
 -- pex: fragment_26 b928a80a
--- pex: fragment_33 c398469c
+-- pex: fragment_33 c398469c 254d00a6
 -- pex: fragment_35 fbc1c009
--- pex: fragment_36 32150395
+-- pex: fragment_36 32150395 e3555073
 -- pex: fragment_38 ec5e59c3
 -- The Bthalft battle's stage fragments waited on timers (the forge dust bursts, steam delays),
 -- on a kill walk down three linked-ref chains (0.1 s a link), and on Katria's fades

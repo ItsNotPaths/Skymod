@@ -1,4 +1,4 @@
--- pex: done.onbeginstate 6f42572a
+-- pex: done.onbeginstate 6f42572a e9afdb00
 -- Done played Trigger04, waited for "Done" and 1 s more, then shook the room and set the stage.
 -- Now the event starts that second and OnTick in Done ends it.
 local rt = require('skymod.rt')

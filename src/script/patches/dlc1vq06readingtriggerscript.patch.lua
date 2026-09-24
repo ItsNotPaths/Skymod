@@ -1,6 +1,6 @@
--- pex: playergoesblind f049d081
--- pex: playerreadsscroll 9c724233
--- pex: playreadanimation 55261fda
+-- pex: playergoesblind f049d081 8d2d3619
+-- pex: playerreadsscroll 9c724233 9ea5ff8e
+-- pex: playreadanimation 55261fda d8838207
 -- PlayReadAnimation raised the scroll idle, then (when reading) a gap and a rest per part.
 -- PlayerReadsScroll chained three parts, a 15 s vision, a white-out and a clear. PlayerGoesBlind
 -- raised once, shook the camera, and held blind. Three stage fields (one per function) plus one

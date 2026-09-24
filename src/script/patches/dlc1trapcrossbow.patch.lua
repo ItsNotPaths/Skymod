@@ -1,6 +1,6 @@
--- pex: firetrap 1bd0d8aa
--- pex: oncellattach 1bdf7efb
--- pex: reset.onbeginstate 3c36d7d1
+-- pex: firetrap 1bd0d8aa 45a9b054
+-- pex: oncellattach 1bdf7efb 70fe5095
+-- pex: reset.onbeginstate 3c36d7d1 86bfb21e
 -- fireTrap wound up (initialDelay), then per shot fired and waited for "Trans02". Reset played
 -- its reload and waited, with nothing after. Now OnTick ends the windup and the event steps each
 -- shot. OnCellAttach's first-load check no longer waits for a resumed shot: a trap can only be

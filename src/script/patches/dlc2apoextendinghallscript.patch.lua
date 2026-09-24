@@ -1,4 +1,4 @@
--- pex: setdefaultstate afe9b6fd
+-- pex: setdefaultstate afe9b6fd b9c49557
 -- pex: setopen d5caf84c
 -- The Apocrypha extending hall is a default2StateActivator whose open also fades out its endcap
 -- (a second animation that sends the same OpenEvent) and whose close brings the endcap back

@@ -1,9 +1,8 @@
--- pex: oneffectstart 50c2b278
--- pex: placeexplosionandrotate eb5ffa39
+-- pex: oneffectstart 50c2b278 e33f77da
+-- pex: placeexplosionandrotate eb5ffa39 1af83cce
 -- OnEffectStart waited fWaitDelay, maybe 0.25 s for the weather, then placed the sun explosion,
 -- whose marker lived 0.25 s, and only then registered the recast. OnEffectFinish spun until both
 -- sun functions were done. Now `cast` steps the start and `ending` waits for them in OnTick.
--- HOLE(magic, gap): runs on an effect instance, which nothing makes yet.
 local rt = require('skymod.rt')
 
 return function(C)

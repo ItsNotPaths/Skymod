@@ -22,8 +22,9 @@ Options :: struct {
 	// aid — diff it against the inlined form when T2 is the suspect.
 	no_inline:     bool,
 	// split lists the bodies the splitter converts (split.odin): "script\tstate\tfunction",
-	// lowercase, to the code hash the list was made from (`pexlatent --emit-split`).
-	split:         map[string]u32,
+	// lowercase, to the code hashes the list was made from (`pexlatent --emit-split`), one per
+	// compiled form (LE and SE can differ).
+	split:         map[string][dynamic]u32,
 }
 
 Stats :: struct {

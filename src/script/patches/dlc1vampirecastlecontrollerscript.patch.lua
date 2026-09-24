@@ -1,4 +1,4 @@
--- pex: starttutorialroomcleanup 7835867c
+-- pex: starttutorialroomcleanup 7835867c 4d45192d
 -- StartTutorialRoomCleanup waited 3 s, turned the tracking trigger off, waited until it reported
 -- off, then disabled it and processed the list. The class already ticks (S6 split, for
 -- enabledoortocourtyard's timer); we call that first, then carry our own wait as a stage field.
