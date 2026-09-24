@@ -1,0 +1,4 @@
+-- pex: fragment_26 32619671
+-- Fragment_26 calls kmyquest.OpenExitDoor(false, false): bWaitForPlayerToExitTrigger is false, so
+-- OpenExitDoor's rewrite (mq201questscript.patch.lua) always takes its immediate branch here and
+-- never waits. Fragment_26 needs no change.

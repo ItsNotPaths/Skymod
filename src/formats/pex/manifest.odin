@@ -25,7 +25,7 @@ Signature :: struct {
 // (Scene.Start does not suspend). The seed is what cannot finish inside one of OUR ticks: the
 // `blocking` rows of docs/natives-classified.tsv minus the ones we implement as immediate
 // (Quest.Start, SetCurrentStageID, Enable, Disable, DamageObject, and SendStoryEventAndWait, which is
-// a story-manager walk plus Quest.Start). Message.Show and ShowGiftMenu are out too: their menus pause
+// a story-manager walk plus Quest.Start). Message.Show, ShowGiftMenu and ShowLimitedRaceMenu are out too: their menus pause
 // the world, so they return within the tick they were called in.
 LATENT_GLOBALS := []string{
 	"utility.wait",
