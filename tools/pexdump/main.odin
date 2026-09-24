@@ -12,6 +12,7 @@ package main
 //   odin run tools/pexdump -- <archive.bsa> --top N   # top-N call targets (default 40)
 //   odin run tools/pexdump -- <archive.bsa> --dis <script>  # disassemble one script's bytecode
 //   odin run tools/pexdump -- --emit-manifest <LE root> <SE root>  # regenerate the native manifest
+//   odin run tools/pexdump -- --emit-params <psc dir>              # regenerate native defaults (params.lua)
 //
 // No SDL — pure formats code, runs headless.
 
@@ -37,6 +38,8 @@ main :: proc() {
 	}
 	if path == "--emit-manifest" {
 		emit_manifest(os.args[2:]) // generates src/script/natives_manifest.odin on stdout
+	} else if path == "--emit-params" && len(os.args) >= 3 {
+		emit_params(os.args[2]) // generates src/script/lua/params.lua on stdout
 	} else if dis_name != "" {
 		dis_mode(path, dis_name)
 	} else if strings.has_suffix(strings.to_lower(path, context.temp_allocator), ".bsa") {
@@ -370,4 +373,90 @@ corpus_mode :: proc(path: string) {
 		if i >= top_n {break}
 		fmt.printfln("  %6d  %s", pr.count, pr.key)
 	}
+}
+
+// ── native defaults ──────────────────────────────────────────────────────────
+// Emits skymod.params: for every native declared with a default argument, its parameters in order
+// with their default values (docs/script-api.md section 1). Read from the Creation Kit's .psc
+// sources (the .pex does not keep defaults: the compiler writes them into each call). Parameter
+// names and literal defaults only.
+
+emit_params :: proc(dir: string) {
+	infos, err := os.read_all_directory_by_path(dir, context.allocator)
+	if err != nil {
+		fmt.eprintfln("emit-params: cannot read %s", dir)
+		os.exit(1)
+	}
+	lines := make([dynamic]string)
+	for fi in infos {
+		if !strings.has_suffix(strings.to_lower(fi.name), ".psc") {continue}
+		p, _ := filepath.join({dir, fi.name}, context.temp_allocator)
+		data, rerr := os.read_entire_file(p, context.allocator)
+		if rerr != nil {continue}
+		// A trailing backslash continues a declaration on the next line.
+		src, _ := strings.replace_all(string(data), "\\\r\n", " ", context.temp_allocator)
+		src, _ = strings.replace_all(src, "\\\n", " ", context.temp_allocator)
+		class := ""
+		for line in strings.split_lines(src, context.temp_allocator) {
+			l := strings.trim_space(line)
+			low := strings.to_lower(l, context.temp_allocator)
+			if strings.has_prefix(low, "scriptname ") {
+				class = strings.fields(l, context.temp_allocator)[1]
+				continue
+			}
+			open := strings.index(low, "function ")
+			close := strings.last_index(l, ")")
+			if class == "" || open < 0 || close < 0 || !strings.contains(low[close:], "native") {continue}
+			head := l[open + len("function "):close]
+			paren := strings.index(head, "(")
+			if paren < 0 {continue}
+			if entry, ok := param_entry(class, strings.trim_space(head[:paren]), head[paren + 1:]); ok {
+				append(&lines, entry)
+			}
+		}
+		free_all(context.temp_allocator)
+	}
+	slice.sort(lines[:])
+	fmt.eprintfln("emit-params: %d natives with defaults", len(lines))
+	fmt.println("-- GENERATED — DO NOT EDIT BY HAND. Each native declared with a default argument: its")
+	fmt.println("-- parameters in order, { name } required or { name, default }. Regenerate with:")
+	fmt.println("--   odin run tools/pexdump -- --emit-params <extracted Scripts.zip dir> > src/script/lua/params.lua")
+	fmt.println("return {")
+	for e in lines {fmt.println(e)}
+	fmt.println("}")
+}
+
+// param_entry is one native's Lua line, or false when none of its parameters has a default.
+param_entry :: proc(class, fn, params: string) -> (string, bool) {
+	b := strings.builder_make()
+	fmt.sbprintf(&b, "\t[\"%s.%s\"] = {{ ", strings.to_lower(class), strings.to_lower(fn))
+	any_default := false
+	for raw in strings.split(params, ",", context.temp_allocator) {
+		param := strings.trim_space(raw)
+		if param == "" {continue}
+		name_part, eq, default_part := strings.partition(param, "=")
+		fields := strings.fields(strings.trim_space(name_part), context.temp_allocator)
+		if len(fields) < 2 {return "", false}
+		if eq == "" {
+			fmt.sbprintf(&b, "{{ \"%s\" }}, ", fields[1])
+			continue
+		}
+		any_default = true
+		fmt.sbprintf(&b, "{{ \"%s\", %s }}, ", fields[1], lua_literal(strings.trim_space(default_part)))
+	}
+	strings.write_string(&b, "},")
+	return strings.to_string(b), any_default
+}
+
+// lua_literal turns a Papyrus default into Lua: numbers and quoted strings as written, booleans lowercase.
+lua_literal :: proc(v: string) -> string {
+	switch strings.to_lower(v, context.temp_allocator) {
+	case "true":
+		return "true"
+	case "false":
+		return "false"
+	case "none":
+		return "None"
+	}
+	return v
 }
