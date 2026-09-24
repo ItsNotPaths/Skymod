@@ -22,7 +22,7 @@ import "../formid"
 // alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
 Form_ID :: u64
 
-// HOLE(world, blocker): no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour / GetCurrentGameTime have nothing to read.
+// HOLE(world, blocker): no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour and GetCurrentGameTime (GameDaysPassed) stand still at their authored values.
 
 // Player_State is the player singleton (§4.1): where the player is, so a load returns them there
 // instead of the default spawn. `cell` lets the loader decide exterior (set position directly) vs
@@ -63,6 +63,8 @@ Overlay :: struct {
 	aliases:         map[Form_ID]Form_ID,          // alias handle -> the form filling it; absent = empty
 	alias_holders:   map[Form_ID][dynamic]Form_ID, // form -> the aliases it fills (the reverse of aliases; not saved)
 	script_state:    map[Form_ID][dynamic]Script_Var, // form -> its scripts' changed members; presence = their OnInit ran
+	list_adds:       map[Form_ID][dynamic]Form_ID, // FLST -> forms FormList.AddForm put after its authored members
+	keyword_data:    map[Keyword_Key]f32,          // Location.SetKeywordData values; absent reads 0
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 }
 
@@ -82,6 +84,18 @@ Runtime :: struct {
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
 	attached:        map[Form_ID][dynamic]Form_ID,
+	// Where the player stands this tick: the interior or exterior grid cell under them (0 = not placed,
+	// as in a headless run). The app writes it before the script phase.
+	player_at:       Placement,
+}
+
+Placement :: struct {
+	cell: Form_ID,
+	pos:  [3]f32,
+}
+
+Keyword_Key :: struct {
+	location, keyword: Form_ID,
 }
 
 init :: proc(ws: ^World_State) {
@@ -122,6 +136,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
 	o.script_state = make(map[Form_ID][dynamic]Script_Var)
+	o.list_adds = make(map[Form_ID][dynamic]Form_ID)
+	o.keyword_data = make(map[Keyword_Key]f32)
 	o.player.level = 1 // default until real leveling / save round-trip sets it
 }
 
@@ -141,6 +157,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.item_filters {delete(list)}
 	for _, &list in o.alias_holders {delete(list)}
 	for _, vars in o.script_state {free_script_vars(vars)}
+	for _, &list in o.list_adds {delete(list)}
 	delete(o.ref_deltas)
 	delete(o.by_cell)
 	delete(o.created)
@@ -157,6 +174,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.aliases)
 	delete(o.alias_holders)
 	delete(o.script_state)
+	delete(o.list_adds)
+	delete(o.keyword_data)
 	o^ = {}
 }
 
@@ -191,6 +210,34 @@ set_global :: proc(ws: ^World_State, id: Form_ID, value: f32) {
 get_global :: proc(ws: ^World_State, id: Form_ID) -> (f32, bool) {
 	v, ok := ws.globals[id]
 	return v, ok
+}
+
+// add_to_list is FormList.AddForm: a form already added stays once.
+add_to_list :: proc(ws: ^World_State, list, form: Form_ID) {
+	if list not_in ws.list_adds {ws.list_adds[list] = make([dynamic]Form_ID)}
+	adds := &ws.list_adds[list]
+	for f in adds {if f == form {return}}
+	append(adds, form)
+}
+
+// remove_from_list is FormList.RemoveAddedForm: only added forms leave.
+remove_from_list :: proc(ws: ^World_State, list, form: Form_ID) {
+	adds, ok := &ws.list_adds[list]
+	if !ok {return}
+	for f, i in adds {
+		if f == form {ordered_remove(adds, i);break}
+	}
+}
+
+// revert_list is FormList.Revert: drops every added form.
+revert_list :: proc(ws: ^World_State, list: Form_ID) {
+	if adds, ok := ws.list_adds[list]; ok {delete(adds)}
+	delete_key(&ws.list_adds, list)
+}
+
+list_added :: proc(ws: ^World_State, list: Form_ID) -> []Form_ID {
+	if adds, ok := ws.list_adds[list]; ok {return adds[:]}
+	return nil
 }
 
 // set_player / get_player: the player singleton — where the player is + facing, so a load returns

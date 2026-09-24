@@ -96,6 +96,15 @@ Saved_Alias :: struct {
 	alias, form: Form_ID,
 }
 
+Saved_List_Add :: struct {
+	list, form: Form_ID,
+}
+
+Saved_Keyword_Data :: struct {
+	key:   Keyword_Key,
+	value: f32,
+}
+
 Saved_Script :: struct {
 	form: Form_ID,
 	vars: []Script_Var,
@@ -185,6 +194,8 @@ Save_Body :: struct {
 	item_filters:  []Saved_Filter,
 	aliases:       []Saved_Alias,
 	scripts:       []Saved_Script,
+	list_adds:     []Saved_List_Add,
+	keyword_data:  []Saved_Keyword_Data,
 	player:        Player_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -303,6 +314,12 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for container, list in ws.item_filters {
 		for f in list {append(&filters, Saved_Filter{container, f})}
 	}
+	list_adds := make([dynamic]Saved_List_Add, 0, len(ws.list_adds), context.temp_allocator)
+	for list, forms in ws.list_adds {
+		for f in forms {append(&list_adds, Saved_List_Add{list, f})}
+	}
+	keyword_data := make([dynamic]Saved_Keyword_Data, 0, len(ws.keyword_data), context.temp_allocator)
+	for key, value in ws.keyword_data {append(&keyword_data, Saved_Keyword_Data{key, value})}
 	body := Save_Body {
 		deltas       = deltas,
 		created      = created,
@@ -318,6 +335,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		item_filters  = filters[:],
 		aliases       = aliases[:],
 		scripts       = scripts[:],
+		list_adds     = list_adds[:],
+		keyword_data  = keyword_data[:],
 		player        = ws.player,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -437,6 +456,16 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		filter, fok := rf(remap, have_remap, f.filter)
 		if cok && fok {add_item_filter(ws, container, filter)}
 	}
+	for a in body.list_adds {
+		list, lok := rf(remap, have_remap, a.list)
+		form, fok := rf(remap, have_remap, a.form)
+		if lok && fok {add_to_list(ws, list, form)}
+	}
+	for k in body.keyword_data {
+		location, lok := rf(remap, have_remap, k.key.location)
+		keyword, kok := rf(remap, have_remap, k.key.keyword)
+		if lok && kok {ws.keyword_data[{location, keyword}] = k.value}
+	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
 		form, fok := rf(remap, have_remap, a.form)
@@ -524,6 +553,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for u in body.updates {add_slot(&seen, u.form)}
 	for f in body.item_filters {add_slot(&seen, f.container);add_slot(&seen, f.filter)}
 	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}
+	for a in body.list_adds {add_slot(&seen, a.list);add_slot(&seen, a.form)}
+	for k in body.keyword_data {add_slot(&seen, k.key.location);add_slot(&seen, k.key.keyword)}
 	for sc in body.scripts {
 		add_slot(&seen, sc.form)
 		for v in sc.vars {add_value_slots(&seen, v.value)}

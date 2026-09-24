@@ -29,6 +29,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.register_update(&src, 0x000C0DE0, 2.5, false)
 	ws.register_update(&src, 0x000C0DE0, 4, true)
 	ws.add_item_filter(&src, 0x000C0DE0, 0xF)
+	ws.add_to_list(&src, 0x000F1570, 0x000ABCDE)
+	src.keyword_data[{0x0001C0C0, 0x000CEEEE}] = 2
 	alias, _ := formid.alias_handle(0x000C0DE0, 3)
 	ws.fill_alias(&src, alias, 0x000ABCDE)
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
@@ -94,6 +96,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, ws.activation_blocked(&dst, 0x000C0FFE), "Activation_Blocked flag lost")
 	testing.expect_value(t, dst.updates[0x000C0DE0], ws.Update_Timers{single = 2.5, repeat = 4, interval = 4, single_on = true, repeat_on = true})
 	testing.expect_value(t, dst.item_filters[0x000C0DE0][0], 0xF)
+	testing.expect_value(t, ws.list_added(&dst, 0x000F1570)[0], 0x000ABCDE)
+	testing.expect_value(t, dst.keyword_data[{0x0001C0C0, 0x000CEEEE}], 2)
 	testing.expect_value(t, dst.aliases[alias], 0x000ABCDE)
 	testing.expect_value(t, dst.alias_holders[0x000ABCDE][0], alias)
 	testing.expect(t, dd.disabled, "disabled value lost")
