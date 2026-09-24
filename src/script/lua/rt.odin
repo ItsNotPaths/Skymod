@@ -31,6 +31,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__method", rt_method},
 		{"__has_method", rt_has_method},
 		{"__none_value", rt_none_value},
+		{"__is_engine_class", rt_is_engine_class},
 		{"__class_of", rt_class_of},
 		{"__is_a", rt_is_a},
 		{"__warn", rt_warn},
@@ -111,6 +112,15 @@ rt_none_value :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	v, _ := script.none_value(to_string(L, 1))
 	push_value(L, v)
+	return 1
+}
+
+// __is_engine_class(name) reports whether a Papyrus type is an engine class, not a script's.
+@(private)
+rt_is_engine_class :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	lua.pushboolean(L, b32(script.is_engine_class(to_string(L, 1))))
 	return 1
 }
 

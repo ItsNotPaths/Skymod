@@ -140,6 +140,16 @@ none_value :: proc(fn: string) -> (v: Value, ok: bool) {
 	return nil, false
 }
 
+// is_engine_class reports whether `name` is one of the engine's own Papyrus classes (a manifest
+// class, or ScriptObject), as opposed to a script's class.
+is_engine_class :: proc(name: string) -> bool {
+	if strings.equal_fold(name, "ScriptObject") {return true}
+	for e in native_manifest {
+		if strings.equal_fold(e.class, name) {return true}
+	}
+	return false
+}
+
 // is_implemented / is_declared expose registry coverage (used by tests + tooling).
 is_implemented :: proc(reg: ^Registry, class, fn: string) -> bool {
 	return key_temp(class, fn) in reg.natives

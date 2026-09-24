@@ -5,6 +5,7 @@
 -- (a table per form and attached script), or None (the engine sentinel; nil counts as None).
 
 local native, method, has_method, none_value = __native, __method, __has_method, __none_value
+local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
@@ -200,11 +201,13 @@ Stage.__add = function(st, n)
 end
 
 -- spec_of turns a `__vars` entry into its { type, default } shape.
-local function spec_of(v)
+local function spec_of(name, v)
   if is_vec3(v) then return { type = "Vec3", default = v } end
   if is_stage(v) then return { type = "Stage", default = v } end
+  if type(v) ~= "table" then error("__vars." .. tostring(name) .. " needs a type: rt.float(" .. tostring(v) .. "), rt.int(...)", 0) end
   return v
 end
+
 
 -- rt.state returns a class's state table, made on first use; `function Busy:OnActivate()` on it
 -- lands lowercase, as converted state handlers are.
@@ -227,6 +230,19 @@ local clock_kinds = {
 
 -- Keys an instance keeps for itself, so no field may use them.
 local reserved = { form = true, class = true, vars = true, base = true }
+
+local plain_types = { bool = true, int = true, float = true, string = true, vec3 = true, stage = true }
+
+-- script_typed lists the fields whose type is a script class; reading one gives that script's
+-- instance on the form it holds (a plugin or a save stores the bare form).
+local function script_typed(specs)
+  local out = {}
+  for k, s in pairs(specs) do
+    local t = low(s.type or "")
+    if t ~= "" and not plain_types[t] and not clock_kinds[t] and t:sub(-2) ~= "[]" and not is_engine_class(t) then out[k] = t end
+  end
+  return out
+end
 
 -- ── instances ───────────────────────────────────────────────────────────────
 
@@ -325,7 +341,7 @@ function rt.instance(form, script, props)
   end
   local specs = {}
   for i = #chain - 1, 0, -1 do
-    for k, v in pairs(chain[i].__vars) do specs[k] = spec_of(v) end
+    for k, v in pairs(chain[i].__vars) do specs[k] = spec_of(k, v) end
   end
   local vars = {}
   for k, s in pairs(specs) do vars[k] = type_default(s.type, s.default) end
@@ -338,6 +354,7 @@ function rt.instance(form, script, props)
   end
   if cls.__clocks == nil then
     cls.__clocks = clock_fields(specs)
+    cls.__script_typed = script_typed(specs)
     cls.__ticks = defines(cls, "ontick")
     for k in pairs(specs) do
       if reserved[k] then warn(cls.__name .. ": field '" .. k .. "' uses a reserved name") end
@@ -701,7 +718,11 @@ local function no_name(recv, k) error("no field or function '" .. tostring(k) ..
 
 Instance.__index = function(inst, k)
   local n = name_of(inst, k)
-  if type(n) == "string" then return inst.vars[n] end
+  if type(n) == "string" then
+    local v, t = inst.vars[n], inst.class.__script_typed[n]
+    if t and type(v) == "userdata" then return find_instance(v, t) or v end
+    return v
+  end
   if n == PROP then return rt.get(inst, k) end
   if n then return caller(k) end
   no_name(inst, k)
@@ -780,14 +801,26 @@ local function over_budget() error("instruction budget exceeded", 2) end
 
 -- rt.event runs a handler if the instance has one, isolated: an error or a runaway loop ends this
 -- handler only, with a warning. Missing handlers are the norm, so they are silent.
+local function budgeted(f, ...)
+  local hook, mask, count = gethook()
+  sethook(over_budget, "", BUDGET)
+  local ok, err = pcall(f, ...)
+  if hook then sethook(hook, mask, count) else sethook() end
+  return ok, err
+end
+
 function rt.event(inst, name, ...)
   local f = lookup(inst.class, state_of(inst), low(name))
   if not f then return end
-  local hook, mask, count = gethook()
-  sethook(over_budget, "", BUDGET)
-  local ok, err = pcall(f, inst, ...)
-  if hook then sethook(hook, mask, count) else sethook() end
+  local ok, err = budgeted(f, inst, ...)
   if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
+end
+
+-- rt.guard runs any function the way a handler runs: under the budget, an error only warns.
+function rt.guard(label, f, ...)
+  local ok, err = budgeted(f, ...)
+  if not ok then warn(label .. ": " .. tostring(err)) end
+  return ok
 end
 
 -- rt.send queues an event for every script on `form`, and reports whether `form` has any; rt.drain

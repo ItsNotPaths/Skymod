@@ -287,6 +287,29 @@ files.third = [[
 rt.instance(ref(0x2004), "Third")
 assert(not pcall(function() return ref(0x2004):Knock() end), "two scripts' different functions are ambiguous")
 
+-- round 4: a field typed as a script reads as that script's instance; a bare number in __vars
+-- is an error that names the field; rt.guard runs code under the budget
+files.holder = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Holder", "ObjectReference")
+  C.__vars = { door = rt.form("Door"), plainref = rt.form("ObjectReference") }
+  return C
+]]
+local holder = rt.instance(ref(0x2009), "Holder")
+holder.door = ref(0x2004)
+holder.plainref = ref(0x2004)
+assert(rawequal(holder.door, door), "a script-typed field reads as the instance")
+assert(rawequal(holder.plainref, ref(0x2004)), "an engine-typed field stays the ref")
+files.badvars = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("BadVars", "ObjectReference")
+  C.__vars = { TickRate = 10.0 }
+  return C
+]]
+local okbad, errbad = pcall(rt.instance, ref(0x200A), "BadVars")
+assert(not okbad and tostring(errbad):find("__vars.TickRate"), "a bare number in __vars names the field")
+assert(rt.guard("test", function() return 1 end) and not rt.guard("test", function() while true do end end), "rt.guard budgets")
+
 rt.reset()
 rt.advance(1 / 60, 0)
 rt.tick(1 / 60)
