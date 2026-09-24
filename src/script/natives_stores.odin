@@ -62,6 +62,7 @@ n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {
 // Disabled delta on the new ref so the streamer skips it until Enable.
 n_place_at_me :: proc(c: ^Call, args: []Value) -> Value {
 	base := arg_form(args, 0)
+	if base == 0 {return nil} // Papyrus: placing None places nothing and returns None
 	count := max(1, int(arg_i32(args, 1, 1)))
 	disabled := arg_bool(args, 3, false)
 
