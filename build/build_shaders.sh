@@ -15,17 +15,21 @@ if ! command -v "$GLSLANG" >/dev/null 2>&1 && [ ! -x "$GLSLANG" ]; then
     exit 1
 fi
 
+# A shader recompiles only when its source is newer than its .spv (no shader #includes another).
 shopt -s nullglob
 found=0
+built=0
 for src in "$SHADER_DIR"/*.vert "$SHADER_DIR"/*.frag "$SHADER_DIR"/*.comp; do
     found=1
     out="$src.spv"
+    [ "$out" -nt "$src" ] && continue
     echo "  $(basename "$src") -> $(basename "$out")"
     "$GLSLANG" -V "$src" -o "$out"
+    built=$((built + 1))
 done
 
 if [ "$found" -eq 0 ]; then
     echo "  (no shaders yet in src/render/shaders — nothing to compile)"
 else
-    echo "  shaders ok"
+    echo "  shaders ok ($built rebuilt)"
 fi
