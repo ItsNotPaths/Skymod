@@ -1172,8 +1172,8 @@ weight_of :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
 
 // contents_of returns a container's or an actor's starting contents, following ref → base: a CONT's
 // CNTO, or an NPC_'s through its inventory template (template_part). Leveled entries stay as they
-// are. The slice is owned by the DB. ok=false when the form holds no contents.
-// (hole leveled-rolls :tags (records player) :sev gap) leveled entries (LVLI in CNTO, an LVLN inventory template) are never rolled, so they give nothing: 221 of 355 Skyrim.esm containers hold only leveled lists, 3,694 of 4,215 NPC_ with contents hold one, and 575 NPC_ take their inventory from an LVLN.
+// are (worldstate.inv_start rolls them). The slice is owned by the DB. ok=false when the form holds
+// no contents.
 contents_of :: proc(db: ^DB, form: Form_ID) -> ([]Content_Entry, bool) {
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}

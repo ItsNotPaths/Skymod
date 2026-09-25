@@ -17,6 +17,7 @@ package worldstate
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
 import "../formid"
+import "../gamedb"
 
 // Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
 Form_ID :: u64
@@ -39,6 +40,8 @@ Overlay :: struct {
 	globals:         map[Form_ID]f32,              // GLOB FormID -> value (script globals; NOT quest stages)
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
 	inventories:     map[Form_ID]map[Form_ID]i32,  // owner FormID -> (item FormID -> count delta from baseline)
+	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
+	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
 	pending_avs:     [dynamic]Saved_AV,            // loaded values of names no mod has created yet (not saved)
@@ -149,6 +152,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(map[Form_ID]map[Form_ID]i32)
+	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
+	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_values = make(map[Form_ID]map[string]Actor_Value)
 	o.mod_avs = make(map[string]Mod_AV)
 	o.pending_avs = make([dynamic]Saved_AV)
@@ -178,6 +183,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.created_by_cell {delete(list)}
 	for _, &q in o.quests {quest_free(&q)}
 	for _, &inner in o.inventories {delete(inner)}
+	for _, &list in o.rolled {delete(list)}
 	for _, &inner in o.actor_values {delete(inner)}
 	for k, m in o.mod_avs {delete(k); delete(m.name)}
 	for a in o.pending_avs {delete(a.name)}
@@ -199,6 +205,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.globals)
 	delete(o.quests)
 	delete(o.inventories)
+	delete(o.rolled)
+	delete(o.zone_levels)
 	delete(o.actor_values)
 	delete(o.mod_avs)
 	delete(o.pending_avs)

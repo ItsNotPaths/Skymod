@@ -43,12 +43,6 @@ inv_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32
 	return max(n, 0)
 }
 
-// inv_start is the contents owner starts with.
-inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
-	start, _ := gamedb.contents_of(db, record_of(ws, owner))
-	return start
-}
-
 // record_of is the form whose records describe a ref: a created ref's base, else the ref, which
 // gamedb follows to its base.
 record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {

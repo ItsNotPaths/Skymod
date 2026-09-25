@@ -12,7 +12,7 @@ package esm
 // (hole dialogue-records :tags records :sev blocker) DIAL and INFO are never decoded — there is no dialogue data in the engine at all.
 // (hole package-records :tags records :sev blocker) PACK is never decoded — an NPC_'s PKID package list resolves to nothing, so an actor has no behaviour to run.
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO gives an armour its stats but not its per-race mesh, so nothing can be worn or seen.
-// (hole leveled-lists :tags records :sev blocker) LVLI / LVLN / LVLO are decoded but NOTHING resolves them at runtime — every leveled spawn point produces nothing, so the world has no loot and no random encounters.
+// (hole leveled-lists :tags (records player) :sev blocker) leveled actors never roll: an NPC_ whose template chain reaches an LVLN (575 in Skyrim.esm take their inventory from one) stops at the list, so its stats, race and inventory come from the NPC_ itself.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
 // (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.

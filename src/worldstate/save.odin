@@ -184,6 +184,10 @@ Saved_Inv :: struct {
 	item:  Form_ID,
 	count: i32,
 }
+Saved_Level :: struct {
+	zone:  Form_ID,
+	level: i32,
+}
 Saved_AV :: struct {
 	actor:     Form_ID,
 	name:      string,
@@ -217,6 +221,8 @@ Save_Body :: struct {
 	globals:       []Saved_Global,
 	quests:        []Saved_Quest,
 	inventory:     []Saved_Inv,
+	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
+	zone_levels:   []Saved_Level,
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
@@ -362,6 +368,12 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for cell, s in ws.cells {append(&cells, Saved_Cell{cell, s})}
 	cleared := make([dynamic]Form_ID, 0, len(ws.cleared), context.temp_allocator)
 	for loc in ws.cleared {append(&cleared, loc)}
+	rolled := make([dynamic]Saved_Inv, 0, len(ws.rolled), context.temp_allocator)
+	for owner, list in ws.rolled {
+		for e in list {append(&rolled, Saved_Inv{owner, e.item, e.count})}
+	}
+	zone_levels := make([dynamic]Saved_Level, 0, len(ws.zone_levels), context.temp_allocator)
+	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
@@ -379,6 +391,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		globals       = globals,
 		quests        = quests,
 		inventory     = inv[:],
+		rolled        = rolled[:],
+		zone_levels   = zone_levels[:],
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
@@ -530,6 +544,17 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for r in body.restocks {
 		if id, ok := rf(remap, have_remap, r.chest); ok {ws.restocks[id] = r.hour}
 	}
+	// A rolled item from a missing mod drops; the owner keeps the rest.
+	for r in body.rolled {
+		owner, ook := rf(remap, have_remap, r.owner)
+		item, iok := rf(remap, have_remap, r.item)
+		if !ook {continue}
+		if owner not_in ws.rolled {ws.rolled[owner] = make([dynamic]gamedb.Content_Entry)}
+		if iok {append(&ws.rolled[owner], gamedb.Content_Entry{item, r.count})}
+	}
+	for z in body.zone_levels {
+		if id, ok := rf(remap, have_remap, z.zone); ok {ws.zone_levels[id] = z.level}
+	}
 	for k in body.keyword_data {
 		location, lok := rf(remap, have_remap, k.key.location)
 		keyword, kok := rf(remap, have_remap, k.key.keyword)
@@ -660,6 +685,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for c in body.cells {add_slot(&seen, c.cell)}
 	for l in body.cleared {add_slot(&seen, l)}
 	for r in body.restocks {add_slot(&seen, r.chest)}
+	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
+	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}

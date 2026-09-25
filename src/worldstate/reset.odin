@@ -43,10 +43,12 @@ restart_scripts :: proc(ws: ^World_State, form: Form_ID) {
 	append(&ws.reset_refs, form)
 }
 
-// drop_inventory puts a container's contents back to its baseline.
+// drop_inventory puts a container's contents back to its baseline; leveled entries roll again.
 drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
 	if inner, ok := ws.inventories[form]; ok {delete(inner)}
 	delete_key(&ws.inventories, form)
+	if list, ok := ws.rolled[form]; ok {delete(list)}
+	delete_key(&ws.rolled, form)
 }
 
 // remove_created deletes a created ref outright: its placement, delta and scripts.

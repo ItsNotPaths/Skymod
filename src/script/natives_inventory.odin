@@ -42,9 +42,18 @@ n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 
 // (hole addref-source :tags script :sev gap) a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
 // AddItem(akItemToAdd, aiCount=1, abSilent=false).
+// AddItem(akItemToAdd, aiCount=1, …). A leveled list adds what it rolls at the container's zone level.
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(args, 0))
-	move_items(c, {base = base, ref = ref, to = c.self, count = max(1, arg_i32(args, 1, 1))})
+	count := max(1, arg_i32(args, 1, 1))
+	if _, leveled := gamedb.leveled_list_of(c.db, base); leveled {
+		rolled := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+		level := worldstate.zone_level(c.ws, c.db, gamedb.zone_of(c.db, c.self))
+		worldstate.roll(c.ws, c.db, base, level, count, &rolled)
+		for e in rolled {move_items(c, {base = e.item, to = c.self, count = e.count})}
+		return nil
+	}
+	move_items(c, {base = base, ref = ref, to = c.self, count = count})
 	return nil
 }
 
