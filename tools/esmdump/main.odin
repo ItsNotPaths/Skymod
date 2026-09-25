@@ -647,7 +647,7 @@ lvli_mode :: proc(data: []u8, want: Form_ID) {
 		if rec.form_id == c.want && esm.sig(rec) == "LVLI" {
 			c.found = true
 			c.lvli_ed = strings.clone(esm.editor_id(fl), context.temp_allocator)
-			c.chance, c.flags, c.entries = esm.leveled_list(fl, context.temp_allocator)
+			c.chance, c.flags, c.entries, _ = esm.leveled_list(fl, context.temp_allocator)
 		}
 		return true
 	}, &ctx)
@@ -2251,14 +2251,18 @@ loadorder_mode :: proc(dir: string) {
 		len(db.worlds), len(db.cells), interior, exterior, len(db.base_models), len(db.ref_by_id),
 		len(db.form_scripts),
 	)
-	no_respawn, quiet, zoned := 0, 0, 0
+	no_respawn, quiet, never, zoned := 0, 0, 0, 0
 	for _, r in db.ref_by_id {if r.no_respawn {no_respawn += 1}}
-	for _, l in db.never_reset_zones {if l != 0 {zoned += 1}}
+	for _, z in db.zones {
+		if z.flags & esm.ECZN_NEVER_RESETS == 0 {continue}
+		never += 1
+		if z.location != 0 {zoned += 1}
+	}
 	for id, c in db.cells {if c.interior && gamedb.cell_never_resets(&db, id) {quiet += 1}}
 	fmt.printfln(
-		"reset: %d Never Resets zones naming %d locations, %d interiors never reset, %d Respawns containers, %d vendor chests, %d No Respawn refs",
-		len(db.never_reset_zones), zoned, quiet, len(db.respawning_containers),
-		len(db.vendor_chests), no_respawn,
+		"reset: %d Never Resets zones naming %d locations, %d interiors never reset, %d Respawns containers, %d vendor chests, %d No Respawn refs; %d zones, %d refs with their own, %d leveled difficulties",
+		never, zoned, quiet, len(db.respawning_containers),
+		len(db.vendor_chests), no_respawn, len(db.zones), len(db.ref_zones), len(db.level_mods),
 	)
 	// DLC worldspaces only resolvable once their plugin is remapped into global space.
 	for name in ([?]string{"Tamriel", "DLC2SolstheimWorld", "DLC1HunterHQWorld", "SoulCairn"}) {

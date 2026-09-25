@@ -730,7 +730,7 @@ free_form_indexes :: proc(db: ^DB) {
 	delete(db.weathers)
 }
 
-// index_encounter_zone records a Never Resets zone and the location it names.
+// index_encounter_zone records a zone's levels, flags and the location it names.
 @(private)
 index_encounter_zone :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
@@ -738,25 +738,33 @@ index_encounter_zone :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
-	location, never_resets, has := esm.encounter_zone(fl)
-	if !has || !never_resets {
-		delete_key(&db.never_reset_zones, rec.form_id)
+	z, has := esm.encounter_zone(fl)
+	if !has {
+		delete_key(&db.zones, rec.form_id)
 		return
 	}
-	db.never_reset_zones[rec.form_id] = esm.remap_form(fm, location)
+	db.zones[rec.form_id] = {esm.remap_form(fm, z.location), i32(z.min_level), i32(z.max_level), z.flags}
 }
 
 // cell_never_resets reports whether a cell keeps its state forever: its zone never resets, or its
 // location sits within one a Never Resets zone names.
 cell_never_resets :: proc(db: ^DB, cell: Form_ID) -> bool {
-	c := db.cells[cell]
-	if c.zone in db.never_reset_zones {return true}
+	never :: proc(z: Zone) -> bool {return z.flags & esm.ECZN_NEVER_RESETS != 0}
+	if z, ok := db.zones[db.cells[cell].zone]; ok && never(z) {return true}
 	loc := cell_location(db, cell)
 	if loc == 0 {return false}
-	for _, l in db.never_reset_zones {
-		if location_within(db, loc, l) {return true}
+	for _, z in db.zones {
+		if never(z) && location_within(db, loc, z.location) {return true}
 	}
 	return false
+}
+
+// zone_of is the encounter zone a ref's levels come from: its own XEZN, else its cell's.
+zone_of :: proc(db: ^DB, ref: Form_ID) -> Form_ID {
+	if z, ok := db.ref_zones[ref]; ok {return z}
+	r, ok := db.ref_by_id[ref]
+	if !ok {return 0}
+	return db.cells[grid_cell(db, r.cell_form_id, r.pos)].zone
 }
 
 // ref_respawns reports whether a cell reset resets this placement. An actor resets when its base

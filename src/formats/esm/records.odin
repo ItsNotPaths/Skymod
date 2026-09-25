@@ -513,11 +513,13 @@ actor_ai :: proc(fields: []Field) -> (ai: [6]u8, ok: bool) {
 }
 
 // LVLI (leveled-list) LVLF flag bits. CALC_FROM_ALL_LEVELS = "calculate from all levels ≤ the
-// player's" (else only entries whose level == the rolled level qualify); CALC_FOR_EACH = roll the
-// list independently for each unit of the requested count (else roll once and multiply). The
-// remaining bits (use-all, special-loot) are decoded verbatim into `flags` but not interpreted here.
+// player's" (else only entries at the highest level ≤ it qualify); CALC_FOR_EACH = roll the list
+// independently for each unit of the requested count (else roll once and multiply); USE_ALL = every
+// entry, overriding both.
 LVLI_CALC_FROM_ALL_LEVELS :: 0x01
 LVLI_CALC_FOR_EACH :: 0x02
+LVLI_USE_ALL :: 0x04
+LVLI_SPECIAL_LOOT :: 0x08
 
 // Leveled_Entry is one LVLO row of a leveled list: at player-level ≥ `level`, this `item` (RAW/local
 // formID — the caller remaps) is a candidate, contributing `count` copies. The item may itself be
@@ -531,17 +533,17 @@ Leveled_Entry :: struct {
 
 // leveled_list decodes a LVLI record's roll parameters + entries. `chance_none` (LVLD) is the
 // percent chance the roll yields nothing; `flags` is LVLF (see LVLI_* bits). `entries` is a freshly
-// allocated slice the caller owns (nil when the list is empty). RESOLUTION — rolling by player level,
-// applying chance-none, expanding nested lists — is a consumer concern; this only surfaces the data.
-// LLCT (entry count) is ignored: the LVLO count is authoritative. LVLG (global chance-none override)
-// is not needed for the data layer and is skipped.
+// allocated slice the caller owns (nil when the list is empty). `chance_global` (LVLG, raw formID)
+// is a GLOB whose value replaces LVLD when set. LLCT (entry count) is ignored: the LVLO count is
+// authoritative.
 leveled_list :: proc(
 	fields: []Field,
 	allocator := context.allocator,
-) -> (chance_none: u8, flags: u8, entries: []Leveled_Entry) {
+) -> (chance_none: u8, flags: u8, entries: []Leveled_Entry, chance_global: u32) {
 	if f, ok := find_field(fields, "LVLD"); ok && len(f.data) >= 1 {
 		chance_none = f.data[0]
 	}
+	chance_global, _ = subrecord_formid(fields, "LVLG")
 	if f, ok := find_field(fields, "LVLF"); ok && len(f.data) >= 1 {
 		flags = f.data[0]
 	}

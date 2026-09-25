@@ -18,7 +18,6 @@ package esm
 // (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.
 // (hole relationship-records :tags records :sev gap) RELA is never decoded — relationship rank has no source, so disposition checks read a default.
 // (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
-// (hole encounter-zones :tags records :sev gap) only an ECZN's Never Resets flag is read; no zone levels a dungeon.
 
 // --- keywords -------------------------------------------------------------------------
 
@@ -199,14 +198,28 @@ faction_relations :: proc(fields: []Field, allocator := context.allocator) -> []
 	return out
 }
 
+// ECZN DATA flags (CommonLib BGSEncounterZone; UESP's table is off by one bit).
 ECZN_NEVER_RESETS :: 0x01
+ECZN_MATCH_PC_BELOW_MIN :: 0x02
+
+Encounter_Zone :: struct {
+	location:             u32, // raw formID
+	min_level, max_level: u8,  // max 0 = no cap
+	flags:                u8,  // ECZN_*
+}
 
 // encounter_zone reads an ECZN's DATA: owner, location, rank, min level, flags, max level.
-encounter_zone :: proc(fields: []Field) -> (location: u32, never_resets: bool, ok: bool) {
+encounter_zone :: proc(fields: []Field) -> (z: Encounter_Zone, ok: bool) {
 	f := find_field(fields, "DATA") or_return
 	if len(f.data) < 12 {return}
-	return rd32(f.data, 4), f.data[10] & ECZN_NEVER_RESETS != 0, true
+	return {rd32(f.data, 4), f.data[9], f.data[11], f.data[10]}, true
 }
+
+// Leveled actor difficulty (ACHR XLCM, CommonLib LEV_CREA_MODIFIER); absent = none.
+LEVEL_MOD_EASY :: 0
+LEVEL_MOD_MEDIUM :: 1
+LEVEL_MOD_HARD :: 2
+LEVEL_MOD_VERY_HARD :: 3
 
 CONT_RESPAWNS :: 0x02
 

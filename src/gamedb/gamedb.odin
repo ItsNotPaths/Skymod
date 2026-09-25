@@ -201,7 +201,9 @@ DB :: struct {
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	plugin_slots:  map[string]u32, // lower-cased plugin filename -> the global slot of its own forms (owned keys)
-	never_reset_zones:     map[Form_ID]Form_ID, // ECZN flagged Never Resets -> the location it names (0 = none)
+	zones:                 map[Form_ID]Zone,    // ECZN -> its levels, flags and location
+	ref_zones:             map[Form_ID]Form_ID, // REFR/ACHR -> its own XEZN zone (absent = its cell's)
+	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
 	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
@@ -245,9 +247,18 @@ Leveled_Entry :: struct {
 // is owned by the DB. Resolution (roll by player level, apply chance-none, expand nested lists,
 // pin the outcome in the save overlay) is a consumer concern deferred to the item/loot store.
 Leveled_List :: struct {
-	chance_none: u8,
-	flags:       u8,
-	entries:     []Leveled_Entry, // owned
+	chance_none:   u8,
+	chance_global: Form_ID, // LVLG: a GLOB whose value replaces chance_none (0 = none)
+	flags:         u8,
+	entries:       []Leveled_Entry, // owned
+}
+
+// Zone is an ECZN: the level band a place rolls at (max 0 = no cap), its flags (esm.ECZN_*), and the
+// location it names.
+Zone :: struct {
+	location:             Form_ID,
+	min_level, max_level: i32,
+	flags:                u8,
 }
 
 // Actor_Base is an NPC_'s decoded base identity (the DATA layer — no runtime actor state). Stats
@@ -679,7 +690,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		grasses       = make(map[Form_ID]Grass, 64, allocator),
 		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
 		plugin_slots   = make(map[string]u32, 64, allocator),
-		never_reset_zones     = make(map[Form_ID]Form_ID, 128, allocator),
+		zones                 = make(map[Form_ID]Zone, 1024, allocator),
+		ref_zones             = make(map[Form_ID]Form_ID, 1024, allocator),
+		level_mods            = make(map[Form_ID]u8, 1024, allocator),
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
 		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
@@ -877,7 +890,9 @@ destroy :: proc(db: ^DB) {
 	delete(db.form_kinds)
 	for k in db.plugin_slots {delete(k, db.allocator)}
 	delete(db.plugin_slots)
-	delete(db.never_reset_zones)
+	delete(db.zones)
+	delete(db.ref_zones)
+	delete(db.level_mods)
 	delete(db.respawning_containers)
 	delete(db.vendor_chests)
 	for _, fs in db.form_scripts {
@@ -1712,6 +1727,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		db.ref_index[rec.form_id] = Ref_Loc{cell_form_id, len(refs) - 1}
 	}
 	db.ref_by_id[rec.form_id] = ref
+	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
 	index_linked_refs(db, rec.form_id, fl, ctx.fm) // XLKR links (GetLinkedRef's baseline)
 }
@@ -1758,7 +1774,24 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		db.actor_ref_index[rec.form_id] = Ref_Loc{ctx.cell_form_id, len(refs) - 1}
 	}
 	db.ref_by_id[rec.form_id] = ref
+	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
+}
+
+// index_ref_levels records a placement's own encounter zone (XEZN) and leveled difficulty (XLCM); an
+// override without them drops the earlier plugin's.
+@(private)
+index_ref_levels :: proc(db: ^DB, id: Form_ID, fl: []esm.Field, fm: ^esm.Form_Map) {
+	if z, ok := esm.subrecord_formid(fl, "XEZN"); ok {
+		db.ref_zones[id] = esm.remap_form(fm, z)
+	} else {
+		delete_key(&db.ref_zones, id)
+	}
+	if m, ok := esm.subrecord_formid(fl, "XLCM"); ok {
+		db.level_mods[id] = u8(m)
+	} else {
+		delete_key(&db.level_mods, id)
+	}
 }
 
 @(private)
@@ -1944,7 +1977,7 @@ index_leveled_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
-	chance, flags, raw := esm.leveled_list(fl, context.allocator) // walk has no temp reset — explicit free
+	chance, flags, raw, global := esm.leveled_list(fl, context.allocator) // walk has no temp reset — explicit free
 	defer if raw != nil {delete(raw, context.allocator)}
 	entries: []Leveled_Entry
 	if raw != nil {
@@ -1960,7 +1993,7 @@ index_leveled_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if old, exists := db.leveled_lists[rec.form_id]; exists {
 		delete(old.entries, db.allocator) // override: free the previous table
 	}
-	db.leveled_lists[rec.form_id] = Leveled_List{chance_none = chance, flags = flags, entries = entries}
+	db.leveled_lists[rec.form_id] = Leveled_List{chance, esm.remap_form(fm, global) if global != 0 else 0, flags, entries}
 }
 
 // index_glob decodes a GLOB's FLTV baseline value into global_values. This is the STATIC default; at

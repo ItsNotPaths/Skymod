@@ -33,7 +33,7 @@ reset_db :: proc() -> gamedb.DB {
 	db.actors[NPC_UNIQUE] = {}
 	db.respawning_containers = make(map[F]bool, a)
 	db.respawning_containers[CONT_RESPAWN] = true
-	db.never_reset_zones = make(map[F]F, a)
+	db.zones = make(map[F]gamedb.Zone, a)
 	db.vendor_chests = make(map[F]bool, a)
 	db.cell_refs = make(map[F][dynamic]gamedb.Ref, a)
 	db.actor_refs = make(map[F][dynamic]gamedb.Ref, a)
@@ -107,11 +107,11 @@ test_cell_reset_never_resets_and_cleared :: proc(t: ^testing.T) {
 
 	// The cell's own zone (a player home), or a zone that names a parent location, protects it.
 	(&db.cells[CELL]).zone = ZONE
-	db.never_reset_zones[ZONE] = 0
+	db.zones[ZONE] = {flags = esm.ECZN_NEVER_RESETS}
 	dirty(&ws)
 	leave_for(&db, &ws, 1000)
 	testing.expect(t, .Moved in ws.ref_deltas[PLAIN].live, "a Never Resets zone")
-	db.never_reset_zones[ZONE] = TOWN
+	db.zones[ZONE] = {location = TOWN, flags = esm.ECZN_NEVER_RESETS}
 	(&db.cells[CELL]).zone = 0
 	leave_for(&db, &ws, 1000)
 	testing.expect(t, .Moved in ws.ref_deltas[PLAIN].live, "a Never Resets parent location")
@@ -131,7 +131,7 @@ test_cell_reset_never_resets_and_cleared :: proc(t: ^testing.T) {
 	testing.expect(t, made not_in ws.created && kept in ws.created, "created refs go, alias holders stay")
 
 	// A cleared location waits 720 hours.
-	delete_key(&db.never_reset_zones, ZONE)
+	delete_key(&db.zones, ZONE)
 	c.self = TOWN
 	script.call(&reg, "Location", "SetCleared", &c, nil)
 	testing.expect(t, script.call(&reg, "Location", "IsCleared", &c, nil).(bool), "IsCleared reads SetCleared")
@@ -183,10 +183,11 @@ test_ref_reset_keeps_scripts :: proc(t: ^testing.T) {
 // flags at byte 0.
 @(test)
 test_reset_record_flags :: proc(t: ^testing.T) {
-	eczn := []u8{0, 0, 0, 0, 0x21, 0x43, 0x01, 0x00, 0, 0, esm.ECZN_NEVER_RESETS, 0}
-	loc, never, ok := esm.encounter_zone([]esm.Field{{type = "DATA", data = eczn}})
-	testing.expect(t, ok && never && loc == 0x14321, "ECZN location and Never Resets")
-	_, _, short := esm.encounter_zone([]esm.Field{{type = "DATA", data = eczn[:11]}})
+	eczn := []u8{0, 0, 0, 0, 0x21, 0x43, 0x01, 0x00, 0, 6, esm.ECZN_NEVER_RESETS, 30}
+	z, ok := esm.encounter_zone([]esm.Field{{type = "DATA", data = eczn}})
+	testing.expect(t, ok && z.flags == esm.ECZN_NEVER_RESETS && z.location == 0x14321, "ECZN location and Never Resets")
+	testing.expect(t, z.min_level == 6 && z.max_level == 30, "ECZN levels")
+	_, short := esm.encounter_zone([]esm.Field{{type = "DATA", data = eczn[:11]}})
 	testing.expect(t, !short, "a short ECZN DATA is not read")
 	testing.expect(t, esm.container_respawns([]esm.Field{{type = "DATA", data = {esm.CONT_RESPAWNS}}}), "CONT Respawns")
 	testing.expect(t, !esm.container_respawns([]esm.Field{{type = "DATA", data = {0x01}}}), "CONT without Respawns")
