@@ -16,6 +16,9 @@ build/out
 /pexdump
 /swfdump
 
+# local run helper
+/quicktest.sh
+
 # profiling / editor artifacts
 /profile_*.html
 imgui.ini
