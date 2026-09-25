@@ -6,6 +6,7 @@ package script
 
 import "../gamedb"
 import "../worldstate"
+import "../formid"
 
 register_stores :: proc(reg: ^Registry) {
 	// GlobalVariable — `self` is the GLOB form; value lives in worldstate.globals.
@@ -23,18 +24,23 @@ register_stores :: proc(reg: ^Registry) {
 // ── GlobalVariable ─────────────────────────────────────────────────────────────
 
 n_glob_get :: proc(c: ^Call, args: []Value) -> Value {
-	return global_value(c, c.self)
+	return global_value(c.db, c.ws, c.self)
 }
 
-// global_value is a global's value: a script's write, else its authored FLTV, else 0.
-global_value :: proc(c: ^Call, global: Form_ID) -> f32 {
-	if v, ok := worldstate.get_global(c.ws, global); ok {return v}
-	v, _ := gamedb.global_value(c.db, global)
+// global_value is a global's value: a write, else its authored FLTV, else 0.
+global_value :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, global: Form_ID) -> f32 {
+	if v, ok := worldstate.get_global(ws, global); ok {return v}
+	v, _ := gamedb.global_value(db, global)
 	return v
 }
 
 n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_global(c.ws, c.self, arg_f32(args, 0, 0))
+	v := arg_f32(args, 0, 0)
+	if c.self == formid.GAME_HOUR {
+		worldstate.set_game_hour(c.ws, v)
+		return nil
+	}
+	worldstate.set_global(c.ws, c.self, v)
 	return nil
 }
 

@@ -7,6 +7,7 @@ import "core:math"
 import "../gamedb"
 import smath "../math"
 import "../worldstate"
+import "../formid"
 
 register_ref_reads :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "GetPositionX", n_get_position_x)
@@ -140,7 +141,7 @@ ref_base :: proc(c: ^Call, form: Form_ID) -> Form_ID {
 // ref_rot is a placed or created ref's rotation, XYZ euler radians.
 @(private)
 ref_rot :: proc(c: ^Call, form: Form_ID) -> [3]f32 {
-	if form == PLAYER {return {}}
+	if form == formid.PLAYER {return {}}
 	if r, ok := gamedb.ref_by_formid(c.db, form); ok {return r.rot}
 	if cr, ok := worldstate.get_created(c.ws, form); ok {return cr.rot}
 	return {}

@@ -10,6 +10,7 @@ import "../../src/gamedb"
 import "../../src/script"
 import slua "../../src/script/lua"
 import "../../src/worldstate"
+import "../../src/formid"
 
 @(test)
 test_lua_args_in_to_overlay :: proc(t: ^testing.T) {
@@ -56,7 +57,7 @@ test_lua_result_out :: proc(t: ^testing.T) {
 	// userdata (not a bare integer), whose Form_ID round-trips back equal to PLAYER.
 	p, got := slua.eval_form(&vm, "return Game.GetPlayer()")
 	testing.expect(t, got, "got a ref result")
-	testing.expect_value(t, p, script.PLAYER)
+	testing.expect_value(t, p, formid.PLAYER)
 
 	// A bare integer result is NOT a ref (guards the contract: ints are rejected).
 	_, isref := slua.eval_form(&vm, "return 0x14")

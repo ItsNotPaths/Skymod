@@ -24,9 +24,6 @@ import "../worldstate"
 
 Form_ID :: gamedb.Form_ID
 
-// PLAYER is the player actor's form — Skyrim's hardcoded 0x14, which in our wide
-// Form_ID is master slot 0 (Skyrim.esm), local 0x14.
-PLAYER :: Form_ID(0x14)
 
 // Value is a runtime script value. A nil Value is Papyrus None (→ Lua nil).
 Value :: union {

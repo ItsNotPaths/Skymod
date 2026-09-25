@@ -5,7 +5,7 @@ package world
 // units. Lighting, water and collision have since landed; navmesh and actors have not
 // (see the HOLEs below). Markers and disabled refs are skipped.
 //
-// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh game-clock spatial-queries)) actors are drawn as static placements and nothing else — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
+// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh spatial-queries)) actors are drawn as static placements and nothing else — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
 // (hole navmesh :tags ai :sev blocker) NAVM is never decoded, so there is no navigable surface and nothing can path even once an agent exists.
 //
 // A Scene is a MAP of CHUNKS keyed by cell formID, one per loaded cell. An interior is

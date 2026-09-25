@@ -11,6 +11,7 @@ package main
 //   --driver <file.lua>  run this Lua once after the attach, before the ticks (send events, set stages);
 //                        a global `driver_tick(t)` it defines is then called after every tick, t in seconds
 //   --seconds <n>        how long ticks run after the attach, default 10
+//   --skip <hours>       skip game time once, after the first tick
 //   --trace              print Debug.Trace and Notification lines with the tick time they ran at
 //   --all-warnings       print every warning row, not the top 40
 //   --where <script>     repeatable: only list the refs (with their cells), quests and aliases that carry <script>
@@ -38,6 +39,7 @@ Args :: struct {
 	driver:                 string,
 	cells, find:            [dynamic]string, // cells: hex form ids, or "all"; find: --where scripts
 	seconds:                int,
+	skip:                   f64,
 	trace, all_warnings:    bool,
 }
 
@@ -103,6 +105,7 @@ main :: proc() {
 		}
 		clear(&ws.activations)
 		updates += slua.tick_end(&vm, 1.0 / TICK_HZ)
+		if tick == 0 {worldstate.skip_game_time(&ws, args.skip)}
 		if args.driver != "" {
 			slua.do_string(&vm, fmt.tprintf("if driver_tick then require('skymod.rt').guard('driver_tick', driver_tick, %f) end", f32(tick + 1) / TICK_HZ))
 		}
@@ -114,7 +117,7 @@ main :: proc() {
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
-	fmt.printfln("updates: %d OnUpdate and item events over %d s of ticks (%d registered forms left), run in %v", updates, args.seconds, len(ws.updates), update_took)
+	fmt.printfln("updates: %d OnUpdate, OnUpdateGameTime and item events over %d s of ticks, %.1f game hours skipped (registered forms left: %d real, %d game time), run in %v", updates, args.seconds, args.skip, len(ws.updates), len(ws.game_updates), update_took)
 	fmt.printfln("effects: %d live, the last handle %d", len(ws.effects), ws.next_effect)
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
@@ -130,7 +133,7 @@ main :: proc() {
 	}
 }
 
-USAGE :: "usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]... [--patches <dir>] [--driver <file.lua>] [--seconds <n>] [--trace] [--all-warnings] [--where <script>]"
+USAGE :: "usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]... [--patches <dir>] [--driver <file.lua>] [--seconds <n>] [--skip <hours>] [--trace] [--all-warnings] [--where <script>]"
 
 parse_args :: proc() -> Args {
 	a := Args{seconds = 10}
@@ -146,7 +149,7 @@ parse_args :: proc() -> Args {
 		case "--all-warnings":
 			a.all_warnings = true
 			continue
-		case "--cell", "--patches", "--driver", "--where", "--seconds":
+		case "--cell", "--patches", "--driver", "--where", "--seconds", "--skip":
 			if len(rest) == 0 {usage_exit()}
 			value := rest[0]
 			rest = rest[1:]
@@ -163,6 +166,10 @@ parse_args :: proc() -> Args {
 				n, ok := strconv.parse_int(value)
 				if !ok || n < 0 {usage_exit()}
 				a.seconds = n
+			case "--skip":
+				h, ok := strconv.parse_f64(value)
+				if !ok || h < 0 {usage_exit()}
+				a.skip = h
 			}
 			continue
 		}

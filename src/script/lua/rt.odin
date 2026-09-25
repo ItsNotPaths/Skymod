@@ -12,6 +12,7 @@ import lua "../../../vendor/lua"
 import script ".."
 import "../../gamedb"
 import "../../worldstate"
+import "../../formid"
 
 @(private)
 RT_SRC :: #load("rt.lua", string)
@@ -178,7 +179,7 @@ engine_chain :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: script.F
 	if kind != .Unknown {
 		return script.class_chain(kind)
 	}
-	if form == script.PLAYER {
+	if form == formid.PLAYER {
 		return ACTOR_CHAIN
 	}
 	if db != nil {

@@ -22,8 +22,6 @@ import "../formid"
 // alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
 Form_ID :: u64
 
-// (hole game-clock :tags world :sev blocker) no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour and GetCurrentGameTime (GameDaysPassed) stand still at their authored values.
-
 // Player_State is the player singleton (§4.1): where the player is, so a load returns them there
 // instead of the default spawn. `cell` lets the loader decide exterior (set position directly) vs
 // interior (must enter that cell first). `set` distinguishes "no player recorded" from origin.
@@ -59,6 +57,7 @@ Overlay :: struct {
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
 	updates:         map[Form_ID]Update_Timers,    // form -> its OnUpdate registrations (the scheduler's timers)
+	game_updates:    map[Form_ID]Update_Timers,    // form -> its OnUpdateGameTime registrations, in game hours
 	item_filters:    map[Form_ID][dynamic]Form_ID, // container -> AddInventoryEventFilter forms; absent = every item passes
 	aliases:         map[Form_ID]Form_ID,          // alias handle -> the form filling it; absent = empty
 	alias_holders:   map[Form_ID][dynamic]Form_ID, // form -> the aliases it fills (the reverse of aliases; not saved)
@@ -71,6 +70,7 @@ Overlay :: struct {
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
+	clock:           Game_Clock,               // game time (clock.odin)
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -163,6 +163,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.relationships = make(map[Form_ID]map[Form_ID]i32)
 	o.perks = make(map[Form_ID]map[Form_ID]bool)
 	o.updates = make(map[Form_ID]Update_Timers)
+	o.game_updates = make(map[Form_ID]Update_Timers)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -209,6 +210,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.relationships)
 	delete(o.perks)
 	delete(o.updates)
+	delete(o.game_updates)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

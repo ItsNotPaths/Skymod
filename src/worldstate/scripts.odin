@@ -2,12 +2,13 @@ package worldstate
 
 import "core:strings"
 
-// Update_Timers is one form's OnUpdate registrations, as real seconds left until each fires. The
-// single and the repeating one are independent, and registering again replaces that kind (Papyrus).
-// A registration belongs to the form: its OnUpdate goes to every script on it.
+// Update_Timers is one form's update registrations, as time left until each fires: real seconds for
+// OnUpdate, game hours for OnUpdateGameTime. The single and the repeating one are independent, and
+// registering again replaces that kind (Papyrus). A registration belongs to the form: its event goes
+// to every script on it.
 Update_Timers :: struct {
-	single:    f32, // seconds until the single update (single_on)
-	repeat:    f32, // seconds until the next repeating update (repeat_on)
+	single:    f32, // time until the single update (single_on)
+	repeat:    f32, // time until the next repeating update (repeat_on)
 	interval:  f32, // the repeating update's period
 	single_on: bool,
 	repeat_on: bool,
@@ -43,12 +44,13 @@ Item_Move :: struct {
 	count:               i32,
 }
 
-// register_update is RegisterForSingleUpdate / RegisterForUpdate: `form` gets OnUpdate after
-// `seconds`, once or every `seconds`. A negative or zero interval fires at the next tick.
-register_update :: proc(ws: ^World_State, form: Form_ID, seconds: f32, repeat: bool) {
-	if form not_in ws.updates {ws.updates[form] = {}}
-	u := &ws.updates[form]
-	s := max(seconds, 0)
+// register_update is RegisterFor[Single]Update[GameTime] on `timers` (ws.updates or ws.game_updates):
+// `form` gets its update after `interval`, once or every `interval`. A negative or zero interval
+// fires at the next tick.
+register_update :: proc(timers: ^map[Form_ID]Update_Timers, form: Form_ID, interval: f32, repeat: bool) {
+	if form not_in timers {timers[form] = {}}
+	u := &timers[form]
+	s := max(interval, 0)
 	if repeat {
 		u.repeat, u.interval, u.repeat_on = s, s, true
 	} else {
@@ -56,9 +58,10 @@ register_update :: proc(ws: ^World_State, form: Form_ID, seconds: f32, repeat: b
 	}
 }
 
-// unregister_updates is UnregisterForUpdate: both kinds stop.
+// unregister_updates stops every update registration of `form`, real and game time.
 unregister_updates :: proc(ws: ^World_State, form: Form_ID) {
 	delete_key(&ws.updates, form)
+	delete_key(&ws.game_updates, form)
 }
 
 // Anim_Reg is one RegisterForAnimationEvent: `form` hears `event` from the sender. The name is

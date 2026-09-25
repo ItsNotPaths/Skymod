@@ -26,8 +26,9 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.set_scale(&src, 0x000ABCDE, 0x0001A26F, 3.5)
 	ws.set_disabled(&src, 0x000C0FFE, 0x0002BEEF, true)
 	ws.set_activation_blocked(&src, 0x000C0FFE, 0x0002BEEF, true) // the 9th field: live is wider than a byte
-	ws.register_update(&src, 0x000C0DE0, 2.5, false)
-	ws.register_update(&src, 0x000C0DE0, 4, true)
+	ws.register_update(&src.updates, 0x000C0DE0, 2.5, false)
+	ws.register_update(&src.updates, 0x000C0DE0, 4, true)
+	ws.register_update(&src.game_updates, 0x000C0DE0, 24, false)
 	ws.add_item_filter(&src, 0x000C0DE0, 0xF)
 	ws.add_to_list(&src, 0x000F1570, 0x000ABCDE)
 	src.keyword_data[{0x0001C0C0, 0x000CEEEE}] = 2
@@ -41,6 +42,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	// Coarse singletons: globals + the player.
 	ws.set_global(&src, 0x00000005, 42.5)
 	ws.set_player(&src, 0, {7, 8, 9}, 1.2, -0.3)
+	ws.start_clock(&src, 201, 7, 17, 8, 1)
+	ws.skip_game_time(&src, 2.5)
 	// A Dead delta (the new actor life-state field) on its own ref/cell.
 	ws.set_dead(&src, 0x000A11FE, 0x0004DEAD, true)
 	// Quest store: a stage (marks it done + running), a couple of objectives with distinct flags,
@@ -97,6 +100,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, .Moved not_in dd.live, "spurious Moved flag on a disabled-only delta")
 	testing.expect(t, ws.activation_blocked(&dst, 0x000C0FFE), "Activation_Blocked flag lost")
 	testing.expect_value(t, dst.updates[0x000C0DE0], ws.Update_Timers{single = 2.5, repeat = 4, interval = 4, single_on = true, repeat_on = true})
+	testing.expect_value(t, dst.game_updates[0x000C0DE0], ws.Update_Timers{single = 24, single_on = true})
 	testing.expect_value(t, dst.item_filters[0x000C0DE0][0], 0xF)
 	testing.expect_value(t, ws.list_added(&dst, 0x000F1570)[0], 0x000ABCDE)
 	testing.expect_value(t, dst.keyword_data[{0x0001C0C0, 0x000CEEEE}], 2)
@@ -126,6 +130,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	gv, gok := ws.get_global(&dst, 0x00000005)
 	testing.expect(t, gok, "global missing after load")
 	testing.expectf(t, abs(gv - 42.5) < 1e-5, "global value mismatch: %v", gv)
+	testing.expect_value(t, dst.clock, src.clock)
 	pl, pok := ws.get_player(&dst)
 	testing.expect(t, pok, "player singleton missing after load")
 	testing.expectf(t, abs(pl.pos.x - 7) < 1e-5 && abs(pl.yaw - 1.2) < 1e-5, "player pos/yaw mismatch: %v yaw %v", pl.pos, pl.yaw)

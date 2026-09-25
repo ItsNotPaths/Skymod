@@ -14,11 +14,11 @@ package esm
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO gives an armour its stats but not its per-race mesh, so nothing can be worn or seen.
 // (hole leveled-lists :tags records :sev blocker) LVLI / LVLN / LVLO are decoded but NOTHING resolves them at runtime — every leveled spawn point produces nothing, so the world has no loot and no random encounters.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
-// (hole weather-select :tags records :sev gap :needs (game-clock)) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
+// (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
 // (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.
 // (hole relationship-records :tags records :sev gap) RELA is never decoded — relationship rank has no source, so disposition checks read a default.
 // (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
-// (hole encounter-zones :tags records :sev gap :needs (game-clock)) ECZN is never decoded — encounter zones cannot level or reset a dungeon.
+// (hole encounter-zones :tags records :sev gap) ECZN is never decoded — encounter zones cannot level or reset a dungeon.
 
 // --- keywords -------------------------------------------------------------------------
 

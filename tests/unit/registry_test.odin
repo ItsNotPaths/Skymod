@@ -83,7 +83,7 @@ test_registry_scale_and_player :: proc(t: ^testing.T) {
 	gp := script.call(&reg, "Game", "GetPlayer", &c, nil)
 	pf, okf := gp.(script.Form_ID)
 	testing.expect(t, okf, "GetPlayer returns a form")
-	testing.expect_value(t, pf, script.PLAYER)
+	testing.expect_value(t, pf, formid.PLAYER)
 }
 
 @(test)
@@ -168,7 +168,7 @@ test_registry_inventory :: proc(t: ^testing.T) {
 	testing.expect_value(t, count(&reg, &c, item), i32(0))
 
 	// Gold amount reads the Gold001 count; RemoveAllItems wipes everything.
-	script.call(&reg, "ObjectReference", "AddItem", &c, {script.GOLD, i32(250)})
+	script.call(&reg, "ObjectReference", "AddItem", &c, {formid.GOLD, i32(250)})
 	testing.expect_value(t, script.call(&reg, "Actor", "GetGoldAmount", &c, nil).(i32), i32(250))
 	script.call(&reg, "ObjectReference", "RemoveAllItems", &c, nil)
 	testing.expect_value(t, script.call(&reg, "Actor", "GetGoldAmount", &c, nil).(i32), i32(0))
@@ -481,13 +481,13 @@ test_registry_activate_queues :: proc(t: ^testing.T) {
 		return b
 	}
 
-	testing.expect(t, activate(&reg, &c, {script.PLAYER}), "an unblocked ref will process")
+	testing.expect(t, activate(&reg, &c, {formid.PLAYER}), "an unblocked ref will process")
 	script.call(&reg, "ObjectReference", "BlockActivation", &c, nil)
-	testing.expect(t, !activate(&reg, &c, {script.PLAYER}), "a blocked ref will not")
-	testing.expect(t, activate(&reg, &c, {script.PLAYER, true}), "default-only ignores the block")
+	testing.expect(t, !activate(&reg, &c, {formid.PLAYER}), "a blocked ref will not")
+	testing.expect(t, activate(&reg, &c, {formid.PLAYER, true}), "default-only ignores the block")
 
 	testing.expect_value(t, len(ws.activations), 3)
-	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = script.PLAYER, default_only = true})
+	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = formid.PLAYER, default_only = true})
 }
 
 // A stub answers its fallback: Papyrus's value where the zero would be wrong, else the zero.
@@ -550,9 +550,9 @@ test_registry_ref_reads :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, call(&reg, &a, "GetDistance", B).(f32), f32(5))
 	testing.expect_value(t, call(&reg, &a, "GetDistance", OUT).(f32), script.FAR_DISTANCE)
-	testing.expect_value(t, call(&reg, &a, "GetDistance", script.PLAYER).(f32), script.FAR_DISTANCE)
+	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), script.FAR_DISTANCE)
 	ws.player_at = {INT, {0, 0, 10}}
-	testing.expect_value(t, call(&reg, &a, "GetDistance", script.PLAYER).(f32), f32(10))
+	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), f32(10))
 
 	testing.expect_value(t, call(&reg, &a, "GetLinkedRef").(F), B)
 	testing.expect_value(t, call(&reg, &a, "GetLinkedRef", KW).(F), OUT)
@@ -607,7 +607,7 @@ test_registry_form_reads :: proc(t: ^testing.T) {
 	db.form_lists[LIST] = members
 	db.locations[CITY] = {parent = HOLD}
 	db.actors[NPC] = {race = RACE}
-	db.global_values[script.GAME_DAYS_PASSED] = 3.5
+	db.global_values[formid.GAME_DAYS_PASSED] = 3.5
 
 	c := script.Call{self = REF, ws = &ws, db = &db}
 	testing.expect_value(t, script.call(&reg, "Form", "HasKeyword", &c, {KW}).(bool), true)
@@ -670,4 +670,22 @@ test_move_to_when_unloaded :: proc(t: ^testing.T) {
 	d, _ := worldstate.get(&ws, REF)
 	testing.expect_value(t, d.cell, THERE)
 	testing.expect_value(t, d.pos, [3]f32{1, 2, 13})
+}
+
+// Game.GetFormFromFile puts a plugin-local id in the plugin's slot, whatever the case of its name;
+// a plugin that is not loaded gives None.
+@(test)
+test_registry_get_form_from_file :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	db: gamedb.DB
+	db.plugin_slots = make(map[string]u32)
+	defer delete(db.plugin_slots)
+	db.plugin_slots["dawnguard.esm"] = 2
+
+	c := script.Call{db = &db}
+	got := script.call(&reg, "Game", "GetFormFromFile", &c, {i32(0x016691), "Dawnguard.esm"})
+	testing.expect_value(t, got.(script.Form_ID), script.Form_ID(0x2_0001_6691))
+	testing.expect_value(t, script.call(&reg, "Game", "GetFormFromFile", &c, {i32(0x016691), "Nope.esp"}), nil)
 }

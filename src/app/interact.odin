@@ -26,6 +26,7 @@ import "../render"
 import "../script"
 import slua "../script/lua"
 import "../worldstate"
+import "../formid"
 
 // (hole activate-verbs :tags ui :sev gap :needs (container-screen)) the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
@@ -91,7 +92,7 @@ frame_interact :: proc(g: ^Game) {
 				g.interact.pressing = false
 			}
 		} else {
-			activate(g, g.interact.press_form, script.PLAYER)
+			activate(g, g.interact.press_form, formid.PLAYER)
 			g.interact.pressing = false
 		}
 		return
@@ -107,7 +108,7 @@ frame_interact :: proc(g: ^Game) {
 			g.interact.press_form = tgt.form
 			g.interact.held_s = 0
 		} else {
-			activate(g, tgt.form, script.PLAYER)
+			activate(g, tgt.form, formid.PLAYER)
 		}
 	}
 }
@@ -124,7 +125,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		if g.repl_ok {slua.send(&g.repl.vm, form, "OnActivate", by)}
 		if worldstate.activation_blocked(&g.ws, form) {return}
 	}
-	if by != script.PLAYER {return}
+	if by != formid.PLAYER {return}
 	ref, ok := gamedb.ref_by_formid(&g.db, form)
 	if !ok {return}
 	switch kind := Activate_Kind.Door if ref.has_tp else classify_base(&g.db, ref.base); kind {

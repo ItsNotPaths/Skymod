@@ -13,6 +13,7 @@ import "../../src/conditions"
 import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/worldstate"
+import "../../src/formid"
 
 // Plugin-building helpers. File-private per test file, matching the convention already in
 // esm_test.odin and bsa_test.odin (which likewise carry their own put_u32).
@@ -158,26 +159,25 @@ test_conditions_evaluate :: proc(t: ^testing.T) {
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
 
-	PLAYER :: gamedb.Form_ID(0x14)
-	ctx := conditions.Context{db = &db, ws = &ws, subject = PLAYER}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
 	p, _ := gamedb.perk_of(&db, 0x0000_0A02)
 
 	// Nothing taken, no skill: both halves fail.
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "gate closed at the start")
 
 	// The prerequisite perk alone is not enough.
-	worldstate.perk_add(&ws, PLAYER, 0x0000_0A01)
+	worldstate.perk_add(&ws, formid.PLAYER, 0x0000_0A01)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "skill still too low")
 
 	// Skill just under the bar still fails — the operator is >=, not >.
-	worldstate.av_set(&ws, PLAYER, "onehanded", 29)
+	worldstate.av_set(&ws, formid.PLAYER, "onehanded", 29)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "29 is below 30")
 
-	worldstate.av_set(&ws, PLAYER, "onehanded", 30)
+	worldstate.av_set(&ws, formid.PLAYER, "onehanded", 30)
 	testing.expect(t, conditions.all(&ctx, p.take_conditions), "gate opens at exactly 30")
 
 	// Losing the prerequisite closes it again.
-	worldstate.perk_remove(&ws, PLAYER, 0x0000_0A01)
+	worldstate.perk_remove(&ws, formid.PLAYER, 0x0000_0A01)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "gate closed without the prerequisite")
 }
 
@@ -188,8 +188,7 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
-	PLAYER :: gamedb.Form_ID(0x14)
-	ctx := conditions.Context{db = &db, ws = &ws, subject = PLAYER}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
 
 	testing.expect(t, conditions.all(&ctx, {}), "an empty list passes")
 
@@ -207,26 +206,26 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	// AND: both required.
 	and_list := []gamedb.Condition{has(A, false), has(B, false)}
 	testing.expect(t, !conditions.all(&ctx, and_list), "AND fails with neither")
-	worldstate.perk_add(&ws, PLAYER, A)
+	worldstate.perk_add(&ws, formid.PLAYER, A)
 	testing.expect(t, !conditions.all(&ctx, and_list), "AND fails with only one")
-	worldstate.perk_add(&ws, PLAYER, B)
+	worldstate.perk_add(&ws, formid.PLAYER, B)
 	testing.expect(t, conditions.all(&ctx, and_list), "AND passes with both")
 
 	// OR: the first condition carries the flag, joining it to the second. Either suffices.
-	worldstate.perk_remove(&ws, PLAYER, A)
-	worldstate.perk_remove(&ws, PLAYER, B)
+	worldstate.perk_remove(&ws, formid.PLAYER, A)
+	worldstate.perk_remove(&ws, formid.PLAYER, B)
 	or_list := []gamedb.Condition{has(A, true), has(B, false)}
 	testing.expect(t, !conditions.all(&ctx, or_list), "OR fails with neither")
-	worldstate.perk_add(&ws, PLAYER, A)
+	worldstate.perk_add(&ws, formid.PLAYER, A)
 	testing.expect(t, conditions.all(&ctx, or_list), "OR passes on the first alone")
-	worldstate.perk_remove(&ws, PLAYER, A)
-	worldstate.perk_add(&ws, PLAYER, B)
+	worldstate.perk_remove(&ws, formid.PLAYER, A)
+	worldstate.perk_add(&ws, formid.PLAYER, B)
 	testing.expect(t, conditions.all(&ctx, or_list), "OR passes on the second alone")
 
 	// A group followed by a required AND term: (A OR B) AND C.
 	C :: gamedb.Form_ID(0xC1)
 	mixed := []gamedb.Condition{has(A, true), has(B, false), has(C, false)}
 	testing.expect(t, !conditions.all(&ctx, mixed), "the trailing AND term still gates")
-	worldstate.perk_add(&ws, PLAYER, C)
+	worldstate.perk_add(&ws, formid.PLAYER, C)
 	testing.expect(t, conditions.all(&ctx, mixed), "(A OR B) AND C passes")
 }

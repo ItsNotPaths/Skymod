@@ -197,6 +197,7 @@ DB :: struct {
 	ltex_grass:    map[Form_ID]Form_ID, // LTEX formID -> its GRAS grass-type formID (GNAM)
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
+	plugin_slots:  map[string]u32, // lower-cased plugin filename -> the global slot of its own forms (owned keys)
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
@@ -669,6 +670,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		ltex_grass    = make(map[Form_ID]Form_ID, 128, allocator),
 		grasses       = make(map[Form_ID]Grass, 64, allocator),
 		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
+		plugin_slots   = make(map[string]u32, 64, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
@@ -676,6 +678,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	}
 	done_bytes := 0
 	for &p in plugins {
+		if p.name != "" {db.plugin_slots[strings.to_lower(p.name, allocator)] = p.self_slot}
 		// A LOCALIZED plugin stores FULL/DESC as string ids; resolve names via its STRINGS
 		// table (loaded loose by the caller, attached to the input). Parse it once, expose it
 		// to the visitor as build scaffolding, walk, then free it — the names we keep are
@@ -859,6 +862,8 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.grasses)
 	delete(db.form_kinds)
+	for k in db.plugin_slots {delete(k, db.allocator)}
+	delete(db.plugin_slots)
 	for _, fs in db.form_scripts {
 		esm.free_form_scripts(fs, db.allocator)
 	}
@@ -1321,6 +1326,14 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_base(db, rec, ctx.fm)
 	}
 	return true
+}
+
+// form_from_file is Game.GetFormFromFile: a plugin-local form id in global space. ok=false when the
+// plugin is not loaded. Whether the form exists is not checked.
+form_from_file :: proc(db: ^DB, local: u32, file: string) -> (Form_ID, bool) {
+	slot, ok := db.plugin_slots[strings.to_lower(file, context.temp_allocator)]
+	if !ok {return 0, false}
+	return Form_ID(slot) << 32 | Form_ID(local & 0x00FF_FFFF), true
 }
 
 // form_kind returns a form's Papyrus class kind (QUST/GLOB/FACT), or Unknown for object refs and

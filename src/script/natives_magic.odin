@@ -23,6 +23,9 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "ActiveMagicEffect", "RegisterForSingleUpdate", n_register_single_update)
 	register(reg, "ActiveMagicEffect", "RegisterForUpdate", n_register_update)
 	register(reg, "ActiveMagicEffect", "UnregisterForUpdate", n_unregister_for_update)
+	register(reg, "ActiveMagicEffect", "RegisterForSingleUpdateGameTime", n_register_single_update_game_time)
+	register(reg, "ActiveMagicEffect", "RegisterForUpdateGameTime", n_register_update_game_time)
+	register(reg, "ActiveMagicEffect", "UnregisterForUpdateGameTime", n_unregister_for_update_game_time)
 	register(reg, "ActiveMagicEffect", "RegisterForAnimationEvent", n_register_anim_event)
 	register(reg, "ActiveMagicEffect", "UnregisterForAnimationEvent", n_unregister_anim_event)
 }

@@ -34,6 +34,7 @@ import smath "../math"
 // (hole skill-reads :tags script :sev gap) no read for AdvanceSkill (skill XP), AddPerkPoints, the four SetINI*.
 
 import "../worldstate"
+import "../formid"
 
 register_builtins :: proc(reg: ^Registry) {
 	// ObjectReference — the instance-method bulk of the corpus.
@@ -54,6 +55,9 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Form", "RegisterForSingleUpdate", n_register_single_update)
 	register(reg, "Form", "RegisterForUpdate", n_register_update)
 	register(reg, "Form", "UnregisterForUpdate", n_unregister_for_update)
+	register(reg, "Form", "RegisterForSingleUpdateGameTime", n_register_single_update_game_time)
+	register(reg, "Form", "RegisterForUpdateGameTime", n_register_update_game_time)
+	register(reg, "Form", "UnregisterForUpdateGameTime", n_unregister_for_update_game_time)
 	register(reg, "Form", "RegisterForAnimationEvent", n_register_anim_event)
 	register(reg, "Form", "UnregisterForAnimationEvent", n_unregister_anim_event)
 	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
@@ -61,6 +65,7 @@ register_builtins :: proc(reg: ^Registry) {
 
 	// Game / Debug — the top globals (callstatic), self is unused (0).
 	register(reg, "Game", "GetPlayer", n_get_player)
+	register(reg, "Game", "GetFormFromFile", n_get_form_from_file)
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)
 
@@ -118,20 +123,33 @@ ref_enabled :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, form: Form_ID) 
 	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
 }
 
-// (hole game-time-updates :tags script :sev gap :needs (game-clock)) RegisterForSingleUpdateGameTime / RegisterForUpdateGameTime are stubs; game-hour timers wait on the game clock.
-
 n_register_single_update :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.register_update(c.ws, c.self, arg_f32(args, 0, 0), false)
+	worldstate.register_update(&c.ws.updates, c.self, arg_f32(args, 0, 0), false)
 	return nil
 }
 
 n_register_update :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.register_update(c.ws, c.self, arg_f32(args, 0, 0), true)
+	worldstate.register_update(&c.ws.updates, c.self, arg_f32(args, 0, 0), true)
 	return nil
 }
 
 n_unregister_for_update :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.unregister_updates(c.ws, c.self)
+	delete_key(&c.ws.updates, c.self)
+	return nil
+}
+
+n_register_single_update_game_time :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.register_update(&c.ws.game_updates, c.self, arg_f32(args, 0, 0), false)
+	return nil
+}
+
+n_register_update_game_time :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.register_update(&c.ws.game_updates, c.self, arg_f32(args, 0, 0), true)
+	return nil
+}
+
+n_unregister_for_update_game_time :: proc(c: ^Call, args: []Value) -> Value {
+	delete_key(&c.ws.game_updates, c.self)
 	return nil
 }
 
@@ -262,8 +280,14 @@ n_set_open :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── Game / Debug globals ─────────────────────────────────────────────────────
 
+n_get_form_from_file :: proc(c: ^Call, args: []Value) -> Value {
+	form, ok := gamedb.form_from_file(c.db, u32(arg_i32(args, 0, 0)), arg_str(args, 1))
+	if !ok {return nil}
+	return form
+}
+
 n_get_player :: proc(c: ^Call, args: []Value) -> Value {
-	return PLAYER
+	return formid.PLAYER
 }
 
 n_is_in_menu_mode :: proc(c: ^Call, args: []Value) -> Value {
@@ -324,7 +348,7 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 // the per-cell patch index.
 @(private)
 ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
-	if form == PLAYER {
+	if form == formid.PLAYER {
 		return c.ws.player_at.cell
 	}
 	if d, ok := worldstate.get(c.ws, form); ok && d.cell != 0 {
@@ -342,7 +366,7 @@ ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
 // ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
 @(private)
 ref_pos :: proc(c: ^Call, form: Form_ID) -> smath.Vec3 {
-	if form == PLAYER {
+	if form == formid.PLAYER {
 		return c.ws.player_at.pos
 	}
 	if d, ok := worldstate.get(c.ws, form); ok && .Moved in d.live {

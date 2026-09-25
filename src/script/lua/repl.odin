@@ -23,6 +23,7 @@ import "core:os"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
+import "../../formid"
 
 // Repl owns a gameplay VM plus an output accumulator. `out` holds the lines produced
 // by the most recent repl_eval (owned by `alloc`, rebuilt each call); the host drains
@@ -129,7 +130,7 @@ repl_init :: proc(repl: ^Repl, reg: ^script.Registry, ctx: script.Call, allocato
 	}
 
 	// player = the tagged player actor; sel starts as None (no click-pick yet).
-	push_ref(L, script.PLAYER)
+	push_ref(L, formid.PLAYER)
 	lua.setglobal(L, "player")
 	push_none(L)
 	lua.setglobal(L, "sel")

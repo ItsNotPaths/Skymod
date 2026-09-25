@@ -31,6 +31,7 @@ Loaded_Plugin :: struct {
 	dlstrings_data: []u8, // carried from Plugin_Input (long-text table bytes; nil = none)
 	localized:      bool, // TES4 flag 0x80 — resolved from the header at build time
 	index:          int,
+	self_slot:      u32, // the global slot of the plugin's own forms
 	fm:             esm.Form_Map,
 }
 
@@ -113,6 +114,7 @@ resolve_load_order :: proc(inputs: []Plugin_Input, allocator := context.allocato
 		} else {
 			lp.fm.slot[len(ms)] = u32(gi)
 		}
+		lp.self_slot = lp.fm.slot[len(ms)]
 		out[gi] = lp
 		log.infof("load order [%02X] %s (%d masters)", gi, inputs[p].name, len(ms))
 	}

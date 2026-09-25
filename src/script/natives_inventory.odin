@@ -8,9 +8,8 @@ package script
 import "core:slice"
 import "../gamedb"
 import "../worldstate"
+import "../formid"
 
-// Gold001 — Skyrim.esm local 0x0000000F, master slot 0 → the wide FormID 0xF. GetGoldAmount counts it.
-GOLD :: Form_ID(0x0000_000F)
 
 register_inventory :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "AddItem", n_add_item)
@@ -34,7 +33,7 @@ n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 	container, to_player, count := arg_form(args, 1), arg_bool(args, 3, false), arg_form(args, 4)
 	base, ref := item_of(c, arg_form(args, 2))
 	if worldstate.inv_count(c.ws, container, base) <= 0 {return nil}
-	move_items(c, {base = base, ref = ref, from = container, to = PLAYER if to_player else 0, count = 1})
+	move_items(c, {base = base, ref = ref, from = container, to = formid.PLAYER if to_player else 0, count = 1})
 	if count != 0 {
 		v, _ := worldstate.get_global(c.ws, count)
 		worldstate.set_global(c.ws, count, v - 1)
@@ -108,5 +107,5 @@ item_of :: proc(c: ^Call, form: Form_ID) -> (base, ref: Form_ID) {
 }
 
 n_get_gold :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.inv_count(c.ws, c.self, GOLD)
+	return worldstate.inv_count(c.ws, c.self, formid.GOLD)
 }

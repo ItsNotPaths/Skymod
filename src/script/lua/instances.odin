@@ -113,7 +113,7 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 	return made
 }
 
-// (hole cell-reset :tags script :sev gap :needs (game-clock)) a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
+// (hole cell-reset :tags script :sev gap) a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
 @(private)
 attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
 	if r.deleted || worldstate.is_deleted(vm.ctx.ws, r.form_id) {return 0}

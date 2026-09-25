@@ -11,6 +11,7 @@ import "../../src/gamedb"
 import "../../src/script"
 import slua "../../src/script/lua"
 import "../../src/worldstate"
+import "../../src/formid"
 
 @(private = "file")
 setup :: proc(repl: ^slua.Repl, ws: ^worldstate.World_State, db: ^gamedb.DB, reg: ^script.Registry) -> bool {
@@ -55,7 +56,7 @@ test_repl_ref_identity_and_dispatch :: proc(t: ^testing.T) {
 
 	// Method dispatch through a ref writes the overlay (player:Disable()).
 	slua.repl_eval(&repl, "player:Disable()")
-	d, found := worldstate.get(&ws, script.PLAYER)
+	d, found := worldstate.get(&ws, formid.PLAYER)
 	testing.expect(t, found && .Disabled in d.live && d.disabled, "player:Disable() wrote overlay")
 }
 

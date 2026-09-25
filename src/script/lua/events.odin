@@ -12,6 +12,7 @@ import lua "../../../vendor/lua"
 import script ".."
 import "../../gamedb"
 import "../../worldstate"
+import "../../formid"
 
 // (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit or OnDeath; there is no damage and no death path to send them from.
 // (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (442 scripts define one); there are no trigger volumes.
@@ -96,23 +97,33 @@ rt_anim_event :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
-// tick_updates is the scheduler: every OnUpdate registration counts down by `dt`, and a due one
-// queues OnUpdate on its form. A due form with no script instances yet (after a Continue, a ref
-// whose cell has not loaded) stays due until one exists.
-tick_updates :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
+// tick_updates is the scheduler: OnUpdate registrations count down by `dt` real seconds, and
+// OnUpdateGameTime ones by the game hours that passed, skips included.
+tick_updates :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32, hours: f64) {
+	count_down(vm, &ws.updates, dt, "OnUpdate")
+	count_down(vm, &ws.game_updates, f32(hours), "OnUpdateGameTime")
+}
+
+// count_down queues `event` on each form whose timer comes due, once a tick at most: a repeating
+// timer still overdue after it fires (a skip) waits a full interval. A due form with no script
+// instances yet stays due until one exists.
+@(private = "file")
+count_down :: proc(vm: ^VM, timers: ^map[script.Form_ID]worldstate.Update_Timers, step: f32, event: string) {
 	stopped := make([dynamic]script.Form_ID, context.temp_allocator)
-	for form, &u in ws.updates {
+	for form, &u in timers {
 		if u.single_on {
-			u.single -= dt
-			if u.single <= 0 && send_own(vm, form, "OnUpdate") {u.single_on = false}
+			u.single -= step
+			if u.single <= 0 && send_own(vm, form, event) {u.single_on = false}
 		}
 		if u.repeat_on {
-			u.repeat -= dt
-			if u.repeat <= 0 && send_own(vm, form, "OnUpdate") {u.repeat = max(u.repeat + u.interval, 0)}
+			u.repeat -= step
+			if u.repeat <= 0 && send_own(vm, form, event) {
+				u.repeat = u.repeat + u.interval if u.repeat + u.interval > 0 else u.interval
+			}
 		}
 		if !u.single_on && !u.repeat_on {append(&stopped, form)}
 	}
-	for form in stopped {delete_key(&ws.updates, form)}
+	for form in stopped {delete_key(timers, form)}
 }
 
 // tick_effects runs effect durations down. An ended effect whose OnEffectFinish went out, and whose
@@ -191,12 +202,12 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 // tick_begin advances the script clocks, gives the refs of `loaded` cells their scripts (and OnInit),
 // then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.
 tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, loaded, attached: []script.Form_ID, dt: f32) {
-	advance_clocks(vm, dt)
+	hours := advance_clocks(vm, db, ws, dt)
 	sync_refs(vm)
 	tick_effects(vm, ws, dt)
 	for cell in loaded {attach_cell(vm, db, cell)}
 	tick_transitions(vm, db, ws, t, attached)
-	tick_updates(vm, ws, dt)
+	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
 }
 
@@ -204,6 +215,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 tick_end :: proc(vm: ^VM, dt: f32) -> int {
 	ran := drain(vm)
 	call_rt(vm, "tick", f64(dt))
+	worldstate.end_first_tick(vm.ctx.ws)
 	return ran
 }
 
@@ -212,15 +224,25 @@ drain :: proc(vm: ^VM) -> int {
 	return call_rt(vm, "drain")
 }
 
-// TIME_SCALE is Skyrim's default game seconds per real second. Game clocks run at it until the
-// game clock exists (the world hole in worldstate.odin).
-// (hole time-skip :tags world :sev gap :needs (game-clock)) a game-time skip (sleep, the Wait menu, fast travel, jail) must advance every game clock field by the skipped hours in one step; with no game clock there are no skips, so a WaitGameTime rewrite only ever advances at TimeScale.
-TIME_SCALE :: 20
-
-// advance_clocks moves every script clock field by one tick.
+// advance_clocks moves the game clock by one tick at TimeScale, then every script clock field by
+// the real and game time that passed. Returns the game hours. A new game or an old save starts the
+// clock from the globals.
 @(private = "file")
-advance_clocks :: proc(vm: ^VM, dt: f32) {
-	call_rt(vm, "advance", f64(dt), f64(dt) * TIME_SCALE / 3600)
+advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32) -> f64 {
+	g := script.global_value
+	if ws.clock.state == .Unset {
+		worldstate.start_clock(
+			ws,
+			g(db, ws, formid.GAME_YEAR),
+			g(db, ws, formid.GAME_MONTH),
+			g(db, ws, formid.GAME_DAY),
+			g(db, ws, formid.GAME_HOUR),
+			g(db, ws, formid.GAME_DAYS_PASSED),
+		)
+	}
+	hours := worldstate.advance_clock(ws, dt, g(db, ws, formid.TIMESCALE))
+	call_rt(vm, "advance", f64(dt), hours)
+	return hours
 }
 
 // call_rt calls skymod.rt[name] with number arguments and returns its result as an int.

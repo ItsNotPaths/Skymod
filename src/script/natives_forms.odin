@@ -5,9 +5,7 @@ package script
 
 import "../gamedb"
 import "../worldstate"
-
-// GAME_DAYS_PASSED is Skyrim.esm's GameDaysPassed global, which GetCurrentGameTime reads.
-GAME_DAYS_PASSED :: Form_ID(0x39)
+import "../formid"
 
 register_forms :: proc(reg: ^Registry) {
 	register(reg, "Form", "HasKeyword", n_has_keyword)
@@ -103,5 +101,5 @@ n_location_set_keyword_data :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_current_game_time :: proc(c: ^Call, args: []Value) -> Value {
-	return global_value(c, GAME_DAYS_PASSED)
+	return global_value(c.db, c.ws, formid.GAME_DAYS_PASSED)
 }

@@ -82,10 +82,11 @@ Saved_Created :: struct {
 	scale:   f32,
 }
 
-// Saved_Update is one form's OnUpdate registrations.
+// Saved_Update is one form's OnUpdate registrations, or its OnUpdateGameTime ones when `game`.
 Saved_Update :: struct {
 	form:   Form_ID,
 	timers: Update_Timers,
+	game:   bool,
 }
 
 Saved_Filter :: struct {
@@ -216,6 +217,7 @@ Save_Body :: struct {
 	effects:       []Saved_Effect,
 	next_effect:   u32,
 	player:        Player_State,
+	clock:         Game_Clock,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
 
@@ -317,10 +319,9 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			append(&rels, Saved_Rel{a = a, b = b, rank = rank})
 		}
 	}
-	updates := make([dynamic]Saved_Update, 0, len(ws.updates), context.temp_allocator)
-	for form, u in ws.updates {
-		append(&updates, Saved_Update{form, u})
-	}
+	updates := make([dynamic]Saved_Update, 0, len(ws.updates) + len(ws.game_updates), context.temp_allocator)
+	for form, u in ws.updates {append(&updates, Saved_Update{form, u, false})}
+	for form, u in ws.game_updates {append(&updates, Saved_Update{form, u, true})}
 	aliases := make([dynamic]Saved_Alias, 0, len(ws.aliases), context.temp_allocator)
 	for alias, form in ws.aliases {
 		append(&aliases, Saved_Alias{alias, form})
@@ -369,6 +370,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
 		player        = ws.player,
+		clock         = ws.clock,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
 	// remapped on load (reorder / cross-install). No bridge ⇒ same-install identity (empty table).
@@ -480,7 +482,8 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		append(list, c.form_id)
 	}
 	for u in body.updates {
-		if id, kok := rf(remap, have_remap, u.form); kok {ws.updates[id] = u.timers}
+		timers := &ws.game_updates if u.game else &ws.updates
+		if id, kok := rf(remap, have_remap, u.form); kok {timers[id] = u.timers}
 	}
 	for f in body.item_filters {
 		container, cok := rf(remap, have_remap, f.container)
@@ -587,6 +590,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		rel_upsert(ws, a)^[b] = r.rank
 	}
 	ws.player = body.player
+	ws.clock = body.clock
 	ws.player.cell, _ = rf(remap, have_remap, body.player.cell)
 	return m, true
 }

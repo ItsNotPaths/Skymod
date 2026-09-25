@@ -133,6 +133,7 @@ return C
 TICK_A_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("TickA", nil)
 C.__fn["onupdate"] = function(self) __a = (__a or 0) + 1 end
+C.__fn["onupdategametime"] = function(self) __g = (__g or 0) + 1 end
 return C
 `
 
@@ -280,8 +281,8 @@ test_send_runs_on_drain :: proc(t: ^testing.T) {
 
 	LEVER :: script.Form_ID(0x500)
 	testing.expect_value(t, slua.attach(&f.vm, LEVER, []esm.Script_Attach{{name = "Lever"}}, false), 1)
-	slua.send(&f.vm, LEVER, "OnActivate", script.PLAYER)
-	slua.send(&f.vm, script.Form_ID(0x999), "OnActivate", script.PLAYER)
+	slua.send(&f.vm, LEVER, "OnActivate", formid.PLAYER)
+	slua.send(&f.vm, script.Form_ID(0x999), "OnActivate", formid.PLAYER)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == nil)`), "nothing runs before the drain")
 
 	testing.expect_value(t, slua.drain(&f.vm), 1)
@@ -360,7 +361,7 @@ test_updates_fire_on_time :: proc(t: ^testing.T) {
 	}
 	ticks :: proc(f: ^Fixture, n: int) {
 		for _ in 0 ..< n {
-			slua.tick_updates(&f.vm, &f.ws, 1.0 / 60)
+			slua.tick_updates(&f.vm, &f.ws, 1.0 / 60, 0)
 			slua.drain(&f.vm)
 		}
 	}
@@ -391,6 +392,43 @@ test_updates_fire_on_time :: proc(t: ^testing.T) {
 	slua.attach(&f.vm, LATE, both, false)
 	ticks(&f, 1)
 	testing.expect(t, seen(&f, 4, 4), "delivered once the form has scripts")
+}
+
+// OnUpdateGameTime timers count game hours. After a skip a repeating one fires once, not once for
+// each interval it passed, then starts a full interval again (CK wiki, OnUpdateGameTime).
+@(test)
+test_game_time_updates :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_game_updates", {{"ticka.lua", TICK_A_LUA}})
+	defer fixture_destroy(&f)
+
+	FORM :: script.Form_ID(0x700)
+	slua.attach(&f.vm, FORM, []esm.Script_Attach{{name = "TickA"}}, false)
+	c := script.Call{self = FORM, ws = &f.ws, db = &f.db}
+	hours :: proc(f: ^Fixture, h: f64) {
+		slua.tick_updates(&f.vm, &f.ws, 0, h)
+		slua.drain(&f.vm)
+	}
+	seen :: proc(f: ^Fixture, n: int) -> bool {
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__g or 0) == `, fmt_int(n), `, tostring(__g))`}, context.temp_allocator))
+	}
+
+	script.call(&f.reg, "Form", "RegisterForUpdateGameTime", &c, {f32(1)})
+	hours(&f, 0.5)
+	testing.expect(t, seen(&f, 0), "nothing before an hour")
+	hours(&f, 0.5)
+	testing.expect(t, seen(&f, 1), "fires at an hour")
+	hours(&f, 24)
+	testing.expect(t, seen(&f, 2), "a 24-hour skip fires once")
+	hours(&f, 0.5)
+	testing.expect(t, seen(&f, 2), "a full interval after the skip")
+	hours(&f, 0.5)
+	testing.expect(t, seen(&f, 3), "then on time again")
+
+	script.call(&f.reg, "Form", "RegisterForSingleUpdate", &c, {f32(10)})
+	script.call(&f.reg, "Form", "UnregisterForUpdateGameTime", &c, nil)
+	testing.expect(t, FORM not_in f.ws.game_updates, "UnregisterForUpdateGameTime stops game time")
+	testing.expect(t, FORM in f.ws.updates, "and leaves OnUpdate alone")
 }
 
 @(private = "file")
@@ -486,16 +524,16 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 	quest(&f, "Start")
 	testing.expect_value(t, f.ws.aliases[forced], DOOR)
 	testing.expect_value(t, f.ws.aliases[external], DOOR)
-	slua.send(&f.vm, DOOR, "OnActivate", script.PLAYER)
+	slua.send(&f.vm, DOOR, "OnActivate", formid.PLAYER)
 	testing.expect(t, guard_saw(&f, "[ObjectReference 0x00000901];"), "the alias hears its ref's OnActivate")
 
-	worldstate.register_update(&f.ws, DOOR, 0, false)
-	slua.tick_updates(&f.vm, &f.ws, 1.0 / 60)
+	worldstate.register_update(&f.ws.updates, DOOR, 0, false)
+	slua.tick_updates(&f.vm, &f.ws, 1.0 / 60, 0)
 	testing.expect(t, guard_saw(&f, ""), "the ref's own OnUpdate is not the alias's")
 
 	quest(&f, "Stop")
 	testing.expect_value(t, len(f.ws.aliases), 0)
-	slua.send(&f.vm, DOOR, "OnActivate", script.PLAYER)
+	slua.send(&f.vm, DOOR, "OnActivate", formid.PLAYER)
 	testing.expect(t, guard_saw(&f, ""), "an empty alias hears nothing")
 
 	f.db.quest_baseline[QUEST] = {start_game_enabled = true, aliases = aliases}
