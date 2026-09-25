@@ -16,14 +16,18 @@ return function(C)
 		self:PlayAnimation(anim)
 	end
 
+	local function report_solution(self)
+		local m = self.mainScript
+		msg("Puzzle Solution: A = " .. tostring(m.lever01Solution) .. " B = " .. tostring(m.lever02Solution) .. " C = "
+			.. tostring(m.lever03Solution) .. " D = " .. tostring(m.lever04Solution) .. " E = " .. tostring(m.lever05Solution))
+	end
+
 	local function settle(self, state)
 		self.moving = M.Idle
 		msg("State to " .. state)
 		self.leverState = state
-		local m = self.mainScript
-		m:CheckSolution()
-		msg("Puzzle Solution: A = " .. tostring(m.lever01Solution) .. " B = " .. tostring(m.lever02Solution) .. " C = "
-			.. tostring(m.lever03Solution) .. " D = " .. tostring(m.lever04Solution) .. " E = " .. tostring(m.lever05Solution))
+		self.mainScript:CheckSolution()
+		report_solution(self)
 	end
 
 	function C:OnActivate(triggerRef)
@@ -36,6 +40,7 @@ return function(C)
 			play(self, M.To0a, "PullUp", "UnPulled")
 		else
 			self.mainScript:CheckSolution()
+			report_solution(self)
 		end
 	end
 

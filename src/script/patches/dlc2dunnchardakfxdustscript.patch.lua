@@ -11,6 +11,7 @@ return function(C)
 	C.__vars.dustBranch = rt.int(0)
 	C.__vars.dustT = rt.timer(0.0)
 	C.__vars.TickRate = rt.float(0.05)
+	local Running = rt.state(C, "Running") -- OnTick only while a low/high roll's extra step waits
 
 	function C:OnActivate(triggerRef)
 		if self.dustStage ~= Stage.Idle then return end -- a run happens once
@@ -19,6 +20,7 @@ return function(C)
 			self:PlayAnimation("PlayAnim01")
 			self.ambdustdropdebris:Play(self)
 			self.dustBranch, self.dustStage, self.dustT = 1, Stage.Step1, 0.3
+			self:GotoState("Running")
 		elseif r < 50 then
 			self:PlayAnimation("PlayAnim02")
 			self.ambdustdropdebris:Play(self)
@@ -26,10 +28,11 @@ return function(C)
 			self:PlayAnimation("PlayAnim01")
 			self.ambdustdropdebris:Play(self)
 			self.dustBranch, self.dustStage, self.dustT = 2, Stage.Step1, 0.5
+			self:GotoState("Running")
 		end
 	end
 
-	function C:OnTick()
+	function Running:OnTick()
 		if self.dustStage == Stage.Idle or self.dustT > 0 then return end
 		if self.dustStage == Stage.Step1 then
 			if self.dustBranch == 1 then
@@ -45,5 +48,6 @@ return function(C)
 			self.ambdustdropdebris:Play(self)
 			self.dustStage = Stage.Idle
 		end
+		if self.dustStage == Stage.Idle then self:GotoState("") end
 	end
 end

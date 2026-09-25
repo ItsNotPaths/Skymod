@@ -52,15 +52,13 @@ return function(C)
 				self.mtbpPoll = false
 				mtbp_move(self)
 				self.mtbpBusy = false
+			elseif self.mtbpWaitFor >= 30 then -- Papyrus waits out the 30th second before bailing
+				self.mtbpPoll = false -- bailed: ThingToMove stays put, as Papyrus's RETURN
+				self.mtbpBusy = false
 			else
 				self.mtbpWaitFor = self.mtbpWaitFor + 1
-				if self.mtbpWaitFor >= 30 then
-					self.mtbpPoll = false -- bailed: ThingToMove stays put, as Papyrus's RETURN
-					self.mtbpBusy = false
-				else
-					self.mtbpT = self.mtbpT + 1.0
-					return
-				end
+				self.mtbpT = self.mtbpT + 1.0
+				return
 			end
 		end
 		if self.raIndex < 0 or self.mtbpBusy then return end

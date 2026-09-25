@@ -31,6 +31,8 @@ return function(C)
 	v.effectOwed = rt.bool(false)      -- a stage spell the player gets when effectT runs out
 	v.effectSpell, v.effectMessage = rt.form("Spell"), rt.form("Message")
 	v.effectT = rt.timer(0.0)
+	v.diseaseQSpell, v.diseaseQEffect, v.diseaseQTarget = -- disease calls owed behind the one running
+		rt.array_of("Spell"), rt.array_of("ActiveMagicEffect"), rt.array_of("Actor")
 
 	local settle
 
@@ -125,12 +127,33 @@ return function(C)
 	-- Nothing runs beside a run now: a caller that must not overlap one waits on `locked`.
 	function C:WaitForUnlock() end
 
-	-- A second call during the dispel is dropped.
+	-- A call while one is already owed or running is queued, not dropped, and applied in order.
 	function C:HandleAttributeDiseaseApply(akDisease, akEffectToDispel, akTarget)
-		if self.disease > D.Owed then return end
-		self.diseaseSpell, self.diseaseEffect, self.diseaseTarget = akDisease, akEffectToDispel, akTarget
-		self.disease = D.Owed
-		settle(self)
+		if self.disease == D.Idle then
+			self.diseaseSpell, self.diseaseEffect, self.diseaseTarget = akDisease, akEffectToDispel, akTarget
+			self.disease = D.Owed
+			return settle(self)
+		end
+		if self.diseaseQSpell == rt.None then
+			self.diseaseQSpell = rt.array(0, "Spell")
+			self.diseaseQEffect = rt.array(0, "ActiveMagicEffect")
+			self.diseaseQTarget = rt.array(0, "Actor")
+		end
+		self.diseaseQSpell[#self.diseaseQSpell] = akDisease
+		self.diseaseQEffect[#self.diseaseQEffect] = akEffectToDispel
+		self.diseaseQTarget[#self.diseaseQTarget] = akTarget
+	end
+
+	-- pops the oldest owed disease into the active fields; false if none is waiting
+	local function next_disease(self)
+		local qs, qe, qt = self.diseaseQSpell, self.diseaseQEffect, self.diseaseQTarget
+		if qs == rt.None or #qs == 0 then return false end
+		self.diseaseSpell, self.diseaseEffect, self.diseaseTarget = qs[0], qe[0], qt[0]
+		for j = 0, #qs - 2 do
+			qs[j], qe[j], qt[j] = qs[j + 1], qe[j + 1], qt[j + 1]
+		end
+		qs[#qs - 1], qe[#qe - 1], qt[#qt - 1] = nil, nil, nil
+		return true
 	end
 
 	local function disease_tick(self)
@@ -145,6 +168,7 @@ return function(C)
 		self.diseaseTarget:AddSpell(self.diseaseSpell, false)
 		self:UpdateAttributePenalty(self.NeedValue:GetValue())
 		self.locked = false
+		if next_disease(self) then self.disease = D.Owed end
 		settle(self)
 	end
 

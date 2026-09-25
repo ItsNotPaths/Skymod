@@ -84,11 +84,11 @@ return function(C)
 	local function replay_tick(self)
 		if self.replay == -1 then return end
 		if self.replay == 0 then
-			if not crest(self) or not self.DLC1LD:IsRunning() or self.replay_sw > 25.25 then
+			if self.replay_sw > 25.25 then -- only the timeout aborts; the wait's own end falls through
 				self.replay = -1
 				return
 			end
-			if not crest(self):Is3DLoaded() then return end
+			if crest(self) and self.DLC1LD:IsRunning() and not crest(self):Is3DLoaded() then return end
 		elseif crest(self):IsAnimRunning(REPLAY[self.replay - 1][1]) then
 			return
 		end

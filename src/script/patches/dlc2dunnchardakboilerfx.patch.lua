@@ -13,12 +13,14 @@ return function(C)
 	C.__vars.boiler_t = rt.timer(0.0)
 	C.__vars.light_at = rt.int(0)
 	C.__vars.TickRate = rt.float(0.05)
+	local Running = rt.state(C, "Running") -- OnTick only while a start/stop run is under way
 
 	local function light(self, n) return self:GetLinkedRef(self["LinkCustom0" .. n]) end
 
 	function C:StartBoiler()
 		if self.boiler ~= B.Idle then return end
 		self.boiler = B.Starting
+		self:GotoState("Running")
 		self:RegisterForAnimationEvent(self, "ToLoop")
 		self:PlayAnimation("Start")
 	end
@@ -26,6 +28,7 @@ return function(C)
 	function C:StopBoiler()
 		if self.boiler ~= B.Idle then return end
 		self.boiler = B.Stopping
+		self:GotoState("Running")
 		self:RegisterForAnimationEvent(self, "ToStopped")
 		self:PlayAnimation("Stop")
 	end
@@ -48,7 +51,7 @@ return function(C)
 		self:OnTick()
 	end
 
-	function C:OnTick()
+	function Running:OnTick()
 		if (self.boiler ~= B.Lighting and self.boiler ~= B.Dimming) or self.boiler_t > 0 then return end
 		local l = light(self, self.light_at)
 		if self.boiler == B.Lighting then l:EnableNoWait(true) else l:DisableNoWait(true) end
@@ -59,5 +62,6 @@ return function(C)
 		end
 		self.boiler = B.Idle
 		self:CheckBoilerState()
+		if self.boiler == B.Idle then self:GotoState("") end
 	end
 end

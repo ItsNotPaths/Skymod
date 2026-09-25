@@ -25,7 +25,7 @@ return function(C)
 		if self.chop == Chop.Idle or self.chopClock > 0 then return end
 		if self.chop == Chop.Settling then
 			local ok1 = self.executioneeactor:AddDependentAnimatedObjectReference(self.executioneractor)
-			local ok2 = self.executioneeactor:AddDependentAnimatedObjectReference(self.executionguardactor)
+			local ok2 = ok1 and self.executioneeactor:AddDependentAnimatedObjectReference(self.executionguardactor)
 			if not ok1 or not ok2 then rt.static("Debug", "Notification", "dependence broken.") end
 			local victim = rt.cast(self.executioneeactor, "actor")
 			local executioner = rt.cast(self.executioneractor, "actor")

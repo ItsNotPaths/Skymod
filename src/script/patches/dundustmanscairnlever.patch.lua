@@ -48,7 +48,8 @@ return function(C)
 
 	function Busy:OnTick()
 		if self.pull ~= P.ShiftingBack then return end
-		if rt.cast(self.DLC1PlayerVampireQuest, "DLC1PlayerVampireChangeScript").back.name ~= "Idle" then return end
+		-- only the first lever calls ShiftBack; the second never waits on the shared quest's back field
+		if not self.secondLever and rt.cast(self.DLC1PlayerVampireQuest, "DLC1PlayerVampireChangeScript").back.name ~= "Idle" then return end
 		self.pull = P.Pushing
 		self:RegisterForAnimationEvent(self, "FullPushedUp")
 		self:PlayAnimation("FullPush")

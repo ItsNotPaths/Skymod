@@ -14,6 +14,10 @@ return function(C)
 
 	function C:OnUnload()
 		self.breakloop = true
+		if self:GetState() == "Switching" then -- Papyrus always started the scene before honouring breakLoop
+			self.ScenetoStart:Start()
+			trace(self, "unloaded mid-switch, ScenetoStart started")
+		end
 		self:GotoState("")
 		trace(self, "unloaded, loop stops")
 	end

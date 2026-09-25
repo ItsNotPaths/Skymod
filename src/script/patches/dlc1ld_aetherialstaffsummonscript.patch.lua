@@ -7,6 +7,7 @@ return function(C)
 	C.Stage = rt.sequence("Idle", "Placed", "WaitDead", "Done")
 	C.__vars.stage = C.Stage.Idle
 	C.__vars.t = rt.timer(0.0)
+	C.__vars.TickRate = rt.float(0.1)
 
 	local function finish(self)
 		self.stage = C.Stage.Done

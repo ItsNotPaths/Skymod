@@ -47,6 +47,23 @@ return function(C)
 		self:GetLinkedRef():PlayAnimation(self.ANIM_FIRE)
 	end
 
+	function C:Reload(akActivator)
+		if akActivator ~= self.PlayerRef then return end
+		if self.CatapultMonitor:GetStage() ~= self.ALLOW_INTERACT_STAGE then return end
+		if self.currentCatapultState ~= self.STATE_FIRED then return end
+		if self.PlayerRef:GetItemCount(self.FlamingPot) > 0 then
+			self.PlayerRef:RemoveItem(self.FlamingPot, 1)
+			self:GotoState("Busy") -- until SetLoadedState runs on the "reloaded" event
+			self:SetReloadingState()
+		else
+			self.noPotErrorMessage:Show()
+			if not self.CatapultMonitor:IsObjectiveDisplayed(self.noPotObjective) or self.CatapultMonitor:IsObjectiveCompleted(self.noPotObjective) then
+				self.CatapultMonitor:SetObjectiveCompleted(self.noPotObjective, false)
+				self.CatapultMonitor:SetObjectiveDisplayed(self.noPotObjective, true)
+			end
+		end
+	end
+
 	function C:Fire(akActivator)
 		if akActivator ~= self.PlayerRef then return end
 		if self.CatapultMonitor:GetStage() ~= self.ALLOW_INTERACT_STAGE then return end
@@ -60,6 +77,7 @@ return function(C)
 		if akSource ~= catapult then return end
 		if asEventName == self.ANIM_EVENT_RELOADED and self.currentCatapultState == self.STATE_RELOADING then
 			self:SetLoadedState()
+			self:GotoState("")
 		elseif asEventName == self.ANIM_EVENT_LAUNCH and self:GetState() == "Busy" and not self.hitOwed then
 			if self.currentCatapultState ~= self.STATE_FIRING then return self:GotoState("") end -- disabled mid-fire
 			self.CatapultVolley:Cast(catapult, catapult:GetLinkedRef())

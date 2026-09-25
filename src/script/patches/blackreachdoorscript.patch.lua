@@ -21,6 +21,7 @@ return function(C)
 		self:RegisterForAnimationEvent(self, self.openEvent)
 		self:PlayAnimation(self.openAnim)
 	end
+	rt.params(C, "SetOpen", { { "abOpen", true } })
 
 	function Busy:OnAnimationEvent(akSource, asEventName)
 		if akSource == self and asEventName == self.openEvent then opened(self) end

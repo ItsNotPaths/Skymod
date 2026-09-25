@@ -8,6 +8,7 @@ return function(C)
 	local split_tick = C.__fn.ontick
 	C.__vars.goAwayPending = rt.bool(false)
 	C.__vars.crossfadeT = rt.timer(rt.None) -- None: no crossfade wait pending
+	C.__vars.TickRate = rt.float(0.5)
 
 	function C:GoAway()
 		if self.goAwayPending or self.crossfadeT ~= rt.None then return end -- a second start is dropped

@@ -23,6 +23,7 @@ return function(C)
 	C.__vars.list_phase = rt.int(0)       -- the phase whose bases the running summon places
 	C.__vars.single = rt.bool(false)      -- a direct Summon call: one actor, no second index
 	C.__vars.from_update = rt.bool(false) -- the run came from OnUpdate, which re-registers at its end
+	C.__vars.TickRate = rt.float(0.1)
 	local Busy = rt.state(C, "Busy")
 
 	-- phase -> the bases to summon, by marker index

@@ -232,7 +232,7 @@ return function(C)
 			self.HermaeusMoraTA:Enable()
 			scene:Start()
 			self.intro = I.Playing
-			self.intro_t = 1.0
+			self.intro_t = 0.0 -- Papyrus checks IsPlaying before the first wait
 			return
 		end
 		if scene:IsPlaying() then

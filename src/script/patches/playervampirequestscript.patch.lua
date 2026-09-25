@@ -77,8 +77,8 @@ return function(C)
 	-- A call during a fade changes the stage that fade ends on.
 	function C:VampireProgression(Player, VampireStage)
 		self.prog_player, self.prog_want = Player, VampireStage
+		if VampireStage == 1 then return swap_spells(self, Player, 1) end -- no wait; runs even mid-fade
 		if self.prog ~= P.Idle then return end
-		if VampireStage == 1 then return swap_spells(self, Player, 1) end
 		if VampireStage < 2 or VampireStage > 4 then return end
 		self.prog = P.Fading
 		self.prog_t = 2.0

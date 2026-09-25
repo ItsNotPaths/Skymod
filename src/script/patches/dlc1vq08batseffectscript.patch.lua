@@ -11,6 +11,7 @@ return function(C)
 	C.__vars.bats = B.Idle
 	C.__vars.bats_sw = rt.stopwatch(0.0)
 	C.__vars.stop_t = rt.timer(rt.None)
+	C.__vars.TickRate = rt.float(0.1)
 	local split_tick = C.__fn.ontick
 	local function pairs_of(self) return { { self.MyBatsFXObjectRef, self.CasterActor } } end
 	local function clear(self) self.MyBatsFXObjectRef = rt.None end

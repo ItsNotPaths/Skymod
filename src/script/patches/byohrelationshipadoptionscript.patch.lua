@@ -299,9 +299,8 @@ return function(C)
 		if cwHandler:IsRunning() and not cw:IsRunning() then cwHandler:Stop() end
 
 		if self.moveQueued and self:FamilyAwayFrom(newLoc, oldLoc) then
-			local wasIdle = self.move == Move.Idle
 			self:MoveFamily()
-			if wasIdle and self.move ~= Move.Idle then
+			if self.move ~= Move.Idle then -- a move already under way also owes the welcome-home check
 				self.welcomePending, self.welcomeNewLoc, self.welcomeOldLoc = true, newLoc, oldLoc
 				T("PlayerLocationChanged: welcome-home check waits for the move")
 				return

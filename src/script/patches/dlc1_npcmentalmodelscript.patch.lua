@@ -16,9 +16,11 @@ return function(C)
 		if self.CanBeDismissed then
 			self:DisengageFollowBehavior()
 			self:Dismiss()
+			self.packageOwed = true
+			self:OnTick()
+		else
+			self.RNPC:GetActorReference():EvaluatePackage() -- no dismissal started, so no wait either
 		end
-		self.packageOwed = true
-		self:OnTick()
 	end
 
 	function C:OnTick()

@@ -30,9 +30,10 @@ return function(C)
 	end
 
 	function C:Fragment_15()
-		if self:GetState() == "Swapping" then return end
+		-- the objective update runs even if Fragment_7's dismissal is still in flight
 		if self:IsObjectiveDisplayed(10) then self:SetObjectiveCompleted(10) end
 		self:SetObjectiveDisplayed(15)
+		if self:GetState() == "Swapping" then return end
 		if self:GetStageDone(10) then
 			if not cr13(self).IsAccepted then accept(self) end
 			return

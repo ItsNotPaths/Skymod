@@ -39,10 +39,10 @@ return function(C)
 	end
 
 	function C:OnTick()
-		if self.frag1 == Frag1.Chain then
+		if self.frag1 == Frag1.Chain and self.frag1T <= 0 then
 			if self.frag1cur == rt.None then
 				self.frag1, self.frag1T = Frag1.Settle, 2.0
-			elseif self.frag1T <= 0 then
+			else
 				rt.cast(self.frag1cur, "dlc2dunkarstaagbonefxscript"):TriggerBones()
 				self.frag1cur = self.frag1cur:GetLinkedRef()
 				self.frag1T = self.frag1T + 0.1

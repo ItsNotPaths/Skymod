@@ -5,13 +5,14 @@
 -- normal one. Both waits are now stages of one busy-state OnTick.
 local rt = require('skymod.rt')
 
-local S = rt.sequence("SigilFind", "SigilSpawnWait", "PostSigil", "NormalFind", "NormalSpawnWait", "Finish")
+local S = rt.sequence("SigilFind", "SigilSpawnWait", "PostSigil", "NormalFind", "NormalSpawnWait", "Finish", "AdhocSpawnWait")
 
 return function(C)
     C.__vars.stage = S.SigilFind
     C.__vars.t = rt.timer(0.0)
     C.__vars.foundIdx = rt.int(0)
     C.__vars.daedricCrafted = rt.bool(false)
+    C.__vars.adhocResults = rt.form("Formlist") -- the Results list a direct ScanForRecipes call spawns from
     C.__vars.TickRate = rt.float(0.05)
 
     -- the loop over Recipes has no wait in it: it runs to completion in one call. -1 is "not found"
@@ -47,6 +48,19 @@ return function(C)
         self.LastSummonedObject = newRef
         local newActor = rt.cast(newRef, "actor")
         if newActor ~= rt.cast(rt.None, "actor") then newActor:StartCombat(rt.static("Game", "GetPlayer")) end
+    end
+
+    -- Papyrus's ScanForRecipes is a public function of its own, not just OnActivate's helper.
+    -- A direct call (a mod, or a custom recipe list) starts the same kind of busy run.
+    function C:ScanForRecipes(Recipes, Results)
+        if self:GetState() == "busy" then return false end -- a run happens once
+        local idx = find_recipe(self, Recipes)
+        if idx < 0 then return false end
+        self:GotoState("busy")
+        self.foundIdx, self.adhocResults = idx, Results
+        spawn_start(self)
+        self.t, self.stage = 0.33, S.AdhocSpawnWait
+        return true
     end
 
     local Ready = rt.state(C, "ready")
@@ -106,6 +120,11 @@ return function(C)
             self.stage = S.Finish
         end
         if self.stage == S.Finish then
+            self:GotoState("ready")
+        end
+        if self.stage == S.AdhocSpawnWait then
+            spawn_finish(self, self.adhocResults, self.foundIdx)
+            self.stage = S.Finish
             self:GotoState("ready")
         end
     end

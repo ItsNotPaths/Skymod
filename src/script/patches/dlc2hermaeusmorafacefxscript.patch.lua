@@ -42,8 +42,7 @@ return function(C)
 				face:Enable()
 				self.hmPhase = P.Polling
 				self.hmCount = 0
-				self.hmT = self.hmT + rt.static("Utility", "RandomFloat", 0.2, 0.5)
-				return
+				self.hmT = 0.0 -- Papyrus checks Is3DLoaded before the first poll wait
 			else -- Polling
 				if self.hmT > 0 then return end
 				if face:Is3DLoaded() or self.hmCount >= self.iMaxCount then

@@ -13,6 +13,7 @@ return function(C)
 	local function quest(self) return rt.cast(self.MG02, "mg02questscript") end
 
 	function C:OnTriggerEnter(ActionRef)
+		if self.stage ~= C.Stage.Idle then return end -- a run under way drops a re-entry
 		if ActionRef ~= self.MG02Tolfdir:GetReference() then return end
 		local QuestScript = quest(self)
 		if QuestScript.TolfdirUpdate == 1 then QuestScript.TolfdirUpdate = 2 end

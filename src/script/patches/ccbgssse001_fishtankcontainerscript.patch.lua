@@ -17,6 +17,9 @@ return function(C)
 	C.__vars.slot1settled = rt.bool(false)
 	C.__vars.slot2settled = rt.bool(false)
 	C.__vars.slot3settled = rt.bool(false)
+	C.__vars.adhocT = rt.timer(nil) -- a direct UpdateSingleFish call: not one of the three named slots
+	C.__vars.adhocSettled = rt.bool(false)
+	C.__vars.adhocRef = rt.form("ObjectReference")
 
 	local function start_slot(self, n)
 		local s = string.format("%02d", n)
@@ -40,6 +43,22 @@ return function(C)
 	local function slot_busy(self, n)
 		local s = string.format("%02d", n)
 		return self["placedfishref" .. s] and not self["slot" .. n .. "settled"]
+	end
+
+	-- Papyrus's UpdateSingleFish is a public function of its own, not just UpdateFish's helper.
+	-- A direct call (a mod) places and settles its fish the same non-blocking way.
+	function C:UpdateSingleFish(targetFish, placedFishRef, targetMarker)
+		if placedFishRef then
+			placedFishRef:StopPathing()
+			placedFishRef:Disable()
+			placedFishRef:Delete()
+		end
+		if not targetFish then return rt.None end
+		local placed = targetMarker:PlaceAtMe(targetFish)
+		placed:StartPathing(targetMarker)
+		self.adhocRef, self.adhocSettled, self.adhocT = placed, false, nil
+		if self:GetState() ~= "UpdatingFish" then self:GotoState("UpdatingFish") end
+		return placed
 	end
 
 	function C:UpdateFish()
@@ -85,7 +104,19 @@ return function(C)
 				end
 			end
 		end
-		if not (slot_busy(self, 1) or slot_busy(self, 2) or slot_busy(self, 3)) then
+		if self.adhocRef and not self.adhocSettled then
+			local t = self.adhocT
+			if t == nil then
+				if self.adhocRef:Is3DLoaded() then
+					self.adhocRef:SetScale(0.75)
+					self.adhocT = rt.static("Utility", "RandomFloat", 0.0, 0.3)
+				end
+			elseif t <= 0 then
+				self.adhocSettled = true
+			end
+		end
+		if not (slot_busy(self, 1) or slot_busy(self, 2) or slot_busy(self, 3))
+			and not (self.adhocRef and not self.adhocSettled) then
 			self:GotoState("")
 		end
 	end

@@ -35,10 +35,12 @@ return function(C)
 	C.__vars.pendingActivate = rt.bool(false)
 	C.__vars.loopT = rt.timer(0.0)
 	C.__vars.TickRate = rt.float(0.05)
+	local Running = rt.state(C, "Running") -- OnTick only while the loop is actually running
 
 	function C:UpdateBattle()
 		if self.busy then return end -- a run happens once
 		self.busy, self.spawnT, self.pendingActivate = true, 0.0, false
+		self:GotoState("Running")
 		tick_battle(self) -- Papyrus's while checks its condition at once, no wait first
 	end
 
@@ -48,16 +50,22 @@ return function(C)
 
 	function C:UpdateLoop()
 		self.loopT = 0.0
-		self:OnTick() -- Papyrus checks isActive && !breakLoop and calls RunUpdate() at once
+		if self.isactive and not self.breakloop then
+			self:GotoState("Running")
+			self:OnTick() -- Papyrus checks isActive && !breakLoop and calls RunUpdate() at once
+		else
+			self.breakloop = false
+		end
 	end
 
-	function C:OnTick()
+	function Running:OnTick()
 		if self.busy then return tick_battle(self) end
 		if self.isactive and not self.breakloop then
 			if self.loopT > 0 then return end
 			self:RunUpdate()
 		else
 			self.breakloop = false
+			self:GotoState("")
 		end
 	end
 end

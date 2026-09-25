@@ -29,18 +29,21 @@ return function(C)
 		end
 		self.isFiring = false
 		local mt = self.MovementType
+		local function begin_lowering(anim)
+			self.run = R.Lowering
+			self:RegisterForAnimationEvent(self, self.lower_event) -- register before playing
+			self:PlayAnimation(anim)
+		end
 		if mt >= 0 and mt < 3 then
 			self.lower_event = "reset"
-			self:PlayAnimation("TriggerDown01")
+			return begin_lowering("TriggerDown01")
 		elseif mt == 3 then
 			self.lower_event = "TransStartUp"
-			self:PlayAnimation("TriggerEndUp")
+			return begin_lowering("TriggerEndUp")
 		else
 			self.run = R.Idle
 			return self:GotoState("Reset")
 		end
-		self.run = R.Lowering
-		self:RegisterForAnimationEvent(self, self.lower_event)
 	end
 
 	function C:fireTrap()

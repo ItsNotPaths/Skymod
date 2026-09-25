@@ -10,6 +10,7 @@ return function(C)
 	local Busy = rt.state(C, "busy")
 
 	function C:RotatePillarToState(stateNumber, animEventNumber)
+		if self:GetState() == "busy" then return end -- a run happens once
 		self:GotoState("busy")
 		if stateNumber == self.solution1 then
 			self.pillarState = 1

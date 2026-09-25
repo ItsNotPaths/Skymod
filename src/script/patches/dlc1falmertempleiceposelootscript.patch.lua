@@ -72,6 +72,7 @@ return function(C)
 	end
 
 	function C:TryToSpawnActors()
+		if self.checkStage.name ~= "Idle" then return end -- a double-check pass is still running
 		self:GotoState("Spawning")
 		spawnFrom(self, 1)
 	end
@@ -87,7 +88,8 @@ return function(C)
 	end
 
 	function C:OnActivate(triggerRef)
-		if self.beensimmed then return end -- also drops a second activation while spawning
+		-- also drops a second activation while spawning, or while a double-check pass is still running
+		if self.beensimmed or self.checkStage.name ~= "Idle" then return end
 		self:Disable()
 		if self:GetLinkedRef() then
 			self.activator = triggerRef

@@ -15,6 +15,7 @@ return function(C)
 	C.__vars.TickRate = rt.float(0.1)
 
 	function C:DoTheDamage()
+		if self.bdoingdamage then return end -- a run happens once; OnTick carries it on
 		if not self.bdodamage then
 			self.bdoingdamage = false
 			return

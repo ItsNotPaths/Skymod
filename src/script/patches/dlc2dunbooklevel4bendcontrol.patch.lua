@@ -11,7 +11,11 @@ return function(C)
 	local ANIM = { [1] = "Right", [2] = "Left", [3] = "Reset" }
 
 	function C:bend(myBend)
-		if myBend ~= 0 then return self:PlayAnimation(ANIM[myBend] or "") end
+		if myBend ~= 0 then
+			local anim = ANIM[myBend]
+			if anim then self:PlayAnimation(anim) end
+			return
+		end
 		if self.starting or self.Bending then return end -- a run happens once
 		self.starting = true
 		self:RegisterForAnimationEvent(self, "done")

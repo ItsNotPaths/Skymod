@@ -17,7 +17,9 @@ return function(C)
 	C.__vars.toggleIdx = rt.int(IDLE) -- the chain link currently unwinding
 	C.__vars.toggleT = rt.timer(0.0)
 	C.__vars.gotoInactiveAfterToggle = rt.bool(false)
+	C.__vars.priorState = rt.string("") -- restored once the unwind finishes, unless heading to "inactive"
 	local Waiting = rt.state(C, "waiting")
+	local Unwinding = rt.state(C, "unwinding") -- OnTick only while a chain is actually unwinding
 
 	local function make_slots(self)
 		if self.toggleObj then return end
@@ -39,10 +41,12 @@ return function(C)
 		end
 		self.toggleIdx = n - 1
 		self.toggleT = (n > 0 and self.toggleWasDisabled[n - 1]) and 0.01 or 0.0
+		self.priorState = self:GetState()
+		self:GotoState("unwinding")
 		self:OnTick()
 	end
 
-	function C:OnTick()
+	function Unwinding:OnTick()
 		while self.toggleIdx >= 0 and self.toggleT <= 0 do
 			local i = self.toggleIdx
 			if self.toggleWasDisabled[i] then
@@ -51,9 +55,13 @@ return function(C)
 			self.toggleIdx = i - 1
 			self.toggleT = (self.toggleIdx >= 0 and self.toggleWasDisabled[self.toggleIdx]) and 0.01 or 0.0
 		end
-		if self.toggleIdx < 0 and self.gotoInactiveAfterToggle then
-			self.gotoInactiveAfterToggle = false
-			self:GotoState("inactive")
+		if self.toggleIdx < 0 then
+			if self.gotoInactiveAfterToggle then
+				self.gotoInactiveAfterToggle = false
+				self:GotoState("inactive")
+			else
+				self:GotoState(self.priorState)
+			end
 		end
 	end
 

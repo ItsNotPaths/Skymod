@@ -80,18 +80,17 @@ return function(C)
 			return
 		end
 		local countRefs = self:countLinkedRefChain(rt.None, 100) - 1
-		if self.fireIdx > countRefs then
-			self.step = C.Step.Cycling
-			self.cycleT = self.cycleCountDown
-			return
+		while self.fireIdx <= countRefs do
+			local child = self:GetNthLinkedRef(self.fireIdx)
+			if not self.fireSetup then setup_child(self, child) end
+			if self.fireT > 0 then return end -- only a real per-child wait stops the pass
+			if self.fireValid then
+				self.WeaponToFire:fire(child, self.AmmoToFire)
+			end
+			self.fireIdx = self.fireIdx + 1
+			self.fireSetup = false
 		end
-		local child = self:GetNthLinkedRef(self.fireIdx)
-		if not self.fireSetup then setup_child(self, child) end
-		if self.fireT > 0 then return end
-		if self.fireValid then
-			self.WeaponToFire:fire(child, self.AmmoToFire)
-		end
-		self.fireIdx = self.fireIdx + 1
-		self.fireSetup = false
+		self.step = C.Step.Cycling
+		self.cycleT = self.cycleCountDown
 	end
 end

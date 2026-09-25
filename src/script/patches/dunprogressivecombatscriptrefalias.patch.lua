@@ -31,6 +31,15 @@ return function(C)
 		self.burstT = 0.0
 	end
 
+	-- Papyrus's UpdateBattle is a public function of its own, not just RunUpdate's helper.
+	-- A direct call (a mod) starts the same burst, drained by _pcsBurstTick.
+	function C:UpdateBattle()
+		if self.busy then return true end -- a burst already runs
+		self.busy = true
+		self.burstT = 0.0
+		return true
+	end
+
 	function C:ActivateAndKillAllEnemies()
 		if self.killing then return end -- a second start during a run is dropped
 		self.killing = true

@@ -10,6 +10,7 @@ return function(C)
 	C.__vars.hit = S.Idle
 	C.__vars.hit_t = rt.timer(0.0)
 	C.__vars.reset_t = rt.gametimer(0.0)
+	C.__vars.TickRate = rt.float(0.1)
 	local split_tick = C.__fn.ontick
 
 	local function show(self, r)

@@ -7,11 +7,12 @@ local rt = require('skymod.rt')
 return function(C)
 	C.__vars.openT = rt.timer(rt.None)
 	C.__vars.quickOpen = rt.bool(false)
+	C.__vars.TickRate = rt.float(0.1)
 
 	local function player() return rt.static("Game", "GetPlayer") end
 
 	function C:OpenPortal(triggerRef, abOpen, abQuickOpen)
-		if self:GetState() == "busy" then return end -- a call while busy is dropped
+		if self:GetState() == "busy" then return end -- dropped, not queued: Papyrus's own call also gets stuck busy here
 		self:GotoState("busy")
 		if abOpen and (not self.isOpen or abQuickOpen) then
 			self.myStaff:Enable()

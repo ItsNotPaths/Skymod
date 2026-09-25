@@ -101,26 +101,46 @@ local stream_steps = {
 }
 
 -- ── TG08EnableLinkChain: the walk is immediate; only the wait for the last link is not ──
+-- Four targets (Source/Intact/Splash/Sub) can each have a chain enable in flight at once, so each
+-- gets its own chain/chainWait/chainTop/chainLast fields, keyed by this suffix.
 
-local chain_steps = {
-    [Chain.Waiting] = function(self)
-        if not self.chainLast:IsEnabled() and self.TG08EnableLinkChainTimer >= 0 then
-            self.chainWait = 0.3
-            return nil
-        end
-        if self.chainTop == self.Splash then
-            self.initialTranslationComplete = true
-            self:TG08MatchTranslateLinkChain(self.chainTop)
-        end
-        return Chain.Idle
-    end,
-}
+local CHAIN_SUFFIXES = { "Source", "Intact", "Splash", "Sub" }
+local CHAIN_TARGET_PROP = { Source = "SourcePipe", Intact = "IntactPipe", Splash = "Splash", Sub = "SubmergedEffect" }
+
+local function make_chain_steps(suffix)
+    return {
+        [Chain.Waiting] = function(self)
+            local last, top = self["chainLast" .. suffix], self["chainTop" .. suffix]
+            if not last:IsEnabled() and self.TG08EnableLinkChainTimer >= 0 then
+                self["chainWait" .. suffix] = 0.3
+                return nil
+            end
+            if top == self.Splash then
+                self.initialTranslationComplete = true
+                self:TG08MatchTranslateLinkChain(top)
+            end
+            return Chain.Idle
+        end,
+    }
+end
+
+local chain_steps_by_suffix = {}
+for _, suffix in ipairs(CHAIN_SUFFIXES) do
+    chain_steps_by_suffix[suffix] = make_chain_steps(suffix)
+end
+
+local function chain_suffix_of(self, link)
+    for _, suffix in ipairs(CHAIN_SUFFIXES) do
+        if link == self[CHAIN_TARGET_PROP[suffix]] then return suffix end
+    end
+    return CHAIN_SUFFIXES[0] -- every call site passes one of the four; unreachable otherwise
+end
 
 -- ── intact OnBeginState: only the enable-chain call blocks the two disables after it ──
 
 local intact_steps = {
     [Intact.AwaitChain] = function(self)
-        if self.chain ~= Chain.Idle or self.match ~= Match.Idle then return nil end
+        if self.chainIntact ~= Chain.Idle or self.match ~= Match.Idle then return nil end
         return Intact.Tail
     end,
     [Intact.Tail] = function(self)
@@ -140,7 +160,7 @@ local intact_steps = {
 
 local broken_steps = {
     [Broken.AwaitSource] = function(self)
-        if self.chain ~= Chain.Idle or self.match ~= Match.Idle then return nil end
+        if self.chainSource ~= Chain.Idle or self.match ~= Match.Idle then return nil end
         if not self.IntactPipeON then return Broken.StartStream end
         self.IntactPipeON = false
         self.IntactPipe:PlaceAtMe(self.TG08PipeExplosion, 1, false, false)
@@ -170,7 +190,7 @@ local broken_steps = {
         return Broken.AwaitSplash
     end,
     [Broken.AwaitSplash] = function(self)
-        if self.chain ~= Chain.Idle or self.match ~= Match.Idle then return nil end
+        if self.chainSplash ~= Chain.Idle or self.match ~= Match.Idle then return nil end
         self.brokenWait = 0.1
         return Broken.Tail
     end,
@@ -184,8 +204,10 @@ return function(C)
     V["::tg08matchtranslatelinkchaintimer_var"] = rt.timer(0.0)
     V["::tg08enablewaterstreamtimer_var"] = rt.timer(0.0)
 
-    V.chain, V.chainWait = Chain.Idle, rt.timer(0.0)
-    V.chainTop, V.chainLast = rt.form("ObjectReference"), rt.form("ObjectReference")
+    for _, suffix in ipairs(CHAIN_SUFFIXES) do
+        V["chain" .. suffix], V["chainWait" .. suffix] = Chain.Idle, rt.timer(0.0)
+        V["chainTop" .. suffix], V["chainLast" .. suffix] = rt.form("ObjectReference"), rt.form("ObjectReference")
+    end
     V.match, V.matchWait = Match.Idle, rt.timer(0.0)
     V.matchLink, V.matchPos = rt.form("ObjectReference"), rt.vec3()
     V.stream, V.streamLink, V.streamZ = Stream.Idle, rt.form("ObjectReference"), rt.float(0.0)
@@ -202,11 +224,12 @@ return function(C)
             last = link
             link = link:GetLinkedRef()
         end
-        if self.chain ~= Chain.Idle then return end -- one already waits; the walk above still ran
-        self.chainTop, self.chainLast = top, last
+        local suffix = chain_suffix_of(self, top)
+        if self["chain" .. suffix] ~= Chain.Idle then return end -- this target's own chain already waits
+        self["chainTop" .. suffix], self["chainLast" .. suffix] = top, last
         self.TG08EnableLinkChainTimer = 5.0
-        self.chain, self.chainWait = Chain.Waiting, 0.0
-        run(self, "chain", "chainWait", chain_steps)
+        self["chain" .. suffix], self["chainWait" .. suffix] = Chain.Waiting, 0.0
+        run(self, "chain" .. suffix, "chainWait" .. suffix, chain_steps_by_suffix[suffix])
     end
 
     function C:TG08MatchTranslateLinkChain(link)
@@ -290,7 +313,9 @@ return function(C)
         run(self, "streamMatch", "streamMatchWait", stream_match_steps)
         run(self, "match", "matchWait", match_steps)
         run(self, "stream", nil, stream_steps)
-        run(self, "chain", "chainWait", chain_steps)
+        for _, suffix in ipairs(CHAIN_SUFFIXES) do
+            run(self, "chain" .. suffix, "chainWait" .. suffix, chain_steps_by_suffix[suffix])
+        end
         run(self, "broken", "brokenWait", broken_steps)
         run(self, "intactStage", nil, intact_steps)
         if self.syncStream and self.match == Match.Idle then

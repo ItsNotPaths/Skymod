@@ -16,6 +16,7 @@ return function(C)
 	C.__vars.sail_t = rt.timer(0.0)
 	C.__vars.speaker = rt.form("Actor")
 	C.__vars.cost = rt.int(1)
+	C.__vars.TickRate = rt.float(0.1)
 	local split_tick = C.__fn.ontick
 
 	local function player() return rt.static("Game", "GetPlayer") end

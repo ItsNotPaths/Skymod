@@ -28,7 +28,7 @@ return function(C)
 		if self.shotCount <= 0 or self.shotFired or not self.isLoaded then return finish(self) end
 		local me = self.form
 		if self.fireAllShots then
-			self.volley = "All"
+			self.volley, self.fire = "All", S.Firing -- set before firing: re-entry after a budget cut sees a run under way
 			self:PlayAnimation("TriggerAll")
 			self.ballistaWeaponM:Fire(me, self.ballistaAmmo)
 			self.ballistaWeaponL:Fire(me, self.ballistaAmmo)
@@ -37,13 +37,12 @@ return function(C)
 		else
 			local n = 4 - self.shotCount -- 3 shots: arm 01, 2: 02, 1: 03
 			if n < 1 or n > 3 then return finish(self) end
-			self.volley = "0" .. n
+			self.volley, self.fire = "0" .. n, S.Firing
 			self:PlayAnimation("Trigger0" .. n)
 			self[({ "ballistaWeaponM", "ballistaWeaponL", "ballistaWeaponR" })[n - 1]]:Fire(me, self.ballistaAmmo)
 			self.shotCount = self.shotCount - 1
 		end
 		self:RegisterForAnimationEvent(self, "FTrans" .. self.volley)
-		self.fire = S.Firing
 	end
 
 	function C:fireTrap()
