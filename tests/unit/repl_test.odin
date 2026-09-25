@@ -173,3 +173,19 @@ test_preprocess_ce_shapes :: proc(t: ^testing.T) {
 	testing.expect_value(t, slua.preprocess("sel:Disable()", tmp), "sel:Disable()")
 	testing.expect_value(t, slua.preprocess("x = 5", tmp), "x = 5")
 }
+
+// `wait <hours>` skips game time and prints the new date; the skip is owed to the next tick.
+@(test)
+test_repl_wait :: proc(t: ^testing.T) {
+	repl: slua.Repl
+	ws: worldstate.World_State
+	db: gamedb.DB
+	reg: script.Registry
+	testing.expect(t, setup(&repl, &ws, &db, &reg), "repl init")
+	defer {slua.repl_destroy(&repl);worldstate.destroy(&ws);script.destroy(&reg)}
+
+	worldstate.start_clock(&ws, 201, 7, 17, 8, 1)
+	testing.expect_value(t, joined(slua.repl_eval(&repl, "time")), "17 Last Seed, 4E 201, 08:00")
+	testing.expect_value(t, joined(slua.repl_eval(&repl, "wait 24.5")), "18 Last Seed, 4E 201, 08:30")
+	testing.expect_value(t, ws.clock.skipped, 24.5)
+}

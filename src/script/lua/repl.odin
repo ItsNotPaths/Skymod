@@ -18,12 +18,14 @@ package script_lua
 
 import "base:runtime"
 import "core:c"
+import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../formid"
+import "../../worldstate"
 
 // Repl owns a gameplay VM plus an output accumulator. `out` holds the lines produced
 // by the most recent repl_eval (owned by `alloc`, rebuilt each call); the host drains
@@ -134,7 +136,36 @@ repl_init :: proc(repl: ^Repl, reg: ^script.Registry, ctx: script.Call, allocato
 	lua.setglobal(L, "player")
 	push_none(L)
 	lua.setglobal(L, "sel")
+
+	repl_register_cmd(repl, "wait", "wait <hours> — skip game time, as the Wait menu does", repl_wait, &repl.vm)
+	repl_register_cmd(repl, "time", "print the game date and hour", repl_time, &repl.vm)
 	return true
+}
+
+MONTH_NAMES :: [12]string {
+	"Morning Star", "Sun's Dawn", "First Seed", "Rain's Hand", "Second Seed", "Midyear",
+	"Sun's Height", "Last Seed", "Hearthfire", "Frostfall", "Sun's Dusk", "Evening Star",
+}
+
+@(private = "file")
+repl_wait :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	worldstate.skip_game_time(vm.ctx.ws, f64(lua.tonumber(L, 1)))
+	return repl_time(L)
+}
+
+@(private = "file")
+repl_time :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	year, month, day, hour := worldstate.game_date(vm.ctx.ws)
+	names := MONTH_NAMES
+	line := fmt.tprintf("%d %s, 4E %d, %02d:%02d", day, names[month], year, int(hour), int(hour * 60) % 60)
+	lua.getglobal(L, "print")
+	lua.pushstring(L, strings.clone_to_cstring(line, context.temp_allocator))
+	lua.pcall(L, 1, 0, 0)
+	return 0
 }
 
 repl_destroy :: proc(repl: ^Repl) {

@@ -52,7 +52,7 @@ end_first_tick :: proc(ws: ^World_State) {
 	if ws.clock.state == .Starting {ws.clock.state = .Running}
 }
 
-// (hole time-skip :tags world :sev gap) only a script GameHour write skips game time; no Sleep/Wait menu, fast travel, jail or console command calls skip_game_time yet.
+// (hole time-skip :tags world :sev gap) no Sleep/Wait menu, fast travel or jail calls skip_game_time; only the console `wait` and a script GameHour write do.
 // skip_game_time jumps the clock forward. The next tick passes the hours to the script clocks.
 skip_game_time :: proc(ws: ^World_State, hours: f64) {
 	if hours <= 0 {return}
@@ -97,13 +97,18 @@ calendar_date :: proc(d: i64) -> (year, month, day: i64) {
 	return year, month, day + 1
 }
 
+// game_date is the clock's calendar date and hour of the day.
+game_date :: proc(ws: ^World_State) -> (year, month, day: i64, hour: f64) {
+	year, month, day = calendar_date(ws.clock.start_day + i64(math.floor(ws.clock.hours / 24)))
+	return year, month, day, math.mod(ws.clock.hours, 24)
+}
+
 @(private = "file")
 write_time_globals :: proc(ws: ^World_State) {
-	c := ws.clock
-	year, month, day := calendar_date(c.start_day + i64(math.floor(c.hours / 24)))
+	year, month, day, hour := game_date(ws)
 	set_global(ws, formid.GAME_YEAR, f32(year))
 	set_global(ws, formid.GAME_MONTH, f32(month))
 	set_global(ws, formid.GAME_DAY, f32(day))
-	set_global(ws, formid.GAME_HOUR, f32(math.mod(c.hours, 24)))
-	set_global(ws, formid.GAME_DAYS_PASSED, f32(c.hours / 24))
+	set_global(ws, formid.GAME_HOUR, f32(hour))
+	set_global(ws, formid.GAME_DAYS_PASSED, f32(ws.clock.hours / 24))
 }
