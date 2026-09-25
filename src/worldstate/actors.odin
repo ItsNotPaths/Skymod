@@ -30,7 +30,7 @@ inv_count :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	return 0
 }
 
-// (hole container-baseline :tags (records player) :sev gap) the ESM baseline contents of a container are never indexed, so every inventory count here is a DELTA from an unknown start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
+// (hole container-baseline :tags (records player) :sev gap) gamedb indexes CONT and NPC_ contents, but nothing here reads them, so every inventory count is a DELTA from an unread start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
 // inv_clear empties owner's inventory overlay (RemoveAllItems' local half).
 inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
 	if inner, ok := &ws.inventories[owner]; ok {
