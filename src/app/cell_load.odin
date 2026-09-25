@@ -739,13 +739,11 @@ stream_spawn :: proc(db: ^gamedb.DB, world_fid: Form_ID, gx, gy: i32) -> (pos: s
 // it. We never destroy the exterior scene; we PAUSE the streamer (+ collapse its window)
 // on interior entry and resume it on return.
 
-// Camera height above the XTEL landing marker on arrival, and door activation ranges. A
-// manual door (real mesh) arms a "Go Through" prompt within DOOR_RANGE (press F). An auto-
+// Door activation ranges. A manual door (real mesh) arms a "Go Through" prompt within DOOR_RANGE (press F). An auto-
 // load door (an invisible AutoLoadMarker — cave/dungeon entrances) fires on PROXIMITY within
 // the tighter AUTO_DOOR_RANGE, no key. After any transition, auto-firing is suppressed until
 // the player walks AUTO_REARM away from the arrival spot — else the partner door (right where
 // you land) would instantly teleport you back in a loop.
-TRAVERSAL_EYE :: f32(96)
 DOOR_RANGE :: f32(600)
 AUTO_DOOR_RANGE :: f32(300)
 AUTO_REARM :: f32(500)
@@ -812,8 +810,10 @@ Traversal :: struct {
 // their own load screen inside go_through; exterior returns are instant (kept-warm window).
 Traversal_Kind :: enum {
 	None,     // no transition (unresolved destination)
+	Stay,     // already in the destination interior (instant)
 	Interior, // entered an interior cell (load screen ran inside go_through)
 	City,     // crossed to a different worldspace (caller runs the streamer load screen)
+	Jump,     // moved far within the exterior (caller runs the streamer load screen)
 	Exit,     // returned to the same-worldspace exterior (instant)
 }
 
@@ -974,13 +974,11 @@ door_dest_label :: proc(t: ^Traversal, tp_door: Form_ID) -> string {
 }
 
 // go_through follows the activated load door's XTEL to its destination cell and swaps the
-// active scene to match, returning the camera placement at the arrival marker. The door's
+// active scene to match, returning the player placement at the arrival marker. The door's
 // teleport marker (designer-placed) is the landing spot+facing in the destination cell — far
-// better than guessing from the dest door mesh. Branches: interior dest → load it; exterior
-// in the SAME worldspace → resume streaming there; exterior in a DIFFERENT worldspace (a city
-// gate) → retarget the streamer. ok=false (camera unchanged) only if the destination is
-// unresolved.
-go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, kind: Traversal_Kind) {
+// better than guessing from the dest door mesh. kind=.None (placement unused) only if the
+// destination is unresolved.
+go_through :: proc(t: ^Traversal, h: Door_Hit) -> (feet: smath.Vec3, yaw: f32, kind: Traversal_Kind) {
 	if !h.ok {
 		return {}, 0, .None
 	}
@@ -989,35 +987,52 @@ go_through :: proc(t: ^Traversal, h: Door_Hit) -> (pos: smath.Vec3, yaw: f32, ki
 		log.warnf("traversal: door dest 0x%08X not found — staying put", h.tp_door)
 		return {}, 0, .None
 	}
-	dcell, cok := gamedb.cell_by_formid(t.db, dref.cell_form_id)
-	if !cok {
-		log.warnf("traversal: door dest cell 0x%08X unknown — staying put", dref.cell_form_id)
+	// The XTEL marker is in interior-local coords for an interior dest, world coords otherwise.
+	feet, yaw = h.tp_pos, h.tp_rot.z
+	kind = traversal_go_to(t, dref.cell_form_id, feet)
+	if kind == .None {
 		return {}, 0, .None
 	}
-
-	// Arrival placement from the door's XTEL marker (interior-local coords for an interior
-	// dest, absolute world coords for an exterior dest — matches the target scene).
-	pos = h.tp_pos + smath.Vec3{0, 0, TRAVERSAL_EYE}
-	yaw = h.tp_rot.z
-
-	switch {
-	case dcell.interior:
-		enter_interior(t, dcell.form_id) // blocks + shows the load screen via t.progress
-		kind = .Interior
-	case dcell.world_form_id != t.st.world_fid:
-		retarget_exterior(t, dcell.world_form_id, pos) // cross-worldspace city gate (caller runs load screen)
-		kind = .City
-	case:
-		exit_to_exterior(t, pos) // same-worldspace exterior (interior return / wilderness door)
-		kind = .Exit
-	}
-
 	// Anchor auto-fire suppression at the landing spot so the partner door (right here) doesn't
 	// immediately teleport us back; it re-arms once we walk AUTO_REARM away.
-	t.arrival_pos = pos
+	t.arrival_pos = feet
 	t.has_arrival = true
-	log.infof("traversal: entered cell 0x%08X (%s) via door 0x%08X", dcell.form_id, dcell.editor_id, h.tp_door)
-	return pos, yaw, kind
+	log.infof("traversal: entered cell 0x%08X via door 0x%08X", dref.cell_form_id, h.tp_door)
+	return feet, yaw, kind
+}
+
+// traversal_go_to makes `cell` the active scene for a player arriving at `feet`: an interior loads
+// (unless it is the one loaded), another worldspace retargets the streamer, and the exterior
+// resumes streaming at `feet`, with a full load when the landing cell is not resident.
+// .None when the cell is unknown.
+traversal_go_to :: proc(t: ^Traversal, cell: Form_ID, feet: smath.Vec3) -> Traversal_Kind {
+	c, ok := gamedb.cell_by_formid(t.db, cell)
+	if !ok {
+		log.warnf("traversal: cell 0x%08X unknown — staying put", cell)
+		return .None
+	}
+	switch {
+	case c.interior && t.mode == .Interior && t.cur_int_cell == c.form_id:
+		return .Stay
+	case c.interior:
+		enter_interior(t, c.form_id) // blocks + shows the load screen via t.progress
+		return .Interior
+	case c.world_form_id != t.st.world_fid:
+		retarget_exterior(t, c.world_form_id, feet)
+		return .City
+	case t.mode == .Exterior && !resident(t, feet):
+		world.stream_begin_load(t.st, feet)
+		return .Jump
+	}
+	exit_to_exterior(t, feet) // same-worldspace exterior (interior return / wilderness door)
+	return .Exit
+}
+
+// resident reports whether the exterior grid cell under `pos` is built at full detail.
+@(private = "file")
+resident :: proc(t: ^Traversal, pos: smath.Vec3) -> bool {
+	chunk, ok := t.ext_scene.chunks[gamedb.cell_under(t.db, t.st.world_fid, pos)]
+	return ok && chunk.lod == 0
 }
 
 // enter_interior swaps to a freshly-loaded interior cell. The exterior streamer is paused

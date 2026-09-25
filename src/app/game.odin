@@ -188,6 +188,7 @@ Game :: struct {
 	// world); on each swap the capsule is re-homed (destroy + recreate) into the new world.
 	// nil when physics is off (free-fly).
 	cur_phys: ^physics.World,
+	published: Placement, // the player's cell and feet as player_publish last wrote them
 	// Debug (open-interiors): when `entered`, we've loaded fully INTO the active portal's
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
 	// through the portal.

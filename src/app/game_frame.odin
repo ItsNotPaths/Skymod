@@ -130,6 +130,7 @@ game_frame :: proc(g: ^Game) {
 @(private = "file")
 game_tick :: proc(g: ^Game) {
 	script_run_pending(g)
+	player_follow(g)
 	tick_activations(g)
 	frame_scene_select(g)
 	tick_locomotion(g)
@@ -326,7 +327,7 @@ frame_scene_select :: proc(g: ^Game) {
 	if want_phys != g.cur_phys {
 		if g.char_ok {physics.character_destroy(&g.character);g.char_ok = false}
 		if want_phys != nil {
-			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos, PLAYER_RADIUS, PLAYER_HALF_H)
+			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, PLAYER_RADIUS, PLAYER_HALF_H)
 			if !g.char_ok {g.noclip = true}
 		}
 		g.cur_phys = want_phys
@@ -420,6 +421,7 @@ frame_persistence :: proc(g: ^Game) {
 	}
 	if input.fired(&g.imgr, "QuickSave") {
 		_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
+		player_follow(g)
 		player_publish(g)
 		player, _ := worldstate.get(&g.ws, formid.PLAYER)
 		man := worldstate.Save_Manifest {
@@ -439,16 +441,14 @@ frame_persistence :: proc(g: ^Game) {
 		if m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); ok {
 			log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
 			if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
-			if !g.interiors_on {
-				traversal_reload(&g.trav) // re-apply the loaded overlay to the live interior
-			}
 			// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
 			// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
 			// The rebuild flags object collision for re-cook; run it behind the dedicated load
 			// screen (reused from boot) so the world is solid before gameplay resumes.
 			world.reapply_overlay_resident(&g.scene, &g.db)
-			// Snap back to the saved position, then the load screen builds + solidifies that bubble.
-			if !g.fr.in_interior {player_restore(g)}
+			// Back to the saved cell and position, then the load screen builds + solidifies that bubble.
+			// Saved in the interior we stand in: rebuild it so the loaded overlay applies.
+			if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.trav)}
 			load_screen_stream(g, "Loading save…", 0, 1)
 		} else {
 			log.warnf("quickload: no valid save at %s", g.quicksave_path)
@@ -474,31 +474,44 @@ frame_stream :: proc(g: ^Game) {
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
 }
 
-// player_publish writes the camera into the player ref's Moved delta: the cell under the player
-// (interior, or exterior grid cell), the position, and the heading. A ref's Z angle turns clockwise
-// from +Y, the camera's yaw counter-clockwise from +X.
-// (hole player-moveto :tags player :sev gap) a script's MoveTo or SetPosition on the player writes its delta, and this overwrites it; the camera never follows.
-player_publish :: proc(g: ^Game) {
-	cell := g.trav.cur_int_cell
-	if g.trav.mode != .Interior {
-		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
-		cell = gamedb.cell_under(&g.db, world_fid, g.cam.pos)
-	}
-	heading := math.PI / 2 - g.cam.yaw
-	worldstate.set_moved(&g.ws, formid.PLAYER, cell, smath.trs(g.cam.pos, {0, 0, heading}, 1), g.cam.pos)
+// Placement is a cell and a position in it.
+Placement :: struct {
+	cell: Form_ID,
+	pos:  smath.Vec3,
 }
 
-// player_restore puts the camera where the player ref's delta says, after a load.
-// (hole interior-restore :tags (save player) :sev gap) a save made in an interior does not return there: Continue starts at the default spawn and a quickload leaves the camera where it is. It needs a traversal entry into the saved cell.
-player_restore :: proc(g: ^Game) {
+// player_publish writes the player's feet into its ref's Moved delta: the cell under the player
+// (interior, or exterior grid cell), the position, and the heading. player_follow compares against it.
+player_publish :: proc(g: ^Game) {
+	cell := g.trav.cur_int_cell
+	feet := g.cam.pos - {0, 0, EYE_HEIGHT}
+	if g.trav.mode != .Interior {
+		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
+		cell = gamedb.cell_under(&g.db, world_fid, feet)
+	}
+	heading := math.PI / 2 - g.cam.yaw
+	worldstate.set_moved(&g.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	g.published = {cell, feet}
+}
+
+// player_follow places the player where a script moved its ref (MoveTo, SetPosition) since the
+// last player_publish.
+player_follow :: proc(g: ^Game) {
 	d, ok := worldstate.get(&g.ws, formid.PLAYER)
-	if !ok || .Moved not_in d.live {return}
-	if c, cok := gamedb.cell_by_formid(&g.db, d.cell); cok && c.interior {return}
-	g.cam.pos = d.pos
-	g.cam.yaw = math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0])
-	g.cam.pitch = 0
-	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)}
-	world.stream_begin_load(&g.streamer, g.cam.pos)
+	if !ok || .Moved not_in d.live || (Placement{d.cell, d.pos} == g.published) {return}
+	traversal_finish_load(g, player_restore(g))
+}
+
+// player_restore places the player where its ref's delta says, in any cell, and returns what the
+// traversal did; the caller runs the load screen it still needs.
+player_restore :: proc(g: ^Game) -> Traversal_Kind {
+	d, ok := worldstate.get(&g.ws, formid.PLAYER)
+	if !ok || .Moved not_in d.live || g.interiors_on {return .None}
+	kind := traversal_go_to(&g.trav, d.cell, d.pos)
+	if kind == .None {return .None}
+	player_teleport(g, d.pos, math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0]), 0)
+	g.published = {d.cell, d.pos}
+	return kind
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE
@@ -563,14 +576,14 @@ frame_traversal :: proc(g: ^Game) {
 	}
 }
 
-// player_teleport moves the player outright — camera AND capsule. Both must move: frame_camera
-// reads the eye position back off the capsule, so setting only the camera snaps straight back
-// next frame. A crossing that also swaps physics world leaves the capsule to frame_scene_select
+// player_teleport moves the player's feet outright — camera AND capsule. Both must move:
+// frame_camera reads the eye position back off the capsule, so setting only the camera snaps
+// straight back next frame. A crossing that also swaps physics world leaves the capsule to frame_scene_select
 // (which re-creates it in the new world at this camera position); setting it here first is
 // harmless there and is what carries the same-world case, a city gate.
-player_teleport :: proc(g: ^Game, pos: smath.Vec3, yaw, pitch: f32) {
-	g.cam.pos, g.cam.yaw, g.cam.pitch = pos, yaw, pitch
-	if g.char_ok {physics.character_set_position(&g.character, pos)}
+player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
+	g.cam.pos, g.cam.yaw, g.cam.pitch = feet + {0, 0, EYE_HEIGHT}, yaw, pitch
+	if g.char_ok {physics.character_set_position(&g.character, feet)}
 }
 
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
@@ -580,11 +593,11 @@ player_teleport :: proc(g: ^Game, pos: smath.Vec3, yaw, pitch: f32) {
 // Package-visible: frame_interact calls it after a crosshair door crossing too.
 traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	switch kind {
-	case .City:
+	case .City, .Jump:
 		load_screen_stream(g, "Loading…", 0, 1) // streamer-driven; clears the load screen at its end
 	case .Interior:
 		loadui_hide(g) // the interior load ran inside go_through — clear its last frame's quads
-	case .Exit, .None:
+	case .Stay, .Exit, .None:
 	// instant / no transition — no load screen ran
 	}
 }
