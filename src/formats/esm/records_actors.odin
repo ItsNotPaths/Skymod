@@ -253,3 +253,15 @@ actor_value_form :: proc(index: i32) -> (u32, bool) {
 	}
 	return 0, false
 }
+
+// Skill_XP is a skill's AVIF AVSK: a use gives xp * use_mult + use_offset, and a level costs
+// improve_mult * level ^ fSkillUseCurve + improve_offset (UESP Skyrim:Leveling).
+Skill_XP :: struct {
+	use_mult, use_offset, improve_mult, improve_offset: f32,
+}
+
+skill_xp :: proc(fields: []Field) -> (Skill_XP, bool) {
+	f, ok := find_field(fields, "AVSK")
+	if !ok || len(f.data) < 16 {return {}, false}
+	return {rf32(f.data, 0), rf32(f.data, 4), rf32(f.data, 8), rf32(f.data, 12)}, true
+}

@@ -195,6 +195,10 @@ Saved_Equip :: struct {
 	slots:       []string,
 	kept:        bool,
 }
+Saved_Level_State :: struct {
+	actor: Form_ID,
+	state: Level_State,
+}
 Saved_Range :: struct {
 	zone:     Form_ID,
 	min, max: i32,
@@ -240,6 +244,8 @@ Save_Body :: struct {
 	zone_ranges:   []Saved_Range,
 	zone_listeners: []Form_ID,
 	equipment:     []Saved_Equip,
+	levels:        []Saved_Level_State,
+	level_listeners: []Form_ID,
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
@@ -406,6 +412,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			append(&equips, Saved_Equip{actor, w.item, names[:], w.kept})
 		}
 	}
+	levels := make([dynamic]Saved_Level_State, 0, len(ws.levels), context.temp_allocator)
+	for actor, s in ws.levels {append(&levels, Saved_Level_State{actor, s})}
+	level_listeners := make([dynamic]Form_ID, 0, len(ws.level_listeners), context.temp_allocator)
+	for form in ws.level_listeners {append(&level_listeners, form)}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
@@ -429,6 +439,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		zone_ranges   = ranges[:],
 		zone_listeners = listeners[:],
 		equipment     = equips[:],
+		levels        = levels[:],
+		level_listeners = level_listeners[:],
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
@@ -597,6 +609,12 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for f in body.zone_listeners {
 		if id, ok := rf(remap, have_remap, f); ok {ws.zone_listeners[id] = true}
 	}
+	for l in body.levels {
+		if id, ok := rf(remap, have_remap, l.actor); ok {ws.levels[id] = l.state}
+	}
+	for f in body.level_listeners {
+		if id, ok := rf(remap, have_remap, f); ok {ws.level_listeners[id] = true}
+	}
 	// An actor's rows rebuild its equipment exactly; an item from a missing mod and a slot name the
 	// engine no longer has drop.
 	for e in body.equipment {
@@ -751,6 +769,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.zone_ranges {add_slot(&seen, r.zone)}
 	for f in body.zone_listeners {add_slot(&seen, f)}
 	for e in body.equipment {add_slot(&seen, e.actor);add_slot(&seen, e.item)}
+	for l in body.levels {add_slot(&seen, l.actor)}
+	for f in body.level_listeners {add_slot(&seen, f)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}

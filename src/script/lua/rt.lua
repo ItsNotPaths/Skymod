@@ -1008,6 +1008,14 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
+-- rt.level_up_choice(name, { AV = "formula", ... }) adds or replaces a level-up choice: each formula
+-- of `level` (the new level) goes onto that actor value's capacity for good. Only inside
+-- OnGameLoaded; the last one wins.
+function rt.level_up_choice(name, changes)
+  if not game_loading then error("rt.level_up_choice outside OnGameLoaded", 2) end
+  __level_up_choice(name, changes)
+end
+
 -- rt.formula(name, src) replaces one of the engine's named formulas (worldstate.FORMULAS) with a
 -- string of math over its variables. Only inside OnGameLoaded; the last one wins.
 function rt.formula(name, src)

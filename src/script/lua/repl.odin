@@ -139,6 +139,7 @@ repl_init :: proc(repl: ^Repl, reg: ^script.Registry, ctx: script.Call, allocato
 
 	repl_register_cmd(repl, "wait", "wait <hours> — skip game time, as the Wait menu does", repl_wait, &repl.vm)
 	repl_register_cmd(repl, "time", "print the game date and hour", repl_time, &repl.vm)
+	repl_register_cmd(repl, "levelup", "levelup \"<choice>\" — spend a ready level-up (\"Health\", \"Magicka\", \"Stamina\"), as the skills menu will", repl_level_up, &repl.vm)
 	return true
 }
 
@@ -153,6 +154,23 @@ repl_wait :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	worldstate.skip_game_time(vm.ctx.ws, f64(lua.tonumber(L, 1)))
 	return repl_time(L)
+}
+
+@(private = "file")
+repl_level_up :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	ws, db := vm.ctx.ws, vm.ctx.db
+	line: string
+	if worldstate.level_up(ws, db, formid.PLAYER, to_string(L, 1)) {
+		line = fmt.tprintf("level %d", worldstate.actor_level(ws, db, formid.PLAYER))
+	} else {
+		line = fmt.tprintf("no level-up: XP %.0f of %.0f, or no choice %q", ws.levels[formid.PLAYER].xp, worldstate.level_up_cost(ws, db, formid.PLAYER), to_string(L, 1))
+	}
+	lua.getglobal(L, "print")
+	lua.pushstring(L, strings.clone_to_cstring(line, context.temp_allocator))
+	lua.pcall(L, 1, 0, 0)
+	return 0
 }
 
 @(private = "file")

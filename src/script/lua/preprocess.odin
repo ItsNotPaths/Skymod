@@ -87,6 +87,8 @@ ce_alias :: proc(word: string) -> (target: string, ok: bool) {
 		return "cmd.wait", true
 	case "time":
 		return "cmd.time", true
+	case "levelup":
+		return "cmd.levelup", true
 	}
 	return "", false
 }

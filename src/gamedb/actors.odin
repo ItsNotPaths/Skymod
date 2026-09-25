@@ -34,6 +34,8 @@ Actor_Value_Info :: struct {
 	has_index:   bool,
 	editor_id:   string, // owned, as authored
 	description: string, // DESC (owned; "" when absent)
+	skill:       esm.Skill_XP, // AVSK, the 18 skills only
+	has_skill:   bool,
 }
 
 // --- indexing ---------------------------------------------------------------------------
@@ -142,6 +144,7 @@ index_actor_value :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	av: Actor_Value_Info
 	av.editor_id = strings.clone(edid, db.allocator)
 	av.description = index_description(db, fl)
+	av.skill, av.has_skill = esm.skill_xp(fl)
 	if rec.form_id >> 32 == 0 {
 		av.index, av.has_index = esm.actor_value_index(u32(rec.form_id))
 	}

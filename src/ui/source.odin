@@ -38,7 +38,7 @@ EMBED_HUD :: #load("lua/hud.lua", string)
 // (hole map-screen :tags ui :sev gap) no map — no world map, no local map, no fast-travel target.
 // (hole magic-screen :tags (ui player) :sev gap :needs (ui-images)) no magic screen — no spell list, no favourites, no equip slots.
 // (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why CTDA-FN 659 cannot know which item is selected.
-// (hole skills-screen :tags (ui player) :sev gap :needs (leveling ui-images)) no skills or level-up screen.
+// (hole skills-screen :tags (ui player) :sev gap :needs (ui-images)) no skills or level-up screen: opening it should spend ready level-ups (worldstate.level_up with the player's choice; the console `levelup` stands in) and perk points.
 // (hole console-screen :tags ui :sev gap) no console UI — the dev REPL is driven from app code, not a screen.
 //
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in

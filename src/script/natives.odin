@@ -31,7 +31,6 @@ import smath "../math"
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
 // (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).
 // (hole ui-reads :tags ui :sev gap) no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
-// (hole skill-reads :tags (script player) :sev gap :needs (leveling)) no read for AdvanceSkill (skill XP), AddPerkPoints.
 // (hole ini-reads :tags script :sev gap) no read for the four SetINI*.
 
 import "../worldstate"
@@ -91,6 +90,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_magic(reg) // spells start and end scripted magic effects
 	register_levels(reg) // encounter zone levels for mods
 	register_equip(reg) // what actors wear and hold
+	register_leveling(reg) // skill XP, levels, perk points
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────

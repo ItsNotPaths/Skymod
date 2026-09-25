@@ -93,3 +93,42 @@ test_leveled_actor_pick :: proc(t: ^testing.T) {
 	worldstate.reset_ref_state(&ws, REF, true)
 	testing.expect(t, REF not_in ws.actor_picks, "a reset forgets the pick")
 }
+
+// Skill XP buys levels at the SkillXPToNext cost, never past the cap; raised skills give the actor XP;
+// a ready level-up spends it with a choice onto a capacity, and a mod's choice can replace vanilla's.
+@(test)
+test_leveling :: proc(t: ^testing.T) {
+	A :: gamedb.Form_ID(0xA1)
+	AVIF :: gamedb.Form_ID(0x44C)
+	db: gamedb.DB
+	db.actor_value_info = make(map[gamedb.Form_ID]gamedb.Actor_Value_Info, context.temp_allocator)
+	db.actor_value_info[AVIF] = {skill = {use_mult = 6.3, improve_mult = 2}, has_skill = true}
+	db.actor_value_by_index = make(map[i32]gamedb.Form_ID, context.temp_allocator)
+	db.actor_value_by_index[6] = AVIF // OneHanded
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.av_set_base(&ws, A, "OneHanded", 15)
+	worldstate.advance_skill(&ws, &db, A, "OneHanded", 70) // 441 XP; 15 -> 16 costs 2 * 15^1.95
+	testing.expect_value(t, worldstate.av_current(&ws, &db, A, "OneHanded"), 16)
+	testing.expect_value(t, ws.levels[A].xp, 16)
+
+	worldstate.av_set_base(&ws, A, "OneHanded", 98)
+	testing.expect_value(t, worldstate.raise_skill(&ws, &db, A, "OneHanded", 5), 2) // 16 + 99 + 100 XP
+	testing.expect(t, !worldstate.level_up(&ws, &db, A, "Luck"), "no such choice")
+
+	worldstate.av_set_base(&ws, A, "Health", 100)
+	testing.expect(t, worldstate.level_up(&ws, &db, A, "health"), "any case names the choice")
+	testing.expect_value(t, worldstate.actor_level(&ws, &db, A), 2)
+	testing.expect_value(t, worldstate.av_max(&ws, &db, A, "Health"), 110)
+	testing.expect_value(t, ws.levels[A].perk_points, 1)
+	testing.expect_value(t, len(ws.level_ups), 1)
+
+	changes := make(map[string]string, context.temp_allocator)
+	changes["Magicka"] = "5 * level"
+	testing.expect(t, worldstate.set_level_choice(&ws, "Magicka", changes), "replace a choice")
+	worldstate.raise_skill(&ws, &db, A, "TwoHanded", 20)
+	testing.expect(t, worldstate.level_up(&ws, &db, A, "Magicka"), "second level-up")
+	testing.expect_value(t, worldstate.av_max(&ws, &db, A, "Magicka"), 15)
+}

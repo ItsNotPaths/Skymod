@@ -484,9 +484,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
-	// (hole leveling :tags player :sev gap) no skill XP, level-ups or perk points, so the player stays at its ACBS level 1. Training must stop at a skill's cap (av_max).
-	player, _ := gamedb.actor_base(&g.db, formid.PLAYER_BASE)
-	loadui_ready(g, gamedb.load_tips(&g.db), max(i32(player.level), 1))
+	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.ws, &g.db))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
 	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
 	// handed to every save/load below so slots resolve to THIS install's forms.

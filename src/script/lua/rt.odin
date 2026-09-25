@@ -40,6 +40,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__anim_event", rt_anim_event},
 		{"__actor_value", rt_actor_value},
 		{"__formula", rt_formula},
+		{"__level_up_choice", rt_level_up_choice},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -76,6 +77,23 @@ rt_formula :: proc "c" (L: ^lua.State) -> c.int {
 		return 0
 	}
 	worldstate.set_formula(vm.ctx.ws, name, to_string(L, 2))
+	return 0
+}
+
+// __level_up_choice(name, {AV = "formula"}) is rt.level_up_choice's engine half.
+@(private)
+rt_level_up_choice :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	changes := make(map[string]string, context.temp_allocator)
+	if lua.istable(L, 2) {
+		lua.pushnil(L)
+		for lua.next(L, 2) != 0 {
+			changes[strings.clone(to_string(L, -2), context.temp_allocator)] = strings.clone(to_string(L, -1), context.temp_allocator)
+			lua.pop(L, 1)
+		}
+	}
+	worldstate.set_level_choice(vm.ctx.ws, to_string(L, 1), changes)
 	return 0
 }
 

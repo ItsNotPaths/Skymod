@@ -80,6 +80,22 @@ av_kind :: proc(av: string) -> AV_Kind {
 	return .Static
 }
 
+// skill_xp_of is a skill's XP rates from its AVIF (`skill` a canonical name).
+skill_xp_of :: proc(db: ^DB, skill: string) -> (xp: esm.Skill_XP, ok: bool) {
+	for name, i in AV_NAMES {
+		if name != skill {continue}
+		info := db.actor_value_info[db.actor_value_by_index[i32(i)]] or_return
+		return info.skill, info.has_skill
+	}
+	return
+}
+
+// skill_advance_av is the actor value holding a skill's XP toward its next level (OneHanded ->
+// OneHandedSkillAdvance, Pickpocket -> PickPocketSkillAdvance).
+skill_advance_av :: proc(skill: string) -> (string, bool) {
+	return actor_value_name(strings.concatenate({skill, "SkillAdvance"}, context.temp_allocator))
+}
+
 // actor_value_name is the AV_NAMES entry for a name in any case.
 actor_value_name :: proc(name: string) -> (av: string, ok: bool) {
 	buf: [AV_NAME_MAX]u8
@@ -167,7 +183,17 @@ leveled_template :: proc(db: ^DB, base: Form_ID) -> Form_ID {
 	return 0
 }
 
-// (hole pc-level-mult :tags (player records) :sev gap :needs (leveling)) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and the player's level is its ACBS level until leveling exists.
+// record_level is the level an actor's records give it: its NPC_'s, through the stats template
+// (`pick` standing in for a leveled one).
+record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> i32 {
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
+	npc, ok := db.actors[base]
+	if !ok {return 1}
+	return i32(actor_level(db, template_part(db, npc, esm.ACBS_TEMPLATE_STATS, pick)))
+}
+
+// (hole pc-level-mult :tags (player records) :sev gap) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and this reads the player's record level, not worldstate.actor_level.
 // actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's, within its calc
 // band (a calc max of 0 is no cap).
 actor_level :: proc(db: ^DB, stats: Actor_Base) -> int {

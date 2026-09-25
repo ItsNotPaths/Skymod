@@ -6,7 +6,6 @@ package worldstate
 
 import "core:math/rand"
 import "../formats/esm"
-import "../formid"
 import "../gamedb"
 
 // (hole special-loot :tags records :sev polish) the Special Loot flag (LVLF 0x08) rolls as a plain list: no source gives its formula (fSpecialLoot* GMSTs).
@@ -14,17 +13,12 @@ import "../gamedb"
 
 MAX_LIST_DEPTH :: 8
 
-// player_level is the level rolls start from.
-player_level :: proc(db: ^gamedb.DB) -> i32 {
-	return max(i32(db.actors[formid.PLAYER_BASE].level), 1)
-}
-
 // zone_level is a zone's level: set on the first ask from the player's level through the ZoneLevel
 // formula, then kept. OnZoneLevelSet announces it on the next tick.
 zone_level :: proc(ws: ^World_State, db: ^gamedb.DB, zone: Form_ID) -> i32 {
-	if zone == 0 {return player_level(db)}
+	if zone == 0 {return player_level(ws, db)}
 	if l, ok := ws.zone_levels[zone]; ok {return l}
-	z, pc := zone_band(ws, db, zone), player_level(db)
+	z, pc := zone_band(ws, db, zone), player_level(ws, db)
 	clamped := zone_level_from(z, pc)
 	l := i32(calc(ws, .ZoneLevel, f64(pc), f64(z.min_level), f64(z.max_level), f64(clamped)))
 	ws.zone_levels[zone] = l

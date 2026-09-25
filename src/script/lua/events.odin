@@ -183,6 +183,20 @@ tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.equip_changes)
 }
 
+// tick_level_ups sends OnLevelUp(akActor, aiLevel, asChoice) for each level-up to every registered
+// form, in form order.
+tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	if len(ws.level_ups) == 0 {return}
+	listeners := make([dynamic]script.Form_ID, 0, len(ws.level_listeners), context.temp_allocator)
+	for form in ws.level_listeners {append(&listeners, form)}
+	slice.sort(listeners[:])
+	for l in ws.level_ups {
+		for form in listeners {send_own(vm, form, "OnLevelUp", l.actor, l.level, l.choice)}
+		delete(l.choice)
+	}
+	clear(&ws.level_ups)
+}
+
 // tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form
 // in form order.
 tick_zone_levels :: proc(vm: ^VM, ws: ^worldstate.World_State) {
@@ -236,6 +250,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_items(vm, db, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)
+	tick_level_ups(vm, ws)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.

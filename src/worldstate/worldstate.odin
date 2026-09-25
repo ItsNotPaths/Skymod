@@ -47,6 +47,9 @@ Overlay :: struct {
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
 	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
+	level_choices:   map[string]Level_Choice,      // level-up choice name -> its changes (not saved; defaults + mods)
+	levels:          map[Form_ID]Level_State,      // actor -> its leveling: level, XP, perk points
+	level_listeners: map[Form_ID]bool,             // forms registered for OnLevelUp
 	zone_listeners:  map[Form_ID]bool,             // forms registered for OnZoneLevelSet
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
@@ -98,6 +101,7 @@ Runtime :: struct {
 	ended_effects:   [dynamic]Form_ID,
 	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
+	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -133,6 +137,7 @@ init :: proc(ws: ^World_State) {
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
 	ws.zone_level_sets = make([dynamic]Form_ID)
 	ws.equip_changes = make([dynamic]Equip_Change)
+	ws.level_ups = make([dynamic]Level_Up)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -148,6 +153,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.ended_effects)
 	delete(ws.zone_level_sets)
 	delete(ws.equip_changes)
+	for l in ws.level_ups {delete(l.choice)}
+	delete(ws.level_ups)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
@@ -168,6 +175,9 @@ init_overlay :: proc(o: ^Overlay) {
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
 	init_formulas(o)
+	init_level_choices(o)
+	o.levels = make(map[Form_ID]Level_State)
+	o.level_listeners = make(map[Form_ID]bool)
 	o.equipment = make(map[Form_ID]Equipment)
 	o.zone_ranges = make(map[Form_ID][2]i32)
 	o.zone_listeners = make(map[Form_ID]bool)
@@ -226,6 +236,9 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.zone_levels)
 	delete(o.actor_picks)
 	for &f in o.formulas {formula.destroy(&f)}
+	free_choices(&o.level_choices)
+	delete(o.levels)
+	delete(o.level_listeners)
 	for _, eq in o.equipment {delete(eq.worn)}
 	delete(o.equipment)
 	delete(o.zone_ranges)
