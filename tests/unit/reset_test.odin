@@ -60,7 +60,7 @@ dirty :: proc(ws: ^worldstate.World_State) {
 	worldstate.set_disabled(ws, PLAIN, CELL, true)
 	for r in ([]F{BANDIT, UNIQUE}) {
 		worldstate.set_dead(ws, r, CELL, true)
-		worldstate.av_set(ws, r, "Health", 5)
+		worldstate.av_set_base(ws, r, "Health", 5)
 	}
 	for r in ([]F{CHEST, SAFE}) {worldstate.inv_add(ws, r, ITEM, 3)}
 }

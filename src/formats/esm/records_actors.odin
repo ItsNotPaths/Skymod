@@ -197,11 +197,6 @@ perk_header :: proc(fields: []Field) -> (h: Perk_Header, ok: bool) {
 // slots with no authored name.
 ACTOR_VALUE_COUNT :: 164
 
-// AV_ILLUSION is the one actor value whose AVIF editor id is a leftover from Oblivion: index 21
-// is Illusion in every Skyrim UI and Papyrus call, but its record is still named "AVMysticism".
-// Consumers that derive a name from the editor id must special-case it.
-AV_ILLUSION :: 21
-
 // Actor_Value_Block is one contiguous run of AVIF records: `lo`..`hi` local formIDs map onto
 // ActorValue indices starting at `first`. The mapping is NOT file order and NOT a single
 // offset — Skyrim's AVIF records sit in four separate formID runs whose order differs from the

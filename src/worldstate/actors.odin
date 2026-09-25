@@ -1,6 +1,5 @@
 package worldstate
 
-import "core:strings"
 import "../gamedb"
 
 @(private)
@@ -42,54 +41,84 @@ inv_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32
 	return max(n, 0)
 }
 
-// inv_start is the contents owner starts with: a created ref's base's, else the placed ref's.
+// inv_start is the contents owner starts with.
 inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
-	base := owner
-	if cr, ok := ws.created[owner]; ok {base = cr.base}
-	start, _ := gamedb.contents_of(db, base)
+	start, _ := gamedb.contents_of(db, record_of(ws, owner))
 	return start
 }
 
-// ── actor-value store (actor -> AV name -> value) ──────────────────────────────────────────────
-// AV names are case-insensitive → keys are lowercased + owned by the store.
-// (hole actor-values :tags (player combat magic) :sev blocker) base actor values are never read: an unset AV reads 0 and there is no base, current or max, so Health, skills and attributes have no real value.
+// record_of is the form whose records describe a ref: a created ref's base, else the ref, which
+// gamedb follows to its base.
+record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
+	if cr, ok := ws.created[ref]; ok {return cr.base}
+	return ref
+}
+
+// ── actor values (actor -> AV name -> its parts) ──────────────────────────────────────────────
+// Skyrim's model (CK wiki, Actor Value): current = base + permanent + damage, max = base +
+// permanent. The temporary modifier arrives with effect magnitudes. `av` is always a canonical name
+// (gamedb.actor_value_name), so the store owns no key strings.
 // (hole av-regen :tags (player combat) :sev gap :needs (actor-values)) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
 
+Actor_Value :: struct {
+	base:      Maybe(f32), // SetActorValue's base; none = the records' base
+	permanent: f32,        // ModActorValue, ForceActorValue
+	damage:    f32,        // DamageActorValue; never above 0
+}
+
 @(private)
-av_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[string]f32 {
+av_upsert :: proc(ws: ^World_State, actor: Form_ID, av: string) -> ^Actor_Value {
 	if _, ok := ws.actor_values[actor]; !ok {
-		ws.actor_values[actor] = make(map[string]f32)
+		ws.actor_values[actor] = make(map[string]Actor_Value)
 	}
-	return &ws.actor_values[actor]
+	inner := &ws.actor_values[actor]
+	if av not_in inner {inner[av] = {}}
+	return &inner[av]
 }
 
-// av_set stores `value` for actor's AV `name` (case-folded); clones the key on first insert (the
-// existing owned key is kept + reused on overwrite, since string map keys compare by content).
-av_set :: proc(ws: ^World_State, actor: Form_ID, name: string, value: f32) {
-	inner := av_upsert(ws, actor)
-	key := strings.to_lower(name, context.temp_allocator)
-	if _, ok := inner^[key]; ok {
-		inner^[key] = value
-	} else {
-		inner^[strings.clone(key)] = value
-	}
+@(private)
+av_parts :: proc(ws: ^World_State, actor: Form_ID, av: string) -> Actor_Value {
+	if inner, ok := ws.actor_values[actor]; ok {return inner[av]}
+	return {}
 }
 
-// av_get returns actor's AV value (ok=false if unset).
-av_get :: proc(ws: ^World_State, actor: Form_ID, name: string) -> (f32, bool) {
-	if inner, ok := ws.actor_values[actor]; ok {
-		key := strings.to_lower(name, context.temp_allocator)
-		if v, has := inner[key]; has {
-			return v, true
-		}
-	}
-	return 0, false
+av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	if b, ok := av_parts(ws, actor, av).base.?; ok {return b}
+	return gamedb.actor_value_base(db, record_of(ws, actor), av)
 }
 
-// av_mod adds `delta` to actor's AV (Mod/Damage/Restore all bottom out here).
-av_mod :: proc(ws: ^World_State, actor: Form_ID, name: string, delta: f32) {
-	cur, _ := av_get(ws, actor, name)
-	av_set(ws, actor, name, cur + delta)
+av_max :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	return av_base(ws, db, actor, av) + av_parts(ws, actor, av).permanent
+}
+
+av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	return av_max(ws, db, actor, av) + av_parts(ws, actor, av).damage
+}
+
+// av_set_base is SetActorValue: the base changes, the modifiers stay.
+av_set_base :: proc(ws: ^World_State, actor: Form_ID, av: string, value: f32) {
+	av_upsert(ws, actor, av).base = value
+}
+
+// av_mod is ModActorValue: the max moves with the permanent modifier.
+av_mod :: proc(ws: ^World_State, actor: Form_ID, av: string, delta: f32) {
+	av_upsert(ws, actor, av).permanent += delta
+}
+
+// av_force is ForceActorValue: the permanent modifier takes what makes the current value `value`.
+av_force :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, value: f32) {
+	av_mod(ws, actor, av, value - av_current(ws, db, actor, av))
+}
+
+// av_damage is DamageActorValue; a negative amount damages too.
+av_damage :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
+	av_upsert(ws, actor, av).damage -= abs(amount)
+}
+
+// av_restore is RestoreActorValue: it removes damage, never past none.
+av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
+	p := av_upsert(ws, actor, av)
+	p.damage = min(p.damage + abs(amount), 0)
 }
 
 // ── faction membership/rank + relationship rank ────────────────────────────────────────────────

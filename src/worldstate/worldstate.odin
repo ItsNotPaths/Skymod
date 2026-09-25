@@ -39,7 +39,7 @@ Overlay :: struct {
 	globals:         map[Form_ID]f32,              // GLOB FormID -> value (script globals; NOT quest stages)
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
 	inventories:     map[Form_ID]map[Form_ID]i32,  // owner FormID -> (item FormID -> count delta from baseline)
-	actor_values:    map[Form_ID]map[string]f32,   // actor FormID -> (AV name, lower+owned -> value)
+	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	factions:        map[Form_ID]map[Form_ID]i32,  // actor FormID -> (faction FormID -> rank); presence = membership
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
@@ -147,7 +147,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(map[Form_ID]map[Form_ID]i32)
-	o.actor_values = make(map[Form_ID]map[string]f32)
+	o.actor_values = make(map[Form_ID]map[string]Actor_Value)
 	o.factions = make(map[Form_ID]map[Form_ID]i32)
 	o.relationships = make(map[Form_ID]map[Form_ID]i32)
 	o.perks = make(map[Form_ID]map[Form_ID]bool)
@@ -174,10 +174,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.created_by_cell {delete(list)}
 	for _, &q in o.quests {quest_free(&q)}
 	for _, &inner in o.inventories {delete(inner)}
-	for _, &inner in o.actor_values {
-		for k in inner {delete(k)}
-		delete(inner)
-	}
+	for _, &inner in o.actor_values {delete(inner)}
 	for _, &inner in o.factions {delete(inner)}
 	for _, &inner in o.relationships {delete(inner)}
 	for _, &inner in o.perks {delete(inner)}

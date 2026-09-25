@@ -32,10 +32,7 @@ reset_ref_state :: proc(ws: ^World_State, form: Form_ID, inventory: bool) {
 	}
 	if inventory {
 		drop_inventory(ws, form)
-		if inner, ok := ws.actor_values[form]; ok {
-			for k in inner {delete(k)}
-			delete(inner)
-		}
+		if inner, ok := ws.actor_values[form]; ok {delete(inner)}
 		delete_key(&ws.actor_values, form)
 	}
 }

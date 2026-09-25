@@ -2451,46 +2451,34 @@ test_gamedb_actor_values :: proc(t: ^testing.T) {
 	defer gamedb.destroy(&db)
 
 	// Index derivation: each block starts at a different enum position.
-	check :: proc(t: ^testing.T, db: ^gamedb.DB, index: i32, key: string) {
-		got, ok := gamedb.actor_value_key(db, index)
+	check :: proc(t: ^testing.T, db: ^gamedb.DB, index: i32, form: gamedb.Form_ID) {
+		got, ok := gamedb.actor_value_by_index(db, index)
 		testing.expect(t, ok, "actor value index resolves")
-		testing.expect_value(t, got, key)
+		testing.expect_value(t, got, form)
 	}
-	check(t, &db, 0, "aggression")
-	check(t, &db, 18, "alteration")
-	check(t, &db, 24, "health")
-	check(t, &db, 53, "paralysis")
-	check(t, &db, 163, "reflectdamage")
-	// The AVMysticism trap: the key is what the game calls it, not what the record is named.
-	check(t, &db, 21, "illusion")
+	check(t, &db, 0, 0x0000_04B0)
+	check(t, &db, 18, 0x0000_0458)
+	check(t, &db, 24, 0x0000_03E8)
+	check(t, &db, 53, 0x0000_05DC)
+	check(t, &db, 163, 0x0000_064A)
+	check(t, &db, 21, 0x0000_045B) // AVMysticism is Illusion
+	_, missing := gamedb.actor_value_by_index(&db, 37) // 37 VoicePoints has no AVIF record
+	testing.expect(t, !missing, "an index with no AVIF record has no form")
 
-	// An index with no AVIF record (37 Voice Points is engine-only) resolves to nothing.
-	_, missing := gamedb.actor_value_key(&db, 37)
-	testing.expect(t, !missing, "an index with no AVIF record has no key")
-
-	// Display name prefers FULL, falling back to the key when the record carries none.
-	disp, dok := gamedb.actor_value_display(&db, 24)
-	testing.expect(t, dok, "display name resolves")
+	// Display name prefers FULL, else the engine's name.
+	disp, _ := gamedb.actor_value_display(&db, 24)
 	testing.expect_value(t, disp, "Health")
-	fallback, fok := gamedb.actor_value_display(&db, 53)
-	testing.expect(t, fok, "display falls back to the key")
-	testing.expect_value(t, fallback, "paralysis")
+	fallback, _ := gamedb.actor_value_display(&db, 53)
+	testing.expect_value(t, fallback, "Paralysis")
 
-	// Name → index, accepting the editor id's "AV" prefix or the bare name, case-insensitively.
-	idx, iok := gamedb.actor_value_index_of(&db, "Health")
-	testing.expect(t, iok, "name resolves to an index")
-	testing.expect_value(t, idx, i32(24))
-	idx2, iok2 := gamedb.actor_value_index_of(&db, "avalteration")
-	testing.expect(t, iok2, "the AV prefix is accepted")
-	testing.expect_value(t, idx2, i32(18))
-	_, unknown := gamedb.actor_value_index_of(&db, "NotAnActorValue")
-	testing.expect(t, !unknown, "unknown actor value")
-
-	av, avok := gamedb.actor_value_info(&db, 0x0000_045B)
-	testing.expect(t, avok, "AVIF indexed")
-	testing.expect_value(t, av.editor_id, "AVMysticism") // as authored
-	testing.expect_value(t, av.key, "illusion") // as the game means it
-	testing.expect(t, av.has_index, "a base-game AVIF carries an engine index")
+	// Names come from the engine table, any case, and cover indices with no record.
+	Case :: struct {name, want: string}
+	for c in ([]Case{{"illusion", "Illusion"}, {"variable04", "Variable04"}, {"HEALTH", "Health"}}) {
+		got, ok := gamedb.actor_value_name(c.name)
+		testing.expect(t, ok && got == c.want, c.name)
+	}
+	_, unknown := gamedb.actor_value_name("Mysticism")
+	testing.expect(t, !unknown, "an AVIF editor id is not a name")
 }
 
 // LCTN + WTHR — the last two records that `base_class()` gave a Papyrus class without any data

@@ -1964,17 +1964,16 @@ forms_mode :: proc(db: ^gamedb.DB, sub: string) {
 	// regression shows up as a wrong NAME here, not as silently mismatched gameplay numbers.
 	fmt.printfln("\nactor-value index spot check (cited by MGEF / RACE):")
 	for idx in ([]i32{0, 6, 7, 18, 19, 21, 24, 25, 26, 53, 163}) {
-		key, kok := gamedb.actor_value_key(db, idx)
+		_, has_record := gamedb.actor_value_by_index(db, idx)
 		disp, _ := gamedb.actor_value_display(db, idx)
-		fmt.printfln("    %3d  %-16q display=%q%s", idx, key, disp, "" if kok else "  (no AVIF record)")
+		fmt.printfln("    %3d  %-16q display=%q%s", idx, gamedb.AV_NAMES[idx], disp, "" if has_record else "  (no AVIF record)")
 	}
 	for form, r in db.races {
 		if r.info.bonus_count < 4 {continue}
 		fmt.printfln("\nexample race 0x%08X %q (height M/F %.2f/%.2f):",
 			u64(form), gamedb.name_of(db, form), r.info.height_male, r.info.height_female)
 		for i in 0 ..< r.info.bonus_count {
-			key, _ := gamedb.actor_value_key(db, i32(r.info.bonuses[i].skill))
-			fmt.printfln("    +%d %s", r.info.bonuses[i].bonus, key)
+			fmt.printfln("    +%d %s", r.info.bonuses[i].bonus, gamedb.AV_NAMES[r.info.bonuses[i].skill])
 		}
 		break
 	}

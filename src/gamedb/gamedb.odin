@@ -169,7 +169,6 @@ DB :: struct {
 	outfits:       map[Form_ID][]Form_ID, // OTFT formID -> the gear it grants (owned; remapped)
 	actor_value_info:     map[Form_ID]Actor_Value_Info, // AVIF formID -> its identity (owned strings)
 	actor_value_by_index: map[i32]Form_ID, // engine ActorValue index -> its AVIF form
-	actor_value_by_key:   map[string]Form_ID, // canonical lower-case AV name -> its AVIF form (key owned)
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
 	settings:      map[string]Game_Setting, // lower-cased GMST editor id -> its value (key owned; a String value is owned too)
 	messages:      map[Form_ID]Message, // MESG formID -> its on-screen text and buttons (owned strings)
@@ -647,7 +646,6 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
 		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
-		actor_value_by_key   = make(map[string]Form_ID, 256, allocator),
 		global_values = make(map[Form_ID]f32, 1024, allocator),
 		settings      = make(map[string]Game_Setting, 2048, allocator),
 		messages      = make(map[Form_ID]Message, 1024, allocator),

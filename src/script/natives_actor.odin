@@ -1,22 +1,24 @@
 package script
 
 // Actor store natives (docs/scripting-natives.md §B): actor values + faction/relationship ranks.
-// `self` is the actor. All overlay-only: base AV defaults (ActorBase), baseline faction memberships
-// (NPC_/ACHR) and relationships aren't indexed yet, so these reflect runtime changes from the baseline
-// (an unset AV reads 0, a non-member's rank is -1, an unset relationship is 0 = Acquaintance).
+// `self` is the actor. Baseline faction memberships (NPC_/ACHR) and relationships aren't indexed
+// yet, so those reflect runtime changes (a non-member's rank is -1, an unset relationship is 0).
 
+import "core:log"
+import "../gamedb"
 import "../worldstate"
 
 register_actor :: proc(reg: ^Registry) {
 	// Actor values.
 	register(reg, "Actor", "GetActorValue", n_get_av)
-	register(reg, "Actor", "GetBaseActorValue", n_get_av) // no base/current split yet — same store
-	register(reg, "Actor", "SetActorValue", n_set_av)
-	register(reg, "Actor", "ForceActorValue", n_set_av) // Force = Set without clamping (we don't clamp)
-	register(reg, "Actor", "ModActorValue", n_mod_av)
-	register(reg, "Actor", "DamageActorValue", n_damage_av)
-	register(reg, "Actor", "RestoreActorValue", n_mod_av) // Restore = add (no max to clamp to)
+	register(reg, "Actor", "GetBaseActorValue", n_get_base_av)
+	register(reg, "Actor", "GetActorValueMax", n_get_av_max)
 	register(reg, "Actor", "GetActorValuePercentage", n_get_av_pct)
+	register(reg, "Actor", "SetActorValue", n_set_av)
+	register(reg, "Actor", "ModActorValue", n_mod_av)
+	register(reg, "Actor", "ForceActorValue", n_force_av)
+	register(reg, "Actor", "DamageActorValue", n_damage_av)
+	register(reg, "Actor", "RestoreActorValue", n_restore_av)
 
 	// Perks. The store IS the whole truth — a perk is never baseline data, so presence in the
 	// overlay set means having it. Also backs CTDA function 448 (src/conditions).
@@ -38,35 +40,84 @@ register_actor :: proc(reg: ^Registry) {
 }
 
 // ── actor values ─────────────────────────────────────────────────────────────
+// An unknown name warns once; a read gives 0 and a write is dropped.
 
 n_get_av :: proc(c: ^Call, args: []Value) -> Value {
-	v, _ := worldstate.av_get(c.ws, c.self, arg_str(args, 0))
-	return v
+	av, ok := av_arg(c, args)
+	if !ok {return f32(0)}
+	return worldstate.av_current(c.ws, c.db, c.self, av)
+}
+
+n_get_base_av :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if !ok {return f32(0)}
+	return worldstate.av_base(c.ws, c.db, c.self, av)
+}
+
+n_get_av_max :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if !ok {return f32(0)}
+	return worldstate.av_max(c.ws, c.db, c.self, av)
+}
+
+// GetActorValuePercentage is current / max, 1.0 when the max is 0 and always for CarryWeight.
+n_get_av_pct :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if !ok {return f32(0)}
+	full := worldstate.av_max(c.ws, c.db, c.self, av)
+	if av == "CarryWeight" || full == 0 {return f32(1)}
+	return worldstate.av_current(c.ws, c.db, c.self, av) / full
 }
 
 n_set_av :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.av_set(c.ws, c.self, arg_str(args, 0), arg_f32(args, 1, 0))
+	av, ok := av_arg(c, args)
+	if !ok {return nil}
+	worldstate.av_set_base(c.ws, c.self, av, arg_f32(args, 1, 0))
 	return nil
 }
 
 n_mod_av :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.av_mod(c.ws, c.self, arg_str(args, 0), arg_f32(args, 1, 0))
+	av, ok := av_arg(c, args)
+	if !ok {return nil}
+	worldstate.av_mod(c.ws, c.self, av, arg_f32(args, 1, 0))
+	return nil
+}
+
+n_force_av :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if !ok {return nil}
+	worldstate.av_force(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
 	return nil
 }
 
 n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.av_mod(c.ws, c.self, arg_str(args, 0), -arg_f32(args, 1, 0))
+	av, ok := av_arg(c, args)
+	if !ok {return nil}
+	worldstate.av_damage(c.ws, c.self, av, arg_f32(args, 1, 0))
 	return nil
 }
 
-// GetActorValuePercentage -> current/max, 0..1. We hold no max, so a set AV reads as full (1.0) and an
-// unset one as 0 — a placeholder until the actor phase brings base/max AV data. (Callers gating on
-// "< 1.0" for damaged actors won't fire; documented limitation.)
-n_get_av_pct :: proc(c: ^Call, args: []Value) -> Value {
-	if _, ok := worldstate.av_get(c.ws, c.self, arg_str(args, 0)); ok {
-		return f32(1)
+n_restore_av :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if !ok {return nil}
+	worldstate.av_restore(c.ws, c.self, av, arg_f32(args, 1, 0))
+	return nil
+}
+
+@(private)
+av_arg :: proc(c: ^Call, args: []Value) -> (string, bool) {
+	name := arg_str(args, 0)
+	av, ok := gamedb.actor_value_name(name)
+	if !ok && c.reg != nil {
+		k := key_own("av", name, c.reg.allocator)
+		if k in c.reg.warned {
+			delete(string(k), c.reg.allocator)
+		} else {
+			c.reg.warned[k] = true
+			log.warnf("script: unknown actor value %q", name)
+		}
 	}
-	return f32(0)
+	return av, ok
 }
 
 // ── faction membership + rank ──────────────────────────────────────────────────

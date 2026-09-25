@@ -22,9 +22,11 @@ package worldstate
 
 import "core:encoding/cbor"
 import "core:hash"
+import "core:log"
 import "core:os"
 import "core:strings"
 import "../formid"
+import "../gamedb"
 
 MAGIC :: "SKYSAVE\x00"
 FORMAT_VERSION :: u32(3) // v3: stable identity slots + embedded form-table bridge (§4.4); v2 dropped
@@ -183,9 +185,12 @@ Saved_Inv :: struct {
 	count: i32,
 }
 Saved_AV :: struct {
-	actor: Form_ID,
-	name:  string, // AV name (lowercased in the store)
-	value: f32,
+	actor:     Form_ID,
+	name:      string,
+	has_base:  bool,
+	base:      f32,
+	permanent: f32,
+	damage:    f32,
 }
 Saved_Faction :: struct {
 	actor:   Form_ID,
@@ -311,8 +316,9 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	}
 	avs := make([dynamic]Saved_AV, 0, len(ws.actor_values), context.temp_allocator)
 	for actor, vals in ws.actor_values {
-		for name, value in vals {
-			append(&avs, Saved_AV{actor = actor, name = name, value = value})
+		for av, p in vals {
+			base, has_base := p.base.?
+			append(&avs, Saved_AV{actor = actor, name = av, has_base = has_base, base = base, permanent = p.permanent, damage = p.damage})
 		}
 	}
 	facs := make([dynamic]Saved_Faction, 0, len(ws.factions), context.temp_allocator)
@@ -589,7 +595,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		}
 	}
 	// The three Wave-1 stores: rebuild each map-of-maps from its flat triples (verbatim — the file
-	// already records full state). av_set owns/lowercases the key; relationship pairs are stored both
+	// already records full state). Actor values come back by name; relationship pairs are stored both
 	// directions, so each directed entry is set on its own. Entries keyed on a missing mod drop; a
 	// secondary ref (item/faction/b) that won't resolve keeps its saved value (dangles).
 	for r in body.inventory {
@@ -599,7 +605,13 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		inv_upsert(ws, owner)^[item] = r.count
 	}
 	for a in body.actor_values {
-		if actor, kok := rf(remap, have_remap, a.actor); kok {av_set(ws, actor, a.name, a.value)}
+		actor, kok := rf(remap, have_remap, a.actor)
+		av, aok := gamedb.actor_value_name(a.name)
+		if !aok {log.warnf("load: dropped unknown actor value %q", a.name)}
+		if !kok || !aok {continue}
+		p := av_upsert(ws, actor, av)
+		p^ = {permanent = a.permanent, damage = a.damage}
+		if a.has_base {p.base = a.base}
 	}
 	for f in body.factions {
 		actor, kok := rf(remap, have_remap, f.actor)

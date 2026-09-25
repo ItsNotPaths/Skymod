@@ -169,11 +169,14 @@ test_conditions_evaluate :: proc(t: ^testing.T) {
 	worldstate.perk_add(&ws, formid.PLAYER, 0x0000_0A01)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "skill still too low")
 
-	// Skill just under the bar still fails — the operator is >=, not >.
-	worldstate.av_set(&ws, formid.PLAYER, "onehanded", 29)
+	// Skill just under the bar still fails — the operator is >=, not >. 277 reads the base, so a
+	// fortify does not open it.
+	ONE_HANDED :: "OneHanded"
+	worldstate.av_set_base(&ws, formid.PLAYER, ONE_HANDED, 29)
+	worldstate.av_mod(&ws, formid.PLAYER, ONE_HANDED, 5)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "29 is below 30")
 
-	worldstate.av_set(&ws, formid.PLAYER, "onehanded", 30)
+	worldstate.av_set_base(&ws, formid.PLAYER, ONE_HANDED, 30)
 	testing.expect(t, conditions.all(&ctx, p.take_conditions), "gate opens at exactly 30")
 
 	// Losing the prerequisite closes it again.

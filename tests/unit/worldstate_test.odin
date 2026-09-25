@@ -62,7 +62,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.inv_add(&src, 0x000B0B00, 0x0000000F, 250) // gold
 	ws.inv_add(&src, 0x000B0B00, 0x0001A11E, 3)
 	ws.inv_add(&src, 0x000B0B00, 0x0000000A, -4) // fewer than the starting contents
-	ws.av_set(&src, 0x000AC701, "Health", 87.5)
+	ws.av_set_base(&src, 0x000AC701, "Health", 87.5)
+	ws.av_damage(&src, 0x000AC701, "Health", 7.5)
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
 	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
 	ws.perk_add(&src, 0x000AC701, 0x000BABE0)
@@ -162,9 +163,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0000000F), i32(250))
 	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0001A11E), i32(3))
 	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0000000A), i32(-4))
-	hv, hok := ws.av_get(&dst, 0x000AC701, "health") // case-folded lookup hits the stored key
-	testing.expect(t, hok, "actor value missing after load")
-	testing.expectf(t, abs(hv - 87.5) < 1e-5, "AV mismatch: %v", hv)
+	testing.expect_value(t, ws.av_base(&dst, nil, 0x000AC701, "Health"), f32(87.5))
+	testing.expect_value(t, ws.av_current(&dst, nil, 0x000AC701, "Health"), f32(80))
 	fr, fok := ws.faction_rank(&dst, 0x000AC701, 0x000FAC70)
 	testing.expect(t, fok && fr == 4, "faction rank lost")
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))

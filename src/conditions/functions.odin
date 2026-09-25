@@ -14,6 +14,7 @@ package conditions
 // dialogue. This table deliberately covers only what the already-indexed records ask, which is a
 // very short list — see the coverage note on each entry.
 
+import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
@@ -34,7 +35,7 @@ Function :: struct {
 @(rodata)
 TABLE := []Function {
 	{448, "has-perk", fn_has_perk},
-	{277, "actor-value-by-index", fn_actor_value_by_index},
+	{277, "base-actor-value", fn_base_actor_value},
 	{47, "item-count", fn_item_count},
 }
 
@@ -72,27 +73,19 @@ fn_has_perk :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bo
 	return worldstate.perk_has(ctx.ws, on, gamedb.condition_param1_form(c)) ? 1 : 0, true
 }
 
-// CTDA-FN 277 — actor value by index (INFERRED).
+// CTDA-FN 277 — GetBaseActorValue (UESP Function Indices; 14 is GetActorValue, 640 GetActorValuePercent).
 //
 // EVIDENCE: 249 uses, all on PERK take-gates. param1 is NOT a form — it is a small integer that
 // indexes the engine ActorValue enum, and it appears with >= against values like 60. The sample
 // that names itself: param1 0x14 (index 20, Destruction) compared >= 60, on a Destruction perk.
 // That is a skill-level requirement, and it is where the perk tree's level gate actually lives —
 // AVIF's nodes carry no such field, contrary to what docs/menus.md long assumed.
-//
-// The index is joined to worldstate's name-keyed store through gamedb.actor_value_key, the bridge
-// AVIF exists to provide.
 @(private)
-fn_actor_value_by_index :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	if ctx.db == nil || ctx.ws == nil {
+fn_base_actor_value :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	if ctx.db == nil || ctx.ws == nil || c.param1 >= esm.ACTOR_VALUE_COUNT {
 		return 0, false
 	}
-	key, kok := gamedb.actor_value_key(ctx.db, i32(c.param1))
-	if !kok {
-		return 0, false // an index with no AVIF record — engine-only slot
-	}
-	v, _ := worldstate.av_get(ctx.ws, on, key) // unset reads 0, which is a real answer
-	return v, true
+	return worldstate.av_base(ctx.ws, ctx.db, on, gamedb.AV_NAMES[c.param1]), true
 }
 
 // CTDA-FN 47 — item count (INFERRED).

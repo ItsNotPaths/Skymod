@@ -218,7 +218,8 @@ test_registry_starting_contents :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.inv_delta(&ws, BAG, ITEM), i32(6))
 }
 
-// Actor-value store: set/get (case-insensitive), mod/damage, base==current, percentage placeholder.
+// Actor values follow the CK wiki's model: Set moves the base, Mod the max, Damage and Restore only
+// the current value, and Force sets the permanent modifier to reach its value.
 @(test)
 test_registry_actor_value :: proc(t: ^testing.T) {
 	reg: script.Registry
@@ -229,25 +230,37 @@ test_registry_actor_value :: proc(t: ^testing.T) {
 	defer worldstate.destroy(&ws)
 	db: gamedb.DB
 
-	actor := script.Form_ID(0x0006_0000)
-	c := script.Call{self = actor, ws = &ws, db = &db}
-	av :: proc(reg: ^script.Registry, c: ^script.Call, name: string) -> f32 {
-		return script.call(reg, "Actor", "GetActorValue", c, {name}).(f32)
+	c := script.Call{self = script.Form_ID(0x0006_0000), ws = &ws, db = &db}
+	get :: proc(reg: ^script.Registry, c: ^script.Call, fn, name: string) -> f32 {
+		return script.call(reg, "Actor", fn, c, {name}).(f32)
+	}
+	act :: proc(reg: ^script.Registry, c: ^script.Call, fn, name: string, v: f32) {
+		script.call(reg, "Actor", fn, c, {name, v})
 	}
 
-	script.call(&reg, "Actor", "SetActorValue", &c, {"Health", f32(100)})
-	testing.expect_value(t, av(&reg, &c, "Health"), f32(100))
-	testing.expect_value(t, av(&reg, &c, "health"), f32(100)) // case-insensitive
-	script.call(&reg, "Actor", "ModActorValue", &c, {"Health", f32(25)})
-	testing.expect_value(t, av(&reg, &c, "Health"), f32(125))
-	script.call(&reg, "Actor", "DamageActorValue", &c, {"Health", f32(50)})
-	testing.expect_value(t, av(&reg, &c, "Health"), f32(75))
-	// GetBaseActorValue reads the same store (no base/current split yet).
-	testing.expect_value(t, script.call(&reg, "Actor", "GetBaseActorValue", &c, {"Health"}).(f32), f32(75))
-	// Unset AV reads 0; percentage is 1.0 for a set AV, 0 for an unset one (placeholder, no max data).
-	testing.expect_value(t, av(&reg, &c, "Stamina"), f32(0))
-	testing.expect_value(t, script.call(&reg, "Actor", "GetActorValuePercentage", &c, {"Health"}).(f32), f32(1))
-	testing.expect_value(t, script.call(&reg, "Actor", "GetActorValuePercentage", &c, {"Magicka"}).(f32), f32(0))
+	act(&reg, &c, "SetActorValue", "Health", 100)
+	act(&reg, &c, "DamageActorValue", "health", 10) // case-insensitive
+	testing.expect_value(t, get(&reg, &c, "GetActorValue", "Health"), f32(90)) // "90/100 Health"
+	act(&reg, &c, "ModActorValue", "Health", -10)
+	testing.expect_value(t, get(&reg, &c, "GetActorValueMax", "Health"), f32(90))
+	testing.expect_value(t, get(&reg, &c, "GetBaseActorValue", "Health"), f32(100))
+	testing.expect_value(t, get(&reg, &c, "GetActorValuePercentage", "Health"), f32(80) / 90)
+	act(&reg, &c, "DamageActorValue", "Health", -20) // a negative amount damages too
+	act(&reg, &c, "RestoreActorValue", "Health", 1000) // never past the max
+	testing.expect_value(t, get(&reg, &c, "GetActorValue", "Health"), f32(90))
+
+	act(&reg, &c, "SetActorValue", "Health", 125)
+	act(&reg, &c, "ForceActorValue", "Health", 0) // "force their health to 0"
+	act(&reg, &c, "SetActorValue", "Health", 150) // "their current health will instantly become 25"
+	testing.expect_value(t, get(&reg, &c, "GetActorValue", "Health"), f32(25))
+
+	testing.expect_value(t, get(&reg, &c, "GetActorValuePercentage", "Stamina"), f32(1)) // max 0
+	act(&reg, &c, "SetActorValue", "CarryWeight", 300)
+	act(&reg, &c, "DamageActorValue", "CarryWeight", 100)
+	testing.expect_value(t, get(&reg, &c, "GetActorValuePercentage", "CarryWeight"), f32(1))
+
+	act(&reg, &c, "SetActorValue", "NotAnActorValue", 5)
+	testing.expect_value(t, get(&reg, &c, "GetActorValue", "NotAnActorValue"), f32(0))
 }
 
 // Faction + relationship store: SetFactionRank adds, Mod adjusts, Remove(All), relationship rank.

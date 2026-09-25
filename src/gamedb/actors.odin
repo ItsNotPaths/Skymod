@@ -5,9 +5,7 @@ package gamedb
 // FormIDs pointing at records nobody indexed — stored, but dead. Decoders live in
 // src/formats/esm/records_actors.odin; this file owns the storage, the remap and the queries.
 //
-// AVIF also supplies the bridge the rest of the DB needs: MGEF and RACE store actor values as
-// ENGINE INDICES, while worldstate.actor_values is keyed by lower-case NAME. actor_value_key
-// joins the two.
+// AVIF gives an actor value's description and perk tree; its name and index come from AV_NAMES.
 
 import "core:strings"
 import "../formats/esm"
@@ -22,8 +20,7 @@ Race :: struct {
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
-// its health/magicka/stamina split. `training_skill` is an actor-value index — resolve it with
-// actor_value_key / actor_value_display.
+// its health/magicka/stamina split. `training_skill` is an actor-value index (AV_NAMES).
 Class :: struct {
 	info:        esm.Class_Info,
 	description: string, // DESC (owned; "" when absent)
@@ -31,13 +28,10 @@ Class :: struct {
 
 // Actor_Value_Info is one AVIF record: an actor value's identity. `index` is its engine
 // ActorValue index when the form is a base-game AVIF (see esm.ACTOR_VALUE_BLOCKS); has_index is
-// false for a mod-added AVIF, which is a form but not a new enum slot. `key` is the canonical
-// lower-case lookup name (editor id minus its "AV" prefix) — the same key worldstate's
-// actor-value store uses.
+// false for a mod-added AVIF, which is a form but not a new enum slot.
 Actor_Value_Info :: struct {
 	index:       i32,
 	has_index:   bool,
-	key:         string, // owned, lower-case
 	editor_id:   string, // owned, as authored
 	description: string, // DESC (owned; "" when absent)
 }
@@ -152,27 +146,12 @@ index_actor_value :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		av.index, av.has_index = esm.actor_value_index(u32(rec.form_id))
 	}
 
-	// The canonical key: the editor id minus its "AV" prefix, lower-cased — "AVHealth" →
-	// "health", which is exactly how worldstate keys its actor-value store.
-	name := edid
-	if len(name) > 2 && name[:2] == "AV" {
-		name = name[2:]
-	}
-	av.key = strings.to_lower(name, db.allocator)
-	if av.has_index && av.index == esm.AV_ILLUSION {
-		delete(av.key, db.allocator)
-		av.key = strings.clone("illusion", db.allocator) // its record is still named AVMysticism
-	}
-
 	if old, existed := db.actor_value_info[rec.form_id]; existed {
 		free_actor_value_info(db, old)
 	}
 	db.actor_value_info[rec.form_id] = av
 	if av.has_index {
 		db.actor_value_by_index[av.index] = rec.form_id
-	}
-	if _, seen := db.actor_value_by_key[av.key]; !seen {
-		db.actor_value_by_key[strings.clone(av.key, db.allocator)] = rec.form_id
 	}
 
 	// The perk-tree nodes trail the identity in the same record. Only the 18 skills carry any, and
@@ -235,7 +214,7 @@ outfit_items :: proc(db: ^DB, outfit: Form_ID) -> []Form_ID {
 }
 
 // actor_race_bonuses returns an actor base's racial skill bonuses, resolved through its RACE.
-// Each entry's `skill` is an actor-value index — name it with actor_value_key. `count` is how
+// Each entry's `skill` is an actor-value index (AV_NAMES). `count` is how
 // many of the returned slots are populated; it's 0 when the actor or its race isn't indexed, or
 // the race grants none. Returned BY VALUE (not as a slice) because the array lives inside a
 // map value — a slice of it would dangle the moment the map rehashed.
@@ -276,38 +255,18 @@ actor_value_info :: proc(db: ^DB, form: Form_ID) -> (Actor_Value_Info, bool) {
 	return av, ok
 }
 
-// actor_value_key maps an engine ActorValue INDEX — what MGEF, RACE and CLAS store — to its
-// canonical lower-case name, the key worldstate's actor-value store uses. This is the join
-// between the record layer and the runtime overlay. ok=false for an index with no AVIF record
-// (an engine-only slot such as 37 Voice Points).
-actor_value_key :: proc(db: ^DB, index: i32) -> (string, bool) {
-	form, ok := actor_value_by_index(db, index)
-	if !ok {
-		return "", false
-	}
-	av, has := actor_value_info(db, form)
-	if !has {
-		return "", false
-	}
-	return av.key, true
-}
-
-// actor_value_display returns an actor value's player-facing name for `index` — its FULL when
-// the record carries one (24 of the 149 do), else its canonical key. ok=false when the index has
-// no AVIF record.
+// actor_value_display returns an actor value's player-facing name: its AVIF FULL when the record
+// has one (24 of the 149 do), else its AV_NAMES name. ok=false for an index outside the table.
 actor_value_display :: proc(db: ^DB, index: i32) -> (string, bool) {
-	form, ok := actor_value_by_index(db, index)
-	if !ok {
+	if index < 0 || index >= esm.ACTOR_VALUE_COUNT {
 		return "", false
 	}
-	if full := name_of(db, form); full != "" {
-		return full, true
+	if form, ok := actor_value_by_index(db, index); ok {
+		if full := name_of(db, form); full != "" {
+			return full, true
+		}
 	}
-	av, has := actor_value_info(db, form)
-	if !has {
-		return "", false
-	}
-	return av.key, true
+	return AV_NAMES[index], true
 }
 
 // actor_value_by_index returns the AVIF form defining ActorValue `index`. ok=false when no
@@ -320,43 +279,10 @@ actor_value_by_index :: proc(db: ^DB, index: i32) -> (Form_ID, bool) {
 	return f, ok
 }
 
-// actor_value_id resolves an actor value's name (case-insensitive, with or without the "AV"
-// prefix) to its AVIF form — how a script or hand-written content names one. ok=false when no
-// such actor value is indexed.
-actor_value_id :: proc(db: ^DB, name: string) -> (Form_ID, bool) {
-	if db == nil {
-		return 0, false
-	}
-	key := strings.to_lower(name, context.temp_allocator)
-	if len(key) > 2 && key[:2] == "av" {
-		if f, ok := db.actor_value_by_key[key[2:]]; ok {
-			return f, true
-		}
-	}
-	f, ok := db.actor_value_by_key[key]
-	return f, ok
-}
-
-// actor_value_index_of resolves an actor value's name to its engine index — the inverse of
-// actor_value_key, for a script that names an AV as a string. ok=false when unknown or the form
-// carries no index (a mod-added AVIF).
-actor_value_index_of :: proc(db: ^DB, name: string) -> (i32, bool) {
-	form, ok := actor_value_id(db, name)
-	if !ok {
-		return 0, false
-	}
-	av, has := actor_value_info(db, form)
-	if !has || !av.has_index {
-		return 0, false
-	}
-	return av.index, true
-}
-
 // --- teardown ---------------------------------------------------------------------------
 
 @(private)
 free_actor_value_info :: proc(db: ^DB, av: Actor_Value_Info) {
-	delete(av.key, db.allocator)
 	delete(av.editor_id, db.allocator)
 	delete(av.description, db.allocator)
 }
@@ -382,8 +308,4 @@ free_actor_indexes :: proc(db: ^DB) {
 	}
 	delete(db.actor_value_info)
 	delete(db.actor_value_by_index)
-	for k, _ in db.actor_value_by_key {
-		delete(k, db.allocator)
-	}
-	delete(db.actor_value_by_key)
 }
