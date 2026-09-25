@@ -188,6 +188,10 @@ Saved_Level :: struct {
 	zone:  Form_ID,
 	level: i32,
 }
+Saved_Range :: struct {
+	zone:     Form_ID,
+	min, max: i32,
+}
 Saved_AV :: struct {
 	actor:     Form_ID,
 	name:      string,
@@ -224,6 +228,8 @@ Save_Body :: struct {
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
 	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
+	zone_ranges:   []Saved_Range,
+	zone_listeners: []Form_ID,
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
@@ -377,6 +383,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
 	picks := make([dynamic]Saved_Alias, 0, len(ws.actor_picks), context.temp_allocator)
 	for ref, npc in ws.actor_picks {append(&picks, Saved_Alias{ref, npc})}
+	ranges := make([dynamic]Saved_Range, 0, len(ws.zone_ranges), context.temp_allocator)
+	for zone, r in ws.zone_ranges {append(&ranges, Saved_Range{zone, r[0], r[1]})}
+	listeners := make([dynamic]Form_ID, 0, len(ws.zone_listeners), context.temp_allocator)
+	for form in ws.zone_listeners {append(&listeners, form)}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
@@ -397,6 +407,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
 		actor_picks   = picks[:],
+		zone_ranges   = ranges[:],
+		zone_listeners = listeners[:],
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
@@ -559,6 +571,12 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for z in body.zone_levels {
 		if id, ok := rf(remap, have_remap, z.zone); ok {ws.zone_levels[id] = z.level}
 	}
+	for r in body.zone_ranges {
+		if id, ok := rf(remap, have_remap, r.zone); ok {ws.zone_ranges[id] = {r.min, r.max}}
+	}
+	for f in body.zone_listeners {
+		if id, ok := rf(remap, have_remap, f); ok {ws.zone_listeners[id] = true}
+	}
 	for p in body.actor_picks {
 		ref, rok := rf(remap, have_remap, p.alias)
 		npc, nok := rf(remap, have_remap, p.form)
@@ -697,6 +715,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}
+	for r in body.zone_ranges {add_slot(&seen, r.zone)}
+	for f in body.zone_listeners {add_slot(&seen, f)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}

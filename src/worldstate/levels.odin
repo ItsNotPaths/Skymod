@@ -19,13 +19,28 @@ player_level :: proc(db: ^gamedb.DB) -> i32 {
 	return max(i32(db.actors[formid.PLAYER_BASE].level), 1)
 }
 
-// zone_level is a zone's level: set from the player's level on the first ask, then kept.
+// Zone_Formula is a mod's replacement for how a zone takes its level (rt.zone_formula); `level` is
+// the engine's answer.
+Zone_Formula :: #type proc(user: rawptr, zone: Form_ID, pc, min_level, max_level, level: i32) -> i32
+
+// zone_level is a zone's level: set on the first ask from the player's level (through a mod's
+// formula when one is registered), then kept. OnZoneLevelSet announces it on the next tick.
 zone_level :: proc(ws: ^World_State, db: ^gamedb.DB, zone: Form_ID) -> i32 {
 	if zone == 0 {return player_level(db)}
 	if l, ok := ws.zone_levels[zone]; ok {return l}
-	l := zone_level_from(db.zones[zone], player_level(db))
+	z, pc := zone_band(ws, db, zone), player_level(db)
+	l := zone_level_from(z, pc)
+	if ws.zone_formula != nil {l = ws.zone_formula(ws.zone_formula_user, zone, pc, z.min_level, z.max_level, l)}
 	ws.zone_levels[zone] = l
+	append(&ws.zone_level_sets, zone)
 	return l
+}
+
+// zone_band is a zone with a script's SetEncounterZoneRange applied.
+zone_band :: proc(ws: ^World_State, db: ^gamedb.DB, zone: Form_ID) -> gamedb.Zone {
+	z := db.zones[zone]
+	if r, ok := ws.zone_ranges[zone]; ok {z.min_level, z.max_level = r[0], r[1]}
+	return z
 }
 
 // zone_level_from clamps the player's level to the zone's band (CK wiki, Encounter Zone). Match PC

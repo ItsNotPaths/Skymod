@@ -173,6 +173,19 @@ tick_items :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	clear(&ws.item_moves)
 }
 
+// tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form
+// in form order.
+tick_zone_levels :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	if len(ws.zone_level_sets) == 0 {return}
+	listeners := make([dynamic]script.Form_ID, 0, len(ws.zone_listeners), context.temp_allocator)
+	for form in ws.zone_listeners {append(&listeners, form)}
+	slice.sort(listeners[:])
+	for zone in ws.zone_level_sets {
+		for form in listeners {send_own(vm, form, "OnZoneLevelSet", zone, ws.zone_levels[zone])}
+	}
+	clear(&ws.zone_level_sets)
+}
+
 // send_item sends an inventory event to a container's recipients, each through its own filters.
 @(private = "file")
 send_item :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, container: script.Form_ID, event: string, m: worldstate.Item_Move, other: script.Form_ID) {
@@ -211,6 +224,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_transitions(vm, db, ws, t, attached)
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
+	tick_zone_levels(vm, ws)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.

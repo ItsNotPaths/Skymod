@@ -196,6 +196,18 @@ end
 return C
 `
 
+@(private = "file")
+ZONES_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Zones", nil)
+local listen = rt.native("Form", "RegisterForZoneLevelSet", false)
+C.__fn["ongameloaded"] = function(self)
+  rt.zone_formula(function(zone, pc, min, max, level) return level + 3 end)
+  listen(self)
+end
+C.__fn["onzonelevelset"] = function(self, zone, level) __zone = { zone, level } end
+return C
+`
+
 // Fixture is a VM over a temp scripts dir. Its fields are pointed into, so it never moves.
 @(private = "file")
 Fixture :: struct {
@@ -729,4 +741,27 @@ test_mod_actor_values :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, formid.PLAYER, hunger), 4)
 	_, kept := worldstate.av_name(&f.ws, "Old")
 	testing.expect(t, !kept && len(f.ws.pending_avs) == 0, "an AV nobody created again is gone")
+}
+
+// A mod's zone formula sets a zone's first level, and registered forms hear OnZoneLevelSet.
+@(test)
+test_zone_level_hooks :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_zones", {{"zones.lua", ZONES_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST :: script.Form_ID(0x900)
+	ZONE :: script.Form_ID(0x901)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "Zones"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+	f.db.zones = make(map[gamedb.Form_ID]gamedb.Zone, context.temp_allocator)
+	f.db.zones[ZONE] = {min_level = 5}
+
+	slua.start_game(&f.vm, &f.db)
+	testing.expect_value(t, worldstate.zone_level(&f.ws, &f.db, ZONE), 8) // min 5, plus the formula's 3
+	slua.tick_zone_levels(&f.vm, &f.ws)
+	slua.drain(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__zone[0] === ref(0x901) and __zone[1] == 8)`), "OnZoneLevelSet heard")
 }

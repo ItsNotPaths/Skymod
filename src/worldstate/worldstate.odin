@@ -43,6 +43,8 @@ Overlay :: struct {
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
 	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
+	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
+	zone_listeners:  map[Form_ID]bool,             // forms registered for OnZoneLevelSet
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
 	pending_avs:     [dynamic]Saved_AV,            // loaded values of names no mod has created yet (not saved)
@@ -91,6 +93,9 @@ Runtime :: struct {
 	// Effects started and ended since the VM last looked: it sends OnEffectStart / OnEffectFinish.
 	new_effects:     [dynamic]Form_ID,
 	ended_effects:   [dynamic]Form_ID,
+	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
+	zone_formula:      Zone_Formula, // a mod's zone level formula (the VM's hook); nil = the engine's
+	zone_formula_user: rawptr,
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -124,6 +129,7 @@ init :: proc(ws: ^World_State) {
 	ws.new_effects = make([dynamic]Form_ID)
 	ws.ended_effects = make([dynamic]Form_ID)
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
+	ws.zone_level_sets = make([dynamic]Form_ID)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -137,6 +143,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.rebuild_cells)
 	delete(ws.new_effects)
 	delete(ws.ended_effects)
+	delete(ws.zone_level_sets)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
@@ -156,6 +163,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
+	o.zone_ranges = make(map[Form_ID][2]i32)
+	o.zone_listeners = make(map[Form_ID]bool)
 	o.actor_values = make(map[Form_ID]map[string]Actor_Value)
 	o.mod_avs = make(map[string]Mod_AV)
 	o.pending_avs = make([dynamic]Saved_AV)
@@ -210,6 +219,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.rolled)
 	delete(o.zone_levels)
 	delete(o.actor_picks)
+	delete(o.zone_ranges)
+	delete(o.zone_listeners)
 	delete(o.actor_values)
 	delete(o.mod_avs)
 	delete(o.pending_avs)

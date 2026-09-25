@@ -89,6 +89,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_forms(reg) // FormList, Location, keywords, race, game time
 	register_reset(reg) // cell and ref reset, cleared locations
 	register_magic(reg) // spells start and end scripted magic effects
+	register_levels(reg) // encounter zone levels for mods
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────

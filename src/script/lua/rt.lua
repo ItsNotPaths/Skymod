@@ -1004,6 +1004,21 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts and opts.default or 0.0)
 end
 
+-- rt.zone_formula(fn) replaces how a zone takes its first level: fn(zone, pcLevel, minLevel,
+-- maxLevel, level) returns the level, `level` being the engine's answer. The last one registered
+-- wins, as with any mod conflict. A load clears it, so register it from OnGameLoaded.
+local zone_formula
+
+function rt.zone_formula(fn) zone_formula = fn end
+
+function rt.zone_level_by_formula(zone, pc, min, max, level)
+  if not zone_formula then return level end
+  local ok, v = budgeted(zone_formula, zone, pc, min, max, level)
+  if ok and math.type(v) then return math.floor(v) end
+  warn("rt.zone_formula: " .. (ok and "returned no number" or tostring(v)))
+  return level
+end
+
 -- ── saves ───────────────────────────────────────────────────────────────────
 
 local function same(a, b)
@@ -1070,6 +1085,7 @@ function rt.reset()
   rates = {}
   ticks = 0
   queue = {}
+  zone_formula = nil
 end
 
 -- ── properties ──────────────────────────────────────────────────────────────

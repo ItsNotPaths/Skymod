@@ -45,7 +45,27 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		lua.setglobal(L, h.name)
 	}
 
+	if ws := vm.ctx.ws; ws != nil {ws.zone_formula, ws.zone_formula_user = zone_formula, vm}
 	return preload(L, "skymod.params", PARAMS_SRC) && preload(L, "skymod.rt", RT_SRC)
+}
+
+// zone_formula is worldstate's hook into rt.zone_level_by_formula (a mod's rt.zone_formula).
+@(private)
+zone_formula :: proc(user: rawptr, zone: worldstate.Form_ID, pc, min_level, max_level, level: i32) -> i32 {
+	vm := cast(^VM)user
+	L := vm.L
+	vm.host_context = context
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+
+	if !push_rt_fn(L, "zone_level_by_formula") {return level}
+	push_ref(L, zone)
+	for n in ([]i32{pc, min_level, max_level, level}) {lua.pushinteger(L, lua.Integer(n))}
+	if lua.pcall(L, 5, 1, 0) != 0 {
+		log.errorf("lua: rt.zone_level_by_formula: %s", to_string(L, -1))
+		return level
+	}
+	return i32(lua.tointeger(L, -1))
 }
 
 // __actor_value(name, default) is rt.actor_value's engine half.
