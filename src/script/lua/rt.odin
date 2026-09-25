@@ -7,6 +7,7 @@ package script_lua
 
 import "core:c"
 import "core:log"
+import "core:reflect"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
@@ -68,12 +69,17 @@ zone_formula :: proc(user: rawptr, zone: worldstate.Form_ID, pc, min_level, max_
 	return i32(lua.tointeger(L, -1))
 }
 
-// __actor_value(name, default) is rt.actor_value's engine half.
+// __actor_value(name, default, kind) is rt.actor_value's engine half.
 @(private)
 rt_actor_value :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
-	worldstate.av_create(vm.ctx.ws, to_string(L, 1), f32(lua.tonumber(L, 2)))
+	kind, ok := reflect.enum_from_name(gamedb.AV_Kind, strings.to_pascal_case(to_string(L, 3), context.temp_allocator))
+	if !ok {
+		log.warnf("script: rt.actor_value(%q): no kind %q (static, latched, pool)", to_string(L, 1), to_string(L, 3))
+		return 0
+	}
+	worldstate.av_create(vm.ctx.ws, to_string(L, 1), f32(lua.tonumber(L, 2)), kind)
 	return 0
 }
 

@@ -1000,10 +1000,12 @@ function rt.start_end()
   for i = 0, #s.fresh - 1 do send_now(s.fresh[i], "OnInit") end
 end
 
--- rt.actor_value(name, {default = v}) creates a mod actor value, or gets it when it exists.
+-- rt.actor_value(name, {default = v, kind = "static" | "latched" | "pool"}) creates a mod actor
+-- value, or gets it when it exists. The kind defaults to static.
 function rt.actor_value(name, opts)
   if not game_loading then error("rt.actor_value outside OnGameLoaded", 2) end
-  __actor_value(name, opts and opts.default or 0.0)
+  opts = opts or {}
+  __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
 -- rt.zone_formula(fn) replaces how a zone takes its first level: fn(zone, pcLevel, minLevel,

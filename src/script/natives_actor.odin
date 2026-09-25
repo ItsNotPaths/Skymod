@@ -19,6 +19,7 @@ register_actor :: proc(reg: ^Registry) {
 	register(reg, "Actor", "ForceActorValue", n_force_av)
 	register(reg, "Actor", "DamageActorValue", n_damage_av)
 	register(reg, "Actor", "RestoreActorValue", n_restore_av)
+	register(reg, "Actor", "SetActorValueCap", n_set_av_cap)
 
 	// Perks. The store IS the whole truth — a perk is never baseline data, so presence in the
 	// overlay set means having it. Also backs CTDA function 448 (src/conditions).
@@ -94,6 +95,16 @@ n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	av, ok := av_arg(c, args)
 	if !ok {return nil}
 	worldstate.av_damage(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
+	return nil
+}
+
+// SetActorValueCap(asValueName, afCap) is ours: a pool's (a skill's) capacity, the soft cap training
+// stops at. GetActorValueMax reads it.
+n_set_av_cap :: proc(c: ^Call, args: []Value) -> Value {
+	av, ok := av_arg(c, args)
+	if ok && !worldstate.av_set_cap(c.ws, c.self, av, arg_f32(args, 1, gamedb.SKILL_CAP)) {
+		log.warnf("script: SetActorValueCap(%q): only a pool (a skill) has a cap", av)
+	}
 	return nil
 }
 

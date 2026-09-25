@@ -59,6 +59,7 @@ Actor_Value :: struct {
 	base:      Maybe(f32), // SetActorValue's base; none = the records' base
 	permanent: f32,        // ModActorValue, ForceActorValue
 	damage:    f32,        // DamageActorValue; never above 0
+	cap:       Maybe(f32), // a pool's capacity; none = gamedb.SKILL_CAP
 	pause:     f32,        // seconds before regen restores damage again (not saved)
 }
 
@@ -84,12 +85,32 @@ av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 	return gamedb.actor_value_base(db, record_of(ws, actor), av, actor_pick(ws, db, actor))
 }
 
+// av_max is an AV's capacity: a pool's cap, else base + permanent (GetActorValueMax).
 av_max :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
-	return av_base(ws, db, actor, av) + av_parts(ws, actor, av).permanent + av_live(ws, actor, av, .Capacity)
+	p := av_parts(ws, actor, av)
+	if av_kind(ws, av) == .Pool {return (p.cap.? or_else gamedb.SKILL_CAP) + av_live(ws, actor, av, .Capacity)}
+	return av_base(ws, db, actor, av) + p.permanent + av_live(ws, actor, av, .Capacity)
 }
 
+// av_current is an AV's value: a pool's own stock, else its capacity plus damage.
 av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
-	return av_max(ws, db, actor, av) + av_parts(ws, actor, av).damage + av_live(ws, actor, av, .Amount)
+	p := av_parts(ws, actor, av)
+	amount := p.damage + av_live(ws, actor, av, .Amount)
+	if av_kind(ws, av) == .Pool {return av_base(ws, db, actor, av) + p.permanent + amount}
+	return av_max(ws, db, actor, av) + amount
+}
+
+// av_kind is an actor value's kind: the engine's, or what the mod that created it said.
+av_kind :: proc(ws: ^World_State, av: string) -> gamedb.AV_Kind {
+	if m, ok := mod_av(ws, av); ok {return m.kind}
+	return gamedb.av_kind(av)
+}
+
+// av_set_cap sets a pool's capacity, the soft cap training stops at; false for any other kind.
+av_set_cap :: proc(ws: ^World_State, actor: Form_ID, av: string, cap: f32) -> bool {
+	if av_kind(ws, av) != .Pool {return false}
+	av_upsert(ws, actor, av).cap = cap
+	return true
 }
 
 // Knob is what an effect turns: an AV's capacity (its max) or its amount (the value under it).
@@ -174,10 +195,10 @@ av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
 // ── mod actor values (ws.md, Workstream P) ──
 // A mod creates one from OnGameLoaded (rt.actor_value); it lives until the next new game or load.
 
-// (hole av-kinds :tags (magic player mods) :sev gap) actor values do not declare a kind: static (SpeedMult, CarryWeight...: capacity fixed huge, a capacity write lands on the amount keeping its lifetime), latched (Health, Magicka, Stamina: the amount is damage below capacity, so it rides with it) or pool (the skills: the level is its own stock under the capacity, a soft cap only training checks). rt.actor_value has no kind either.
 Mod_AV :: struct {
 	name:    string, // the first creation's spelling
 	default: f32,
+	kind:    gamedb.AV_Kind,
 }
 
 // av_name is the canonical name of an actor value in any case: an AV_NAMES entry, else a mod AV.
@@ -195,13 +216,13 @@ mod_av :: proc(ws: ^World_State, name: string) -> (m: Mod_AV, ok: bool) {
 }
 
 // av_create gets or creates a mod actor value and binds the loaded values saved under its name.
-av_create :: proc(ws: ^World_State, name: string, default: f32) {
+av_create :: proc(ws: ^World_State, name: string, default: f32, kind: gamedb.AV_Kind) {
 	if _, engine := gamedb.actor_value_name(name); engine {
 		log.warnf("script: %q is an engine actor value, not a mod one", name)
 		return
 	}
 	if m, ok := mod_av(ws, name); ok {
-		if m.default != default {log.warnf("script: actor value %q keeps its first default %v, not %v", m.name, m.default, default)}
+		if m.default != default || m.kind != kind {log.warnf("script: actor value %q keeps its first definition (default %v, %v)", m.name, m.default, m.kind)}
 		return
 	}
 	buf: [gamedb.AV_NAME_MAX]u8
@@ -210,7 +231,7 @@ av_create :: proc(ws: ^World_State, name: string, default: f32) {
 		log.warnf("script: actor value name %q is longer than %d", name, gamedb.AV_NAME_MAX)
 		return
 	}
-	m := Mod_AV{strings.clone(name), default}
+	m := Mod_AV{strings.clone(name), default, kind}
 	ws.mod_avs[strings.clone(key)] = m
 	#reverse for a, i in ws.pending_avs {
 		if !strings.equal_fold(a.name, name) {continue}
@@ -226,6 +247,7 @@ av_bind :: proc(ws: ^World_State, actor: Form_ID, av: string, a: Saved_AV) {
 	p := av_upsert(ws, actor, av)
 	p^ = {permanent = a.permanent, damage = a.damage}
 	if a.has_base {p.base = a.base}
+	if a.has_cap {p.cap = a.cap}
 }
 
 // av_drop_pending drops the loaded values no mod created a name for, once OnGameLoaded has run.

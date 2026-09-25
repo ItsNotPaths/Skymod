@@ -203,6 +203,8 @@ Saved_AV :: struct {
 	actor:     Form_ID,
 	name:      string,
 	has_base:  bool,
+	has_cap:   bool,
+	cap:       f32,
 	base:      f32,
 	permanent: f32,
 	damage:    f32,
@@ -339,7 +341,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for actor, vals in ws.actor_values {
 		for av, p in vals {
 			base, has_base := p.base.?
-			append(&avs, Saved_AV{actor = actor, name = av, has_base = has_base, base = base, permanent = p.permanent, damage = p.damage})
+			cap, has_cap := p.cap.?
+			append(&avs, Saved_AV{actor = actor, name = av, has_base = has_base, base = base, has_cap = has_cap, cap = cap, permanent = p.permanent, damage = p.damage})
 		}
 	}
 	facs := make([dynamic]Saved_Faction, 0, len(ws.factions), context.temp_allocator)

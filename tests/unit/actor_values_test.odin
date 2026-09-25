@@ -76,3 +76,27 @@ test_actor_value_regen :: proc(t: ^testing.T) {
 	worldstate.av_regen(&ws, nil, 100)
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 100) // never past max
 }
+
+// A pool (a skill) is its own stock under a soft cap: GetActorValueMax reads the cap, and a raised
+// cap does not raise the skill. A latched value rides with its capacity; only pools take a cap.
+@(test)
+test_actor_value_kinds :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	A :: gamedb.Form_ID(0xA1)
+
+	worldstate.av_set_base(&ws, A, "OneHanded", 30)
+	testing.expect_value(t, worldstate.av_max(&ws, nil, A, "OneHanded"), 100)
+	worldstate.av_mod(&ws, A, "OneHanded", 20)
+	testing.expect(t, worldstate.av_set_cap(&ws, A, "OneHanded", 150), "a skill takes a cap")
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "OneHanded"), 50)
+	testing.expect_value(t, worldstate.av_max(&ws, nil, A, "OneHanded"), 150)
+
+	worldstate.av_set_base(&ws, A, "Health", 100)
+	worldstate.av_damage(&ws, nil, A, "Health", 20)
+	worldstate.av_mod(&ws, A, "Health", 50)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 130)
+	testing.expect(t, !worldstate.av_set_cap(&ws, A, "Health", 500), "a latched value has no cap")
+	testing.expect_value(t, worldstate.av_kind(&ws, "SpeedMult"), gamedb.AV_Kind.Static)
+}
