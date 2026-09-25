@@ -28,7 +28,7 @@ import slua "../script/lua"
 import "../worldstate"
 import "../formid"
 
-// (hole activate-verbs :tags ui :sev gap :needs (container-screen)) the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
+// (hole activate-verbs :tags (ui player) :sev gap :needs (container-screen)) the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap

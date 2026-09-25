@@ -31,14 +31,14 @@ EMBED_HUD :: #load("lua/hud.lua", string)
 
 // Three screens exist: main menu, loading, HUD. Everything a player opens does not.
 //
-// (hole inventory-screen :tags ui :sev blocker :needs (ui-images)) no inventory screen — items can be added to a store but never seen, equipped or dropped.
+// (hole inventory-screen :tags (ui player) :sev blocker :needs (ui-images)) no inventory screen — items can be added to a store but never seen, equipped or dropped.
 // (hole dialogue-screen :tags ui :sev blocker) no dialogue screen — no topic list, no response, no exit.
 // (hole container-screen :tags ui :sev blocker :needs (ui-images)) no container / barter screen — the two-pane transfer both looting and trading need.
 // (hole journal :tags ui :sev gap) no journal — quest stages and objectives are tracked in worldstate and shown nowhere.
 // (hole map-screen :tags ui :sev gap) no map — no world map, no local map, no fast-travel target.
-// (hole magic-screen :tags ui :sev gap :needs (ui-images)) no magic screen — no spell list, no favourites, no equip slots.
+// (hole magic-screen :tags (ui player) :sev gap :needs (ui-images)) no magic screen — no spell list, no favourites, no equip slots.
 // (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why CTDA-FN 659 cannot know which item is selected.
-// (hole skills-screen :tags ui :sev gap) no skills or level-up screen — worldstate.player_level is a constant 1.
+// (hole skills-screen :tags (ui player) :sev gap :needs (leveling ui-images)) no skills or level-up screen.
 // (hole console-screen :tags ui :sev gap) no console UI — the dev REPL is driven from app code, not a screen.
 //
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in

@@ -242,8 +242,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	o^ = {}
 }
 
-// player_level returns the player's character level (>=1). Real leveling + save round-trip land later;
-// for now it's the default seeded in init (surfaced on the load screen).
+// (hole leveling :tags player :sev gap :needs (actor-values)) no skill XP, level-ups or perk points, so the player stays level 1.
+// player_level returns the player's character level (>=1), shown on the load screen.
 player_level :: proc(ws: ^World_State) -> i32 {
 	return max(ws.player.level, 1)
 }

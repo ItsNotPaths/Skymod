@@ -30,7 +30,7 @@ inv_count :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	return 0
 }
 
-// (hole container-baseline :tags records :sev gap) the ESM baseline contents of a container are never indexed, so every inventory count here is a DELTA from an unknown start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
+// (hole container-baseline :tags (records player) :sev gap) the ESM baseline contents of a container are never indexed, so every inventory count here is a DELTA from an unknown start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
 // inv_clear empties owner's inventory overlay (RemoveAllItems' local half).
 inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
 	if inner, ok := &ws.inventories[owner]; ok {
@@ -39,9 +39,8 @@ inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
 }
 
 // ── actor-value store (actor -> AV name -> value) ──────────────────────────────────────────────
-// AV names are case-insensitive → keys are lowercased + owned by the store. Overlay-only: base AV
-// defaults (ActorBase) aren't indexed, so an unset AV reads 0 and GetBaseActorValue == the stored
-// value (no base/current split yet — that arrives with the actor phase).
+// AV names are case-insensitive → keys are lowercased + owned by the store.
+// (hole actor-values :tags (player combat magic) :sev blocker) base actor values are never read: an unset AV reads 0 and there is no base, current or max, so Health, skills and attributes have no real value.
 
 @(private)
 av_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[string]f32 {

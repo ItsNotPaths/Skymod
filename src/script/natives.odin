@@ -23,7 +23,7 @@ import smath "../math"
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime.
 // (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, ActorBase.SetOutfit, SetAllowFlyingMountLandingRequests.
 // (hole dialogue-reads :tags dialogue :sev gap :needs (dialogue-system)) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
-// (hole magic-reads :tags magic :sev gap) no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
+// (hole magic-reads :tags (magic player) :sev gap) no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
@@ -31,7 +31,8 @@ import smath "../math"
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
 // (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).
 // (hole ui-reads :tags ui :sev gap) no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
-// (hole skill-reads :tags script :sev gap) no read for AdvanceSkill (skill XP), AddPerkPoints, the four SetINI*.
+// (hole skill-reads :tags (script player) :sev gap :needs (leveling)) no read for AdvanceSkill (skill XP), AddPerkPoints.
+// (hole ini-reads :tags script :sev gap) no read for the four SetINI*.
 
 import "../worldstate"
 import "../formid"
