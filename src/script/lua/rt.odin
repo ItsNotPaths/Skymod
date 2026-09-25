@@ -39,6 +39,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__script_layers", rt_script_layers},
 		{"__anim_event", rt_anim_event},
 		{"__actor_value", rt_actor_value},
+		{"__formula", rt_formula},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -46,28 +47,9 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		lua.setglobal(L, h.name)
 	}
 
-	if ws := vm.ctx.ws; ws != nil {ws.zone_formula, ws.zone_formula_user = zone_formula, vm}
 	return preload(L, "skymod.params", PARAMS_SRC) && preload(L, "skymod.rt", RT_SRC)
 }
 
-// zone_formula is worldstate's hook into rt.zone_level_by_formula (a mod's rt.zone_formula).
-@(private)
-zone_formula :: proc(user: rawptr, zone: worldstate.Form_ID, pc, min_level, max_level, level: i32) -> i32 {
-	vm := cast(^VM)user
-	L := vm.L
-	vm.host_context = context
-	top := lua.gettop(L)
-	defer lua.settop(L, top)
-
-	if !push_rt_fn(L, "zone_level_by_formula") {return level}
-	push_ref(L, zone)
-	for n in ([]i32{pc, min_level, max_level, level}) {lua.pushinteger(L, lua.Integer(n))}
-	if lua.pcall(L, 5, 1, 0) != 0 {
-		log.errorf("lua: rt.zone_level_by_formula: %s", to_string(L, -1))
-		return level
-	}
-	return i32(lua.tointeger(L, -1))
-}
 
 // __actor_value(name, default, kind) is rt.actor_value's engine half.
 @(private)
@@ -80,6 +62,20 @@ rt_actor_value :: proc "c" (L: ^lua.State) -> c.int {
 		return 0
 	}
 	worldstate.av_create(vm.ctx.ws, to_string(L, 1), f32(lua.tonumber(L, 2)), kind)
+	return 0
+}
+
+// __formula(name, src) is rt.formula's engine half.
+@(private)
+rt_formula :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	name, ok := reflect.enum_from_name(worldstate.Formula_Name, to_string(L, 1))
+	if !ok {
+		log.warnf("script: rt.formula: no formula named %q", to_string(L, 1))
+		return 0
+	}
+	worldstate.set_formula(vm.ctx.ws, name, to_string(L, 2))
 	return 0
 }
 

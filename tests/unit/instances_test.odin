@@ -201,7 +201,7 @@ ZONES_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Zones", nil)
 local listen = rt.native("Form", "RegisterForZoneLevelSet", false)
 C.__fn["ongameloaded"] = function(self)
-  rt.zone_formula(function(zone, pc, min, max, level) return level + 3 end)
+  rt.formula("ZoneLevel", "level + 3")
   listen(self)
 end
 C.__fn["onzonelevelset"] = function(self, zone, level) __zone = { zone, level } end

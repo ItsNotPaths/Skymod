@@ -19,18 +19,14 @@ player_level :: proc(db: ^gamedb.DB) -> i32 {
 	return max(i32(db.actors[formid.PLAYER_BASE].level), 1)
 }
 
-// Zone_Formula is a mod's replacement for how a zone takes its level (rt.zone_formula); `level` is
-// the engine's answer.
-Zone_Formula :: #type proc(user: rawptr, zone: Form_ID, pc, min_level, max_level, level: i32) -> i32
-
-// zone_level is a zone's level: set on the first ask from the player's level (through a mod's
-// formula when one is registered), then kept. OnZoneLevelSet announces it on the next tick.
+// zone_level is a zone's level: set on the first ask from the player's level through the ZoneLevel
+// formula, then kept. OnZoneLevelSet announces it on the next tick.
 zone_level :: proc(ws: ^World_State, db: ^gamedb.DB, zone: Form_ID) -> i32 {
 	if zone == 0 {return player_level(db)}
 	if l, ok := ws.zone_levels[zone]; ok {return l}
 	z, pc := zone_band(ws, db, zone), player_level(db)
-	l := zone_level_from(z, pc)
-	if ws.zone_formula != nil {l = ws.zone_formula(ws.zone_formula_user, zone, pc, z.min_level, z.max_level, l)}
+	clamped := zone_level_from(z, pc)
+	l := i32(calc(ws, .ZoneLevel, f64(pc), f64(z.min_level), f64(z.max_level), f64(clamped)))
 	ws.zone_levels[zone] = l
 	append(&ws.zone_level_sets, zone)
 	return l

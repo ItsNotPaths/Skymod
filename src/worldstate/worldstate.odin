@@ -17,6 +17,7 @@ package worldstate
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
 import "../formid"
+import "../formula"
 import "../gamedb"
 
 // Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
@@ -45,6 +46,7 @@ Overlay :: struct {
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
+	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
 	zone_listeners:  map[Form_ID]bool,             // forms registered for OnZoneLevelSet
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
@@ -96,8 +98,6 @@ Runtime :: struct {
 	ended_effects:   [dynamic]Form_ID,
 	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
-	zone_formula:      Zone_Formula, // a mod's zone level formula (the VM's hook); nil = the engine's
-	zone_formula_user: rawptr,
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -167,6 +167,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
+	init_formulas(o)
 	o.equipment = make(map[Form_ID]Equipment)
 	o.zone_ranges = make(map[Form_ID][2]i32)
 	o.zone_listeners = make(map[Form_ID]bool)
@@ -224,6 +225,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.rolled)
 	delete(o.zone_levels)
 	delete(o.actor_picks)
+	for &f in o.formulas {formula.destroy(&f)}
 	for _, eq in o.equipment {delete(eq.worn)}
 	delete(o.equipment)
 	delete(o.zone_ranges)

@@ -1008,19 +1008,11 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
--- rt.zone_formula(fn) replaces how a zone takes its first level: fn(zone, pcLevel, minLevel,
--- maxLevel, level) returns the level, `level` being the engine's answer. The last one registered
--- wins, as with any mod conflict. A load clears it, so register it from OnGameLoaded.
-local zone_formula
-
-function rt.zone_formula(fn) zone_formula = fn end
-
-function rt.zone_level_by_formula(zone, pc, min, max, level)
-  if not zone_formula then return level end
-  local ok, v = budgeted(zone_formula, zone, pc, min, max, level)
-  if ok and math.type(v) then return math.floor(v) end
-  warn("rt.zone_formula: " .. (ok and "returned no number" or tostring(v)))
-  return level
+-- rt.formula(name, src) replaces one of the engine's named formulas (worldstate.FORMULAS) with a
+-- string of math over its variables. Only inside OnGameLoaded; the last one wins.
+function rt.formula(name, src)
+  if not game_loading then error("rt.formula outside OnGameLoaded", 2) end
+  __formula(name, src)
 end
 
 -- ── saves ───────────────────────────────────────────────────────────────────
@@ -1089,7 +1081,6 @@ function rt.reset()
   rates = {}
   ticks = 0
   queue = {}
-  zone_formula = nil
 end
 
 -- ── properties ──────────────────────────────────────────────────────────────

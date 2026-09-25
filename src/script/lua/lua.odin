@@ -92,7 +92,6 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 }
 
 destroy :: proc(vm: ^VM) {
-	if ws := vm.ctx.ws; ws != nil && ws.zone_formula_user == vm {ws.zone_formula = nil}
 	for k in vm.none_warned {delete(k)}
 	delete(vm.none_warned)
 	free_script_index(vm)
