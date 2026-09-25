@@ -42,6 +42,7 @@ Overlay :: struct {
 	inventories:     map[Form_ID]map[Form_ID]i32,  // owner FormID -> (item FormID -> count delta from baseline)
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
 	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
+	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
 	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
 	pending_avs:     [dynamic]Saved_AV,            // loaded values of names no mod has created yet (not saved)
@@ -154,6 +155,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.inventories = make(map[Form_ID]map[Form_ID]i32)
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
 	o.zone_levels = make(map[Form_ID]i32)
+	o.actor_picks = make(map[Form_ID]Form_ID)
 	o.actor_values = make(map[Form_ID]map[string]Actor_Value)
 	o.mod_avs = make(map[string]Mod_AV)
 	o.pending_avs = make([dynamic]Saved_AV)
@@ -207,6 +209,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.inventories)
 	delete(o.rolled)
 	delete(o.zone_levels)
+	delete(o.actor_picks)
 	delete(o.actor_values)
 	delete(o.mod_avs)
 	delete(o.pending_avs)

@@ -67,3 +67,29 @@ test_rolled_contents_stay :: proc(t: ^testing.T) {
 	worldstate.drop_inventory(&ws, CHEST)
 	testing.expect(t, CHEST not_in ws.rolled, "a reset forgets the roll")
 }
+
+// A leveled actor's template chain goes on from the NPC_ its LVLN rolled: the pick supplies the
+// templated parts (here the inventory), stays until the actor resets, and answers GetLeveledActorBase.
+@(test)
+test_leveled_actor_pick :: proc(t: ^testing.T) {
+	REF :: gamedb.Form_ID(0x30)
+	BASE :: gamedb.Form_ID(0x31)
+	LIST :: gamedb.Form_ID(0x32)
+	PICK :: gamedb.Form_ID(0x33)
+	db: gamedb.DB
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[BASE] = {template = LIST, template_flags = esm.ACBS_TEMPLATE_INVENTORY}
+	db.actors[PICK] = {inventory = {{0xF, 3}}}
+	db.leveled_lists = make(map[gamedb.Form_ID]gamedb.Leveled_List, context.temp_allocator)
+	db.leveled_lists[LIST] = {entries = {{level = 1, form = PICK, count = 1}}}
+	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	db.ref_by_id[REF] = {form_id = REF, base = BASE}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	testing.expect_value(t, worldstate.actor_pick(&ws, &db, REF), PICK)
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, REF, 0xF), 3)
+	worldstate.reset_ref_state(&ws, REF, true)
+	testing.expect(t, REF not_in ws.actor_picks, "a reset forgets the pick")
+}

@@ -76,17 +76,17 @@ av_key :: proc(name: string, buf: []u8) -> (string, bool) {
 }
 
 // actor_value_base is the base an actor's records give actor value `av` (a canonical name),
-// following ref → base and the NPC_'s templates. Sources: CK wiki Class, UESP Mod File Format
+// following ref → base and the NPC_'s templates, with `pick` standing in for a leveled template. Sources: CK wiki Class, UESP Mod File Format
 // NPC_/CLAS, tes4skyrim (disassembly). Checked against the DNAM cache of every vanilla auto-calc
 // NPC_ with a static level (ws.md, Workstream P).
-actor_value_base :: proc(db: ^DB, form: Form_ID, av: string) -> f32 {
+actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) -> f32 {
 	if db == nil {return implicit_base(av)}
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	npc, ok := db.actors[base]
 	if !ok {return implicit_base(av)}
-	stats := template_part(db, npc, esm.ACBS_TEMPLATE_STATS)
-	race, _ := race_of(db, template_part(db, npc, esm.ACBS_TEMPLATE_TRAITS).race)
+	stats := template_part(db, npc, esm.ACBS_TEMPLATE_STATS, pick)
+	race, _ := race_of(db, template_part(db, npc, esm.ACBS_TEMPLATE_TRAITS, pick).race)
 	switch av {
 	case "Health":        return race.info.health + f32(stats.health_off) + f32(attribute_gain(db, stats, 0))
 	case "Magicka":       return race.info.magicka + f32(stats.magicka_off) + f32(attribute_gain(db, stats, 1))
@@ -100,7 +100,7 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string) -> f32 {
 	case "UnarmedDamage": return race.info.unarmed_damage
 	}
 	for name, i in AV_NAMES[:6] {
-		if name == av {return f32(template_part(db, npc, esm.ACBS_TEMPLATE_AI_DATA).ai[i])}
+		if name == av {return f32(template_part(db, npc, esm.ACBS_TEMPLATE_AI_DATA, pick).ai[i])}
 	}
 	for name, i in AV_NAMES[6:24] {
 		if name == av {return f32(skill_base(db, stats, race, i))}
@@ -120,15 +120,27 @@ implicit_base :: proc(av: string) -> f32 {
 }
 
 // template_part is the NPC_ that supplies the part `flag` names: the actor itself, or down its TPLT
-// chain while each link has the flag. The chain ends at an LVLN (leveled-rolls).
-template_part :: proc(db: ^DB, npc: Actor_Base, flag: u16) -> Actor_Base {
-	a := npc
+// chain while each link has the flag. At an LVLN the chain goes on from `pick`, the NPC_ it rolled
+// (worldstate.actor_pick), and ends there when there is none.
+template_part :: proc(db: ^DB, npc: Actor_Base, flag: u16, pick: Form_ID = 0) -> Actor_Base {
+	a, pick := npc, pick
 	for hops := 0; a.template_flags & flag != 0 && hops < 8; hops += 1 {
 		next, ok := db.actors[a.template]
+		if !ok {next, ok = db.actors[pick]; pick = 0}
 		if !ok {break}
 		a = next
 	}
 	return a
+}
+
+// leveled_template is the LVLN an NPC_'s template chain reaches (0 = none).
+leveled_template :: proc(db: ^DB, base: Form_ID) -> Form_ID {
+	a, ok := db.actors[base]
+	for hops := 0; ok && a.template != 0 && hops < 8; hops += 1 {
+		if a.template in db.leveled_lists {return a.template}
+		a, ok = db.actors[a.template]
+	}
+	return 0
 }
 
 // (hole pc-level-mult :tags (player records) :sev gap :needs (leveling)) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and the player's level is its ACBS level until leveling exists.

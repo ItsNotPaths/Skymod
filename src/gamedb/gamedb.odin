@@ -1171,16 +1171,16 @@ weight_of :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
 }
 
 // contents_of returns a container's or an actor's starting contents, following ref → base: a CONT's
-// CNTO, or an NPC_'s through its inventory template (template_part). Leveled entries stay as they
-// are (worldstate.inv_start rolls them). The slice is owned by the DB. ok=false when the form holds
-// no contents.
-contents_of :: proc(db: ^DB, form: Form_ID) -> ([]Content_Entry, bool) {
+// CNTO, or an NPC_'s through its inventory template (template_part, `pick` standing in for a leveled
+// template). Leveled entries stay as they are (worldstate.inv_start rolls them). The slice is owned
+// by the DB. ok=false when the form holds no contents.
+contents_of :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> ([]Content_Entry, bool) {
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	if c, ok := db.containers[base]; ok {return c, true}
 	a, ok := db.actors[base]
 	if !ok {return nil, false}
-	return template_part(db, a, esm.ACBS_TEMPLATE_INVENTORY).inventory, true
+	return template_part(db, a, esm.ACBS_TEMPLATE_INVENTORY, pick).inventory, true
 }
 
 // form_list_of returns an FLST's ordered member forms (remapped to global space). The slice is

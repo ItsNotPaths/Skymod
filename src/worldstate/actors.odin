@@ -81,7 +81,7 @@ av_parts :: proc(ws: ^World_State, actor: Form_ID, av: string) -> Actor_Value {
 av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	if b, ok := av_parts(ws, actor, av).base.?; ok {return b}
 	if m, ok := mod_av(ws, av); ok {return m.default}
-	return gamedb.actor_value_base(db, record_of(ws, actor), av)
+	return gamedb.actor_value_base(db, record_of(ws, actor), av, actor_pick(ws, db, actor))
 }
 
 av_max :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {

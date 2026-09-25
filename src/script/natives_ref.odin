@@ -25,6 +25,7 @@ register_ref_reads :: proc(reg: ^Registry) {
 	register(reg, "Location", "IsLoaded", n_location_is_loaded)
 	register(reg, "ObjectReference", "GetBaseObject", n_get_base_object)
 	register(reg, "Actor", "GetActorBase", n_get_base_object)
+	register(reg, "Actor", "GetLeveledActorBase", n_get_leveled_actor_base)
 	register(reg, "ObjectReference", "GetOpenState", n_get_open_state)
 	register(reg, "Cell", "IsAttached", n_cell_is_attached)
 }
@@ -104,6 +105,12 @@ n_location_is_loaded :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_base_object :: proc(c: ^Call, args: []Value) -> Value {
+	return form_or_none(ref_base(c, c.self))
+}
+
+// GetLeveledActorBase is the NPC_ a leveled actor rolled; any other actor answers its base.
+n_get_leveled_actor_base :: proc(c: ^Call, args: []Value) -> Value {
+	if pick := worldstate.actor_pick(c.ws, c.db, c.self); pick != 0 {return pick}
 	return form_or_none(ref_base(c, c.self))
 }
 

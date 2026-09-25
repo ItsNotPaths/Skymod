@@ -86,7 +86,7 @@ add_content :: proc(out: ^[dynamic]gamedb.Content_Entry, item: Form_ID, count: i
 // the first read, and the result stays until the owner resets.
 inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
 	if rolled, ok := ws.rolled[owner]; ok {return rolled[:]}
-	start, _ := gamedb.contents_of(db, record_of(ws, owner))
+	start, _ := gamedb.contents_of(db, record_of(ws, owner), actor_pick(ws, db, owner))
 	has_leveled := false
 	for e in start {
 		if _, ok := gamedb.leveled_list_of(db, e.item); ok {has_leveled = true}
@@ -97,4 +97,38 @@ inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.
 	for e in start {roll(ws, db, e.item, level, e.count, &rolled)}
 	ws.rolled[owner] = rolled
 	return rolled[:]
+}
+
+// actor_pick is the NPC_ a leveled actor rolled from the LVLN its base's template chain reaches: on
+// the first ask, at its zone level times its difficulty (CK wiki, LeveledCharacter), kept until the
+// actor resets. 0 for an actor with no leveled template, or a roll that gave nothing.
+// (hole level-mod-picks :tags records :sev polish) an Easy actor should pick from every level up to its target and a Very Hard one a step above Hard's pick; both use the list's own flags.
+actor_pick :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
+	if p, ok := ws.actor_picks[ref]; ok {return p}
+	if db == nil {return 0}
+	base := record_of(ws, ref)
+	if r, ok := db.ref_by_id[base]; ok {base = r.base}
+	list := gamedb.leveled_template(db, base)
+	if list == 0 {return 0}
+	level := f32(zone_level(ws, db, gamedb.zone_of(db, ref))) * level_mult(db, ref)
+	out := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+	roll(ws, db, list, max(i32(level), 1), 1, &out)
+	pick: Form_ID
+	if len(out) > 0 && out[0].item in db.actors {pick = out[0].item}
+	ws.actor_picks[ref] = pick
+	return pick
+}
+
+// level_mult scales a leveled actor's target level by its difficulty (XLCM); none is 1.
+@(private)
+level_mult :: proc(db: ^gamedb.DB, ref: Form_ID) -> f32 {
+	m, ok := db.level_mods[ref]
+	if !ok {return 1}
+	switch m {
+	case esm.LEVEL_MOD_EASY:      return gamedb.setting_float(db, "fLeveledActorMultEasy", 0.33)
+	case esm.LEVEL_MOD_MEDIUM:    return gamedb.setting_float(db, "fLeveledActorMultMedium", 0.67)
+	case esm.LEVEL_MOD_HARD:      return gamedb.setting_float(db, "fLeveledActorMultHard", 1)
+	case esm.LEVEL_MOD_VERY_HARD: return gamedb.setting_float(db, "fLeveledActorMultVeryHard", 1.25)
+	}
+	return 1
 }

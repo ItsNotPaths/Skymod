@@ -223,6 +223,7 @@ Save_Body :: struct {
 	inventory:     []Saved_Inv,
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
+	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
@@ -374,6 +375,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	}
 	zone_levels := make([dynamic]Saved_Level, 0, len(ws.zone_levels), context.temp_allocator)
 	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
+	picks := make([dynamic]Saved_Alias, 0, len(ws.actor_picks), context.temp_allocator)
+	for ref, npc in ws.actor_picks {append(&picks, Saved_Alias{ref, npc})}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
@@ -393,6 +396,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		inventory     = inv[:],
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
+		actor_picks   = picks[:],
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
@@ -555,6 +559,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for z in body.zone_levels {
 		if id, ok := rf(remap, have_remap, z.zone); ok {ws.zone_levels[id] = z.level}
 	}
+	for p in body.actor_picks {
+		ref, rok := rf(remap, have_remap, p.alias)
+		npc, nok := rf(remap, have_remap, p.form)
+		if rok && (nok || p.form == 0) {ws.actor_picks[ref] = npc}
+	}
 	for k in body.keyword_data {
 		location, lok := rf(remap, have_remap, k.key.location)
 		keyword, kok := rf(remap, have_remap, k.key.keyword)
@@ -687,6 +696,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.restocks {add_slot(&seen, r.chest)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
+	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
