@@ -2251,12 +2251,13 @@ loadorder_mode :: proc(dir: string) {
 		len(db.worlds), len(db.cells), interior, exterior, len(db.base_models), len(db.ref_by_id),
 		len(db.form_scripts),
 	)
-	armor, typed := 0, make(map[gamedb.Form_ID]int, context.temp_allocator)
+	armor, typed, kinds := 0, make(map[gamedb.Form_ID]int, context.temp_allocator), [gamedb.Equip_Kind]int{}
 	for _, e in db.equip_slots {
 		if e.biped != 0 {armor += 1}
 		if e.etyp != 0 {typed[e.etyp] += 1}
+		kinds[e.kind] += 1
 	}
-	fmt.printfln("equip: %d with biped slots, %d equip types, items per type %v", armor, len(db.equip_types), typed)
+	fmt.printfln("equip: %d with biped slots, %d equip types, items per type %v, per kind %v", armor, len(db.equip_types), typed, kinds)
 	no_respawn, quiet, never, zoned := 0, 0, 0, 0
 	for _, r in db.ref_by_id {if r.no_respawn {no_respawn += 1}}
 	for _, z in db.zones {

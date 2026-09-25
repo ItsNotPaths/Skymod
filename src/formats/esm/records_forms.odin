@@ -880,3 +880,11 @@ equip_type :: proc(fields: []Field, allocator := context.allocator) -> (parents:
 	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 4 {use_all = rd32(f.data, 0) != 0}
 	return
 }
+
+LIGH_CAN_BE_CARRIED :: 0x02
+
+// light_carried reads a LIGH's DATA flags (after time, radius and color): a carried light is a torch.
+light_carried :: proc(fields: []Field) -> bool {
+	f, ok := find_field(fields, "DATA")
+	return ok && len(f.data) >= 16 && rd32(f.data, 12) & LIGH_CAN_BE_CARRIED != 0
+}

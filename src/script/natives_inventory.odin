@@ -112,6 +112,9 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 		m.count = min(m.count, worldstate.inv_count(c.ws, c.db, m.from, m.base))
 		if m.count <= 0 {return}
 		worldstate.inv_add(c.ws, m.from, m.base, -m.count)
+		if m.from in c.ws.equipment && worldstate.inv_count(c.ws, c.db, m.from, m.base) == 0 {
+			worldstate.unequip(c.ws, c.db, m.from, m.base) // the last one left
+		}
 	}
 	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
 	worldstate.move_items(c.ws, m)

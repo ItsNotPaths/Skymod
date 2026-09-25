@@ -97,20 +97,28 @@ add_content :: proc(out: ^[dynamic]gamedb.Content_Entry, item: Form_ID, count: i
 	append(out, gamedb.Content_Entry{item, count})
 }
 
-// inv_start is the contents owner starts with. A leveled entry rolls at the owner's zone level on
-// the first read, and the result stays until the owner resets.
+// inv_start is the contents owner starts with: its own, plus its outfit's gear, which it wears. A
+// leveled entry rolls at the owner's zone level on the first read, and the result stays until the
+// owner resets.
+// (hole outfit-roll-level :tags (records player) :sev polish) an outfit's leveled entries roll at the zone level like other contents; the CK says the player's level, the engine call takes the NPC's.
 inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
 	if rolled, ok := ws.rolled[owner]; ok {return rolled[:]}
-	start, _ := gamedb.contents_of(db, record_of(ws, owner), actor_pick(ws, db, owner))
+	record, pick := record_of(ws, owner), actor_pick(ws, db, owner)
+	start, _ := gamedb.contents_of(db, record, pick)
+	outfit := gamedb.outfit_of(db, record, pick)
 	has_leveled := false
 	for e in start {
 		if _, ok := gamedb.leveled_list_of(db, e.item); ok {has_leveled = true}
 	}
-	if !has_leveled {return start}
+	if !has_leveled && len(outfit) == 0 {return start}
 	level := zone_level(ws, db, gamedb.zone_of(db, owner))
 	rolled := make([dynamic]gamedb.Content_Entry)
 	for e in start {roll(ws, db, e.item, level, e.count, &rolled)}
+	gear := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+	for item in outfit {roll(ws, db, item, level, 1, &gear)}
+	for e in gear {add_content(&rolled, e.item, e.count)}
 	ws.rolled[owner] = rolled
+	wear_outfit(ws, db, owner, gear[:])
 	return rolled[:]
 }
 

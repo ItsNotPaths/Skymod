@@ -90,6 +90,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_reset(reg) // cell and ref reset, cleared locations
 	register_magic(reg) // spells start and end scripted magic effects
 	register_levels(reg) // encounter zone levels for mods
+	register_equip(reg) // what actors wear and hold
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────

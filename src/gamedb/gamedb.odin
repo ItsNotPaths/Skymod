@@ -1265,8 +1265,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	if carries_scripts(s) {
 		index_scripts(db, rec, ctx.fm)
 	}
-	if carries_equip(s) {
-		index_equip(db, rec, ctx.fm)
+	if kind, equips := equip_kind(s); equips {
+		index_equip(db, rec, kind, ctx.fm)
 	}
 
 	switch {

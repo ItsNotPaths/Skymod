@@ -24,6 +24,7 @@ import "core:encoding/cbor"
 import "core:hash"
 import "core:log"
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "../formid"
 import "../gamedb"
@@ -188,6 +189,13 @@ Saved_Level :: struct {
 	zone:  Form_ID,
 	level: i32,
 }
+// Saved_Equip is one worn item: `place` -1 armor, 0..2 a hand (Hand), 3 ammo. A both-hands item and a
+// shield are one row per place they fill.
+Saved_Equip :: struct {
+	actor, item: Form_ID,
+	place:       i8,
+	kept:        bool,
+}
 Saved_Range :: struct {
 	zone:     Form_ID,
 	min, max: i32,
@@ -230,6 +238,7 @@ Save_Body :: struct {
 	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
 	zone_ranges:   []Saved_Range,
 	zone_listeners: []Form_ID,
+	equipment:     []Saved_Equip,
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
@@ -387,6 +396,15 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for zone, r in ws.zone_ranges {append(&ranges, Saved_Range{zone, r[0], r[1]})}
 	listeners := make([dynamic]Form_ID, 0, len(ws.zone_listeners), context.temp_allocator)
 	for form in ws.zone_listeners {append(&listeners, form)}
+	equips := make([dynamic]Saved_Equip, 0, len(ws.equipment), context.temp_allocator)
+	for actor, eq in ws.equipment {
+		kept :: proc(eq: Equipment, item: Form_ID) -> bool {return slice.contains(eq.kept[:], item)}
+		for a in eq.armor {append(&equips, Saved_Equip{actor, a, -1, kept(eq, a)})}
+		for item, h in eq.hands {
+			if item != 0 {append(&equips, Saved_Equip{actor, item, i8(h), kept(eq, item)})}
+		}
+		if eq.ammo != 0 {append(&equips, Saved_Equip{actor, eq.ammo, 3, kept(eq, eq.ammo)})}
+	}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
@@ -409,6 +427,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		actor_picks   = picks[:],
 		zone_ranges   = ranges[:],
 		zone_listeners = listeners[:],
+		equipment     = equips[:],
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
@@ -577,6 +596,21 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for f in body.zone_listeners {
 		if id, ok := rf(remap, have_remap, f); ok {ws.zone_listeners[id] = true}
 	}
+	// An actor's rows rebuild its equipment exactly; an item from a missing mod drops.
+	for e in body.equipment {
+		actor, aok := rf(remap, have_remap, e.actor)
+		item, iok := rf(remap, have_remap, e.item)
+		if !aok {continue}
+		if actor not_in ws.equipment {ws.equipment[actor] = {}}
+		if !iok {continue}
+		eq := &ws.equipment[actor]
+		switch e.place {
+		case -1:    append(&eq.armor, item)
+		case 0 ..= 2: eq.hands[Hand(e.place)] = item
+		case 3:     eq.ammo = item
+		}
+		if e.kept && !slice.contains(eq.kept[:], item) {append(&eq.kept, item)}
+	}
 	for p in body.actor_picks {
 		ref, rok := rf(remap, have_remap, p.alias)
 		npc, nok := rf(remap, have_remap, p.form)
@@ -717,6 +751,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}
 	for r in body.zone_ranges {add_slot(&seen, r.zone)}
 	for f in body.zone_listeners {add_slot(&seen, f)}
+	for e in body.equipment {add_slot(&seen, e.actor);add_slot(&seen, e.item)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}

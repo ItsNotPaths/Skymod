@@ -50,6 +50,7 @@ drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
 	delete_key(&ws.inventories, form)
 	if list, ok := ws.rolled[form]; ok {delete(list)}
 	delete_key(&ws.rolled, form)
+	drop_equipment(ws, form)
 }
 
 // remove_created deletes a created ref outright: its placement, delta and scripts.

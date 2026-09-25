@@ -25,10 +25,10 @@ test_registry_manifest_and_stubs :: proc(t: ^testing.T) {
 	testing.expect(t, len(reg.declared) >= 600, "manifest auto-stubbed")
 	testing.expect(t, script.is_declared(&reg, "ObjectReference", "Disable"), "Disable declared")
 	testing.expect(t, script.is_implemented(&reg, "ObjectReference", "Disable"), "Disable implemented")
-	// Declared but no body yet -> known, not implemented. (EquipItem is a Phase-7 actor verb we
-	// deliberately left stubbed — swap this if it ever gets a real body.)
-	testing.expect(t, script.is_declared(&reg, "Actor", "EquipItem"), "EquipItem declared")
-	testing.expect(t, !script.is_implemented(&reg, "Actor", "EquipItem"), "EquipItem not impl")
+	// Declared but no body yet -> known, not implemented. (IsGhost has no body yet; swap this if it
+	// ever gets one.)
+	testing.expect(t, script.is_declared(&reg, "Actor", "IsGhost"), "IsGhost declared")
+	testing.expect(t, !script.is_implemented(&reg, "Actor", "IsGhost"), "IsGhost not impl")
 }
 
 @(test)

@@ -173,6 +173,16 @@ tick_items :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	clear(&ws.item_moves)
 }
 
+// tick_equips sends OnObjectUnequipped / OnObjectEquipped(akBaseObject, akReference) for each item
+// that went off or on, in order, to the actor and its aliases and effects. Inventory items have no
+// reference.
+tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	for e in ws.equip_changes {
+		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, script.Form_ID(0))
+	}
+	clear(&ws.equip_changes)
+}
+
 // tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form
 // in form order.
 tick_zone_levels :: proc(vm: ^VM, ws: ^worldstate.World_State) {
@@ -225,6 +235,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
 	tick_zone_levels(vm, ws)
+	tick_equips(vm, ws)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.
