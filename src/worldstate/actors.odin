@@ -85,11 +85,23 @@ av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 }
 
 av_max :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
-	return av_base(ws, db, actor, av) + av_parts(ws, actor, av).permanent
+	return av_base(ws, db, actor, av) + av_parts(ws, actor, av).permanent + av_live(ws, actor, av, .Capacity)
 }
 
 av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
-	return av_max(ws, db, actor, av) + av_parts(ws, actor, av).damage
+	return av_max(ws, db, actor, av) + av_parts(ws, actor, av).damage + av_live(ws, actor, av, .Amount)
+}
+
+// Knob is what an effect turns: an AV's capacity (its max) or its amount (the value under it).
+Knob :: enum {
+	Capacity,
+	Amount,
+}
+
+// av_live is what the live effects on `actor` add to a knob of `av` now.
+// (hole av-live :tags (magic player) :sev gap :needs (effect-formulas)) no effect contributes to an actor value: the ledger (an effect handle owns its contributions, each a formula of t on a knob, gone when the effect ends; amount writes that stay go to damage) is not built.
+av_live :: proc(ws: ^World_State, actor: Form_ID, av: string, knob: Knob) -> f32 {
+	return 0
 }
 
 // av_set_base is SetActorValue: the base changes, the modifiers stay.
@@ -125,6 +137,8 @@ av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 	p := av_upsert(ws, actor, av)
 	p.damage = min(p.damage + abs(amount), 0)
 }
+
+// (hole pool-stock-model :tags (magic player) :sev gap) a pool's amount is stored as damage below its capacity (Skyrim's model: Fortify Health at 80/100 gives 130/150), so raising a skill's cap would raise the skill; skills need their level as a stock of its own under the cap. Decide with av-kinds.
 
 // ── regen ──
 // Damaged Health, Magicka and Stamina come back at max x Rate/100 x RateMult/100 per second of play,
@@ -162,6 +176,7 @@ av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
 // ── mod actor values (ws.md, Workstream P) ──
 // A mod creates one from OnGameLoaded (rt.actor_value); it lives until the next new game or load.
 
+// (hole av-kinds :tags (magic player mods) :sev gap) actor values do not declare pool or static: a pool (Health, Magicka, Stamina, the skills) has a capacity and an amount; a static AV's capacity is fixed at a huge value and a capacity write lands on its amount, keeping its lifetime. rt.actor_value has no kind either.
 Mod_AV :: struct {
 	name:    string, // the first creation's spelling
 	default: f32,

@@ -485,6 +485,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
 	// (hole leveling :tags player :sev gap) no skill XP, level-ups or perk points, so the player stays at its ACBS level 1.
+	// (hole skill-caps :tags player :sev gap :needs (pool-stock-model)) a skill has no cap: its capacity should be a knob (default 100, soft, so uncapped skills are the default) that only training checks; fortify effects add to the amount and pass it.
 	player, _ := gamedb.actor_base(&g.db, formid.PLAYER_BASE)
 	loadui_ready(g, gamedb.load_tips(&g.db), max(i32(player.level), 1))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change

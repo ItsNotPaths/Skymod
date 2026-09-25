@@ -81,6 +81,8 @@ local Class = {
   end,
 }
 
+-- (hole effect-formulas :tags (magic script) :sev gap) a class's __effect table is not read: { AV = { capacity = "formula", amount = "formula" } }, each formula a string of math in t (seconds since start), m (magnitude) and d (duration), compiled once when the class loads.
+-- (hole archetype-claims :tags (magic script mods) :sev gap :needs (effect-archetypes effect-formulas)) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
 function rt.class(name, parent)
   local cls = setmetatable({
     __name = name,
