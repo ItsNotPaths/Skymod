@@ -24,7 +24,7 @@ import "core:encoding/cbor"
 import "core:hash"
 import "core:log"
 import "core:os"
-import "core:slice"
+import "core:reflect"
 import "core:strings"
 import "../formid"
 import "../gamedb"
@@ -189,11 +189,10 @@ Saved_Level :: struct {
 	zone:  Form_ID,
 	level: i32,
 }
-// Saved_Equip is one worn item: `place` -1 armor, 0..2 a hand (Hand), 3 ammo. A both-hands item and a
-// shield are one row per place they fill.
+// Saved_Equip is one worn item with the slots it fills, by name.
 Saved_Equip :: struct {
 	actor, item: Form_ID,
-	place:       i8,
+	slots:       []string,
 	kept:        bool,
 }
 Saved_Range :: struct {
@@ -398,12 +397,11 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for form in ws.zone_listeners {append(&listeners, form)}
 	equips := make([dynamic]Saved_Equip, 0, len(ws.equipment), context.temp_allocator)
 	for actor, eq in ws.equipment {
-		kept :: proc(eq: Equipment, item: Form_ID) -> bool {return slice.contains(eq.kept[:], item)}
-		for a in eq.armor {append(&equips, Saved_Equip{actor, a, -1, kept(eq, a)})}
-		for item, h in eq.hands {
-			if item != 0 {append(&equips, Saved_Equip{actor, item, i8(h), kept(eq, item)})}
+		for w in eq.worn {
+			names := make([dynamic]string, context.temp_allocator)
+			for s in w.slots {append(&names, reflect.enum_string(s))}
+			append(&equips, Saved_Equip{actor, w.item, names[:], w.kept})
 		}
-		if eq.ammo != 0 {append(&equips, Saved_Equip{actor, eq.ammo, 3, kept(eq, eq.ammo)})}
 	}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
@@ -596,20 +594,18 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for f in body.zone_listeners {
 		if id, ok := rf(remap, have_remap, f); ok {ws.zone_listeners[id] = true}
 	}
-	// An actor's rows rebuild its equipment exactly; an item from a missing mod drops.
+	// An actor's rows rebuild its equipment exactly; an item from a missing mod and a slot name the
+	// engine no longer has drop.
 	for e in body.equipment {
 		actor, aok := rf(remap, have_remap, e.actor)
 		item, iok := rf(remap, have_remap, e.item)
 		if !aok {continue}
 		if actor not_in ws.equipment {ws.equipment[actor] = {}}
-		if !iok {continue}
-		eq := &ws.equipment[actor]
-		switch e.place {
-		case -1:    append(&eq.armor, item)
-		case 0 ..= 2: eq.hands[Hand(e.place)] = item
-		case 3:     eq.ammo = item
+		slots: gamedb.Slots
+		for name in e.slots {
+			if s, ok := reflect.enum_from_name(gamedb.Slot, name); ok {slots += {s}}
 		}
-		if e.kept && !slice.contains(eq.kept[:], item) {append(&eq.kept, item)}
+		if eq := &ws.equipment[actor]; iok && slots != {} {append(&eq.worn, Worn{item, slots, e.kept})}
 	}
 	for p in body.actor_picks {
 		ref, rok := rf(remap, have_remap, p.alias)

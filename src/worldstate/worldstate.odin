@@ -224,7 +224,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.rolled)
 	delete(o.zone_levels)
 	delete(o.actor_picks)
-	for _, eq in o.equipment {delete(eq.armor); delete(eq.kept)}
+	for _, eq in o.equipment {delete(eq.worn)}
 	delete(o.equipment)
 	delete(o.zone_ranges)
 	delete(o.zone_listeners)

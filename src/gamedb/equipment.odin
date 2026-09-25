@@ -1,13 +1,82 @@
 package gamedb
 
-// Where items go on an actor: armor by its biped slot mask, weapons, spells and scrolls by their
-// equip type (EQUP: RightHand, LeftHand, EitherHand, BothHands, Shield, Voice, Potion).
+// Where items go on an actor. The engine has its own named slots; Skyrim's data maps onto them: each
+// biped bit (ARMO BOD2/BODT, slot 30 = bit 0) to a fixed set of slots, no two bits sharing one, so
+// every plugin item keeps exactly the conflicts it has in Skyrim; each equip type (EQUP) to hands.
 
 import "../formats/esm"
 
+// (hole equip-slot-hook :tags (mods player) :sev gap) a plugin item can only reach the slots its 32 biped bits map to; nothing lets a mod's item take a finer slot (LeftShoulder alone) or a slot of its own: a keyword such as EquipSlotCloak, or a script call.
+// (hole equip-slot-labels :tags player :sev polish) slots 44-60 carry the modding community's labels (52 pelvis underwear, 57 shoulders...); no authoritative source names them.
+
+Slot :: enum u8 {
+	Head,
+	Hair,
+	Torso,
+	LeftGlove,
+	RightGlove,
+	LeftForearm,
+	RightForearm,
+	Neck,
+	LeftRing,
+	RightRing,
+	LeftFoot,
+	RightFoot,
+	LeftCalf,
+	RightCalf,
+	Shield,
+	Tail,
+	LongHair,
+	Circlet,
+	Ears,
+	Face,        // 44
+	Scarf,       // 45
+	ChestOuter,  // 46
+	Back,        // 47
+	Misc1,       // 48
+	PelvisOuter, // 49
+	DecapitatedHead, // 50
+	Decapitation,    // 51
+	PelvisUnder,     // 52
+	LegOuter,        // 53
+	LegUnder,        // 54
+	FaceJewelry,     // 55
+	ChestUnder,      // 56
+	LeftShoulder,    // 57
+	RightShoulder,
+	ArmUnder,        // 58
+	ArmOuter,        // 59
+	Misc2,           // 60
+	Effect,          // 61
+	LeftHand,
+	RightHand,
+	Voice,
+	Ammo,
+}
+
+Slots :: bit_set[Slot]
+
+// BIPED_SLOTS maps biped slot 30 + i to the engine slots it fills.
+BIPED_SLOTS := [32]Slots {
+	{.Head}, {.Hair}, {.Torso}, {.LeftGlove, .RightGlove}, {.LeftForearm, .RightForearm}, {.Neck},
+	{.LeftRing, .RightRing}, {.LeftFoot, .RightFoot}, {.LeftCalf, .RightCalf}, {.Shield}, {.Tail},
+	{.LongHair}, {.Circlet}, {.Ears}, {.Face}, {.Scarf}, {.ChestOuter}, {.Back}, {.Misc1}, {.PelvisOuter},
+	{.DecapitatedHead}, {.Decapitation}, {.PelvisUnder}, {.LegOuter}, {.LegUnder}, {.FaceJewelry},
+	{.ChestUnder}, {.LeftShoulder, .RightShoulder}, {.ArmUnder}, {.ArmOuter}, {.Misc2}, {.Effect},
+}
+
+// biped_slots is the engine slots a biped mask fills.
+biped_slots :: proc(mask: u32) -> Slots {
+	s: Slots
+	for i in 0 ..< u32(32) {
+		if mask & (1 << i) != 0 {s += BIPED_SLOTS[i]}
+	}
+	return s
+}
+
 Equip_Slot :: struct {
 	kind:        Equip_Kind,
-	biped:       u32,     // ARMO slot mask, bit 0 = slot 30; 0 = not armor
+	biped:       u32,     // biped mask, bit 0 = slot 30; 0 = not armor
 	etyp:        Form_ID, // the EQUP it equips as; 0 = none authored
 	weapon_type: u8,      // WEAP DNAM animation type: 0 hand to hand, 1 sword ... 8 staff, 9 crossbow
 }
@@ -22,12 +91,9 @@ Equip_Kind :: enum u8 {
 	Light,
 }
 
-// The vanilla EQUP forms (Skyrim.esm) the slot rules name.
+// The vanilla EQUP forms (Skyrim.esm) with no parents: every other equip type is built from these.
 EQUP_RIGHT_HAND :: Form_ID(0x13F42)
 EQUP_LEFT_HAND :: Form_ID(0x13F43)
-EQUP_EITHER_HAND :: Form_ID(0x13F44)
-EQUP_BOTH_HANDS :: Form_ID(0x13F45)
-EQUP_SHIELD :: Form_ID(0x141E8)
 EQUP_VOICE :: Form_ID(0x25BEE)
 EQUP_POTION :: Form_ID(0x35698)
 
@@ -86,10 +152,51 @@ index_equip_type :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	db.equip_types[rec.form_id] = {parents, use_all}
 }
 
-// equip_slot_of is where a base item equips; ok=false for a form that equips nowhere authored.
+// equip_slot_of is what the records say about a base item's equipping; ok=false for a form that
+// equips nowhere.
 equip_slot_of :: proc(db: ^DB, item: Form_ID) -> (Equip_Slot, bool) {
 	s, ok := db.equip_slots[item]
 	return s, ok
+}
+
+// slots_of is the engine slots an item fills: all of them, or one of them when `either` (an
+// either-hand item). Empty when it equips nowhere (a potion).
+slots_of :: proc(db: ^DB, item: Form_ID) -> (slots: Slots, either: bool) {
+	s, ok := db.equip_slots[item]
+	if !ok {return}
+	slots = biped_slots(s.biped)
+	switch {
+	case s.etyp != 0:
+		hands, one := etyp_slots(db, s.etyp)
+		return slots + hands, one
+	case s.kind == .Shout:
+		return {.Voice}, false
+	case s.kind == .Ammo:
+		return {.Ammo}, false
+	case s.kind == .Light:
+		return {.LeftHand}, false
+	case s.kind != .Armor:
+		return {.LeftHand, .RightHand}, true // a weapon or spell with no equip type
+	}
+	return
+}
+
+// etyp_slots resolves an equip type through its parents to the hand slots it fills.
+@(private)
+etyp_slots :: proc(db: ^DB, etyp: Form_ID, depth := 0) -> (slots: Slots, either: bool) {
+	switch etyp {
+	case EQUP_RIGHT_HAND: return {.RightHand}, false
+	case EQUP_LEFT_HAND:  return {.LeftHand}, false
+	case EQUP_VOICE:      return {.Voice}, false
+	case EQUP_POTION:     return {}, false
+	}
+	t, ok := db.equip_types[etyp]
+	if !ok || depth > 4 {return}
+	for p in t.parents {
+		s, _ := etyp_slots(db, p, depth + 1)
+		slots += s
+	}
+	return slots, !t.use_all && card(slots) > 1
 }
 
 // outfit_of is the gear an actor starts wearing: its DOFT outfit's items, following ref → base and the

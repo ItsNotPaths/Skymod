@@ -1,7 +1,7 @@
 package script
 
 // What actors wear and hold (worldstate.Equipment; CK wiki pages in build/out/wsP/formulas/equip_*).
-// Hands and casting sources are numbered 0 left, 1 right, 2 voice.
+// Papyrus numbers hands and casting sources 0 left, 1 right, 2 voice.
 
 import "../gamedb"
 import "../worldstate"
@@ -64,12 +64,13 @@ n_get_equipped_armor_in_slot :: proc(c: ^Call, args: []Value) -> Value {
 	return form_or_none(armor_in_slot(c, arg_i32(args, 0, 0)))
 }
 
-// armor_in_slot is the worn armor covering biped slot `slot` (30 = head).
+// armor_in_slot is the worn item filling biped slot `slot` (30 = head), through the engine slots it
+// maps to.
 @(private)
 armor_in_slot :: proc(c: ^Call, slot: i32) -> Form_ID {
 	if slot < 30 || slot > 61 {return 0}
-	for a in worldstate.equipment(c.ws, c.db, c.self).armor {
-		if s, _ := gamedb.equip_slot_of(c.db, a); s.biped & (1 << u32(slot - 30)) != 0 {return a}
+	for s in gamedb.BIPED_SLOTS[slot - 30] {
+		if item := worldstate.in_slot(c.ws, c.db, c.self, s); item != 0 {return item}
 	}
 	return 0
 }
@@ -115,11 +116,12 @@ n_get_equipped_shout :: proc(c: ^Call, args: []Value) -> Value {
 n_get_equipped_item_type :: proc(c: ^Call, args: []Value) -> Value {
 	h, ok := hand_arg(args, 0)
 	if !ok || h == .Voice {return i32(0)}
-	s, _ := gamedb.equip_slot_of(c.db, held(c, h))
+	s, has := gamedb.equip_slot_of(c.db, held(c, h))
+	if !has {return i32(0)}
 	switch s.kind {
 	case .Weapon: return i32(12) if s.weapon_type == 9 else i32(s.weapon_type)
 	case .Spell, .Scroll: return i32(9)
-	case .Armor: return i32(10)
+	case .Armor: return i32(10) // a shield
 	case .Light: return i32(11)
 	case .Shout, .Ammo:
 	}
@@ -127,31 +129,32 @@ n_get_equipped_item_type :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_equipped_weapon :: proc(c: ^Call, args: []Value) -> Value {
-	return form_or_none(held_kind(c, .Left if arg_bool(args, 0, false) else .Right, .Weapon))
+	return form_or_none(held_kind(c, .LeftHand if arg_bool(args, 0, false) else .RightHand, .Weapon))
 }
 
 n_get_equipped_shield :: proc(c: ^Call, args: []Value) -> Value {
-	for a in worldstate.equipment(c.ws, c.db, c.self).armor {
-		if s, _ := gamedb.equip_slot_of(c.db, a); s.etyp == gamedb.EQUP_SHIELD {return a}
+	return form_or_none(worldstate.in_slot(c.ws, c.db, c.self, .Shield))
+}
+
+// hand_arg reads a Papyrus hand or casting source: 0 left, 1 right, 2 voice.
+@(private)
+hand_arg :: proc(args: []Value, i: int) -> (gamedb.Slot, bool) {
+	switch arg_i32(args, i, 0) {
+	case 0: return .LeftHand, true
+	case 1: return .RightHand, true
+	case 2: return .Voice, true
 	}
-	return nil
+	return {}, false
 }
 
 @(private)
-hand_arg :: proc(args: []Value, i: int) -> (worldstate.Hand, bool) {
-	n := arg_i32(args, i, 0)
-	if n < 0 || n > 2 {return {}, false}
-	return worldstate.Hand(n), true
-}
-
-@(private)
-held :: proc(c: ^Call, h: worldstate.Hand) -> Form_ID {
-	return worldstate.equipment(c.ws, c.db, c.self).hands[h]
+held :: proc(c: ^Call, h: gamedb.Slot) -> Form_ID {
+	return worldstate.in_slot(c.ws, c.db, c.self, h)
 }
 
 // held_kind is what hand `h` holds when it is of `kind`.
 @(private)
-held_kind :: proc(c: ^Call, h: worldstate.Hand, kind: gamedb.Equip_Kind) -> Form_ID {
+held_kind :: proc(c: ^Call, h: gamedb.Slot, kind: gamedb.Equip_Kind) -> Form_ID {
 	item := held(c, h)
 	if s, ok := gamedb.equip_slot_of(c.db, item); ok && s.kind == kind {return item}
 	return 0

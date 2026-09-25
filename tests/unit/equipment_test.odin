@@ -17,22 +17,38 @@ Gear :: enum gamedb.Form_ID {
 	Robes  = 0x107,
 }
 
+// Skyrim.esm's EQUP forms built from the two hands.
+@(private = "file")
+SHIELD :: gamedb.Form_ID(0x141E8)
+@(private = "file")
+BOTH_HANDS :: gamedb.Form_ID(0x13F45)
+@(private = "file")
+EITHER_HAND :: gamedb.Form_ID(0x13F44)
+@(private = "file")
+LEFT := [1]gamedb.Form_ID{gamedb.EQUP_LEFT_HAND}
+@(private = "file")
+TWO_HANDS := [2]gamedb.Form_ID{gamedb.EQUP_LEFT_HAND, gamedb.EQUP_RIGHT_HAND}
+
 @(private = "file")
 gear_db :: proc(db: ^gamedb.DB) {
 	db.equip_slots = make(map[gamedb.Form_ID]gamedb.Equip_Slot, context.temp_allocator)
 	db.equip_slots[gamedb.Form_ID(Gear.Helmet)] = {kind = .Armor, biped = 0x01}
 	db.equip_slots[gamedb.Form_ID(Gear.Hood)] = {kind = .Armor, biped = 0x03}
-	db.equip_slots[gamedb.Form_ID(Gear.Shield)] = {kind = .Armor, biped = 0x200, etyp = gamedb.EQUP_SHIELD}
-	db.equip_slots[gamedb.Form_ID(Gear.Greatsword)] = {kind = .Weapon, etyp = gamedb.EQUP_BOTH_HANDS, weapon_type = 5}
-	db.equip_slots[gamedb.Form_ID(Gear.Dagger)] = {kind = .Weapon, etyp = gamedb.EQUP_EITHER_HAND, weapon_type = 2}
-	db.equip_slots[gamedb.Form_ID(Gear.Mace)] = {kind = .Weapon, etyp = gamedb.EQUP_EITHER_HAND, weapon_type = 4}
+	db.equip_slots[gamedb.Form_ID(Gear.Shield)] = {kind = .Armor, biped = 0x200, etyp = SHIELD}
+	db.equip_slots[gamedb.Form_ID(Gear.Greatsword)] = {kind = .Weapon, etyp = BOTH_HANDS, weapon_type = 5}
+	db.equip_slots[gamedb.Form_ID(Gear.Dagger)] = {kind = .Weapon, etyp = EITHER_HAND, weapon_type = 2}
+	db.equip_slots[gamedb.Form_ID(Gear.Mace)] = {kind = .Weapon, etyp = EITHER_HAND, weapon_type = 4}
 	db.equip_slots[gamedb.Form_ID(Gear.Flames)] = {kind = .Spell, etyp = gamedb.EQUP_LEFT_HAND}
+	db.equip_types = make(map[gamedb.Form_ID]gamedb.Equip_Type, context.temp_allocator)
+	db.equip_types[SHIELD] = {parents = LEFT[:], use_all = true}
+	db.equip_types[BOTH_HANDS] = {parents = TWO_HANDS[:], use_all = true}
+	db.equip_types[EITHER_HAND] = {parents = TWO_HANDS[:]}
 	db.equip_slots[gamedb.Form_ID(Gear.Robes)] = {kind = .Armor, biped = 0x04}
 }
 
 @(private = "file")
-hands :: proc(left, right: gamedb.Form_ID) -> [worldstate.Hand]gamedb.Form_ID {
-	return {.Left = left, .Right = right, .Voice = 0}
+hands :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: gamedb.Form_ID) -> [2]gamedb.Form_ID {
+	return {worldstate.in_slot(ws, db, actor, .LeftHand), worldstate.in_slot(ws, db, actor, .RightHand)}
 }
 
 // Armor sharing a slot comes off first; a shield takes the left hand and a both-hands weapon takes
@@ -54,15 +70,14 @@ test_equip_slots :: proc(t: ^testing.T) {
 
 	worldstate.equip(&ws, &db, A, F(.Shield))
 	worldstate.equip(&ws, &db, A, F(.Greatsword))
-	eq := worldstate.equipment(&ws, &db, A)
-	testing.expect(t, !worldstate.is_equipped(&ws, &db, A, F(.Shield)) && eq.hands == hands(F(.Greatsword), F(.Greatsword)), "two-hander takes both hands")
+	testing.expect(t, !worldstate.is_equipped(&ws, &db, A, F(.Shield)) && hands(&ws, &db, A) == {F(.Greatsword), F(.Greatsword)}, "two-hander takes both hands")
 	worldstate.equip(&ws, &db, A, F(.Flames))
-	testing.expect(t, eq.hands == hands(F(.Flames), 0), "a left-hand spell clears the two-hander")
+	testing.expect(t, hands(&ws, &db, A) == {F(.Flames), 0}, "a left-hand spell clears the two-hander")
 
 	worldstate.unequip_all(&ws, &db, A)
 	worldstate.equip(&ws, &db, A, F(.Dagger))
 	worldstate.equip(&ws, &db, A, F(.Mace))
-	testing.expect(t, eq.hands == hands(F(.Mace), F(.Dagger)), "either-hand fills right, then left")
+	testing.expect(t, hands(&ws, &db, A) == {F(.Mace), F(.Dagger)}, "either-hand fills right, then left")
 
 	worldstate.equip(&ws, &db, A, F(.Robes), keep = true)
 	testing.expect(t, worldstate.equip(&ws, &db, A, F(.Hood)), "a kept item only blocks what shares its slot")
@@ -100,4 +115,14 @@ test_outfit_worn :: proc(t: ^testing.T) {
 
 	worldstate.drop_inventory(&ws, NPC)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, gamedb.Form_ID(Gear.Hood)), "a reset puts the outfit back")
+}
+
+// No two biped bits share an engine slot, so every plugin item keeps exactly its Skyrim conflicts.
+@(test)
+test_biped_slots_disjoint :: proc(t: ^testing.T) {
+	seen: gamedb.Slots
+	for s, i in gamedb.BIPED_SLOTS {
+		testing.expectf(t, s != {} && s & seen == {}, "biped slot %d", 30 + i)
+		seen += s
+	}
 }
