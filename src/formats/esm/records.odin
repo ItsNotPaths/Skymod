@@ -428,7 +428,10 @@ ACBS_PC_LEVEL_MULT :: 0x0000_0080 // `level` field is a ×1000 multiplier of the
 ACBS_PROTECTED :: 0x0000_0800
 ACBS_SUMMONABLE :: 0x0000_4000
 
-// ACBS template flag: the NPC_ takes its inventory from its TPLT.
+// ACBS template flags: which parts of an NPC_ come from its TPLT.
+ACBS_TEMPLATE_TRAITS :: 0x0001 // race and more
+ACBS_TEMPLATE_STATS :: 0x0002 // level, auto-calc, skills, offsets, speed, class
+ACBS_TEMPLATE_AI_DATA :: 0x0010
 ACBS_TEMPLATE_INVENTORY :: 0x0100
 
 // Actor_Config is an NPC_'s ACBS block (24 bytes): base disposition flags + level band + the
@@ -437,14 +440,14 @@ ACBS_TEMPLATE_INVENTORY :: 0x0100
 // skipped.
 Actor_Config :: struct {
 	flags:       u32,
-	magicka_off: u16,
-	stamina_off: u16,
+	magicka_off: i16,
+	stamina_off: i16,
 	level:       u16,
 	calc_min:    u16,
 	calc_max:    u16,
 	speed_mult:  u16,
 	template_flags: u16, // which parts come from the TPLT (ACBS_TEMPLATE_*)
-	health_off:  u16,
+	health_off:  i16,
 }
 
 // actor_config decodes an NPC_'s ACBS block. ok=false when the record has no (or a truncated) ACBS.
@@ -457,14 +460,14 @@ actor_config :: proc(fields: []Field) -> (cfg: Actor_Config, ok: bool) {
 	}
 	return Actor_Config {
 			flags       = rd32(f.data, 0),
-			magicka_off = rd16(f.data, 4),
-			stamina_off = rd16(f.data, 6),
+			magicka_off = i16(rd16(f.data, 4)),
+			stamina_off = i16(rd16(f.data, 6)),
 			level       = rd16(f.data, 8),
 			calc_min    = rd16(f.data, 10),
 			calc_max    = rd16(f.data, 12),
 			speed_mult  = rd16(f.data, 14),
 			template_flags = rd16(f.data, 18),
-			health_off  = rd16(f.data, 20),
+			health_off  = i16(rd16(f.data, 20)),
 		},
 		true
 }
@@ -496,6 +499,17 @@ actor_attributes :: proc(fields: []Field) -> (attr: Actor_Attributes, ok: bool) 
 	attr.magicka = rd16(f.data, 38)
 	attr.stamina = rd16(f.data, 40)
 	return attr, true
+}
+
+// actor_ai reads an NPC_'s AIDT: Aggression, Confidence, Energy, Morality, Mood, Assistance @0..5
+// (UESP Mod File Format/NPC_), in actor value order 0..5.
+actor_ai :: proc(fields: []Field) -> (ai: [6]u8, ok: bool) {
+	f, fok := find_field(fields, "AIDT")
+	if !fok || len(f.data) < 6 {
+		return {}, false
+	}
+	copy(ai[:], f.data[:6])
+	return ai, true
 }
 
 // LVLI (leveled-list) LVLF flag bits. CALC_FROM_ALL_LEVELS = "calculate from all levels ≤ the

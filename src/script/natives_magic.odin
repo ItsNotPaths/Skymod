@@ -3,7 +3,7 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap :needs (actor-values)) effects have no magnitude and change no actor value; their visuals, sounds and conditions (CTDA) do not run.
+// (hole effect-magnitudes :tags (magic player) :sev gap) effects have no magnitude and change no actor value; their visuals, sounds and conditions (CTDA) do not run.
 // (hole spell-lists :tags (magic player) :sev gap) race and NPC spell lists (SPLO), enchantments and potions start no effects; only AddSpell, Cast and RemoteCast do.
 
 import "../gamedb"

@@ -80,6 +80,11 @@ Race_Info :: struct {
 	weight_male:   f32,
 	weight_female: f32,
 	flags:         u32, // kept raw — a wide CK bitfield (playable, child, immobile, …)
+	// Starting stats @36.. (0 when DATA is too short): the base of the matching actor values.
+	health, magicka, stamina:                f32,
+	carry_weight, mass:                      f32,
+	health_rate, magicka_rate, stamina_rate: f32, // % of max per second
+	unarmed_damage:                          f32,
 }
 
 // race_info reads a RACE's DATA: 7 × {skill u8, bonus u8} @0, height male/female f32 @16/@20,
@@ -105,6 +110,12 @@ race_info :: proc(fields: []Field) -> (ri: Race_Info, ok: bool) {
 	ri.weight_male = rf32(d, 24)
 	ri.weight_female = rf32(d, 28)
 	ri.flags = rd32(d, 32)
+	if len(d) >= 100 {
+		ri.health, ri.magicka, ri.stamina = rf32(d, 36), rf32(d, 40), rf32(d, 44)
+		ri.carry_weight, ri.mass = rf32(d, 48), rf32(d, 52)
+		ri.health_rate, ri.magicka_rate, ri.stamina_rate = rf32(d, 84), rf32(d, 88), rf32(d, 92)
+		ri.unarmed_damage = rf32(d, 96)
+	}
 	return ri, true
 }
 

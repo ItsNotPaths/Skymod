@@ -261,9 +261,9 @@ Actor_Base :: struct {
 	calc_min:      u16, // ACBS auto-calc level band
 	calc_max:      u16,
 	speed_mult:    u16, // ACBS speed %
-	magicka_off:   u16, // ACBS offsets added on top of the DNAM base attributes
-	stamina_off:   u16,
-	health_off:    u16,
+	magicka_off:   i16, // ACBS offsets on top of the race's starting health/magicka/stamina
+	stamina_off:   i16,
+	health_off:    i16,
 	base_health:   u16, // DNAM base attributes
 	base_magicka:  u16,
 	base_stamina:  u16,
@@ -275,6 +275,7 @@ Actor_Base :: struct {
 	outfit:        Form_ID, // DOFT default outfit
 	template:      Form_ID, // TPLT: an NPC_ or LVLN the template flags draw from
 	template_flags: u16,    // ACBS (esm.ACBS_TEMPLATE_*)
+	ai:            [6]u8,   // AIDT: the AI actor values 0..5 (Aggression .. Assistance)
 	spells:        []Form_ID, // SPLO (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
@@ -1155,18 +1156,16 @@ weight_of :: proc(db: ^DB, form: Form_ID) -> (f32, bool) {
 }
 
 // contents_of returns a container's or an actor's starting contents, following ref → base: a CONT's
-// CNTO, or an NPC_'s own, or with the inventory template flag its template's. Leveled entries stay
-// as they are. The slice is owned by the DB. ok=false when the form holds no contents.
+// CNTO, or an NPC_'s through its inventory template (template_part). Leveled entries stay as they
+// are. The slice is owned by the DB. ok=false when the form holds no contents.
 // (hole leveled-rolls :tags (records player) :sev gap) leveled entries (LVLI in CNTO, an LVLN inventory template) are never rolled, so they give nothing: 221 of 355 Skyrim.esm containers hold only leveled lists, 3,694 of 4,215 NPC_ with contents hold one, and 575 NPC_ take their inventory from an LVLN.
 contents_of :: proc(db: ^DB, form: Form_ID) -> ([]Content_Entry, bool) {
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	if c, ok := db.containers[base]; ok {return c, true}
 	a, ok := db.actors[base]
-	for hops := 0; ok && a.template_flags & esm.ACBS_TEMPLATE_INVENTORY != 0 && hops < 8; hops += 1 {
-		a, ok = db.actors[a.template] // an LVLN template is not an actor
-	}
-	return a.inventory, ok
+	if !ok {return nil, false}
+	return template_part(db, a, esm.ACBS_TEMPLATE_INVENTORY).inventory, true
 }
 
 // form_list_of returns an FLST's ordered member forms (remapped to global space). The slice is
@@ -2291,6 +2290,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		a.health_off = cfg.health_off
 		a.template_flags = cfg.template_flags
 	}
+	if ai, aok := esm.actor_ai(fl); aok {a.ai = ai}
 	if attr, aok := esm.actor_attributes(fl); aok {
 		a.skills = attr.skills
 		a.skill_offsets = attr.skill_offsets

@@ -58,7 +58,7 @@ record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
 // Skyrim's model (CK wiki, Actor Value): current = base + permanent + damage, max = base +
 // permanent. The temporary modifier arrives with effect magnitudes. `av` is always a canonical name
 // (gamedb.actor_value_name), so the store owns no key strings.
-// (hole av-regen :tags (player combat) :sev gap :needs (actor-values)) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
+// (hole av-regen :tags (player combat) :sev gap) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
 
 Actor_Value :: struct {
 	base:      Maybe(f32), // SetActorValue's base; none = the records' base
