@@ -138,8 +138,6 @@ av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 	p.damage = min(p.damage + abs(amount), 0)
 }
 
-// (hole pool-stock-model :tags (magic player) :sev gap) a pool's amount is stored as damage below its capacity (Skyrim's model: Fortify Health at 80/100 gives 130/150), so raising a skill's cap would raise the skill; skills need their level as a stock of its own under the cap. Decide with av-kinds.
-
 // ── regen ──
 // Damaged Health, Magicka and Stamina come back at max x Rate/100 x RateMult/100 per second of play,
 // on every actor, loaded or not (sources: build/out/wsP/formulas/regen_*). A rate of 0 is no regen.
@@ -176,7 +174,7 @@ av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
 // ── mod actor values (ws.md, Workstream P) ──
 // A mod creates one from OnGameLoaded (rt.actor_value); it lives until the next new game or load.
 
-// (hole av-kinds :tags (magic player mods) :sev gap) actor values do not declare pool or static: a pool (Health, Magicka, Stamina, the skills) has a capacity and an amount; a static AV's capacity is fixed at a huge value and a capacity write lands on its amount, keeping its lifetime. rt.actor_value has no kind either.
+// (hole av-kinds :tags (magic player mods) :sev gap) actor values do not declare a kind: static (SpeedMult, CarryWeight...: capacity fixed huge, a capacity write lands on the amount keeping its lifetime), latched (Health, Magicka, Stamina: the amount is damage below capacity, so it rides with it) or pool (the skills: the level is its own stock under the capacity, a soft cap only training checks). rt.actor_value has no kind either.
 Mod_AV :: struct {
 	name:    string, // the first creation's spelling
 	default: f32,
