@@ -220,13 +220,16 @@ n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
 // teleport self to the target ref's (overlay⊕baseline) position + offsets; self
 // lands in the target's cell. Rotation-match is deferred (identity orientation).
 n_move_to :: proc(c: ^Call, args: []Value) -> Value {
-	move_to(c, c.self, arg_form(args, 0), move_offset(args))
+	move_to(c, c.self, arg_form(args, 0), move_offset(args), arg_bool(args, 4, true))
 	return nil
 }
 
-move_to :: proc(c: ^Call, form, target: Form_ID, offset: smath.Vec3) {
+// move_to puts `form` at `target` plus `offset`, facing the way the target faces (abMatchRotation)
+// or keeping its own facing.
+move_to :: proc(c: ^Call, form, target: Form_ID, offset: smath.Vec3, match_rotation := true) {
 	dst := ref_pos(c, target) + offset
-	worldstate.set_moved(c.ws, form, ref_cell(c, target), smath.translate(dst), dst)
+	rot := ref_rot(c, target if match_rotation else form)
+	worldstate.set_moved(c.ws, form, ref_cell(c, target), smath.trs(dst, rot, 1), dst)
 	worldstate.mark_scene_dirty(c.ws, form)
 }
 
