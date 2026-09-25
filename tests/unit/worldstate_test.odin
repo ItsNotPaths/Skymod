@@ -63,7 +63,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.inv_add(&src, 0x000B0B00, 0x0001A11E, 3)
 	ws.inv_add(&src, 0x000B0B00, 0x0000000A, -4) // fewer than the starting contents
 	ws.av_set_base(&src, 0x000AC701, "Health", 87.5)
-	ws.av_damage(&src, 0x000AC701, "Health", 7.5)
+	ws.av_damage(&src, nil, 0x000AC701, "Health", 7.5)
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
 	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
 	ws.perk_add(&src, 0x000AC701, 0x000BABE0)

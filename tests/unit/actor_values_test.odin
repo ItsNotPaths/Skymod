@@ -3,6 +3,7 @@ package unit_tests
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/worldstate"
 
 // An auto-calc NPC_'s base values: the race's start, its ACBS offset and the class share of the
 // level-up points, whole sets first and the rest heaviest first, ties to the higher index.
@@ -47,4 +48,31 @@ test_actor_value_base :: proc(t: ^testing.T) {
 	testing.expect_value(t, base(&db, GUARD, "CarryWeight"), f32(300)) // race
 	testing.expect_value(t, base(&db, GUARD, "HealRateMult"), f32(100)) // implicit
 	testing.expect_value(t, base(&db, TEMPLATED, "Health"), base(&db, GUARD, "Health")) // stats and race from the template
+}
+
+// Regen restores rate% of max per second after the pause a drop starts; reaching 0 pauses longer.
+// A rate of 0 never regenerates.
+@(test)
+test_actor_value_regen :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	A :: gamedb.Form_ID(0xA1)
+	STILL :: gamedb.Form_ID(0xA2)
+	for actor in ([]gamedb.Form_ID{A, STILL}) {worldstate.av_set_base(&ws, actor, "Health", 100)}
+	worldstate.av_set_base(&ws, A, "HealRate", 10)
+
+	worldstate.av_damage(&ws, nil, A, "Health", 50)
+	worldstate.av_damage(&ws, nil, STILL, "Health", 50)
+	worldstate.av_regen(&ws, nil, 0.5)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 50) // paused
+	worldstate.av_regen(&ws, nil, 1.5)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 60)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, STILL, "Health"), 50)
+
+	worldstate.av_damage(&ws, nil, A, "Health", 60)
+	worldstate.av_regen(&ws, nil, 4)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 0) // the longer pause
+	worldstate.av_regen(&ws, nil, 100)
+	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 100) // never past max
 }

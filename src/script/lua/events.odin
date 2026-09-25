@@ -204,6 +204,7 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 // then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.
 tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, loaded, attached: []script.Form_ID, dt: f32) {
 	hours := advance_clocks(vm, db, ws, dt)
+	worldstate.av_regen(ws, db, play_seconds(db, ws, dt, hours))
 	sync_refs(vm)
 	tick_effects(vm, ws, dt)
 	for cell in loaded {attach_cell(vm, db, cell)}
@@ -246,6 +247,14 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 	if math.floor(before) != math.floor(ws.clock.hours) {script.restock_vendors(db, ws)}
 	call_rt(vm, "advance", f64(dt), hours)
 	return hours
+}
+
+// play_seconds is how much play the tick's game hours stand for at TimeScale: `dt`, plus any skip
+// (a wait regenerates as if played through).
+@(private = "file")
+play_seconds :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32, hours: f64) -> f32 {
+	scale := script.global_value(db, ws, formid.TIMESCALE)
+	return f32(hours * 3600 / f64(scale)) if scale > 0 else dt
 }
 
 // call_rt calls skymod.rt[name] with number arguments and returns its result as an int.

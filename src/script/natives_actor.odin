@@ -93,7 +93,7 @@ n_force_av :: proc(c: ^Call, args: []Value) -> Value {
 n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	av, ok := av_arg(c, args)
 	if !ok {return nil}
-	worldstate.av_damage(c.ws, c.self, av, arg_f32(args, 1, 0))
+	worldstate.av_damage(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
 	return nil
 }
 

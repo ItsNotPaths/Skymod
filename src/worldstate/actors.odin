@@ -60,12 +60,12 @@ record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
 // Skyrim's model (CK wiki, Actor Value): current = base + permanent + damage, max = base +
 // permanent. The temporary modifier arrives with effect magnitudes. `av` is always a canonical name
 // (av_name): an AV_NAMES entry or a mod AV's name, which mod_avs owns.
-// (hole av-regen :tags (player combat) :sev gap) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
 
 Actor_Value :: struct {
 	base:      Maybe(f32), // SetActorValue's base; none = the records' base
 	permanent: f32,        // ModActorValue, ForceActorValue
 	damage:    f32,        // DamageActorValue; never above 0
+	pause:     f32,        // seconds before regen restores damage again (not saved)
 }
 
 @(private)
@@ -113,15 +113,56 @@ av_force :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, v
 	av_mod(ws, actor, av, value - av_current(ws, db, actor, av))
 }
 
-// av_damage is DamageActorValue; a negative amount damages too.
-av_damage :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
-	av_upsert(ws, actor, av).damage -= abs(amount)
+// av_damage is DamageActorValue; a negative amount damages too. A drop pauses regen briefly, and
+// longer when the value reaches 0.
+av_damage :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, amount: f32) {
+	p := av_upsert(ws, actor, av)
+	p.damage -= abs(amount)
+	for r in REGEN {
+		if r.av != av {continue}
+		pause := gamedb.setting_float(db, r.pause, 1)
+		if av_current(ws, db, actor, av) <= 0 {pause = gamedb.setting_float(db, r.pause_max, 5)}
+		p.pause = max(p.pause, pause)
+	}
 }
 
 // av_restore is RestoreActorValue: it removes damage, never past none.
 av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 	p := av_upsert(ws, actor, av)
 	p.damage = min(p.damage + abs(amount), 0)
+}
+
+// ── regen ──
+// Damaged Health, Magicka and Stamina come back at max x Rate/100 x RateMult/100 per second of play,
+// on every actor, loaded or not (sources: build/out/wsP/formulas/regen_*). A rate of 0 is no regen.
+// (hole combat-regen :tags combat :sev gap :needs (combat-damage)) regen never applies its combat multipliers (the CombatHealthRegenMult AV, which trolls and werewolves skip; fCombatMagickaRegenRateMult; fCombatStaminaRegenRateMult): nothing is in combat.
+
+Regen :: struct {
+	av, rate, mult:   string,
+	pause, pause_max: string, // GMSTs: seconds after a drop, and after reaching 0 (exe defaults 1 and 5)
+}
+
+@(private)
+REGEN := [3]Regen {
+	{"Health", "HealRate", "HealRateMult", "fDamagedHealthRegenDelay", "fHealthRegenDelayMax"},
+	{"Magicka", "MagickaRate", "MagickaRateMult", "fDamagedMagickaRegenDelay", "fMagickaRegenDelayMax"},
+	{"Stamina", "StaminaRate", "StaminaRateMult", "fDamagedStaminaRegenDelay", "fStaminaRegenDelayMax"},
+}
+
+// av_regen restores `seconds` of play time of regen on every damaged actor that is not dead.
+av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
+	for actor, &vals in ws.actor_values {
+		if d, ok := ws.ref_deltas[actor]; ok && .Dead in d.live {continue}
+		for r in REGEN {
+			p, ok := &vals[r.av]
+			if !ok || p.damage >= 0 {continue}
+			left := seconds - p.pause
+			p.pause = max(p.pause - seconds, 0)
+			if left <= 0 {continue}
+			per_second := av_max(ws, db, actor, r.av) * av_current(ws, db, actor, r.rate) / 100 * av_current(ws, db, actor, r.mult) / 100
+			p.damage = min(p.damage + per_second * left, 0)
+		}
+	}
 }
 
 // ── mod actor values (ws.md, Workstream P) ──
