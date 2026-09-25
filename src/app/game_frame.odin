@@ -66,7 +66,7 @@ game_frame :: proc(g: ^Game) {
 	// cursor gate: overlay OPEN → cursor free to click its panels + console; overlay CLOSED → mouse locked
 	// for look. (The overlay is on by default, so a fresh session starts cursor-free until you un-tilde.)
 	// Applied on the next pump.
-	platform.set_mouse_capture(&g.p, !g.show_overlay)
+	platform.set_mouse_capture(&g.p, !g.show_overlay && g.menu == .None)
 	g.fr.st = world.stream_stats(&g.streamer)
 
 	frame_diag(g)
@@ -77,10 +77,12 @@ game_frame :: proc(g: ^Game) {
 	frame_active_scene(g)
 	frame_look(g)
 	frame_debug_verbs(g)
+	frame_menus(g)
 
 	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
-	// hand the loop a backlog it would spend the next several frames grinding through.
-	g.tick.accum += min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
+	// hand the loop a backlog it would spend the next several frames grinding through. A menu that
+	// pauses the world stops it.
+	g.tick.accum += 0 if world_paused(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
 	for g.tick.accum >= TICK_DT {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1

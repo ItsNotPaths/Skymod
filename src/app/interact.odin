@@ -28,7 +28,7 @@ import slua "../script/lua"
 import "../worldstate"
 import "../formid"
 
-// (hole activate-verbs :tags (ui player) :sev gap :needs (container-screen)) the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
+// (hole activate-verbs :tags (ui player) :sev gap) activating an item logs a line: it is never taken into the pack. Books, flora and activators do nothing either.
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
@@ -68,6 +68,7 @@ Interact :: struct {
 // it. Runs after frame_traversal (auto doors) and frame_inspect, before frame_hud (which publishes
 // g.fr.act to the prompt and draws). A no-op'd target just leaves the reticle.
 frame_interact :: proc(g: ^Game) {
+	if g.menu != .None {return}
 	g.fr.act = resolve_activation(g)
 	act_down := input.held(&g.imgr, "Activate")
 
@@ -140,7 +141,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Item:
 		log.infof("collect: pick up %q (0x%08X) — player inventory not built yet (stub)", interact_subject(g, form), u32(form))
 	case .Container:
-		log.infof("activate: open container %q — container/inventory UI not built yet (stub)", interact_subject(g, form))
+		open_container(g, form)
 	case .None, .Actor, .Activator, .Flora, .Book:
 		log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])
 	}

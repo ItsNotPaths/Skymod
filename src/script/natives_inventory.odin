@@ -4,7 +4,6 @@ package script
 // their base-object FormID. A count is the starting contents (gamedb) plus the overlay's delta.
 // Not scene geometry → no mark_scene_dirty (a dropped world item would be, but DropObject is deferred).
 
-import "core:slice"
 import "../gamedb"
 import "../worldstate"
 import "../formid"
@@ -73,18 +72,9 @@ n_get_item_count :: proc(c: ^Call, args: []Value) -> Value {
 // RemoveAllItems(akTransferTo=None, …): one move per item type, in form order.
 n_remove_all_items :: proc(c: ^Call, args: []Value) -> Value {
 	to := arg_form(args, 0)
-	items := make(map[Form_ID]bool, context.temp_allocator)
-	for e in worldstate.inv_start(c.ws, c.db, c.self) {items[e.item] = true}
-	delta, _ := c.ws.inventories[c.self]
-	for base in delta {items[base] = true}
-	moves := make([dynamic]worldstate.Item_Move, context.temp_allocator)
-	for base in items {
-		if n := worldstate.inv_count(c.ws, c.db, c.self, base); n > 0 {
-			append(&moves, worldstate.Item_Move{base = base, from = c.self, to = to, count = n})
-		}
+	for base in worldstate.inv_items(c.ws, c.db, c.self) {
+		move_items(c, {base = base, from = c.self, to = to, count = worldstate.inv_count(c.ws, c.db, c.self, base)})
 	}
-	slice.sort_by(moves[:], proc(a, b: worldstate.Item_Move) -> bool {return a.base < b.base})
-	for m in moves {move_items(c, m)}
 	return nil
 }
 
@@ -104,8 +94,7 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // move_items moves the counts and queues the move's inventory events for the next tick. A source
-// gives at most what it holds.
-@(private)
+// gives at most what it holds. The container menu moves items through it too.
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	m := m
 	if m.from != 0 {

@@ -1,6 +1,7 @@
 package worldstate
 
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "../gamedb"
 
@@ -41,6 +42,21 @@ inv_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32
 		if e.item == item {n += e.count}
 	}
 	return max(n, 0)
+}
+
+// inv_items is every item owner holds, in form order: its starting contents and what changed since.
+inv_items :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for e in inv_start(ws, db, owner) {
+		if inv_count(ws, db, owner, e.item) > 0 {append(&out, e.item)}
+	}
+	if delta, ok := ws.inventories[owner]; ok {
+		for item in delta {
+			if !slice.contains(out[:], item) && inv_count(ws, db, owner, item) > 0 {append(&out, item)}
+		}
+	}
+	slice.sort(out[:])
+	return out[:]
 }
 
 // record_of is the form whose records describe a ref: a created ref's base, else the ref, which

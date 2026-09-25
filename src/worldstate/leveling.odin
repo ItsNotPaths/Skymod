@@ -53,19 +53,27 @@ advance_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: s
 	advance, aok := gamedb.skill_advance_av(skill)
 	if !ok || !aok {return}
 	progress := av_current(ws, db, actor, advance) + f32(calc(ws, .SkillUseXP, f64(xp), f64(rates.use_mult), f64(rates.use_offset)))
-	curve := f64(gamedb.setting_float(db, "fSkillUseCurve", 1.95))
 	for {
-		level := av_base(ws, db, actor, skill)
-		if level >= av_max(ws, db, actor, skill) {
+		cost, open := skill_level_cost(ws, db, actor, skill)
+		if !open {
 			progress = 0
 			break
 		}
-		cost := f32(calc(ws, .SkillXPToNext, f64(level), f64(rates.improve_mult), f64(rates.improve_offset), curve))
 		if progress < cost {break}
 		progress -= cost
 		raise_skill(ws, db, actor, skill, 1)
 	}
 	av_set_base(ws, actor, advance, progress)
+}
+
+// skill_level_cost is the XP a skill needs to rise from its trained level; open=false at its cap or
+// for a form with no skill rates.
+skill_level_cost :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: string) -> (cost: f32, open: bool) {
+	rates := gamedb.skill_xp_of(db, skill) or_return
+	level := av_base(ws, db, actor, skill)
+	if level >= av_max(ws, db, actor, skill) {return}
+	curve := f64(gamedb.setting_float(db, "fSkillUseCurve", 1.95))
+	return f32(calc(ws, .SkillXPToNext, f64(level), f64(rates.improve_mult), f64(rates.improve_offset), curve)), true
 }
 
 // raise_skill trains a skill up `points` levels, never past its cap, and gives the actor XP for

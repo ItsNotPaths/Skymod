@@ -29,6 +29,10 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"NoClip",        "gameplay", .Button, "v"},
 	{"QuickSave",     "gameplay", .Button, "f5"},
 	{"QuickLoad",     "gameplay", .Button, "f9"},
+	// placeholder menus (menus.odin)
+	{"Inventory",     "gameplay", .Button, "i"},
+	{"Magic",         "gameplay", .Button, "p"},
+	{"Skills",        "gameplay", .Button, "l"},
 	// dev-verification verbs (behind the dev overlay in practice)
 	{"DevDrop",       "gameplay", .Button, "g"},
 	{"DevShove",      "gameplay", .Button, "h"},
