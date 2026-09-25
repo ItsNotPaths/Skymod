@@ -202,6 +202,8 @@ DB :: struct {
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	plugin_slots:  map[string]u32, // lower-cased plugin filename -> the global slot of its own forms (owned keys)
 	zones:                 map[Form_ID]Zone,    // ECZN -> its levels, flags and location
+	equip_slots:           map[Form_ID]Equip_Slot, // ARMO/WEAP/SPEL/... -> where it equips
+	equip_types:           map[Form_ID]Equip_Type, // EQUP -> the slots it stands for
 	ref_zones:             map[Form_ID]Form_ID, // REFR/ACHR -> its own XEZN zone (absent = its cell's)
 	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
@@ -691,6 +693,8 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
 		plugin_slots   = make(map[string]u32, 64, allocator),
 		zones                 = make(map[Form_ID]Zone, 1024, allocator),
+		equip_slots           = make(map[Form_ID]Equip_Slot, 8192, allocator),
+		equip_types           = make(map[Form_ID]Equip_Type, 16, allocator),
 		ref_zones             = make(map[Form_ID]Form_ID, 1024, allocator),
 		level_mods            = make(map[Form_ID]u8, 1024, allocator),
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
@@ -891,6 +895,9 @@ destroy :: proc(db: ^DB) {
 	for k in db.plugin_slots {delete(k, db.allocator)}
 	delete(db.plugin_slots)
 	delete(db.zones)
+	delete(db.equip_slots)
+	for _, t in db.equip_types {delete(t.parents, db.allocator)}
+	delete(db.equip_types)
 	delete(db.ref_zones)
 	delete(db.level_mods)
 	delete(db.respawning_containers)
@@ -1258,6 +1265,9 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	if carries_scripts(s) {
 		index_scripts(db, rec, ctx.fm)
 	}
+	if carries_equip(s) {
+		index_equip(db, rec, ctx.fm)
+	}
 
 	switch {
 	case s == "WRLD":
@@ -1326,6 +1336,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_location(db, rec, ctx.fm)
 	case s == "ECZN":
 		index_encounter_zone(db, rec, ctx.fm)
+	case s == "EQUP":
+		index_equip_type(db, rec, ctx.fm)
 	case s == "WTHR":
 		index_weather(db, rec, ctx.fm)
 	case s == "RACE":

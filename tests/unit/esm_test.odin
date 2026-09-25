@@ -2883,3 +2883,12 @@ test_effective_scripts_merge_props :: proc(t: ^testing.T) {
 		testing.expect_value(t, p.value.(i32), want)
 	}
 }
+
+// Armor slots read from BOD2 or LE's BODT; an EQUP lists its parent slots and whether it takes all.
+@(test)
+test_equip_decode :: proc(t: ^testing.T) {
+	mask, ok := esm.biped_slots([]esm.Field{{type = "BODT", data = {0x04, 0, 0, 0, 1, 0, 0, 0}}})
+	testing.expect(t, ok && mask == 0x04, "BODT slot mask")
+	parents, all := esm.equip_type([]esm.Field{{type = "PNAM", data = {0x43, 0x3F, 1, 0, 0x42, 0x3F, 1, 0}}, {type = "DATA", data = {1, 0, 0, 0}}}, context.temp_allocator)
+	testing.expect(t, all && len(parents) == 2 && parents[0] == 0x13F43 && parents[1] == 0x13F42, "BothHands")
+}

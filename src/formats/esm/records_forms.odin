@@ -860,3 +860,23 @@ weather_imagespaces :: proc(fields: []Field) -> ([WTHR_TIMES]u32, bool) {
 	}
 	return out, true
 }
+
+// biped_slots reads an ARMO's body slot mask: BOD2 (SE) or BODT (LE), both a u32 first; bit 0 is
+// slot 30 (Head).
+biped_slots :: proc(fields: []Field) -> (u32, bool) {
+	for tag in ([]string{"BOD2", "BODT"}) {
+		if f, ok := find_field(fields, tag); ok && len(f.data) >= 4 {return rd32(f.data, 0), true}
+	}
+	return 0, false
+}
+
+// equip_type reads an EQUP: its parent slots (PNAM, raw formIDs, allocated) and whether an item of
+// this type takes all of them (DATA; BothHands) or any one (EitherHand).
+equip_type :: proc(fields: []Field, allocator := context.allocator) -> (parents: []u32, use_all: bool) {
+	if f, ok := find_field(fields, "PNAM"); ok && len(f.data) >= 4 {
+		parents = make([]u32, len(f.data) / 4, allocator)
+		for &p, i in parents {p = rd32(f.data, i * 4)}
+	}
+	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 4 {use_all = rd32(f.data, 0) != 0}
+	return
+}
