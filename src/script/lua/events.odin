@@ -6,6 +6,7 @@ package script_lua
 
 import "core:c"
 import "core:log"
+import "core:math"
 import "core:slice"
 import "core:strings"
 import lua "../../../vendor/lua"
@@ -240,7 +241,9 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 			g(db, ws, formid.GAME_DAYS_PASSED),
 		)
 	}
+	before := ws.clock.hours
 	hours := worldstate.advance_clock(ws, dt, g(db, ws, formid.TIMESCALE))
+	if math.floor(before) != math.floor(ws.clock.hours) {script.restock_vendors(db, ws)}
 	call_rt(vm, "advance", f64(dt), hours)
 	return hours
 }

@@ -18,7 +18,7 @@ package esm
 // (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.
 // (hole relationship-records :tags records :sev gap) RELA is never decoded — relationship rank has no source, so disposition checks read a default.
 // (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
-// (hole encounter-zones :tags records :sev gap) ECZN is never decoded — encounter zones cannot level or reset a dungeon.
+// (hole encounter-zones :tags records :sev gap) only an ECZN's Never Resets flag is read; no zone levels a dungeon.
 
 // --- keywords -------------------------------------------------------------------------
 
@@ -197,6 +197,23 @@ faction_relations :: proc(fields: []Field, allocator := context.allocator) -> []
 		}
 	}
 	return out
+}
+
+ECZN_NEVER_RESETS :: 0x01
+
+// encounter_zone reads an ECZN's DATA: owner, location, rank, min level, flags, max level.
+encounter_zone :: proc(fields: []Field) -> (location: u32, never_resets: bool, ok: bool) {
+	f := find_field(fields, "DATA") or_return
+	if len(f.data) < 12 {return}
+	return rd32(f.data, 4), f.data[10] & ECZN_NEVER_RESETS != 0, true
+}
+
+CONT_RESPAWNS :: 0x02
+
+// container_respawns reads a CONT's DATA flags: a respawning container's contents reset with its cell.
+container_respawns :: proc(fields: []Field) -> bool {
+	f, ok := find_field(fields, "DATA")
+	return ok && len(f.data) >= 1 && f.data[0] & CONT_RESPAWNS != 0
 }
 
 // faction_flags reads a FACT's DATA flags word (FACT_* bits). ok=false when absent.

@@ -106,6 +106,16 @@ Saved_Keyword_Data :: struct {
 	value: f32,
 }
 
+Saved_Cell :: struct {
+	cell:  Form_ID,
+	state: Cell_State,
+}
+
+Saved_Restock :: struct {
+	chest: Form_ID,
+	hour:  f64,
+}
+
 Saved_Move :: struct {
 	ref:  Form_ID,
 	move: Pending_Move,
@@ -212,6 +222,9 @@ Save_Body :: struct {
 	scripts:       []Saved_Script,
 	list_adds:     []Saved_List_Add,
 	keyword_data:  []Saved_Keyword_Data,
+	cells:         []Saved_Cell,
+	cleared:       []Form_ID,
+	restocks:      []Saved_Restock,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -340,6 +353,12 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	}
 	keyword_data := make([dynamic]Saved_Keyword_Data, 0, len(ws.keyword_data), context.temp_allocator)
 	for key, value in ws.keyword_data {append(&keyword_data, Saved_Keyword_Data{key, value})}
+	cells := make([dynamic]Saved_Cell, 0, len(ws.cells), context.temp_allocator)
+	for cell, s in ws.cells {append(&cells, Saved_Cell{cell, s})}
+	cleared := make([dynamic]Form_ID, 0, len(ws.cleared), context.temp_allocator)
+	for loc in ws.cleared {append(&cleared, loc)}
+	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
+	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
@@ -365,6 +384,9 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		scripts       = scripts[:],
 		list_adds     = list_adds[:],
 		keyword_data  = keyword_data[:],
+		cells         = cells[:],
+		cleared       = cleared[:],
+		restocks      = restocks[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -495,6 +517,15 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		form, fok := rf(remap, have_remap, a.form)
 		if lok && fok {add_to_list(ws, list, form)}
 	}
+	for c in body.cells {
+		if id, ok := rf(remap, have_remap, c.cell); ok {ws.cells[id] = c.state}
+	}
+	for l in body.cleared {
+		if id, ok := rf(remap, have_remap, l); ok {ws.cleared[id] = true}
+	}
+	for r in body.restocks {
+		if id, ok := rf(remap, have_remap, r.chest); ok {ws.restocks[id] = r.hour}
+	}
 	for k in body.keyword_data {
 		location, lok := rf(remap, have_remap, k.key.location)
 		keyword, kok := rf(remap, have_remap, k.key.keyword)
@@ -614,6 +645,9 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}
 	for a in body.list_adds {add_slot(&seen, a.list);add_slot(&seen, a.form)}
 	for k in body.keyword_data {add_slot(&seen, k.key.location);add_slot(&seen, k.key.keyword)}
+	for c in body.cells {add_slot(&seen, c.cell)}
+	for l in body.cleared {add_slot(&seen, l)}
+	for r in body.restocks {add_slot(&seen, r.chest)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}

@@ -50,7 +50,6 @@ Created_Ref :: struct {
 	scale: f32,
 }
 
-// (hole cell-reset :tags world :sev gap) created refs are never cleaned up. A scripted Reset() of a cell drops its created refs; a timed reset keeps them (CK wiki Cell Reset, UESP Respawning).
 // create_ref mints a runtime ref in the 0xFF space (no ESM baseline), stores its full placement, and
 // indexes it by cell so the loader can spawn it. Returns the new FormID. The world layer turns it
 // into an Instance (spawn_created) when its cell is/loads resident.

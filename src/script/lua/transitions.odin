@@ -51,6 +51,7 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 		delete(refs)
 		delete_key(&ws.attached, cell)
 		worldstate.delete_detached(ws, cell)
+		worldstate.leave_cell(ws, cell)
 	}
 
 	for _, refs in ws.attached {
@@ -59,6 +60,8 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 
 	for cell in now {
 		if cell in ws.attached {continue}
+		script.enter_cell(db, ws, cell)
+		sync_refs(vm)
 		refs := scripted_refs(db, ws, t, cell)
 		ws.attached[cell] = refs
 		for r in refs {send(vm, r, "OnCellAttach")}

@@ -25,7 +25,7 @@ import smath "../math"
 // (hole dialogue-reads :tags dialogue :sev gap :needs (dialogue-system)) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
 // (hole magic-reads :tags magic :sev gap) no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
-// (hole cell-reads :tags world :sev gap :needs (cell-reset)) no read for Cell.SetPublic, Cell.Reset.
+// (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
 // (hole sit-rotation-read :tags animation :sev gap :needs (animation)) no read for SetSittingRotation.
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
@@ -86,6 +86,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_actor(reg) // Actor values + faction/relationship store
 	register_ref_reads(reg) // position, links, cell and location of a ref
 	register_forms(reg) // FormList, Location, keywords, race, game time
+	register_reset(reg) // cell and ref reset, cleared locations
 	register_magic(reg) // spells start and end scripted magic effects
 }
 

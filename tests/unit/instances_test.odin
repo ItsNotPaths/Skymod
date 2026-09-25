@@ -134,6 +134,8 @@ TICK_A_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("TickA", nil)
 C.__fn["onupdate"] = function(self) __a = (__a or 0) + 1 end
 C.__fn["onupdategametime"] = function(self) __g = (__g or 0) + 1 end
+C.__fn["oninit"] = function(self) __init = (__init or 0) + 1 end
+C.__fn["onreset"] = function(self) __reset = (__reset or 0) + 1 end
 return C
 `
 
@@ -647,4 +649,27 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, len(f.ws.effects), 0)
 	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "start:true,finish,tick", got)`), "start, finish, one tick, gone")
+}
+
+// A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with
+// no instances (its cell never loaded) gets none.
+@(test)
+test_reset_restarts_scripts :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_reset", {{"ticka.lua", TICK_A_LUA}})
+	defer fixture_destroy(&f)
+
+	FORM :: script.Form_ID(0x700)
+	LATE :: script.Form_ID(0x701)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[FORM] = {scripts = []esm.Script_Attach{{name = "TickA"}}}
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[FORM] = {form_id = FORM, base = 0x702}
+	slua.attach(&f.vm, FORM, []esm.Script_Attach{{name = "TickA"}}, true)
+	slua.drain(&f.vm)
+	worldstate.restart_scripts(&f.ws, FORM)
+	worldstate.restart_scripts(&f.ws, LATE)
+	slua.sync_refs(&f.vm)
+	slua.drain(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__init == 2 and __reset == 1, tostring(__init) .. " " .. tostring(__reset))`), "OnInit again, then OnReset, once")
 }

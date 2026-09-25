@@ -2252,6 +2252,15 @@ loadorder_mode :: proc(dir: string) {
 		len(db.worlds), len(db.cells), interior, exterior, len(db.base_models), len(db.ref_by_id),
 		len(db.form_scripts),
 	)
+	no_respawn, quiet, zoned := 0, 0, 0
+	for _, r in db.ref_by_id {if r.no_respawn {no_respawn += 1}}
+	for _, l in db.never_reset_zones {if l != 0 {zoned += 1}}
+	for id, c in db.cells {if c.interior && gamedb.cell_never_resets(&db, id) {quiet += 1}}
+	fmt.printfln(
+		"reset: %d Never Resets zones naming %d locations, %d interiors never reset, %d Respawns containers, %d vendor chests, %d No Respawn refs",
+		len(db.never_reset_zones), zoned, quiet, len(db.respawning_containers),
+		len(db.vendor_chests), no_respawn,
+	)
 	// DLC worldspaces only resolvable once their plugin is remapped into global space.
 	for name in ([?]string{"Tamriel", "DLC2SolstheimWorld", "DLC1HunterHQWorld", "SoulCairn"}) {
 		if wfid, ok := gamedb.find_world(&db, name); ok {

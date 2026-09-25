@@ -412,6 +412,7 @@ end
 -- rt.detach drops a deleted form's instances. They leave the tick schedule, and events queued
 -- for the form find no one.
 function rt.detach(form)
+  local had = instances[form] ~= nil
   for _, inst in ipairs(ordered[form] or {}) do
     local g = inst.class.__ticks and groups[inst.vars.TickRate or 0]
     if g and not (g.waiting and drop(g.waiting, inst)) then
@@ -422,6 +423,7 @@ function rt.detach(form)
   end
   instances[form] = nil
   ordered[form] = nil
+  return had
 end
 
 -- find_instance is the script instance on `ref` whose chain includes class `lname`.

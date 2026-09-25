@@ -229,9 +229,16 @@ lock_ref :: proc(s: ^Scene, form_id, cell: Form_ID, locked: bool) -> bool {
 // THIS scene (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write
 // the overlay synchronously (read-your-writes) but don't touch the live scene; this is what makes the
 // change visible. Call once per frame on the active scene. No-op without an overlay / empty queue.
-apply_pending_scene_ops :: proc(s: ^Scene) {
+apply_pending_scene_ops :: proc(s: ^Scene, db: ^gamedb.DB) {
 	if s.ws == nil {
 		return
+	}
+	if len(s.ws.rebuild_cells) > 0 {
+		for cell in s.ws.rebuild_cells {
+			if chunk, ok := &s.chunks[cell]; ok {rebuild_chunk_overlay(s, db, cell, chunk)}
+		}
+		clear(&s.ws.rebuild_cells)
+		resolve_created_models(s)
 	}
 	for form in worldstate.pending_scene(s.ws) {
 		apply_overlay_ref(s, form)
@@ -393,26 +400,29 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 		return
 	}
 	for cid, &chunk in s.chunks {
-		// Drop old object bodies (the terrain body stays in chunk.bodies) + old instances + their index.
-		// D1 TRAP: this swaps chunk.instances WITHOUT release_chunk_assets, so it must rebalance the
-		// model refs itself — release over the OLD instances, acquire over the FRESH ones. Miss it and
-		// every F9 quickload pins the old instances' models forever (a ref leak eviction can never reclaim).
-		for &inst in chunk.instances {
-			remove_instance_bodies(s.phys, &chunk, &inst)
-			assetdb.model_release(&s.cache, inst.model_path)
-		}
-		deindex_instances(s, &chunk)
-		delete(chunk.instances)
-		// Recompute: ESM baseline ⊕ created refs ⊕ deltas.
-		fresh := build_overlaid_chunk(s, db, cid)
-		chunk.instances = fresh.instances // ownership transfers; only .instances is heap-allocated
-		for inst in chunk.instances {
-			assetdb.model_acquire(&s.cache, inst.model_path)
-		}
-		index_instances(s, &chunk)
-		apply_overlay(s, &chunk)
-		chunk.phys_done = false // object collision rebuilds via sync_physics; terrain body untouched
+		rebuild_chunk_overlay(s, db, cid, &chunk)
 	}
+}
+
+// rebuild_chunk_overlay rebuilds one resident chunk's instances as baseline ⊕ created refs ⊕ deltas.
+rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^Chunk) {
+	// Drop old object bodies (the terrain body stays in chunk.bodies) + old instances + their index.
+	// This swaps chunk.instances WITHOUT release_chunk_assets, so it rebalances the model refs itself:
+	// release over the OLD instances, acquire over the FRESH ones, or eviction can never reclaim them.
+	for &inst in chunk.instances {
+		remove_instance_bodies(s.phys, chunk, &inst)
+		assetdb.model_release(&s.cache, inst.model_path)
+	}
+	deindex_instances(s, chunk)
+	delete(chunk.instances)
+	fresh := build_overlaid_chunk(s, db, cell)
+	chunk.instances = fresh.instances // ownership transfers; only .instances is heap-allocated
+	for inst in chunk.instances {
+		assetdb.model_acquire(&s.cache, inst.model_path)
+	}
+	index_instances(s, chunk)
+	apply_overlay(s, chunk)
+	chunk.phys_done = false // object collision rebuilds via sync_physics; terrain body untouched
 }
 
 // resolve_created_models synchronously resolves the model for every resident CREATED ref whose model

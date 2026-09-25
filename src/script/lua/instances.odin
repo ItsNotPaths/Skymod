@@ -113,7 +113,6 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 	return made
 }
 
-// (hole cell-reset :tags script :sev gap) a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
 @(private)
 attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
 	if r.deleted || worldstate.is_deleted(vm.ctx.ws, r.form_id) {return 0}
@@ -164,6 +163,17 @@ sync_refs :: proc(vm: ^VM) {
 			send_own(vm, h, "OnEffectFinish", e.target, e.caster)
 		}
 	}
+	reset := slice.clone(ws.reset_refs[:], context.temp_allocator)
+	clear(&ws.reset_refs)
+	for id in reset {
+		if !detach(vm, id) {continue}
+		if r, ok := gamedb.ref_by_formid(vm.ctx.db, id); ok {
+			attach_ref(vm, vm.ctx.db, r)
+		} else {
+			attach_created(vm, vm.ctx.db, id)
+		}
+		send_own(vm, id, "OnReset")
+	}
 	for len(ws.new_refs) > 0 || len(ws.gone_refs) > 0 {
 		gone := slice.clone(ws.gone_refs[:], context.temp_allocator)
 		clear(&ws.gone_refs)
@@ -177,15 +187,19 @@ sync_refs :: proc(vm: ^VM) {
 	}
 }
 
-// detach is rt.detach: the form's instances go.
+// detach is rt.detach: the form's instances go. Reports whether it had any.
 @(private)
-detach :: proc(vm: ^VM, form: script.Form_ID) {
+detach :: proc(vm: ^VM, form: script.Form_ID) -> bool {
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "detach") {return}
+	if !push_rt_fn(L, "detach") {return false}
 	push_ref(L, form)
-	if lua.pcall(L, 1, 0, 0) != 0 {log.errorf("lua: rt.detach: %s", to_string(L, -1))}
+	if lua.pcall(L, 1, 1, 0) != 0 {
+		log.errorf("lua: rt.detach: %s", to_string(L, -1))
+		return false
+	}
+	return bool(lua.toboolean(L, -1))
 }
 
 // push_props pushes a {lowercase name = value} table of a script's authored property values.

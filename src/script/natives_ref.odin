@@ -87,15 +87,7 @@ n_get_current_location :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 ref_location :: proc(c: ^Call, form: Form_ID) -> Form_ID {
-	return cell_location(c.db, ref_grid_cell(c, form))
-}
-
-// cell_location is a cell's XLCN location, else its worldspace's; 0 when it has neither.
-cell_location :: proc(db: ^gamedb.DB, cell_id: Form_ID) -> Form_ID {
-	cell, ok := gamedb.cell_by_formid(db, cell_id)
-	if !ok {return 0}
-	if cell.location != 0 {return cell.location}
-	return db.world_location[cell.world_form_id]
+	return gamedb.cell_location(c.db, ref_grid_cell(c, form))
 }
 
 // location_loaded: an attached cell is in `location` or in a child of it. Reads the attached set
@@ -103,8 +95,7 @@ cell_location :: proc(db: ^gamedb.DB, cell_id: Form_ID) -> Form_ID {
 location_loaded :: proc(c: ^Call, location: Form_ID) -> bool {
 	if location == 0 {return false}
 	for cell in c.ws.attached {
-		l := cell_location(c.db, cell)
-		if l == location || gamedb.location_is_child(c.db, l, location) {return true}
+		if gamedb.location_within(c.db, gamedb.cell_location(c.db, cell), location) {return true}
 	}
 	return false
 }

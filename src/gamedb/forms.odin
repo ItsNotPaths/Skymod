@@ -162,6 +162,9 @@ index_faction :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 
 	f: Faction
 	f.flags, _ = esm.faction_flags(fl)
+	if chest, has := esm.subrecord_formid(fl, "VENC"); has {
+		db.vendor_chests[esm.remap_form(fm, chest)] = true
+	}
 	f.crime, f.has_crime = esm.faction_crime(fl)
 
 	if raw := esm.faction_relations(fl, context.allocator); raw != nil {
@@ -602,6 +605,19 @@ location_of :: proc(db: ^DB, location: Form_ID) -> (Location, bool) {
 	return l, ok
 }
 
+// location_within reports whether `loc` is `area` or sits under it.
+location_within :: proc(db: ^DB, loc, area: Form_ID) -> bool {
+	return loc == area || location_is_child(db, loc, area)
+}
+
+// cell_location is a cell's XLCN location, else its worldspace's; 0 when it has neither.
+cell_location :: proc(db: ^DB, cell_id: Form_ID) -> Form_ID {
+	cell, ok := cell_by_formid(db, cell_id)
+	if !ok {return 0}
+	if cell.location != 0 {return cell.location}
+	return db.world_location[cell.world_form_id]
+}
+
 // location_is_child reports whether `child` sits under `ancestor` in the location tree — the
 // baseline behind Location.IsChild. Walks parents to the root, with a depth cap so a malformed
 // plugin's parent cycle can't hang the query. A location is not its own child.
@@ -712,4 +728,41 @@ free_form_indexes :: proc(db: ^DB) {
 	delete(db.magic_effects)
 	delete(db.locations) // plain values — no owned data (names live in db.names)
 	delete(db.weathers)
+}
+
+// index_encounter_zone records a Never Resets zone and the location it names.
+@(private)
+index_encounter_zone :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	location, never_resets, has := esm.encounter_zone(fl)
+	if !has || !never_resets {
+		delete_key(&db.never_reset_zones, rec.form_id)
+		return
+	}
+	db.never_reset_zones[rec.form_id] = esm.remap_form(fm, location)
+}
+
+// cell_never_resets reports whether a cell keeps its state forever: its zone never resets, or its
+// location sits within one a Never Resets zone names.
+cell_never_resets :: proc(db: ^DB, cell: Form_ID) -> bool {
+	c := db.cells[cell]
+	if c.zone in db.never_reset_zones {return true}
+	loc := cell_location(db, cell)
+	if loc == 0 {return false}
+	for _, l in db.never_reset_zones {
+		if location_within(db, loc, l) {return true}
+	}
+	return false
+}
+
+// ref_respawns reports whether a cell reset resets this placement. An actor resets when its base
+// is flagged Respawn; a leveled base respawns.
+ref_respawns :: proc(db: ^DB, r: Ref) -> bool {
+	if r.no_respawn {return false}
+	a, is_npc := db.actors[r.base]
+	return !is_npc || a.flags & esm.ACBS_RESPAWN != 0
 }

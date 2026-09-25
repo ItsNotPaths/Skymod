@@ -315,7 +315,7 @@ frame_scene_select :: proc(g: ^Game) {
 	// Deferred scene-apply (decision #3): drain the overlay changes script natives wrote this
 	// frame (e.g. a console `sel:Disable()`) and apply them live to the active scene — the fixed
 	// frame point where instance hide/move/scale/remove land, before physics rebuilds collision.
-	world.apply_pending_scene_ops(g.fr.active_scene)
+	world.apply_pending_scene_ops(g.fr.active_scene, &g.db)
 
 	// Re-home the player capsule into the active scene's physics world. On a door transition
 	// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old

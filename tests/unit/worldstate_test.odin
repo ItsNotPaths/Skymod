@@ -43,6 +43,10 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.set_global(&src, 0x00000005, 42.5)
 	ws.set_player(&src, 0, {7, 8, 9}, 1.2, -0.3)
 	ws.start_clock(&src, 201, 7, 17, 8, 1)
+	ws.leave_cell(&src, 0x0001A26F)
+	ws.ask_reset(&src, 0x0001A26F)
+	src.cleared[0x0001C0C0] = true
+	src.restocks[0x000C0DE0] = 12
 	ws.skip_game_time(&src, 2.5)
 	// A Dead delta (the new actor life-state field) on its own ref/cell.
 	ws.set_dead(&src, 0x000A11FE, 0x0004DEAD, true)
@@ -131,6 +135,9 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, gok, "global missing after load")
 	testing.expectf(t, abs(gv - 42.5) < 1e-5, "global value mismatch: %v", gv)
 	testing.expect_value(t, dst.clock, src.clock)
+	testing.expect_value(t, dst.cells[0x0001A26F], src.cells[0x0001A26F])
+	testing.expect(t, dst.cleared[0x0001C0C0], "cleared location lost")
+	testing.expect_value(t, dst.restocks[0x000C0DE0], 12)
 	pl, pok := ws.get_player(&dst)
 	testing.expect(t, pok, "player singleton missing after load")
 	testing.expectf(t, abs(pl.pos.x - 7) < 1e-5 && abs(pl.yaw - 1.2) < 1e-5, "player pos/yaw mismatch: %v yaw %v", pl.pos, pl.yaw)

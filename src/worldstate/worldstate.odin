@@ -71,6 +71,9 @@ Overlay :: struct {
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	player:          Player_State,             // the player singleton (position/facing; stats later)
 	clock:           Game_Clock,               // game time (clock.odin)
+	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
+	cleared:         map[Form_ID]bool,             // locations cleared (Location.SetCleared)
+	restocks:        map[Form_ID]f64,              // vendor chest -> the game hour it last restocked
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -89,6 +92,10 @@ Runtime :: struct {
 	// (OnInit inside the native that made them) and drops the scripts of the gone ones.
 	new_refs:        [dynamic]Form_ID,
 	gone_refs:       [dynamic]Form_ID,
+	// Refs a reset put back to baseline: the VM restarts their scripts and sends OnReset.
+	reset_refs:      [dynamic]Form_ID,
+	// Cells a reset changed: the app rebuilds their resident chunks from baseline and overlay.
+	rebuild_cells:   [dynamic]Form_ID,
 	// Effects started and ended since the VM last looked: it sends OnEffectStart / OnEffectFinish.
 	new_effects:     [dynamic]Form_ID,
 	ended_effects:   [dynamic]Form_ID,
@@ -128,6 +135,8 @@ init :: proc(ws: ^World_State) {
 	ws.item_moves = make([dynamic]Item_Move)
 	ws.new_refs = make([dynamic]Form_ID)
 	ws.gone_refs = make([dynamic]Form_ID)
+	ws.reset_refs = make([dynamic]Form_ID)
+	ws.rebuild_cells = make([dynamic]Form_ID)
 	ws.new_effects = make([dynamic]Form_ID)
 	ws.ended_effects = make([dynamic]Form_ID)
 	ws.attached = make(map[Form_ID][dynamic]Form_ID)
@@ -140,6 +149,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.item_moves)
 	delete(ws.new_refs)
 	delete(ws.gone_refs)
+	delete(ws.reset_refs)
+	delete(ws.rebuild_cells)
 	delete(ws.new_effects)
 	delete(ws.ended_effects)
 	for _, &refs in ws.attached {
@@ -164,6 +175,9 @@ init_overlay :: proc(o: ^Overlay) {
 	o.perks = make(map[Form_ID]map[Form_ID]bool)
 	o.updates = make(map[Form_ID]Update_Timers)
 	o.game_updates = make(map[Form_ID]Update_Timers)
+	o.cells = make(map[Form_ID]Cell_State)
+	o.cleared = make(map[Form_ID]bool)
+	o.restocks = make(map[Form_ID]f64)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -211,6 +225,9 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.perks)
 	delete(o.updates)
 	delete(o.game_updates)
+	delete(o.cells)
+	delete(o.cleared)
+	delete(o.restocks)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

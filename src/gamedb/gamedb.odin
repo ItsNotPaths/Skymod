@@ -35,6 +35,7 @@ Ref :: struct {
 	disabled:     bool, // REFR "Initially Disabled" flag — not placed in the world
 	deleted:      bool, // a plugin removed this ref (also sets `disabled`); it runs no scripts
 	persistent:   bool, // in its cell's persistent group: its scripts start at game start
+	no_respawn:   bool, // REFR "No Respawn": a cell reset leaves it as it is
 	// XESP enable-parent: this ref is only placed when its parent is enabled (XOR opposite).
 	// enable_parent 0 = no parent. The STATIC default gate (ref_effective_disabled) drops
 	// quest/alternate debris; the eventual quest system flips the parent live.
@@ -46,6 +47,8 @@ Ref :: struct {
 REFR_INITIALLY_DISABLED :: 0x0000_0800
 // Record-header DELETED flag — an override that removes a master's record (TESForm bit 5).
 REFR_DELETED :: 0x0000_0020
+// REFR/ACHR record-header flag: the ref does not reset with its cell.
+REFR_NO_RESPAWN :: 0x4000_0000
 
 // Form_Kind classifies a form by its record type, for script method-dispatch: which Papyrus class
 // chain a bare form-handle resolves methods up (a Quest handle → {Quest, Form}, a GlobalVariable →
@@ -134,6 +137,7 @@ Cell :: struct {
 	water_height:  f32, // flat water-plane Z (esm.WATER_NONE = no water; sentinel already resolved to the worldspace default at index time)
 	water_type:    Form_ID, // XCWT water-type WATR formID (0 = none/default; reserved for appearance)
 	location:      Form_ID, // XLCN location LCTN (0 = none; an exterior then falls back to its worldspace's)
+	zone:          Form_ID, // XEZN encounter zone ECZN (0 = none)
 }
 
 // DB is the in-memory record index. All strings / dynamic arrays are owned and freed
@@ -198,6 +202,9 @@ DB :: struct {
 	grasses:       map[Form_ID]Grass, // GRAS formID -> grass type (model owned)
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	plugin_slots:  map[string]u32, // lower-cased plugin filename -> the global slot of its own forms (owned keys)
+	never_reset_zones:     map[Form_ID]Form_ID, // ECZN flagged Never Resets -> the location it names (0 = none)
+	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
+	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
@@ -671,6 +678,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		grasses       = make(map[Form_ID]Grass, 64, allocator),
 		form_kinds     = make(map[Form_ID]Form_Kind, 4096, allocator),
 		plugin_slots   = make(map[string]u32, 64, allocator),
+		never_reset_zones     = make(map[Form_ID]Form_ID, 128, allocator),
+		respawning_containers = make(map[Form_ID]bool, 512, allocator),
+		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
@@ -864,6 +874,9 @@ destroy :: proc(db: ^DB) {
 	delete(db.form_kinds)
 	for k in db.plugin_slots {delete(k, db.allocator)}
 	delete(db.plugin_slots)
+	delete(db.never_reset_zones)
+	delete(db.respawning_containers)
+	delete(db.vendor_chests)
 	for _, fs in db.form_scripts {
 		esm.free_form_scripts(fs, db.allocator)
 	}
@@ -1296,6 +1309,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_magic_effect(db, rec, ctx.fm)
 	case s == "LCTN":
 		index_location(db, rec, ctx.fm)
+	case s == "ECZN":
+		index_encounter_zone(db, rec, ctx.fm)
 	case s == "WTHR":
 		index_weather(db, rec, ctx.fm)
 	case s == "RACE":
@@ -1580,6 +1595,9 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	if l, lok := esm.subrecord_formid(fl, "XLCN"); lok {
 		cell.location = esm.remap_form(ctx.fm, l)
 	}
+	if z, zok := esm.subrecord_formid(fl, "XEZN"); zok {
+		cell.zone = esm.remap_form(ctx.fm, z)
+	}
 	if gx, gy, gok := esm.cell_grid(fl); gok {
 		cell.gx, cell.gy, cell.has_grid = gx, gy, true
 		if ctx.world_form_id != 0 {
@@ -1661,6 +1679,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		disabled     = rec.flags & (REFR_INITIALLY_DISABLED | REFR_DELETED) != 0,
 		deleted      = rec.flags & REFR_DELETED != 0,
 		persistent   = !ctx.temporary,
+		no_respawn   = rec.flags & REFR_NO_RESPAWN != 0,
 	}
 	if tp, has := esm.refr_teleport(fl); has {
 		tp.door = esm.remap_form(ctx.fm, u32(tp.door)) // XTEL references the destination door
@@ -1721,6 +1740,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		disabled     = rec.flags & (REFR_INITIALLY_DISABLED | REFR_DELETED) != 0,
 		deleted      = rec.flags & REFR_DELETED != 0,
 		persistent   = !ctx.temporary,
+		no_respawn   = rec.flags & REFR_NO_RESPAWN != 0,
 	}
 	if ep, has := esm.refr_enable_parent(fl); has {
 		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent)
@@ -1864,6 +1884,11 @@ index_container :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
+	if esm.container_respawns(fl) {
+		db.respawning_containers[rec.form_id] = true
+	} else {
+		delete_key(&db.respawning_containers, rec.form_id)
+	}
 	raw := esm.container_contents(fl, context.allocator) // walk has no temp reset — explicit free
 	if raw == nil {
 		return
