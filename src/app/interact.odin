@@ -28,7 +28,8 @@ import slua "../script/lua"
 import "../worldstate"
 import "../formid"
 
-// (hole activate-verbs :tags (ui player) :sev gap) activating an item logs a line: it is never taken into the pack. Books, flora and activators do nothing either.
+// (hole activate-verbs :tags (ui player) :sev gap) books, flora and activators do nothing when activated.
+// (hole inventory-refs :tags (player script) :sev gap) a taken item's ref is disabled in the world, not carried: the pack holds only its base, so dropping it makes a new ref and a quest item loses its identity (and its XCNT stack count).
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
@@ -139,7 +140,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 			traversal_finish_load(g, tk)
 		}
 	case .Item:
-		log.infof("collect: pick up %q (0x%08X) — player inventory not built yet (stub)", interact_subject(g, form), u32(form))
+		take_item(g, ref)
 	case .Container:
 		open_container(g, form)
 	case .None, .Actor, .Activator, .Flora, .Book:
@@ -178,6 +179,16 @@ grab_update :: proc(g: ^Game) {
 		vel = vel * (GRAB_MAX_VEL / sp)
 	}
 	physics.kick(g.fr.active_scene.phys, g.interact.body, vel) // wakes + sets velocity
+}
+
+// take_item puts a world item in the player's pack: its base goes in (OnItemAdded, and
+// OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world.
+take_item :: proc(g: ^Game, ref: gamedb.Ref) {
+	c := script.Call{ws = &g.ws, db = &g.db}
+	script.move_items(&c, {base = ref.base, ref = ref.form_id, to = formid.PLAYER, count = 1})
+	worldstate.set_disabled(&g.ws, ref.form_id, ref.cell_form_id, true)
+	worldstate.mark_scene_dirty(&g.ws, ref.form_id)
+	log.infof("take: %q", interact_subject(g, ref.form_id))
 }
 
 // interact_subject is a ref's display name for a log line, or a placeholder when it's unnamed.
