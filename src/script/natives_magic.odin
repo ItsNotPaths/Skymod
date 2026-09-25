@@ -4,6 +4,7 @@ package script
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
 // (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking)) effects have no magnitude and change no actor value; their visuals, sounds and conditions (CTDA) do not run.
+// (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
 // (hole effect-stacking :tags (magic player) :sev gap) unsourced how effect contributions combine on one actor value: plain sums, or a multiply step (perks that scale magnitudes, the *Mult AVs); research before the effect design.
 // (hole spell-lists :tags (magic player) :sev gap) race and NPC spell lists (SPLO), enchantments and potions start no effects; only AddSpell, Cast and RemoteCast do.
 
