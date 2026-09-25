@@ -8,8 +8,8 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// HOLE(script, gap): only Forced, Unique_Actor and External fills resolve; Matching_Ref, From_Event, Create_Ref and From_List aliases stay empty until conditions, the story manager and PlaceAtMe exist.
-// HOLE(script, gap): location aliases never fill; the ALFL/ALFA location fills are not decoded.
+// (hole alias-fills :tags script :sev gap :needs (condition-functions)) only Forced, Unique_Actor and External fills resolve; Matching_Ref, From_Event, Create_Ref and From_List aliases stay empty until conditions, the story manager and PlaceAtMe exist.
+// (hole location-alias-fills :tags script :sev gap) location aliases never fill; the ALFL/ALFA location fills are not decoded.
 
 register_alias :: proc(reg: ^Registry) {
 	register(reg, "Quest", "GetAlias", n_quest_get_alias)

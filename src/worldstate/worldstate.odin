@@ -22,7 +22,7 @@ import "../formid"
 // alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
 Form_ID :: u64
 
-// HOLE(world, blocker): no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour and GetCurrentGameTime (GameDaysPassed) stand still at their authored values.
+// (hole game-clock :tags world :sev blocker) no game clock — nothing tracks the in-game hour or date. There is no day/night, no schedule for a package to follow, and GameHour and GetCurrentGameTime (GameDaysPassed) stand still at their authored values.
 
 // Player_State is the player singleton (§4.1): where the player is, so a load returns them there
 // instead of the default spawn. `cell` lets the loader decide exterior (set position directly) vs

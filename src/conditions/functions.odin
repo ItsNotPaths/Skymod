@@ -17,8 +17,8 @@ package conditions
 import "../gamedb"
 import "../worldstate"
 
-// HOLE(records, blocker): 7 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
-// HOLE(combat, gap): perk ENTRY gates are 1,111 conditions over 47 functions, led by has-keyword, and none are evaluated — every perk entry applies unconditionally.
+// (hole condition-functions :tags records :sev blocker) 7 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
+// (hole perk-entry-conditions :tags combat :sev gap :needs (condition-functions)) perk ENTRY gates are 1,111 conditions over 47 functions, led by has-keyword, and none are evaluated — every perk entry applies unconditionally.
 // Eval answers one condition. `on` is the object the run-on selected. Returns the value to compare
 // plus whether it could answer at all; answered=false is treated exactly like an unknown function,
 // so the condition passes.
@@ -111,7 +111,7 @@ fn_item_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 	return f32(worldstate.inv_count(ctx.ws, on, gamedb.condition_param1_form(c))), true
 }
 
-// HOLE(records, gap): EITM (a base item's enchantment) is decoded by nothing, so CTDA-FN 659 — 384 uses on COBJ, second only to has-perk — is permanently unknown and offers every tempering recipe.
+// (hole ctda-659 :tags records :sev gap :needs (crafting-screen)) EITM (a base item's enchantment) is decoded by nothing, so CTDA-FN 659 — 384 uses on COBJ, second only to has-perk — is permanently unknown and offers every tempering recipe.
 // NOT IMPLEMENTED, and the next one worth doing:
 //
 // CTDA-FN 659 — tempering target is enchanted (INFERRED). 384 uses on COBJ, second only to

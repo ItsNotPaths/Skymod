@@ -27,8 +27,8 @@ import "../script"
 import slua "../script/lua"
 import "../worldstate"
 
-// HOLE(ui, gap): the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
-// HOLE(dialogue, blocker): activating an actor logs a line. No topic tree, no voice, no menu.
+// (hole activate-verbs :tags ui :sev gap :needs (container-screen)) the activation verbs are logs — a tapped item is never moved into a pack and a container never opens anything. The screens they would open are their own holes (ui/source.odin).
+// (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a
@@ -112,8 +112,8 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
-// HOLE(ai, gap): only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate.
-// HOLE(script, gap): a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
+// (hole npc-activate :tags ai :sev gap :needs (ai-agent)) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate.
+// (hole created-ref-activation :tags script :sev gap) a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
 
 // activate is the one activation path, for the Activate key and for a script's Activate: OnActivate
 // is queued for the ref's scripts (it runs at the next tick, after the default action, as in

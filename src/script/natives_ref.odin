@@ -40,7 +40,7 @@ n_set_position :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// HOLE(script, gap): SetAngle is a stub, so GetAngle* reads the placement's angles; the player's read 0.
+// (hole set-angle :tags script :sev gap) SetAngle is a stub, so GetAngle* reads the placement's angles; the player's read 0.
 n_get_angle_x :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).x)}
 n_get_angle_y :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).y)}
 n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).z)}
@@ -117,7 +117,7 @@ n_get_base_object :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // n_get_open_state answers 1 (open) or 3 (closed) for a door or a ref SetOpen touched, else 0 (none).
-// HOLE(world, gap): a door's authored open-by-default flag is not decoded; an untouched door reads closed.
+// (hole door-default-open :tags world :sev gap) a door's authored open-by-default flag is not decoded; an untouched door reads closed.
 n_get_open_state :: proc(c: ^Call, args: []Value) -> Value {
 	if d, ok := worldstate.get(c.ws, c.self); ok && .Open in d.live {
 		return i32(1) if d.open else i32(3)

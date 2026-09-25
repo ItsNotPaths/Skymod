@@ -44,7 +44,7 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 	return int(lua.tointeger(L, -1))
 }
 
-// HOLE(script, gap): a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
+// (hole quest-reset :tags script :sev gap) a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
 
 // new_game fills the aliases of the quests that run from a new game, then starts the game's
 // scripts. A loaded save keeps its own fills, so it calls start_game alone.
@@ -113,7 +113,7 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 	return made
 }
 
-// HOLE(script, gap): a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
+// (hole cell-reset :tags script :sev gap :needs (game-clock)) a cell reset does not re-run OnInit on its refs; Papyrus resets their variables and runs it again.
 @(private)
 attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
 	if r.deleted || worldstate.is_deleted(vm.ctx.ws, r.form_id) {return 0}

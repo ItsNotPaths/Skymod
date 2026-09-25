@@ -22,7 +22,7 @@ return function(C)
 		self.MenuLight:Enable()
 		if not self:CanUseFaceMenu() then return end
 		game("AddAchievement", 59)
-		game("ShowLimitedRaceMenu") -- HOLE(ui, gap): returns at once; must yield until the menu closes
+		game("ShowLimitedRaceMenu") -- (hole menu-mode :tags ui :sev gap) returns at once; must yield until the menu closes
 		game("EnablePlayerControls")
 		self.MenuLight:Disable()
 	end

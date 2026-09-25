@@ -27,9 +27,9 @@ register_inventory :: proc(reg: ^Registry) {
 // Courier.RemoveRef(courier, container, item, toPlayer, countGlobal): the courier's bag gives an
 // item back or drops it, and the global that gates the courier's dialogue counts one item fewer.
 // WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13).
-// HOLE(dialogue, gap): while the courier talks to the player the removal must wait for the
-// dialogue to end: one saved entry per item, applied when it ends. Nothing talks yet, so it
-// applies at once.
+// (hole courier-dialogue-wait :tags dialogue :sev gap :needs (dialogue-system)) the courier's removal applies at once.
+// While the courier talks to the player, the removal must wait for the dialogue to end: one
+// saved entry per item, applied when it ends. Nothing talks yet.
 n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 	container, to_player, count := arg_form(args, 1), arg_bool(args, 3, false), arg_form(args, 4)
 	base, ref := item_of(c, arg_form(args, 2))
@@ -42,7 +42,7 @@ n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// HOLE(script, gap): a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
+// (hole addref-source :tags script :sev gap) a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
 // AddItem(akItemToAdd, aiCount=1, abSilent=false).
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(args, 0))

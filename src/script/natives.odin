@@ -10,28 +10,28 @@ package script
 import "core:log"
 import "../gamedb"
 import smath "../math"
-// HOLE(audio, blocker): Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
-// HOLE(audio, blocker): the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
-// HOLE(vfx, blocker): EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
-// HOLE(animation, blocker): PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
-// HOLE(animation, blocker): the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
-// HOLE(ai, blocker): Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
-// HOLE(ai, blocker): the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
+// (hole sound-natives :tags audio :sev blocker :needs (audio-output sound-records)) Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
+// (hole sound-natives :tags audio :sev blocker) the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
+// (hole vfx-natives :tags vfx :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
+// (hole anim-natives :tags animation :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
+// (hole anim-natives :tags animation :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
+// (hole ai-natives :tags ai :sev blocker :needs (ai-agent)) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
+// (hole ai-natives :tags ai :sev blocker) the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
-// HOLE(combat): no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime.
-// HOLE(ai): no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, ActorBase.SetOutfit, SetAllowFlyingMountLandingRequests.
-// HOLE(dialogue): no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
-// HOLE(magic): no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
-// HOLE(physics): no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
-// HOLE(world): no read for Cell.SetPublic, Cell.Reset.
-// HOLE(render): no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
-// HOLE(animation): no read for SetSittingRotation.
-// HOLE(save): no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
-// HOLE(assets): no read for RequestModel (queued; nothing says the model loaded).
-// HOLE(ui): no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
-// HOLE(script): no read for AdvanceSkill (skill XP), AddPerkPoints, the four SetINI*.
+// (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime.
+// (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, ActorBase.SetOutfit, SetAllowFlyingMountLandingRequests.
+// (hole dialogue-reads :tags dialogue :sev gap :needs (dialogue-system)) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
+// (hole magic-reads :tags magic :sev gap) no read for SetBeastForm, TeachWord (taught is not unlocked), SendLycanthropy/VampirismStateChanged.
+// (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
+// (hole cell-reads :tags world :sev gap :needs (cell-reset)) no read for Cell.SetPublic, Cell.Reset.
+// (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
+// (hole sit-rotation-read :tags animation :sev gap :needs (animation)) no read for SetSittingRotation.
+// (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
+// (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).
+// (hole ui-reads :tags ui :sev gap) no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
+// (hole skill-reads :tags script :sev gap) no read for AdvanceSkill (skill XP), AddPerkPoints, the four SetINI*.
 
 import "../worldstate"
 
@@ -118,7 +118,7 @@ ref_enabled :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, form: Form_ID) 
 	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
 }
 
-// HOLE(script, gap): RegisterForSingleUpdateGameTime / RegisterForUpdateGameTime are stubs; game-hour timers wait on the game clock (HOLE(world)).
+// (hole game-time-updates :tags script :sev gap :needs (game-clock)) RegisterForSingleUpdateGameTime / RegisterForUpdateGameTime are stubs; game-hour timers wait on the game clock.
 
 n_register_single_update :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.register_update(c.ws, c.self, arg_f32(args, 0, 0), false)
@@ -270,12 +270,12 @@ n_is_in_menu_mode :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
 
-// HOLE(animation, gap): IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
+// (hole anim-natives :tags animation :sev gap) IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
 n_is_anim_running :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
 
-// HOLE(ui, gap): IsVideoPlaying(asFile) reads false; there is no video player, so a wait on a Bink ends at once.
+// (hole video-player :tags ui :sev gap) IsVideoPlaying(asFile) reads false; there is no video player, so a wait on a Bink ends at once.
 n_is_video_playing :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
@@ -295,10 +295,11 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 // n_message_show resolves the receiving MESG and puts it on screen. Papyrus returns the index of
 // the button the player picked, so a script branches on it.
 //
-// HOLE(ui): no message box, so Show never pauses the world. When it lands, Show yields the handler's
-// coroutine until the click, and ticks stop meanwhile (docs/script-rewrite.md "Menus that pause the
-// world"). The messagebox menu does not exist yet (`docs/menus.md` lists `messagebox.swf` as P1), so there
-// is nothing to pick a button WITH. Until it lands this logs the resolved text and returns 0 — the
+// (hole menu-mode :tags ui :sev gap) no message box, so Show never pauses the world.
+// When it lands, Show yields the handler's coroutine until the click, and ticks stop meanwhile
+// (docs/script-rewrite.md "Menus that pause the world"). The messagebox menu does not exist yet
+// (`docs/menus.md` lists `messagebox.swf` as P1), so there is nothing to pick a button WITH.
+// Until it lands this logs the resolved text and returns 0 — the
 // first button, which the base game authors as the "carry on" choice on the records that matter
 // (OghmaInfinium button 0 is "(Do not read)"). Point this at the menu when it exists: show
 // `m.buttons` and return the chosen index.

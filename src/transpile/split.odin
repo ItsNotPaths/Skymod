@@ -1,6 +1,6 @@
 package transpile
 
-// S6, the splitter (docs/short-term-plan.md). A listed function's waits (Utility.Wait,
+// S6, the splitter (docs/shipped.md). A listed function's waits (Utility.Wait,
 // WaitMenuMode, WaitGameTime) become a timer field. The function stores the locals it still needs,
 // sets the timer and returns; the class's OnTick holds a guard on that timer and the code after
 // the wait. Two or more waits add a stage, saying which wait's code comes next.

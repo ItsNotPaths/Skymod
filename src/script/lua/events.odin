@@ -13,8 +13,8 @@ import script ".."
 import "../../gamedb"
 import "../../worldstate"
 
-// HOLE(combat, gap): nothing sends OnHit or OnDeath; there is no damage and no death path to send them from.
-// HOLE(physics, gap): nothing sends OnTriggerEnter/OnTriggerLeave (442 scripts define one); there are no trigger volumes.
+// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit or OnDeath; there is no damage and no death path to send them from.
+// (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (442 scripts define one); there are no trigger volumes.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
@@ -214,7 +214,7 @@ drain :: proc(vm: ^VM) -> int {
 
 // TIME_SCALE is Skyrim's default game seconds per real second. Game clocks run at it until the
 // game clock exists (the world hole in worldstate.odin).
-// HOLE(world, gap): a game-time skip (sleep, the Wait menu, fast travel, jail) must advance every game clock field by the skipped hours in one step; with no game clock there are no skips, so a WaitGameTime rewrite only ever advances at TimeScale.
+// (hole time-skip :tags world :sev gap :needs (game-clock)) a game-time skip (sleep, the Wait menu, fast travel, jail) must advance every game clock field by the skipped hours in one step; with no game clock there are no skips, so a WaitGameTime rewrite only ever advances at TimeScale.
 TIME_SCALE :: 20
 
 // advance_clocks moves every script clock field by one tick.

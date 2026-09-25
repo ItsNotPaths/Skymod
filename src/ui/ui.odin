@@ -32,7 +32,7 @@ set_font :: proc(a: ^font.Atlas) {
 	g_font = a
 }
 
-// HOLE(ui, gap): .Image and .Effect both draw a flat placeholder rect — no texture wiring in the backend, so no icon, portrait or animated widget can render.
+// (hole ui-images :tags ui :sev gap) .Image and .Effect both draw a flat placeholder rect — no texture wiring in the backend, so no icon, portrait or animated widget can render.
 Kind :: enum {
 	Container, // layout-only box (paints `color` as a background if opaque)
 	Column,    // stacks children top→down with `gap`

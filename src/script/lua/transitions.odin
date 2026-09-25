@@ -8,8 +8,8 @@ import script ".."
 import "../../gamedb"
 import "../../worldstate"
 
-// HOLE(script, gap): OnAttachedToCell and OnDetachedFromCell never fire; nothing moves a ref from one cell to another yet.
-// HOLE(script, gap): a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
+// (hole cell-change-events :tags script :sev gap) OnAttachedToCell and OnDetachedFromCell never fire; nothing moves a ref from one cell to another yet.
+// (hole alias-ref-events :tags script :sev gap) a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
 
 // Transitions is what the tick remembers between ticks, besides ws.attached: the scripted refs
 // whose OnLoad fired without an OnUnload yet, and the exterior persistent refs by the grid cell
