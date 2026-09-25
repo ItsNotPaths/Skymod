@@ -41,6 +41,7 @@ inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
 // ── actor-value store (actor -> AV name -> value) ──────────────────────────────────────────────
 // AV names are case-insensitive → keys are lowercased + owned by the store.
 // (hole actor-values :tags (player combat magic) :sev blocker) base actor values are never read: an unset AV reads 0 and there is no base, current or max, so Health, skills and attributes have no real value.
+// (hole av-regen :tags (player combat) :sev gap :needs (actor-values)) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
 
 @(private)
 av_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[string]f32 {
