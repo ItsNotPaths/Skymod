@@ -16,6 +16,7 @@ import "../worldstate"
 // (hole inventory-screen :tags (ui player) :sev gap :needs (ui-images)) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons; no categories, icons, item card, 3D preview, drop or use.
 // (hole magic-screen :tags (ui player) :sev gap :needs (ui-images)) the magic menu is an ImGui placeholder, not a real menu: it lists the actor base's SPLO spells only (nothing stores the spells an actor has learned) with hand buttons; no schools, effect text or favourites.
 // (hole skills-screen :tags (ui player) :sev gap :needs (ui-images)) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
+// (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: Resume and Quit; no save and load lists, settings or help.
 // (hole container-screen :tags ui :sev gap :needs (ui-images)) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership.
 
 Menu :: enum u8 {
@@ -24,6 +25,7 @@ Menu :: enum u8 {
 	Magic,
 	Skills,
 	Container,
+	Pause,
 }
 
 Menu_Kind :: struct {
@@ -38,6 +40,7 @@ MENUS := [Menu]Menu_Kind {
 	.Magic     = {"Magic (placeholder)", "Magic", true},
 	.Skills    = {"Skills (placeholder)", "Skills", true},
 	.Container = {"Container (placeholder)", "", true},
+	.Pause     = {"Paused (placeholder)", "", true},
 }
 
 // world_paused reports whether an open menu stops the ticks.
@@ -56,6 +59,7 @@ frame_menus :: proc(g: ^Game) {
 	for kind, m in MENUS {
 		if kind.action != "" && input.fired(&g.imgr, kind.action) {g.menu = .None if g.menu == m else m}
 	}
+	if input.fired(&g.imgr, "Pause") {g.menu = .Pause if g.menu == .None else .None} // Esc closes any menu
 	if g.menu == .None {return}
 	open := true
 	imgui.SetNextWindowSize({520, 560}, .FirstUseEver)
@@ -65,6 +69,7 @@ frame_menus :: proc(g: ^Game) {
 		case .Magic:     magic_menu(g)
 		case .Skills:    skills_menu(g)
 		case .Container: container_menu(g)
+		case .Pause:     pause_menu(g)
 		case .None:
 		}
 	}
@@ -154,6 +159,12 @@ container_menu :: proc(g: ^Game) {
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Store##%x", item)) {script.move_items(&c, {base = item, from = formid.PLAYER, to = box, count = n})}
 	}
+}
+
+@(private = "file")
+pause_menu :: proc(g: ^Game) {
+	if imgui.Button("Resume") {g.menu = .None}
+	if imgui.Button("Quit") {g.quit = true}
 }
 
 @(private = "file")

@@ -21,7 +21,8 @@ Default_Action :: struct {
 }
 
 // The built-in scheme. `ctx` "global" = live even while a menu/overlay owns input;
-// "gameplay" = suppressed when the UI captures the keyboard. Bindings are the DEFAULTS;
+// "gameplay" = suppressed when the UI captures the keyboard; "menu" = suppressed only while a text
+// field is typed in, so a menu's own key closes it. Bindings are the DEFAULTS;
 // a per-profile settings.txt `bind.<id>` line overrides any of them.
 DEFAULT_ACTIONS := [?]Default_Action {
 	{"Activate",      "gameplay", .Button, "f"},
@@ -30,9 +31,10 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"QuickSave",     "gameplay", .Button, "f5"},
 	{"QuickLoad",     "gameplay", .Button, "f9"},
 	// placeholder menus (menus.odin)
-	{"Inventory",     "gameplay", .Button, "i"},
-	{"Magic",         "gameplay", .Button, "p"},
-	{"Skills",        "gameplay", .Button, "l"},
+	{"Pause",         "menu",     .Button, "esc"},
+	{"Inventory",     "menu",     .Button, "i"},
+	{"Magic",         "menu",     .Button, "p"},
+	{"Skills",        "menu",     .Button, "l"},
 	// dev-verification verbs (behind the dev overlay in practice)
 	{"DevDrop",       "gameplay", .Button, "g"},
 	{"DevShove",      "gameplay", .Button, "h"},

@@ -191,6 +191,7 @@ Game :: struct {
 	published: Placement, // the player's cell and feet as player_publish last wrote them
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
+	quit:        bool,    // the pause menu's Quit: the main loop ends
 	// Debug (open-interiors): when `entered`, we've loaded fully INTO the active portal's
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
 	// through the portal.
@@ -573,7 +574,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		script_thread_init(g)
 	}
 
-	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
+	g.p.keep_escape = true // Esc opens the pause menu from here on
+	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc for the pause menu.")
 
 	// Full-load screen: pump the decode pool + cook collision behind the loading screen until the
 	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in. This is

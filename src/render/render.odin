@@ -760,6 +760,11 @@ ui_capturing :: proc(r: ^Renderer) -> (mouse, keyboard: bool) {
 	return io.WantCaptureMouse, io.WantCaptureKeyboard
 }
 
+// ui_typing reports whether an ImGui text field (the console) has the keyboard.
+ui_typing :: proc(r: ^Renderer) -> bool {
+	return r.ui_enabled && imgui.GetIO().WantTextInput
+}
+
 // draw_cube renders the Phase-0 textured cube with `view_proj` (the caller's
 // camera matrix; model is identity). Call between begin_frame and end_frame.
 draw_cube :: proc(r: ^Renderer, view_proj: smath.Mat4) {

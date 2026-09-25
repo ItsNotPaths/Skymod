@@ -55,6 +55,7 @@ game_frame :: proc(g: ^Game) {
 	{
 		_, kb_cap := render.ui_capturing(&g.r)
 		input.set_context(&g.imgr, "gameplay", !kb_cap)
+		input.set_context(&g.imgr, "menu", !render.ui_typing(&g.r))
 		f := platform.input_frame(&g.p)
 		input.update(&g.imgr, &f)
 	}

@@ -53,6 +53,7 @@ Platform :: struct {
 	mouse_captured: bool, // DESIRED pointer-lock state (right mouse held)
 	relative_on:    bool, // ACTUAL relative-mouse state (only true once SDL confirmed the lock)
 	relative_warned: bool, // logged the "relative mode failed" reason once this capture attempt
+	keep_escape:    bool, // Escape is the app's key (the game's pause menu), not a quit
 }
 
 init :: proc(title: cstring, width, height: i32) -> (p: Platform, ok: bool) {
@@ -142,7 +143,7 @@ pump :: proc(p: ^Platform) -> bool {
 		case .QUIT:
 			running = false
 		case .KEY_DOWN:
-			if ev.key.scancode == .ESCAPE {
+			if ev.key.scancode == .ESCAPE && !p.keep_escape {
 				running = false
 			}
 			if ev.key.scancode == .F && !ev.key.repeat {
