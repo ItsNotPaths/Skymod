@@ -37,6 +37,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__warn", rt_warn},
 		{"__script_layers", rt_script_layers},
 		{"__anim_event", rt_anim_event},
+		{"__actor_value", rt_actor_value},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -45,6 +46,15 @@ setup_rt :: proc(vm: ^VM) -> bool {
 	}
 
 	return preload(L, "skymod.params", PARAMS_SRC) && preload(L, "skymod.rt", RT_SRC)
+}
+
+// __actor_value(name, default) is rt.actor_value's engine half.
+@(private)
+rt_actor_value :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	worldstate.av_create(vm.ctx.ws, to_string(L, 1), f32(lua.tonumber(L, 2)))
+	return 0
 }
 
 // preload compiles `src` and registers it as package.preload[name].

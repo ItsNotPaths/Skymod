@@ -56,9 +56,11 @@ new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 }
 
 // start_game gives every quest and every alias its scripts, then every persistent ref and actor:
-// Papyrus runs their OnInit at game start, loaded or not. Form order keeps a run reproducible.
-// Returns how many instances were made.
+// Papyrus runs their OnInit at game start, loaded or not. OnGameLoaded runs on all of them first, so
+// mods create their actor values before any OnInit. Form order keeps a run reproducible. Returns
+// how many instances were made.
 start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
+	call_rt(vm, "start_begin")
 	made := 0
 	for q in sorted_quests(db) {
 		made += attach_known(vm, q, gamedb.form_scripts(db, q))
@@ -89,6 +91,9 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	for h in vm.ctx.ws.effects {append(&effects, h)}
 	slice.sort(effects[:])
 	for h in effects {made += attach_known(vm, h, gamedb.form_scripts(db, vm.ctx.ws.effects[h].effect))}
+
+	call_rt(vm, "start_end")
+	worldstate.av_drop_pending(vm.ctx.ws)
 	return made
 }
 

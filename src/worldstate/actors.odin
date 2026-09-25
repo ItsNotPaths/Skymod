@@ -1,5 +1,7 @@
 package worldstate
 
+import "core:log"
+import "core:strings"
 import "../gamedb"
 
 @(private)
@@ -57,7 +59,7 @@ record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
 // ── actor values (actor -> AV name -> its parts) ──────────────────────────────────────────────
 // Skyrim's model (CK wiki, Actor Value): current = base + permanent + damage, max = base +
 // permanent. The temporary modifier arrives with effect magnitudes. `av` is always a canonical name
-// (gamedb.actor_value_name), so the store owns no key strings.
+// (av_name): an AV_NAMES entry or a mod AV's name, which mod_avs owns.
 // (hole av-regen :tags (player combat) :sev gap) damaged Health, Magicka and Stamina never regenerate (HealRate/MagickaRate/StaminaRate % of max per second, combat multipliers, regen delays).
 
 Actor_Value :: struct {
@@ -84,6 +86,7 @@ av_parts :: proc(ws: ^World_State, actor: Form_ID, av: string) -> Actor_Value {
 
 av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	if b, ok := av_parts(ws, actor, av).base.?; ok {return b}
+	if m, ok := mod_av(ws, av); ok {return m.default}
 	return gamedb.actor_value_base(db, record_of(ws, actor), av)
 }
 
@@ -119,6 +122,71 @@ av_damage :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 	p := av_upsert(ws, actor, av)
 	p.damage = min(p.damage + abs(amount), 0)
+}
+
+// ── mod actor values (ws.md, Workstream P) ──
+// A mod creates one from OnGameLoaded (rt.actor_value); it lives until the next new game or load.
+
+Mod_AV :: struct {
+	name:    string, // the first creation's spelling
+	default: f32,
+}
+
+// av_name is the canonical name of an actor value in any case: an AV_NAMES entry, else a mod AV.
+av_name :: proc(ws: ^World_State, name: string) -> (string, bool) {
+	if av, ok := gamedb.actor_value_name(name); ok {return av, true}
+	m, ok := mod_av(ws, name)
+	return m.name, ok
+}
+
+@(private)
+mod_av :: proc(ws: ^World_State, name: string) -> (m: Mod_AV, ok: bool) {
+	buf: [gamedb.AV_NAME_MAX]u8
+	key := gamedb.av_key(name, buf[:]) or_return
+	return ws.mod_avs[key]
+}
+
+// av_create gets or creates a mod actor value and binds the loaded values saved under its name.
+av_create :: proc(ws: ^World_State, name: string, default: f32) {
+	if _, engine := gamedb.actor_value_name(name); engine {
+		log.warnf("script: %q is an engine actor value, not a mod one", name)
+		return
+	}
+	if m, ok := mod_av(ws, name); ok {
+		if m.default != default {log.warnf("script: actor value %q keeps its first default %v, not %v", m.name, m.default, default)}
+		return
+	}
+	buf: [gamedb.AV_NAME_MAX]u8
+	key, ok := gamedb.av_key(name, buf[:])
+	if !ok {
+		log.warnf("script: actor value name %q is longer than %d", name, gamedb.AV_NAME_MAX)
+		return
+	}
+	m := Mod_AV{strings.clone(name), default}
+	ws.mod_avs[strings.clone(key)] = m
+	#reverse for a, i in ws.pending_avs {
+		if !strings.equal_fold(a.name, name) {continue}
+		av_bind(ws, a.actor, m.name, a)
+		delete(a.name)
+		unordered_remove(&ws.pending_avs, i)
+	}
+}
+
+// av_bind puts saved parts in the store.
+@(private)
+av_bind :: proc(ws: ^World_State, actor: Form_ID, av: string, a: Saved_AV) {
+	p := av_upsert(ws, actor, av)
+	p^ = {permanent = a.permanent, damage = a.damage}
+	if a.has_base {p.base = a.base}
+}
+
+// av_drop_pending drops the loaded values no mod created a name for, once OnGameLoaded has run.
+av_drop_pending :: proc(ws: ^World_State) {
+	for a in ws.pending_avs {
+		log.infof("load: dropped actor value %q of %8x: no mod created it", a.name, a.actor)
+		delete(a.name)
+	}
+	clear(&ws.pending_avs)
 }
 
 // ── faction membership/rank + relationship rank ────────────────────────────────────────────────

@@ -249,7 +249,7 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 }
 
 // call_rt calls skymod.rt[name] with number arguments and returns its result as an int.
-@(private = "file")
+@(private)
 call_rt :: proc(vm: ^VM, name: cstring, args: ..f64) -> int {
 	L := vm.L
 	vm.host_context = context

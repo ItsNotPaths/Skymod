@@ -958,20 +958,50 @@ function rt.tick(dt)
   ticks = ticks + 1
 end
 
+local starting        -- during game start: { forms = attached, fresh = those that run OnInit }
+local game_loading = false
+
+local function send_now(form, name)
+  for _, inst in ipairs(ordered[form] or {}) do rt.event(inst, name) end
+end
+
 -- rt.attach gives a form its scripts: every instance first, so siblings can find each other, then
--- OnInit on each when `init` is set. `list` is { {name = ..., props = {...}}, ... }. A form that
--- already has instances keeps them, so a cell that loads again does not re-run OnInit.
+-- OnInit on each when `init` is set (at game start, OnInit waits for rt.start_end). `list` is
+-- { {name = ..., props = {...}}, ... }. A form that already has instances keeps them, so a cell that
+-- loads again does not re-run OnInit.
 function rt.attach(form, list, init)
   if instances[form] then return 0 end
-  local made = {}
+  local made = 0
   for _, s in ipairs(list) do
-    local inst = rt.instance(form, s.name, s.props)
-    if inst then made[#made] = inst end
+    if rt.instance(form, s.name, s.props) then made = made + 1 end
   end
-  if init then
-    for _, inst in ipairs(made) do rt.event(inst, "OnInit") end
+  if made > 0 and starting then
+    starting.forms[#starting.forms] = form
+    if init then starting.fresh[#starting.fresh] = form end
+  elseif made > 0 and init then
+    send_now(form, "OnInit")
   end
-  return #made
+  return made
+end
+
+-- rt.start_begin and rt.start_end bracket game start (new game or load). Between them rt.attach
+-- defers OnInit; rt.start_end sends OnGameLoaded to every form attached, then OnInit to the new ones.
+-- rt.actor_value works only inside OnGameLoaded.
+function rt.start_begin() starting = { forms = {}, fresh = {} } end
+
+function rt.start_end()
+  local s = starting
+  starting = nil
+  game_loading = true
+  for i = 0, #s.forms - 1 do send_now(s.forms[i], "OnGameLoaded") end
+  game_loading = false
+  for i = 0, #s.fresh - 1 do send_now(s.fresh[i], "OnInit") end
+end
+
+-- rt.actor_value(name, {default = v}) creates a mod actor value, or gets it when it exists.
+function rt.actor_value(name, opts)
+  if not game_loading then error("rt.actor_value outside OnGameLoaded", 2) end
+  __actor_value(name, opts and opts.default or 0.0)
 end
 
 -- ── saves ───────────────────────────────────────────────────────────────────

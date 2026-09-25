@@ -181,6 +181,21 @@ C.__fn["oninit"] = function(self) __inits = (__inits or 0) + 1 end
 return C
 `
 
+@(private = "file")
+STATS_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Stats", nil)
+C.__fn["ongameloaded"] = function(self)
+  __order = (__order or "") .. "loaded;"
+  rt.actor_value("Hunger", { default = -1 })
+  if not __second then rt.actor_value("Old") end
+end
+C.__fn["oninit"] = function(self)
+  __order = (__order or "") .. "init;"
+  __outside = pcall(rt.actor_value, "Thirst")
+end
+return C
+`
+
 // Fixture is a VM over a temp scripts dir. Its fields are pointed into, so it never moves.
 @(private = "file")
 Fixture :: struct {
@@ -672,4 +687,46 @@ test_reset_restarts_scripts :: proc(t: ^testing.T) {
 	slua.sync_refs(&f.vm)
 	slua.drain(&f.vm)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__init == 2 and __reset == 1, tostring(__init) .. " " .. tostring(__reset))`), "OnInit again, then OnReset, once")
+}
+
+// OnGameLoaded runs before OnInit, on a new game and on every load; only it creates actor values.
+// A mod AV's base is its default. A load binds the saved values of the names created again and
+// drops the rest.
+@(test)
+test_mod_actor_values :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_modav", {{"stats.lua", STATS_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST :: script.Form_ID(0x800)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "Stats"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+
+	slua.start_game(&f.vm, &f.db)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__order == "loaded;init;" and __outside == false, __order)`), "OnGameLoaded first; rt.actor_value only there")
+	hunger, ok := worldstate.av_name(&f.ws, "HUNGER")
+	testing.expect(t, ok && hunger == "Hunger", "a mod AV resolves in any case")
+	_, thirst := worldstate.av_name(&f.ws, "Thirst")
+	testing.expect(t, !thirst, "no AV outside OnGameLoaded")
+	testing.expect_value(t, worldstate.av_base(&f.ws, &f.db, formid.PLAYER, hunger), -1)
+
+	old, _ := worldstate.av_name(&f.ws, "Old")
+	worldstate.av_mod(&f.ws, formid.PLAYER, hunger, 5)
+	worldstate.av_mod(&f.ws, formid.PLAYER, old, 2)
+	slua.save_scripts(&f.vm)
+	path := "/tmp/skymod_mod_avs.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&f.ws, path, {save_number = 1}), "save")
+	_, loaded := worldstate.load_from_file(&f.ws, path)
+	testing.expect(t, loaded, "load")
+
+	slua.do_string(&f.vm, `__second = true`)
+	slua.reload_scripts(&f.vm, &f.db)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__order == "loaded;init;loaded;", __order)`), "a load runs OnGameLoaded, not OnInit")
+	hunger, _ = worldstate.av_name(&f.ws, "hunger")
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, formid.PLAYER, hunger), 4)
+	_, kept := worldstate.av_name(&f.ws, "Old")
+	testing.expect(t, !kept && len(f.ws.pending_avs) == 0, "an AV nobody created again is gone")
 }

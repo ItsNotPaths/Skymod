@@ -107,7 +107,7 @@ n_restore_av :: proc(c: ^Call, args: []Value) -> Value {
 @(private)
 av_arg :: proc(c: ^Call, args: []Value) -> (string, bool) {
 	name := arg_str(args, 0)
-	av, ok := gamedb.actor_value_name(name)
+	av, ok := worldstate.av_name(c.ws, name)
 	if !ok && c.reg != nil {
 		k := key_own("av", name, c.reg.allocator)
 		if k in c.reg.warned {

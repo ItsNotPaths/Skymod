@@ -595,9 +595,10 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		}
 	}
 	// The three Wave-1 stores: rebuild each map-of-maps from its flat triples (verbatim — the file
-	// already records full state). Actor values come back by name; relationship pairs are stored both
-	// directions, so each directed entry is set on its own. Entries keyed on a missing mod drop; a
-	// secondary ref (item/faction/b) that won't resolve keeps its saved value (dangles).
+	// already records full state). Actor values come back by name (a mod AV's values wait in
+	// pending_avs until OnGameLoaded creates it); relationship pairs are stored both directions, so
+	// each directed entry is set on its own. Entries keyed on a missing mod drop; a secondary ref
+	// (item/faction/b) that won't resolve keeps its saved value (dangles).
 	for r in body.inventory {
 		owner, kok := rf(remap, have_remap, r.owner)
 		if !kok {continue}
@@ -606,12 +607,15 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	}
 	for a in body.actor_values {
 		actor, kok := rf(remap, have_remap, a.actor)
+		if !kok {continue}
 		av, aok := gamedb.actor_value_name(a.name)
-		if !aok {log.warnf("load: dropped unknown actor value %q", a.name)}
-		if !kok || !aok {continue}
-		p := av_upsert(ws, actor, av)
-		p^ = {permanent = a.permanent, damage = a.damage}
-		if a.has_base {p.base = a.base}
+		if !aok {
+			mod := a
+			mod.actor, mod.name = actor, strings.clone(a.name)
+			append(&ws.pending_avs, mod)
+			continue
+		}
+		av_bind(ws, actor, av, a)
 	}
 	for f in body.factions {
 		actor, kok := rf(remap, have_remap, f.actor)

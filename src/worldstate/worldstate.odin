@@ -40,6 +40,8 @@ Overlay :: struct {
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
 	inventories:     map[Form_ID]map[Form_ID]i32,  // owner FormID -> (item FormID -> count delta from baseline)
 	actor_values:    map[Form_ID]map[string]Actor_Value, // actor -> AV name -> its parts
+	mod_avs:         map[string]Mod_AV,            // lower-case name -> a mod AV this game created (not saved; OnGameLoaded rebuilds it)
+	pending_avs:     [dynamic]Saved_AV,            // loaded values of names no mod has created yet (not saved)
 	factions:        map[Form_ID]map[Form_ID]i32,  // actor FormID -> (faction FormID -> rank); presence = membership
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
 	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
@@ -148,6 +150,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(map[Form_ID]map[Form_ID]i32)
 	o.actor_values = make(map[Form_ID]map[string]Actor_Value)
+	o.mod_avs = make(map[string]Mod_AV)
+	o.pending_avs = make([dynamic]Saved_AV)
 	o.factions = make(map[Form_ID]map[Form_ID]i32)
 	o.relationships = make(map[Form_ID]map[Form_ID]i32)
 	o.perks = make(map[Form_ID]map[Form_ID]bool)
@@ -175,6 +179,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &q in o.quests {quest_free(&q)}
 	for _, &inner in o.inventories {delete(inner)}
 	for _, &inner in o.actor_values {delete(inner)}
+	for k, m in o.mod_avs {delete(k); delete(m.name)}
+	for a in o.pending_avs {delete(a.name)}
 	for _, &inner in o.factions {delete(inner)}
 	for _, &inner in o.relationships {delete(inner)}
 	for _, &inner in o.perks {delete(inner)}
@@ -194,6 +200,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.quests)
 	delete(o.inventories)
 	delete(o.actor_values)
+	delete(o.mod_avs)
+	delete(o.pending_avs)
 	delete(o.factions)
 	delete(o.relationships)
 	delete(o.perks)

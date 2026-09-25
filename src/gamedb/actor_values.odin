@@ -56,17 +56,23 @@ free_av_names :: proc "contextless" () {
 	delete(av_by_name)
 }
 
-// (hole mod-actor-values :tags (script mods) :sev gap) only AV_NAMES resolve: OnGameLoaded and rt.actor_value do not exist, so a mod cannot create an actor value (design in ws.md, Workstream P).
 // actor_value_name is the AV_NAMES entry for a name in any case.
-actor_value_name :: proc(name: string) -> (string, bool) {
-	buf: [48]u8
+actor_value_name :: proc(name: string) -> (av: string, ok: bool) {
+	buf: [AV_NAME_MAX]u8
+	key := av_key(name, buf[:]) or_return
+	return av_by_name[key]
+}
+
+AV_NAME_MAX :: 48
+
+// av_key is `name` lower-cased into `buf`, the key of every actor value name table.
+av_key :: proc(name: string, buf: []u8) -> (string, bool) {
 	if len(name) > len(buf) {return "", false}
 	for i in 0 ..< len(name) {
 		b := name[i]
 		buf[i] = b + 32 if b >= 'A' && b <= 'Z' else b
 	}
-	av, ok := av_by_name[string(buf[:len(name)])]
-	return av, ok
+	return string(buf[:len(name)]), true
 }
 
 // actor_value_base is the base an actor's records give actor value `av` (a canonical name),
