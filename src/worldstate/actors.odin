@@ -1,6 +1,7 @@
 package worldstate
 
 import "core:strings"
+import "../gamedb"
 
 @(private)
 inv_upsert :: proc(ws: ^World_State, owner: Form_ID) -> ^map[Form_ID]i32 {
@@ -10,32 +11,43 @@ inv_upsert :: proc(ws: ^World_State, owner: Form_ID) -> ^map[Form_ID]i32 {
 	return &ws.inventories[owner]
 }
 
-// inv_add adjusts owner's count of `item` by `delta` (negative removes); the entry is dropped at or
-// below 0 (can't hold a negative count). AddItem/RemoveItem both route here.
+// inv_add adjusts owner's delta of `item` from its starting contents; negative when it holds fewer
+// than it started with. The caller clamps against the starting count.
 inv_add :: proc(ws: ^World_State, owner, item: Form_ID, delta: i32) {
 	inner := inv_upsert(ws, owner)
 	n := inner^[item] + delta
-	if n <= 0 {
+	if n == 0 {
 		delete_key(inner, item)
 	} else {
 		inner^[item] = n
 	}
 }
 
-// inv_count returns owner's count of item (0 if none / owner untouched).
-inv_count :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
+// inv_delta returns owner's delta of item from its starting contents.
+inv_delta :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	if inner, ok := ws.inventories[owner]; ok {
 		return inner[item]
 	}
 	return 0
 }
 
-// (hole container-baseline :tags (records player) :sev gap) gamedb indexes CONT and NPC_ contents, but nothing here reads them, so every inventory count is a DELTA from an unread start. GetItemCount reads 0 on a fresh game for a chest that is visibly full.
-// inv_clear empties owner's inventory overlay (RemoveAllItems' local half).
-inv_clear :: proc(ws: ^World_State, owner: Form_ID) {
-	if inner, ok := &ws.inventories[owner]; ok {
-		clear(inner)
+// inv_count is owner's count of item: its starting contents plus the delta. A leveled list is never
+// an item.
+inv_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32 {
+	if _, leveled := gamedb.leveled_list_of(db, item); leveled {return 0}
+	n := inv_delta(ws, owner, item)
+	for e in inv_start(ws, db, owner) {
+		if e.item == item {n += e.count}
 	}
+	return max(n, 0)
+}
+
+// inv_start is the contents owner starts with: a created ref's base's, else the placed ref's.
+inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
+	base := owner
+	if cr, ok := ws.created[owner]; ok {base = cr.base}
+	start, _ := gamedb.contents_of(db, base)
+	return start
 }
 
 // ── actor-value store (actor -> AV name -> value) ──────────────────────────────────────────────

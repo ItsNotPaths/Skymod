@@ -18,8 +18,7 @@ package worldstate
 
 import "../formid"
 
-// Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local. Kept as a local
-// alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
+// Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
 Form_ID :: u64
 
 // World_State is the overlay a save holds plus the session state a load leaves alone.

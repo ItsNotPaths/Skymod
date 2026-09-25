@@ -61,6 +61,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	// faction rank, relationship rank — exercises each map-of-maps CBOR round-trip.
 	ws.inv_add(&src, 0x000B0B00, 0x0000000F, 250) // gold
 	ws.inv_add(&src, 0x000B0B00, 0x0001A11E, 3)
+	ws.inv_add(&src, 0x000B0B00, 0x0000000A, -4) // fewer than the starting contents
 	ws.av_set(&src, 0x000AC701, "Health", 87.5)
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
 	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
@@ -158,8 +159,9 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, .Failed in o20 && .Displayed not_in o20, "objective 20 flags wrong")
 
 	// The three Wave-1 stores survive.
-	testing.expect_value(t, ws.inv_count(&dst, 0x000B0B00, 0x0000000F), i32(250))
-	testing.expect_value(t, ws.inv_count(&dst, 0x000B0B00, 0x0001A11E), i32(3))
+	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0000000F), i32(250))
+	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0001A11E), i32(3))
+	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0000000A), i32(-4))
 	hv, hok := ws.av_get(&dst, 0x000AC701, "health") // case-folded lookup hits the stored key
 	testing.expect(t, hok, "actor value missing after load")
 	testing.expectf(t, abs(hv - 87.5) < 1e-5, "AV mismatch: %v", hv)

@@ -1,8 +1,7 @@
 package script
 
 // Inventory natives (docs/scripting-natives.md §B). `self` is the container/actor; items are keyed by
-// their base-object FormID. Overlay-only: the ESM baseline contents aren't indexed, so counts are
-// DELTAS from the baseline (GetItemCount reads what scripts added/removed, not absolute contents).
+// their base-object FormID. A count is the starting contents (gamedb) plus the overlay's delta.
 // Not scene geometry → no mark_scene_dirty (a dropped world item would be, but DropObject is deferred).
 
 import "core:slice"
@@ -32,7 +31,7 @@ register_inventory :: proc(reg: ^Registry) {
 n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 	container, to_player, count := arg_form(args, 1), arg_bool(args, 3, false), arg_form(args, 4)
 	base, ref := item_of(c, arg_form(args, 2))
-	if worldstate.inv_count(c.ws, container, base) <= 0 {return nil}
+	if worldstate.inv_count(c.ws, c.db, container, base) <= 0 {return nil}
 	move_items(c, {base = base, ref = ref, from = container, to = formid.PLAYER if to_player else 0, count = 1})
 	if count != 0 {
 		v, _ := worldstate.get_global(c.ws, count)
@@ -59,16 +58,21 @@ n_remove_item :: proc(c: ^Call, args: []Value) -> Value {
 
 n_get_item_count :: proc(c: ^Call, args: []Value) -> Value {
 	base, _ := item_of(c, arg_form(args, 0))
-	return worldstate.inv_count(c.ws, c.self, base)
+	return worldstate.inv_count(c.ws, c.db, c.self, base)
 }
 
 // RemoveAllItems(akTransferTo=None, …): one move per item type, in form order.
 n_remove_all_items :: proc(c: ^Call, args: []Value) -> Value {
 	to := arg_form(args, 0)
+	items := make(map[Form_ID]bool, context.temp_allocator)
+	for e in worldstate.inv_start(c.ws, c.db, c.self) {items[e.item] = true}
+	delta, _ := c.ws.inventories[c.self]
+	for base in delta {items[base] = true}
 	moves := make([dynamic]worldstate.Item_Move, context.temp_allocator)
-	inv, _ := c.ws.inventories[c.self]
-	for base, n in inv {
-		append(&moves, worldstate.Item_Move{base = base, from = c.self, to = to, count = n})
+	for base in items {
+		if n := worldstate.inv_count(c.ws, c.db, c.self, base); n > 0 {
+			append(&moves, worldstate.Item_Move{base = base, from = c.self, to = to, count = n})
+		}
 	}
 	slice.sort_by(moves[:], proc(a, b: worldstate.Item_Move) -> bool {return a.base < b.base})
 	for m in moves {move_items(c, m)}
@@ -90,10 +94,16 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// move_items moves the counts and queues the move's inventory events for the next tick.
+// move_items moves the counts and queues the move's inventory events for the next tick. A source
+// gives at most what it holds.
 @(private)
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
-	if m.from != 0 {worldstate.inv_add(c.ws, m.from, m.base, -m.count)}
+	m := m
+	if m.from != 0 {
+		m.count = min(m.count, worldstate.inv_count(c.ws, c.db, m.from, m.base))
+		if m.count <= 0 {return}
+		worldstate.inv_add(c.ws, m.from, m.base, -m.count)
+	}
 	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
 	worldstate.move_items(c.ws, m)
 }
@@ -107,5 +117,5 @@ item_of :: proc(c: ^Call, form: Form_ID) -> (base, ref: Form_ID) {
 }
 
 n_get_gold :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.inv_count(c.ws, c.self, formid.GOLD)
+	return worldstate.inv_count(c.ws, c.db, c.self, formid.GOLD)
 }

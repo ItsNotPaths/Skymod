@@ -9,6 +9,7 @@ package unit_tests
 import "core:log"
 import "core:math"
 import "core:testing"
+import "../../src/formats/esm"
 import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/script"
@@ -163,7 +164,7 @@ test_registry_inventory :: proc(t: ^testing.T) {
 	testing.expect_value(t, count(&reg, &c, item), i32(8))
 	script.call(&reg, "ObjectReference", "RemoveItem", &c, {item, i32(2)})
 	testing.expect_value(t, count(&reg, &c, item), i32(6))
-	// Over-removal clamps at 0 (drops the entry, never negative).
+	// Over-removal clamps at 0.
 	script.call(&reg, "ObjectReference", "RemoveItem", &c, {item, i32(100)})
 	testing.expect_value(t, count(&reg, &c, item), i32(0))
 
@@ -172,6 +173,49 @@ test_registry_inventory :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Actor", "GetGoldAmount", &c, nil).(i32), i32(250))
 	script.call(&reg, "ObjectReference", "RemoveAllItems", &c, nil)
 	testing.expect_value(t, script.call(&reg, "Actor", "GetGoldAmount", &c, nil).(i32), i32(0))
+}
+
+// Counts start from the base's contents: a container's CNTO, an NPC_'s through its inventory
+// template. Leveled entries count as nothing, and a source gives at most what it holds.
+@(test)
+test_registry_starting_contents :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	F :: script.Form_ID
+	CHEST, CHEST_BASE, GUARD, GUARD_BASE, TEMPLATE, BAG :: F(0x100), F(0x101), F(0x200), F(0x201), F(0x202), F(0x300)
+	ITEM, LEVELED :: F(0xA00), F(0xA01)
+	db: gamedb.DB
+	defer {delete(db.ref_by_id);delete(db.containers);delete(db.actors);delete(db.leveled_lists)}
+	chest_items := []gamedb.Content_Entry{{ITEM, 4}, {LEVELED, 1}}
+	guard_items := []gamedb.Content_Entry{{ITEM, 2}}
+	db.ref_by_id[CHEST] = {form_id = CHEST, base = CHEST_BASE}
+	db.ref_by_id[GUARD] = {form_id = GUARD, base = GUARD_BASE}
+	db.containers[CHEST_BASE] = chest_items
+	db.leveled_lists[LEVELED] = {}
+	db.actors[GUARD_BASE] = {template = TEMPLATE, template_flags = esm.ACBS_TEMPLATE_INVENTORY}
+	db.actors[TEMPLATE] = {inventory = guard_items}
+
+	chest := script.Call{self = CHEST, ws = &ws, db = &db}
+	guard := script.Call{self = GUARD, ws = &ws, db = &db}
+	count :: proc(reg: ^script.Registry, c: ^script.Call, item: script.Form_ID) -> i32 {
+		return script.call(reg, "ObjectReference", "GetItemCount", c, {item}).(i32)
+	}
+	testing.expect_value(t, count(&reg, &chest, ITEM), i32(4))
+	testing.expect_value(t, count(&reg, &chest, LEVELED), i32(0))
+	testing.expect_value(t, count(&reg, &guard, ITEM), i32(2))
+
+	script.call(&reg, "ObjectReference", "RemoveItem", &chest, {ITEM, i32(10), false, BAG})
+	testing.expect_value(t, count(&reg, &chest, ITEM), i32(0))
+	testing.expect_value(t, worldstate.inv_delta(&ws, BAG, ITEM), i32(4))
+
+	script.call(&reg, "ObjectReference", "RemoveAllItems", &guard, {BAG})
+	testing.expect_value(t, count(&reg, &guard, ITEM), i32(0))
+	testing.expect_value(t, worldstate.inv_delta(&ws, BAG, ITEM), i32(6))
 }
 
 // Actor-value store: set/get (case-insensitive), mod/damage, base==current, percentage placeholder.

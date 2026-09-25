@@ -94,7 +94,7 @@ test_cell_reset_timer_and_protections :: proc(t: ^testing.T) {
 	testing.expect(t, BANDIT not_in ws.ref_deltas && BANDIT not_in ws.actor_values, "a respawning actor lives again")
 	testing.expect(t, .Dead in ws.ref_deltas[UNIQUE].live, "an actor without Respawn stays dead")
 	testing.expect(t, CHEST not_in ws.inventories, "a Respawns container restocks")
-	testing.expect_value(t, worldstate.inv_count(&ws, SAFE, ITEM), 3)
+	testing.expect_value(t, worldstate.inv_delta(&ws, SAFE, ITEM), 3)
 	testing.expect_value(t, len(ws.rebuild_cells), 1)
 }
 
@@ -154,10 +154,10 @@ test_vendor_restock :: proc(t: ^testing.T) {
 	worldstate.inv_add(&ws, SAFE, ITEM, 3)
 	ws.clock.hours = 47
 	script.restock_vendors(&db, &ws)
-	testing.expect_value(t, worldstate.inv_count(&ws, SAFE, ITEM), 3)
+	testing.expect_value(t, worldstate.inv_delta(&ws, SAFE, ITEM), 3)
 	ws.clock.hours = 48
 	script.restock_vendors(&db, &ws)
-	testing.expect_value(t, worldstate.inv_count(&ws, SAFE, ITEM), 0)
+	testing.expect_value(t, worldstate.inv_delta(&ws, SAFE, ITEM), 0)
 }
 
 // ObjectReference.Reset resets the ref's state but not its scripts: vanilla calls it from inside

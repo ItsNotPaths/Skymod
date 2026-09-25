@@ -484,13 +484,13 @@ test_item_events :: proc(t: ^testing.T) {
 
 	native(&f, CHEST, "RemoveItem", GOLD, i32(2), false, OTHER)
 	testing.expect(t, logged(&f, "rem2+dest;add2+src;"), "a transfer tells both containers")
-	testing.expect_value(t, worldstate.inv_count(&f.ws, CHEST, GOLD), 1)
-	testing.expect_value(t, worldstate.inv_count(&f.ws, OTHER, GOLD), 2)
-	testing.expect_value(t, worldstate.inv_count(&f.ws, CHEST, ARROW), 11)
+	testing.expect_value(t, worldstate.inv_delta(&f.ws, CHEST, GOLD), 1)
+	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, GOLD), 2)
+	testing.expect_value(t, worldstate.inv_delta(&f.ws, CHEST, ARROW), 11)
 
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
-	testing.expect_value(t, worldstate.inv_count(&f.ws, OTHER, 0x20), 1)
+	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 1)
 
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")

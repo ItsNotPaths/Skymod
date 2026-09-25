@@ -428,10 +428,13 @@ ACBS_PC_LEVEL_MULT :: 0x0000_0080 // `level` field is a ×1000 multiplier of the
 ACBS_PROTECTED :: 0x0000_0800
 ACBS_SUMMONABLE :: 0x0000_4000
 
+// ACBS template flag: the NPC_ takes its inventory from its TPLT.
+ACBS_TEMPLATE_INVENTORY :: 0x0100
+
 // Actor_Config is an NPC_'s ACBS block (24 bytes): base disposition flags + level band + the
 // magicka/stamina/health OFFSETS added on top of the DNAM base attributes. `level` is absolute
-// unless ACBS_PC_LEVEL_MULT is set (then it's a ×1000 player-level multiplier). Offsets @16/@18
-// (disposition, template flags) are skipped — not needed by the data layer.
+// unless ACBS_PC_LEVEL_MULT is set (then it's a ×1000 player-level multiplier). Disposition @16 is
+// skipped.
 Actor_Config :: struct {
 	flags:       u32,
 	magicka_off: u16,
@@ -440,6 +443,7 @@ Actor_Config :: struct {
 	calc_min:    u16,
 	calc_max:    u16,
 	speed_mult:  u16,
+	template_flags: u16, // which parts come from the TPLT (ACBS_TEMPLATE_*)
 	health_off:  u16,
 }
 
@@ -459,6 +463,7 @@ actor_config :: proc(fields: []Field) -> (cfg: Actor_Config, ok: bool) {
 			calc_min    = rd16(f.data, 10),
 			calc_max    = rd16(f.data, 12),
 			speed_mult  = rd16(f.data, 14),
+			template_flags = rd16(f.data, 18),
 			health_off  = rd16(f.data, 20),
 		},
 		true

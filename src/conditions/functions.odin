@@ -108,7 +108,7 @@ fn_item_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 	if ctx.ws == nil {
 		return 0, false
 	}
-	return f32(worldstate.inv_count(ctx.ws, on, gamedb.condition_param1_form(c))), true
+	return f32(worldstate.inv_count(ctx.ws, ctx.db, on, gamedb.condition_param1_form(c))), true
 }
 
 // (hole ctda-659 :tags records :sev gap :needs (crafting-screen)) EITM (a base item's enchantment) is decoded by nothing, so CTDA-FN 659 — 384 uses on COBJ, second only to has-perk — is permanently unknown and offers every tempering recipe.
