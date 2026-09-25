@@ -26,6 +26,7 @@ import "core:sys/info"
 import "core:thread"
 
 import "../assetdb"
+import "../formid"
 import "../gamedb"
 import "../input"
 import smath "../math"
@@ -482,7 +483,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
-	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.ws))
+	// (hole leveling :tags player :sev gap :needs (actor-values)) no skill XP, level-ups or perk points, so the player stays at its ACBS level 1.
+	player, _ := gamedb.actor_base(&g.db, formid.PLAYER_BASE)
+	loadui_ready(g, gamedb.load_tips(&g.db), max(i32(player.level), 1))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
 	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
 	// handed to every save/load below so slots resolve to THIS install's forms.
@@ -552,14 +555,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
 			// grid cells stream in afterward and pick it up on build.
 			world.reapply_overlay_resident(&g.scene, &g.db)
-			// Player singleton: return to where they saved (exterior only for now — interior restore
-			// needs a traversal entry). Re-arm the spawn bubble at the restored position so the
-			// full-load screen below builds the right cells (it was armed at the default spawn).
-			if pl, has := worldstate.get_player(&g.ws); has && pl.cell == 0 {
-				g.cam.pos, g.cam.yaw, g.cam.pitch = pl.pos, pl.yaw, pl.pitch
-				if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)}
-				world.stream_begin_load(&g.streamer, g.cam.pos)
-			}
+			// Return to where they saved; this re-arms the spawn bubble (armed at the default spawn)
+			// so the full-load screen below builds the right cells.
+			player_restore(g)
 			log.infof("menu: Continue — loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
 		}
 	} else {

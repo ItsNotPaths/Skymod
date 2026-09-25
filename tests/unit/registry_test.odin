@@ -551,7 +551,7 @@ test_registry_ref_reads :: proc(t: ^testing.T) {
 	testing.expect_value(t, call(&reg, &a, "GetDistance", B).(f32), f32(5))
 	testing.expect_value(t, call(&reg, &a, "GetDistance", OUT).(f32), script.FAR_DISTANCE)
 	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), script.FAR_DISTANCE)
-	ws.player_at = {INT, {0, 0, 10}}
+	worldstate.set_moved(&ws, formid.PLAYER, INT, {}, {0, 0, 10})
 	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), f32(10))
 
 	testing.expect_value(t, call(&reg, &a, "GetLinkedRef").(F), B)

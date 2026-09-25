@@ -12,7 +12,6 @@ import lua "../../../vendor/lua"
 import script ".."
 import "../../gamedb"
 import "../../worldstate"
-import "../../formid"
 
 @(private)
 RT_SRC :: #load("rt.lua", string)
@@ -172,15 +171,12 @@ ACTOR_CHAIN := []string{"Actor", "ObjectReference", "Form"}
 OBJECT_REF_CHAIN := []string{"ObjectReference", "Form"}
 
 // engine_chain is a form's engine class chain, most-derived first. A placed or created ref is an
-// Actor when its base is an NPC_ (the player always is); other refs are ObjectReferences.
+// Actor when its base is an NPC_ (the player ref places NPC_ 0x7); other refs are ObjectReferences.
 @(private)
 engine_chain :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: script.Form_ID) -> []string {
 	kind := gamedb.form_kind(db, form)
 	if kind != .Unknown {
 		return script.class_chain(kind)
-	}
-	if form == formid.PLAYER {
-		return ACTOR_CHAIN
 	}
 	if db != nil {
 		if r, ok := gamedb.ref_by_formid(db, form); ok && gamedb.is_actor(db, r.base) {

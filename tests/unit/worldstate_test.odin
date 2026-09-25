@@ -39,9 +39,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
 	testing.expect_value(t, new_id, formid.CREATED_FORM_BASE)
-	// Coarse singletons: globals + the player.
+	// Coarse singletons.
 	ws.set_global(&src, 0x00000005, 42.5)
-	ws.set_player(&src, 0, {7, 8, 9}, 1.2, -0.3)
 	ws.start_clock(&src, 201, 7, 17, 8, 1)
 	ws.leave_cell(&src, 0x0001A26F)
 	ws.ask_reset(&src, 0x0001A26F)
@@ -130,7 +129,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(cr.scale - 1.5) < 1e-5, "created scale mismatch: %v", cr.scale)
 	testing.expect_value(t, dst.next_created, formid.CREATED_FORM_BASE + 1)
 
-	// Globals + player singleton survive.
+	// Coarse singletons survive.
 	gv, gok := ws.get_global(&dst, 0x00000005)
 	testing.expect(t, gok, "global missing after load")
 	testing.expectf(t, abs(gv - 42.5) < 1e-5, "global value mismatch: %v", gv)
@@ -138,9 +137,6 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, dst.cells[0x0001A26F], src.cells[0x0001A26F])
 	testing.expect(t, dst.cleared[0x0001C0C0], "cleared location lost")
 	testing.expect_value(t, dst.restocks[0x000C0DE0], 12)
-	pl, pok := ws.get_player(&dst)
-	testing.expect(t, pok, "player singleton missing after load")
-	testing.expectf(t, abs(pl.pos.x - 7) < 1e-5 && abs(pl.yaw - 1.2) < 1e-5, "player pos/yaw mismatch: %v yaw %v", pl.pos, pl.yaw)
 
 	// Dead delta survives.
 	deadd, deadok := ws.get(&dst, 0x000A11FE)

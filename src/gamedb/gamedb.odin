@@ -254,8 +254,8 @@ Leveled_List :: struct {
 // Actor_Base is an NPC_'s decoded base identity (the DATA layer — no runtime actor state). Stats
 // come from ACBS (flags/level/offsets) + DNAM (base attributes + skills); the linked forms
 // (race/class/voice/outfit, spells, packages) are remapped to global space; inventory reuses the
-// container CNTO shape. The player (0x00000007) is just the first Actor_Base — "an NPC with
-// different fill-ins" (docs: player-actor-unification). Spawning/capsules/stat-calc are consumers.
+// container CNTO shape. The player's base (0x00000007) is an Actor_Base like any other
+// (docs/script-runtime-decisions.md §5). Spawning/capsules/stat-calc are consumers.
 Actor_Base :: struct {
 	flags:         u32, // ACBS flags (esm.ACBS_* — essential/unique/protected/…)
 	level:         u16, // ACBS level (absolute, or ×1000 player-level mult if ACBS_PC_LEVEL_MULT)
@@ -729,6 +729,8 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	delete(db.actor_ref_index)
 	db.actor_ref_index = nil
 	index_alias_targets(&db)
+	// No plugin holds the player ref: the engine makes it, in no cell. Its placement is its Moved delta.
+	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, persistent = true}
 	log.infof(
 		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
 		len(db.base_models),

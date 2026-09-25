@@ -18,6 +18,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
+import "../formid"
 import "../gamedb"
 import smath "../math"
 import "../physics"
@@ -419,12 +420,12 @@ frame_persistence :: proc(g: ^Game) {
 	}
 	if input.fired(&g.imgr, "QuickSave") {
 		_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
-		cell := g.trav.cur_int_cell if (!g.interiors_on && g.trav.mode == .Interior) else Form_ID(0)
-		worldstate.set_player(&g.ws, cell, g.cam.pos, g.cam.yaw, g.cam.pitch) // player singleton: where to return on load
+		player_publish(g)
+		player, _ := worldstate.get(&g.ws, formid.PLAYER)
 		man := worldstate.Save_Manifest {
 			save_number  = g.save_no + 1,
 			created_unix = time.to_unix_nanoseconds(time.now()),
-			game_cell    = cell,
+			game_cell    = player.cell,
 		}
 		if g.repl_ok {slua.save_scripts(&g.repl.vm)}
 		if worldstate.save_to_file(&g.ws, g.quicksave_path, man, &g.save_bridge) {
@@ -446,13 +447,8 @@ frame_persistence :: proc(g: ^Game) {
 			// The rebuild flags object collision for re-cook; run it behind the dedicated load
 			// screen (reused from boot) so the world is solid before gameplay resumes.
 			world.reapply_overlay_resident(&g.scene, &g.db)
-			// Player singleton: snap back to the saved position (exterior only). Re-arm the stream
-			// at the restored spot, then the load screen builds + solidifies that bubble.
-			if pl, has := worldstate.get_player(&g.ws); has && pl.cell == 0 && !g.fr.in_interior {
-				g.cam.pos, g.cam.yaw, g.cam.pitch = pl.pos, pl.yaw, pl.pitch
-				if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)}
-				world.stream_begin_load(&g.streamer, g.cam.pos)
-			}
+			// Snap back to the saved position, then the load screen builds + solidifies that bubble.
+			if !g.fr.in_interior {player_restore(g)}
 			load_screen_stream(g, "Loading save…", 0, 1)
 		} else {
 			log.warnf("quickload: no valid save at %s", g.quicksave_path)
@@ -478,11 +474,31 @@ frame_stream :: proc(g: ^Game) {
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
 }
 
-// player_placement is the cell under the player, interior or exterior grid cell, and their position.
-player_placement :: proc(g: ^Game) -> worldstate.Placement {
-	if g.trav.mode == .Interior {return {g.trav.cur_int_cell, g.cam.pos}}
-	world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
-	return {gamedb.cell_under(&g.db, world_fid, g.cam.pos), g.cam.pos}
+// player_publish writes the camera into the player ref's Moved delta: the cell under the player
+// (interior, or exterior grid cell), the position, and the heading. A ref's Z angle turns clockwise
+// from +Y, the camera's yaw counter-clockwise from +X.
+// (hole player-moveto :tags player :sev gap) a script's MoveTo or SetPosition on the player writes its delta, and this overwrites it; the camera never follows.
+player_publish :: proc(g: ^Game) {
+	cell := g.trav.cur_int_cell
+	if g.trav.mode != .Interior {
+		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
+		cell = gamedb.cell_under(&g.db, world_fid, g.cam.pos)
+	}
+	heading := math.PI / 2 - g.cam.yaw
+	worldstate.set_moved(&g.ws, formid.PLAYER, cell, smath.trs(g.cam.pos, {0, 0, heading}, 1), g.cam.pos)
+}
+
+// player_restore puts the camera where the player ref's delta says, after a load.
+// (hole interior-restore :tags (save player) :sev gap) a save made in an interior does not return there: Continue starts at the default spawn and a quickload leaves the camera where it is. It needs a traversal entry into the saved cell.
+player_restore :: proc(g: ^Game) {
+	d, ok := worldstate.get(&g.ws, formid.PLAYER)
+	if !ok || .Moved not_in d.live {return}
+	if c, cok := gamedb.cell_by_formid(&g.db, d.cell); cok && c.interior {return}
+	g.cam.pos = d.pos
+	g.cam.yaw = math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0])
+	g.cam.pitch = 0
+	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)}
+	world.stream_begin_load(&g.streamer, g.cam.pos)
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE

@@ -22,18 +22,6 @@ import "../formid"
 // alias so worldstate stays independent of gamedb; both resolve to u64, so handles pass freely.
 Form_ID :: u64
 
-// Player_State is the player singleton (§4.1): where the player is, so a load returns them there
-// instead of the default spawn. `cell` lets the loader decide exterior (set position directly) vs
-// interior (must enter that cell first). `set` distinguishes "no player recorded" from origin.
-Player_State :: struct {
-	cell:  Form_ID,     // owning cell (0 / exterior worldspace handled by the loader)
-	pos:   [3]f32,
-	yaw:   f32,     // camera yaw/pitch (radians) — restored so you face the same way
-	pitch: f32,
-	level: i32,     // character level (shown on the load screen); real leveling lands later, default 1
-	set:   bool,
-}
-
 // World_State is the overlay a save holds plus the session state a load leaves alone.
 World_State :: struct {
 	using overlay: Overlay,
@@ -69,7 +57,6 @@ Overlay :: struct {
 	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
-	player:          Player_State,             // the player singleton (position/facing; stats later)
 	clock:           Game_Clock,               // game time (clock.odin)
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
 	cleared:         map[Form_ID]bool,             // locations cleared (Location.SetCleared)
@@ -103,9 +90,6 @@ Runtime :: struct {
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
 	attached:        map[Form_ID][dynamic]Form_ID,
-	// Where the player stands this tick: the interior or exterior grid cell under them (0 = not placed,
-	// as in a headless run). The app writes it before the script phase.
-	player_at:       Placement,
 	// Set while the script thread runs a script phase: only that thread may touch worldstate.
 	script_phase:    bool,
 }
@@ -117,11 +101,6 @@ on_script_thread: bool
 // assert_owner checks that the calling thread owns worldstate (script_phase).
 assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
 	when ODIN_DEBUG {assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)}
-}
-
-Placement :: struct {
-	cell: Form_ID,
-	pos:  [3]f32,
 }
 
 Keyword_Key :: struct {
@@ -188,7 +167,6 @@ init_overlay :: proc(o: ^Overlay) {
 	o.anim_regs = make(map[Form_ID][dynamic]Anim_Reg)
 	o.effects = make(map[Form_ID]Active_Effect)
 	o.effects_on = make(map[Form_ID][dynamic]Form_ID)
-	o.player.level = 1 // default until real leveling / save round-trip sets it
 }
 
 // destroy_overlay frees every store with what it owns; init_overlay after it gives a fresh game.
@@ -240,12 +218,6 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.effects_on {delete(list)}
 	delete(o.effects_on)
 	o^ = {}
-}
-
-// (hole leveling :tags player :sev gap :needs (actor-values)) no skill XP, level-ups or perk points, so the player stays level 1.
-// player_level returns the player's character level (>=1), shown on the load screen.
-player_level :: proc(ws: ^World_State) -> i32 {
-	return max(ws.player.level, 1)
 }
 
 // mark_scene_dirty enqueues `form_id` for deferred live-apply. Called by writers that only touch the
@@ -301,16 +273,6 @@ revert_list :: proc(ws: ^World_State, list: Form_ID) {
 list_added :: proc(ws: ^World_State, list: Form_ID) -> []Form_ID {
 	if adds, ok := ws.list_adds[list]; ok {return adds[:]}
 	return nil
-}
-
-// set_player / get_player: the player singleton — where the player is + facing, so a load returns
-// them there. get_player's ok is false until a position has been recorded (fresh game = default spawn).
-set_player :: proc(ws: ^World_State, cell: Form_ID, pos: [3]f32, yaw, pitch: f32) {
-	ws.player = Player_State{cell = cell, pos = pos, yaw = yaw, pitch = pitch, set = true}
-}
-
-get_player :: proc(ws: ^World_State) -> (Player_State, bool) {
-	return ws.player, ws.player.set
 }
 
 // ── quest store (docs/scripting-natives.md §B — the highest-leverage new store) ────────────────

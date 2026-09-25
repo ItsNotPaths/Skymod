@@ -345,14 +345,10 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────
 
-// ref_cell resolves a ref's CURRENT owning cell: the player's live cell, else the overlay (if it
-// moved), the baseline, or a created ref's cell. 0 when the ref has none. The setters need it for
-// the per-cell patch index.
+// ref_cell resolves a ref's CURRENT owning cell: the overlay (if it moved), the baseline, or a
+// created ref's cell. 0 when the ref has none. The setters need it for the per-cell patch index.
 @(private)
 ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
-	if form == formid.PLAYER {
-		return c.ws.player_at.cell
-	}
 	if d, ok := worldstate.get(c.ws, form); ok && d.cell != 0 {
 		return d.cell
 	}
@@ -368,9 +364,6 @@ ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
 // ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
 @(private)
 ref_pos :: proc(c: ^Call, form: Form_ID) -> smath.Vec3 {
-	if form == formid.PLAYER {
-		return c.ws.player_at.pos
-	}
 	if d, ok := worldstate.get(c.ws, form); ok && .Moved in d.live {
 		return d.pos
 	}

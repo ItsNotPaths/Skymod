@@ -49,7 +49,7 @@ script_start :: proc(g: ^Game) {
 	st.pending = false
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
-	g.ws.player_at = player_placement(g)
+	player_publish(g)
 	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
 	clear(&g.loaded_cells)
 	clear(&st.attached)

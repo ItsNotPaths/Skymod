@@ -10,6 +10,7 @@ import "core:strings"
 import "core:encoding/endian"
 import "core:testing"
 import "../../src/formats/esm"
+import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/mods"
 
@@ -1761,6 +1762,9 @@ test_gamedb_actor_base :: proc(t: ^testing.T) {
 	// A non-NPC form has no actor base.
 	_, nok := gamedb.actor_base(&db, 0x0000_0999)
 	testing.expect(t, !nok, "unknown form is not an actor")
+	// No plugin holds the player ref; the DB makes it on NPC_ 0x7.
+	player, pok := gamedb.ref_by_formid(&db, formid.PLAYER)
+	testing.expect(t, pok && player.base == formid.PLAYER_BASE, "player ref missing")
 }
 
 // ACHR placement decode (4a item 5): an actor placement lands in actor_refs (NOT the static cell_refs),

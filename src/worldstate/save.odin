@@ -51,7 +51,7 @@ Save_Manifest :: struct {
 	schema_version: u32,
 	save_number:    u32,
 	created_unix:   i64, // wall-clock nanoseconds at save (display/sort only)
-	game_cell:      Form_ID, // cell the player was in (0 = exterior/none)
+	game_cell:      Form_ID, // cell under the player: an interior or an exterior grid cell (0 = none)
 	delta_count:    u32, // number of ref deltas in the body (load-menu summary)
 }
 
@@ -204,7 +204,7 @@ Saved_Perk :: struct {
 
 // Save_Body is the overlay's serialised sections (§4.2). New sections become new fields here; CBOR's
 // tagged encoding loads old saves into the extended struct unharmed (a save without a field decodes it
-// as zero — handled in load_from_file). Player_State is already plain/CBOR-friendly, stored as-is.
+// as zero — handled in load_from_file).
 Save_Body :: struct {
 	deltas:       []Saved_Delta,
 	created:      []Saved_Created,
@@ -229,7 +229,6 @@ Save_Body :: struct {
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
 	next_effect:   u32,
-	player:        Player_State,
 	clock:         Game_Clock,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -391,7 +390,6 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
-		player        = ws.player,
 		clock         = ws.clock,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -620,9 +618,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		b, _ := rf(remap, have_remap, r.b)
 		rel_upsert(ws, a)^[b] = r.rank
 	}
-	ws.player = body.player
 	ws.clock = body.clock
-	ws.player.cell, _ = rf(remap, have_remap, body.player.cell)
 	return m, true
 }
 
@@ -655,7 +651,6 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 		add_slot(&seen, sc.form)
 		for v in sc.vars {add_value_slots(&seen, v.value)}
 	}
-	add_slot(&seen, body.player.cell)
 
 	out := make([dynamic]Saved_Slot, 0, len(seen), context.temp_allocator)
 	for s in seen {
