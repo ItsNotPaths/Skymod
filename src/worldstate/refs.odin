@@ -70,6 +70,7 @@ create_ref :: proc(ws: ^World_State, base, cell: Form_ID, pos, rot: [3]f32, scal
 
 // created_in lists the created-ref FormIDs spawned into `cell` (the loader's spawn index).
 created_in :: proc(ws: ^World_State, cell: Form_ID) -> []Form_ID {
+	assert_owner(ws)
 	if list, ok := ws.created_by_cell[cell]; ok {
 		return list[:]
 	}
@@ -78,6 +79,7 @@ created_in :: proc(ws: ^World_State, cell: Form_ID) -> []Form_ID {
 
 // get_created returns a created ref's placement data.
 get_created :: proc(ws: ^World_State, form_id: Form_ID) -> (Created_Ref, bool) {
+	assert_owner(ws)
 	c, ok := ws.created[form_id]
 	return c, ok
 }
@@ -88,6 +90,7 @@ get_created :: proc(ws: ^World_State, form_id: Form_ID) -> (Created_Ref, bool) {
 // each verb writes through it immediately and never retains it.
 @(private)
 upsert :: proc(ws: ^World_State, form_id, cell: Form_ID) -> ^Ref_Delta {
+	assert_owner(ws)
 	if _, existed := ws.ref_deltas[form_id]; !existed {
 		ws.ref_deltas[form_id] = Ref_Delta{cell = cell}
 		list, ok := &ws.by_cell[cell]
@@ -160,6 +163,7 @@ delete_detached :: proc(ws: ^World_State, cell: Form_ID) {
 
 // activation_blocked reports whether a script blocked the ref's default activation.
 activation_blocked :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	assert_owner(ws)
 	d, ok := ws.ref_deltas[form_id]
 	return ok && .Activation_Blocked in d.live
 }
@@ -201,6 +205,7 @@ is_deleted :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
 
 // get returns the delta for a form, if one exists.
 get :: proc(ws: ^World_State, form_id: Form_ID) -> (Ref_Delta, bool) {
+	assert_owner(ws)
 	d, ok := ws.ref_deltas[form_id]
 	return d, ok
 }

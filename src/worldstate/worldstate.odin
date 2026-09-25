@@ -99,6 +99,17 @@ Runtime :: struct {
 	// Where the player stands this tick: the interior or exterior grid cell under them (0 = not placed,
 	// as in a headless run). The app writes it before the script phase.
 	player_at:       Placement,
+	// Set while the script thread runs a script phase: only that thread may touch worldstate.
+	script_phase:    bool,
+}
+
+// on_script_thread is true on the thread that runs script phases.
+@(thread_local)
+on_script_thread: bool
+
+// assert_owner checks that the calling thread owns worldstate (script_phase).
+assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
+	when ODIN_DEBUG {assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)}
 }
 
 Placement :: struct {

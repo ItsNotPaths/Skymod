@@ -200,7 +200,8 @@ Game :: struct {
 	repl:         slua.Repl,
 	repl_ok:      bool,
 	loaded_cells: [dynamic]Form_ID, // cells resident since the last tick; every scene appends here
-	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (tick_scripts)
+	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
+	scripts:      Script_Thread,
 	console:      tools.Console,
 	insp:         tools.Inspector,
 
@@ -570,6 +571,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if g.repl_ok {
 		n := slua.start_game(&g.repl.vm, &g.db) if boot_choice == .Continue else slua.new_game(&g.repl.vm, &g.db)
 		log.infof("scripts: %d game-start script instance(s), %d known to the save", n, len(g.ws.script_state))
+		script_thread_init(g)
 	}
 
 	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc to quit.")
@@ -585,6 +587,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 // header comment for why each ordering exists). Safe after a partial setup: `up` gates
 // every step. Replaces run_game's old declaration-order-is-load-bearing defer stack.
 game_teardown :: proc(g: ^Game) {
+	script_thread_destroy(g)
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)
 	slua.transitions_destroy(&g.trans)

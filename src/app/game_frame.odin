@@ -7,7 +7,7 @@ package main
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
 // RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
-// game_tick — scene select, locomotion, physics, traversal, scripts — runs 0..MAX_TICKS_PER_FRAME times
+// game_tick — scene select, locomotion, physics, traversal, scripts (on their own thread) — runs 0..MAX_TICKS_PER_FRAME times
 // per frame at a constant TICK_DT, and everything else (input, aiming, streaming, picking,
 // drawing) runs once per frame around it. What the frame draws is the last tick's state blended
 // forward by g.tick.alpha.
@@ -42,6 +42,7 @@ game_frame :: proc(g: ^Game) {
 	// persist_run (overlay toggle) may have swapped a new sink into the logger last frame;
 	// game_frame's scope (and every helper below) always logs through the current one.
 	context.logger = g.logging.logger
+	script_join(g) // the last frame's script phase ran during its render
 
 	frame_t0 := time.tick_now() // profile: whole-frame busy time (see `prof`)
 	g.fr = {}
@@ -96,6 +97,7 @@ game_frame :: proc(g: ^Game) {
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 
 	g.elapsed += g.p.dt
+	script_start(g) // the last tick's scripts run while this frame renders
 	frame_render(g)
 
 	g.prof.frame += time.duration_milliseconds(time.tick_since(frame_t0))
@@ -120,15 +122,19 @@ game_frame :: proc(g: ^Game) {
 }
 
 // game_tick is ONE fixed simulation step — everything whose outcome must not depend on the
-// display rate. Ordered as the frame used to be: scene select re-homes the capsule before it
-// moves, physics steps the world it moved in, traversal reads the position it ended at.
+// display rate. The previous tick's scripts finish first and their activations run (a door
+// crossing is a transition, between ticks). Then scene select re-homes the capsule before it
+// moves, physics steps the world it moved in, traversal reads the position it ended at. This
+// tick's script phase is left pending (script_thread.odin).
 @(private = "file")
 game_tick :: proc(g: ^Game) {
+	script_run_pending(g)
+	tick_activations(g)
 	frame_scene_select(g)
 	tick_locomotion(g)
 	frame_physics(g)
 	frame_traversal(g)
-	tick_scripts(g)
+	g.scripts.pending = true
 }
 
 // frame_diag emits the periodic memory/cache/leak probe + the frame-time profile (every ~3s).
@@ -283,7 +289,6 @@ frame_overlay :: proc(g: ^Game) {
 // frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
 // interior (the streamer is paused there). Pure — no side effects — so the frame can call it
 // even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
-@(private = "file")
 frame_active_scene :: proc(g: ^Game) {
 	// The experimental open-interiors path keeps its own debug walk-in (`entered`); the base
 	// path is driven by the Traversal door navigator.
@@ -409,6 +414,9 @@ frame_debug_verbs :: proc(g: ^Game) {
 // loads apply on the next interior entry.
 @(private = "file")
 frame_persistence :: proc(g: ^Game) {
+	if input.fired(&g.imgr, "QuickSave") || input.fired(&g.imgr, "QuickLoad") {
+		script_run_pending(g) // a save lands between whole ticks
+	}
 	if input.fired(&g.imgr, "QuickSave") {
 		_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
 		cell := g.trav.cur_int_cell if (!g.interiors_on && g.trav.mode == .Interior) else Form_ID(0)
@@ -470,37 +478,11 @@ frame_stream :: proc(g: ^Game) {
 	g.prof.stream += time.duration_milliseconds(time.tick_since(t_stream))
 }
 
-// tick_scripts is the one place script handlers run: the script phase (slua.tick_begin), the
-// activations scripts requested, then every queued event and OnTick (slua.tick_end).
-@(private = "file")
-tick_scripts :: proc(g: ^Game) {
-	frame_active_scene(g) // a door crossed earlier in this tick may have switched (or freed) the scene
-	g.ws.player_at = player_placement(g)
-	if g.repl_ok {
-		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, g.loaded_cells[:], attached_cells(g.fr.active_scene), TICK_DT)
-	}
-	clear(&g.loaded_cells)
-	tick_activations(g)
-	if g.repl_ok {slua.tick_end(&g.repl.vm, TICK_DT)}
-}
-
 // player_placement is the cell under the player, interior or exterior grid cell, and their position.
-@(private = "file")
 player_placement :: proc(g: ^Game) -> worldstate.Placement {
 	if g.trav.mode == .Interior {return {g.trav.cur_int_cell, g.cam.pos}}
 	world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
 	return {gamedb.cell_under(&g.db, world_fid, g.cam.pos), g.cam.pos}
-}
-
-// attached_cells lists the cells attached to the player's scene: the active scene's full-detail
-// chunks. The warm exterior kept behind an interior is not the active scene, so it detaches.
-@(private = "file")
-attached_cells :: proc(s: ^world.Scene) -> []Form_ID {
-	cells := make([dynamic]Form_ID, context.temp_allocator)
-	for cid, &c in s.chunks {
-		if c.lod == 0 {append(&cells, cid)}
-	}
-	return cells[:]
 }
 
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE
