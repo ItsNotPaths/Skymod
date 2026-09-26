@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest) :sev gap) no body for GetLineOfSight (needs spatial queries), IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 114 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
+// (hole condition-functions :tags (records quest query) :sev gap) no body for IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 93 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;

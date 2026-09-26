@@ -18,6 +18,13 @@ import smath "../math"
 // (hole ai-natives :tags ai :sev blocker :needs (ai-agent)) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
 // (hole ai-natives :tags ai :sev blocker) the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 
+// Queries (Workstream L; counts are corpus call sites, build/out/wsX/*.tsv).
+// (hole los-queries :tags (query script) :sev blocker :needs (spatial-queries)) Actor.HasLOS (50 sites, 25 scripts) reads false and the GetLineOfSight condition (21 uses) passes: WordWallTriggerScript.isLooking never passes, so no word wall teaches and MS13 and every word-wall stage stop at the wall.
+// (hole los-events :tags (query script) :sev gap :needs (los-queries)) RegisterForLOS and RegisterForSingleLOSGain/Lost (33 sites) do nothing, so OnGainLOS / OnLostLOS never fire (13 scripts; CWMission03Script sets a stage from one).
+// (hole find-refs :tags (query script) :sev gap) Game.FindClosest* and FindRandom* (6 natives, 16 sites) answer None: nothing searches the loaded refs by type, list or distance.
+// (hole data-queries :tags (query script) :sev gap) 56 query natives whose data exists have no body (425 sites, build/out/wsX/data_queries.tsv) and answer their type's zero. Wrong zeros: FormList.Find 0 means "found at 0" where scripts test < 0 (22 sites); GetCurrentRealTime 0 (91) stops real-time timers; CalculateEncounterLevel 0 (20); GetGoldValue 0 (11); PlaceActorAtMe None (58) spawns nothing.
+// (hole actor-flag-reads :tags (query script) :sev gap) SetGhost (215 sites), SetEssential (131) and SetInvulnerable (65) store nothing, so IsGhost, IsEssential, IsInvulnerable and GetIsGhost read false and no guard can test them.
+
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
