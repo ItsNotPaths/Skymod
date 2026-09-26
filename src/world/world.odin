@@ -5,7 +5,7 @@ package world
 // units. Lighting, water and collision have since landed; navmesh and actors have not
 // (see the HOLEs below). Markers and disabled refs are skipped.
 //
-// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh spatial-queries)) actors are drawn as static placements and nothing else — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
+// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh spatial-queries)) actors are capsules that stand where they were placed — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
 // (hole navmesh :tags ai :sev blocker) NAVM is never decoded, so there is no navigable surface and nothing can path even once an agent exists.
 //
 // A Scene is a MAP of CHUNKS keyed by cell formID, one per loaded cell. An interior is
@@ -237,6 +237,7 @@ Chunk :: struct {
 	has_grid:     bool,
 	lod:          int,
 	instances:    [dynamic]Instance,
+	actors:       [dynamic]Form_ID, // the actor refs placed here, disabled ones included (app/actors.odin gives them bodies)
 	terrain:      [dynamic]Terrain_Patch, // exterior LAND heightmap patches (one per quadrant)
 	grass:        [dynamic]Grass_Batch, // scattered grass (one batch per grass type)
 	objects:      [dynamic]Obj_Batch, // distant instanced statics (lod ≥ 1; one batch per model)
@@ -444,6 +445,8 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	}
 	delete(chunk.instances)
 	chunk.instances = nil
+	delete(chunk.actors)
+	chunk.actors = nil
 }
 
 // acquire_chunk_assets records one model ref per instance + grass batch this chunk holds — the
@@ -478,6 +481,7 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 build_chunk :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	chunk := chunk_meta(db, cell_form_id)
 	append_refs(&chunk, db, gamedb.refs_of(db, cell_form_id))
+	append_refs(&chunk, db, gamedb.actors_of(db, cell_form_id))
 	return chunk
 }
 
@@ -494,6 +498,10 @@ append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
 	}
 	n0 := len(chunk.instances)
 	for r in refs {
+		if gamedb.is_actor(db, r.base) {
+			append(&chunk.actors, r.form_id)
+			continue
+		}
 		if gamedb.ref_effective_disabled(db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
 			continue
 		}
@@ -865,7 +873,7 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	}
 }
 
-// (hole spatial-queries :tags world :sev gap) pick_nearest is the engine's ONLY ray — a brute-force loop over every loaded instance then every triangle of the survivors, against RENDER meshes with no acceleration structure. One crosshair per frame is fine; a script or AI query rate is not.
+// (hole spatial-queries :tags world :sev blocker) pick_nearest is the engine's ONLY ray — a brute-force loop over every loaded instance then every triangle of the survivors, against RENDER meshes with no acceleration structure. One crosshair per frame is fine; a script or AI query rate is not.
 // pick_nearest ray-casts (origin + t·dir, dir normalized) against loaded instances and
 // returns the nearest hit's chunk + index, by PRECISE ray-vs-FACE — so small detail
 // meshes and foliage are selectable, not just whatever has the biggest bounding sphere.
@@ -937,7 +945,6 @@ pick_nearest :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (cell: Form_ID, idx:
 
 // ray_aabb slab test. Returns the entry distance (negative if the origin is inside) and
 // whether the ray meets the box at all (in front of, or surrounding, the origin).
-@(private)
 ray_aabb :: proc(o, d, lo, hi: smath.Vec3) -> (t: f32, hit: bool) {
 	tmin := -max(f32)
 	tmax := max(f32)

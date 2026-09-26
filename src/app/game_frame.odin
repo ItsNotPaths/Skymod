@@ -138,6 +138,7 @@ game_tick :: proc(g: ^Game) {
 	tick_activations(g)
 	frame_scene_select(g)
 	tick_locomotion(g)
+	tick_actor_bodies(g)
 	frame_physics(g)
 	frame_traversal(g)
 	g.scripts.pending = true
@@ -330,6 +331,7 @@ frame_scene_select :: proc(g: ^Game) {
 	want_phys := g.fr.active_scene.phys
 	if want_phys != g.cur_phys {
 		if g.char_ok {physics.character_destroy(&g.character);g.char_ok = false}
+		actor_bodies_clear(g)
 		if want_phys != nil {
 			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, PLAYER_RADIUS, PLAYER_HALF_H)
 			if !g.char_ok {g.noclip = true}
@@ -614,9 +616,14 @@ traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 frame_inspect :: proc(g: ^Game) {
 	active_scene := g.fr.active_scene
 	world.clear_hover(active_scene)
+	g.hover_actor = 0
 	if g.p.input.hover && !g.fr.mouse_cap {
 		ro, rd := camera_ray(g.cam, render.aspect(&g.r), g.p.input.mouse_ndc)
-		if inst, shp, hok := world.hover_pick(active_scene, ro, rd); hok && g.p.input.select {
+		actor, adist, aok := pick_actor(g, ro, rd)
+		if _, idist, iok := world.probe_ray(active_scene, ro, rd); aok && (!iok || adist < idist) {
+			g.hover_actor = actor
+			if g.p.input.select {select_actor(g, actor)}
+		} else if inst, shp, hok := world.hover_pick(active_scene, ro, rd); hok && g.p.input.select {
 			world.select_instance(active_scene)
 			g.insp.has_sel = true
 			// Own the model-borrowed strings (path + texture): the selection can outlive the
@@ -671,6 +678,26 @@ frame_inspect :: proc(g: ^Game) {
 				log.warnf("spawn: no overlay / base 0x%08X has no model — nothing created", base)
 			}
 		}
+	}
+}
+
+// select_actor makes an actor the Inspector's selection and the console's `sel`.
+@(private = "file")
+select_actor :: proc(g: ^Game, actor: Form_ID) {
+	c := script.Call{ws = &g.ws, db = &g.db}
+	g.fr.active_scene.has_sel = false
+	g.insp.has_sel = true
+	tools.inspector_set_model_strings(&g.insp, "", "")
+	g.insp.sel_display = gamedb.name_of(&g.db, actor)
+	g.insp.sel_base = ref_base(g, actor)
+	g.insp.sel_pos = script.ref_pos(&c, actor)
+	g.insp.sel_rot = {}
+	g.insp.sel_has_door = false
+	g.insp.sel_door_cell = ""
+	g.insp.sel_is_door = false
+	if g.repl_ok {
+		slua.repl_set_selection(&g.repl, script.Form_ID(actor))
+		tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(actor), g.insp.sel_display)
 	}
 }
 
@@ -790,6 +817,7 @@ frame_render :: proc(g: ^Game) {
 		}
 		// Collision-hitbox wireframe (K): green outlines of EXACTLY what Jolt collides — static
 		// geometry (cached) + dynamic clutter at its live body pose. Over the lit scene, before end.
+		draw_actor_bodies(g, vp)
 		if g.show_hitboxes {
 			dbg_scene := active_scene if in_interior else &g.scene
 			world.build_collision_debug(dbg_scene, &g.db)

@@ -302,7 +302,7 @@ n_is_in_menu_mode :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
 
-// (hole anim-natives :tags animation :sev gap) IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
+// (hole anim-natives :tags animation :sev blocker) IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
 n_is_anim_running :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
@@ -368,7 +368,6 @@ ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
 }
 
 // ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
-@(private)
 ref_pos :: proc(c: ^Call, form: Form_ID) -> smath.Vec3 {
 	if d, ok := worldstate.get(c.ws, form); ok && .Moved in d.live {
 		return d.pos

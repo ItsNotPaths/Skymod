@@ -416,7 +416,9 @@ rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^
 	deindex_instances(s, chunk)
 	delete(chunk.instances)
 	fresh := build_overlaid_chunk(s, db, cell)
-	chunk.instances = fresh.instances // ownership transfers; only .instances is heap-allocated
+	chunk.instances = fresh.instances // ownership transfers; only .instances and .actors are heap-allocated
+	delete(chunk.actors)
+	chunk.actors = fresh.actors
 	for inst in chunk.instances {
 		assetdb.model_acquire(&s.cache, inst.model_path)
 	}

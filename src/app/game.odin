@@ -182,6 +182,9 @@ Game :: struct {
 	cam:      Camera,
 	character: physics.Character,
 	char_ok:  bool,
+	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
+	actor_wire:   render.Mesh, // last frame's NPC capsule wireframe, released at the next draw
+	hover_actor:  Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
 	noclip:   bool,
 	// The physics world the `character` capsule currently lives in. The player walks the
 	// EXTERIOR `phys` until a load door swaps the active scene to an interior (its own
@@ -595,6 +598,9 @@ game_teardown :: proc(g: ^Game) {
 	slua.transitions_destroy(&g.trans)
 	if g.up.sreg {script.destroy(&g.sreg)}
 	if g.char_ok {physics.character_destroy(&g.character)} // may be homed in an interior world — before traversal
+	actor_bodies_clear(g)
+	delete(g.actor_bodies)
+	render.release_mesh(&g.r, g.actor_wire)
 	delete(g.drops)
 	if g.up.marker {render.release_mesh(&g.r, g.drop_marker)}
 	tools.inspector_destroy(&g.insp) // frees the owned selection strings (safe on zero value)

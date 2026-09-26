@@ -675,7 +675,7 @@ pose_matrix :: proc(pos: [3]f32, q: jolt.Quat) -> matrix[4, 4]f32 {
 
 // --- character controller (player locomotion; Jolt CharacterVirtual, Z-up) ---
 
-// Character is the player's upright capsule. Its position is at the FEET. Drive it with
+// Character is an actor's upright capsule. Its position is at the FEET. Drive it with
 // character_move each frame and read character_position for the camera.
 Character :: struct {
 	cv:    ^jolt.CharacterVirtual,
@@ -717,6 +717,8 @@ character_create :: proc(w: ^World, feet: [3]f32, radius: f32, half_h: f32) -> (
 	s.base.maxSlopeAngle = 0.8727 // ~50°
 	s.base.supportingVolume = {normal = {0, 0, 1}, distance = -radius}
 	s.mass = 80
+	s.innerBodyShape = cast(^jolt.Shape)rts // a body that rays and other characters hit
+	s.innerBodyLayer = LAYER_MOVING
 	p := to_rvec(feet)
 	r := IDENTITY_QUAT
 	cv := jolt.CharacterVirtual_Create(&s, &p, &r, 0, w.system)

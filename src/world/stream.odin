@@ -205,14 +205,16 @@ stream_index_persistent :: proc(st: ^Streamer) {
 		return
 	}
 	n := 0
-	for r in gamedb.refs_of(st.db, pcid) {
-		key := [2]i32{i32(math.floor(r.pos.x / CELL_SIZE)), i32(math.floor(r.pos.y / CELL_SIZE))}
-		// Map-of-dynamic-array: read the header, append to the local copy (may realloc), write back —
-		// safe even when inserting new keys rehashes the map (a live &m[key] would dangle).
-		bucket := st.scene.persistent_by_grid[key]
-		append(&bucket, r)
-		st.scene.persistent_by_grid[key] = bucket
-		n += 1
+	for refs in ([2][]gamedb.Ref{gamedb.refs_of(st.db, pcid), gamedb.actors_of(st.db, pcid)}) {
+		for r in refs {
+			key := [2]i32{i32(math.floor(r.pos.x / CELL_SIZE)), i32(math.floor(r.pos.y / CELL_SIZE))}
+			// Map-of-dynamic-array: read the header, append to the local copy (may realloc), write back —
+			// safe even when inserting new keys rehashes the map (a live &m[key] would dangle).
+			bucket := st.scene.persistent_by_grid[key]
+			append(&bucket, r)
+			st.scene.persistent_by_grid[key] = bucket
+			n += 1
+		}
 	}
 	log.infof(
 		"stream: indexed %d persistent refs across %d grid cells (0x%08X)",

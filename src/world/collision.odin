@@ -423,7 +423,6 @@ emit_box :: proc(verts: ^[dynamic]render.Mesh_Vertex, idx: ^[dynamic]u16, c: [][
 	}
 }
 
-@(private = "file")
 emit_aabb :: proc(verts: ^[dynamic]render.Mesh_Vertex, idx: ^[dynamic]u16, box: [2][3]f32) {
 	lo, hi := box[0], box[1]
 	c: [8][3]f32
