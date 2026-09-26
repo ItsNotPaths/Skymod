@@ -62,8 +62,10 @@ greeting :: proc(c: ^script.Call, speaker: Form_ID) -> (g: Greeting, ok: bool) {
 }
 
 // topics is the speaker's topic list: the starting topic of each Top-Level branch with a line
-// this speaker can say, by topic priority. The Rumors topics are one stack, so one choice.
-topics :: proc(c: ^script.Call, speaker: Form_ID) -> []Choice {
+// this speaker can say, by topic priority. The Rumors topics are one stack, so one choice. A topic
+// in `shown` keeps the line it offered while that line can still be said, so a Random topic does
+// not change under the player.
+topics :: proc(c: ^script.Call, speaker: Form_ID, shown: []Choice = nil) -> []Choice {
 	out := make([dynamic]Choice, context.temp_allocator)
 	rumors := false
 	for branch in sorted_keys(c.db.branches) {
@@ -73,7 +75,11 @@ topics :: proc(c: ^script.Call, speaker: Form_ID) -> []Choice {
 			if rumors {continue}
 			rumors = true
 		}
-		if ch, ok := choice(c, speaker, b.start); ok {append(&out, ch)}
+		if ch, ok := kept(c, speaker, b.start, shown); ok {
+			append(&out, ch)
+		} else if ch, ok = choice(c, speaker, b.start); ok {
+			append(&out, ch)
+		}
 	}
 	context.user_ptr = c.db
 	slice.stable_sort_by(out[:], proc(a, b: Choice) -> bool {
@@ -99,7 +105,21 @@ links :: proc(c: ^script.Call, speaker, info: Form_ID) -> []Choice {
 choice :: proc(c: ^script.Call, speaker, topic: Form_ID) -> (Choice, bool) {
 	info := pick(c, speaker, topic)
 	if info == 0 {return {}, false}
-	return {topic, info, prompt(c.db, info)}, true
+	return {topic, info, prompt(c, info)}, true
+}
+
+@(private = "file")
+kept :: proc(c: ^script.Call, speaker, topic: Form_ID, shown: []Choice) -> (Choice, bool) {
+	for ch in shown {
+		if ch.topic == topic && still_valid(c, speaker, ch.info) {return ch, true}
+	}
+	return {}, false
+}
+
+// still_valid: `speaker` can say `info` now.
+still_valid :: proc(c: ^script.Call, speaker, info: Form_ID) -> bool {
+	i, ok := c.db.infos[info]
+	return ok && can_say(c, speaker, info, i)
 }
 
 // pick is the info `speaker` says for `topic`, or 0. A Rumors topic draws on every Rumors topic.
@@ -176,14 +196,21 @@ responses :: proc(db: ^gamedb.DB, info: Form_ID) -> []gamedb.Response {
 	return i.responses
 }
 
-// prompt is what the player says to reach `info`: its own prompt, else its topic's text. A Rumors
-// info with neither says the game setting's line.
-prompt :: proc(db: ^gamedb.DB, info: Form_ID) -> string {
-	i := db.infos[info]
-	if i.prompt != "" {return i.prompt}
-	if name := gamedb.name_of(db, i.topic); name != "" {return name}
-	if is_subtype(db.topics[i.topic], "RUMO") {return "Heard any rumors lately?"} // sTopicSubtypeTextPlayerDialogueRumors
-	return ""
+// prompt is what the player says to reach `info`: its own prompt, else its topic's text, tags
+// filled in. A Rumors info with neither says the game setting's line.
+prompt :: proc(c: ^script.Call, info: Form_ID) -> string {
+	i := c.db.infos[info]
+	raw := i.prompt
+	if raw == "" {raw = gamedb.name_of(c.db, i.topic)}
+	if raw == "" && is_subtype(c.db.topics[i.topic], "RUMO") {raw = "Heard any rumors lately?"} // sTopicSubtypeTextPlayerDialogueRumors
+	return text(c, raw, c.db.topics[i.topic].quest)
+}
+
+// line_text is response `n` of `info` as shown, tags filled in; "" past its last.
+line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
+	lines := responses(c.db, info)
+	if n < 0 || n >= len(lines) {return ""}
+	return text(c, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
 }
 
 // stack joins the infos of every topic of one subtype (Hellos, Rumors), which stack across

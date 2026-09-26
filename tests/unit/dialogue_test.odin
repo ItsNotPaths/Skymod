@@ -3,6 +3,7 @@ package unit_tests
 import "core:slice"
 import "core:testing"
 import "../../src/dialogue"
+import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/script"
 import "../../src/worldstate"
@@ -150,4 +151,22 @@ test_dialogue_exclusive_and_random :: proc(t: ^testing.T) {
 	testing.expect(t, len(tk.ws.info_runs) > 0 && !tk.ws.info_runs[0].end, "a said line queues its begin fragment")
 	dialogue.finished(&tk.c, A, 0x202)
 	testing.expect(t, tk.ws.info_runs[len(tk.ws.info_runs) - 1].end, "and its end one")
+}
+
+// Text tags: a global's value by editor id, an alias's name and pronoun; a stage direction stays.
+@(test)
+test_dialogue_text_tags :: proc(t: ^testing.T) {
+	tk: Talk
+	talk_init(&tk)
+	defer talk_destroy(&tk)
+	Q, ROOM_COST :: gamedb.Form_ID(0xC01), gamedb.Form_ID(0xB10)
+	tk.db.global_by_edid = make(map[string]gamedb.Form_ID)
+	defer delete(tk.db.global_by_edid)
+	tk.db.global_by_edid["roomcost"] = ROOM_COST
+	worldstate.set_global(&tk.ws, ROOM_COST, 10)
+	aliases := []gamedb.Quest_Alias{{id = 3, name = "Innkeeper"}}
+	tk.db.quest_baseline[Q] = {start_game_enabled = true, aliases = aliases}
+	tk.ws.aliases[formid.alias_handle(Q, 3) or_else 0] = 0xA01
+	got := dialogue.text(&tk.c, "Rent a room (<Global=RoomCost> gold) from <Alias.PronounObj=innkeeper>. <Laughter>", Q)
+	testing.expect_value(t, got, "Rent a room (10 gold) from him. <Laughter>")
 }

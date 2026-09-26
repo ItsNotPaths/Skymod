@@ -42,7 +42,7 @@ talk :: proc(vm: ^slua.VM, db: ^gamedb.DB, name: string) {
 	if greet.info != 0 {
 		fmt.printfln("  greeting info 0x%08X, branch 0x%08X", u32(greet.info), u32(greet.blocking))
 		why(&c, speaker, greet.info)
-		for r in dialogue.responses(db, greet.info) {fmt.printfln("  > %s", r.text)}
+		for _, n in dialogue.responses(db, greet.info) {fmt.printfln("  > %s", dialogue.line_text(&c, greet.info, n))}
 	}
 	start = time.now()
 	topics := dialogue.topics(&c, speaker)

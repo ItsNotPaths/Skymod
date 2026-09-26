@@ -61,8 +61,8 @@ dialogue_menu :: proc(g: ^Game) {
 	imgui.TextUnformatted(fmt.ctprintf("%s", worldstate.display_name(&g.ws, &g.db, t.speaker)))
 	imgui.Separator()
 	if t.info != 0 {
-		lines := dialogue.responses(&g.db, t.info)
-		if t.response < len(lines) {imgui.TextWrapped(fmt.ctprintf("%s", lines[t.response].text))}
+		c := dialogue_call(g)
+		imgui.TextWrapped(fmt.ctprintf("%s", dialogue.line_text(&c, t.info, t.response)))
 		t.left_s -= g.p.dt
 		if imgui.Button("Next") {t.left_s = 0}
 		if t.left_s <= 0 {next_response(g)}
@@ -72,8 +72,8 @@ dialogue_menu :: proc(g: ^Game) {
 	for ch, i in t.choices {
 		if !imgui.Button(fmt.ctprintf("%s##%d", ch.prompt, i)) {continue}
 		c := dialogue_call(g)
-		info := dialogue.pick(&c, t.speaker, ch.topic) // a Random topic picks again
-		say(g, info if info != 0 else ch.info)
+		info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
+		if info != 0 {say(g, info)}
 		return
 	}
 	if imgui.Button("(leave)") {back_out(g)}
@@ -119,8 +119,9 @@ say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 list_topics :: proc(g: ^Game) {
 	t := &g.talk
 	c := dialogue_call(g)
+	shown := dialogue.topics(&c, t.speaker, t.choices[:] if t.top_level else nil)
 	clear(&t.choices)
-	append(&t.choices, ..dialogue.topics(&c, t.speaker))
+	append(&t.choices, ..shown)
 	t.top_level, t.listed_at = true, g.tick.total
 }
 
@@ -174,9 +175,10 @@ frame_subtitles :: proc(g: ^Game) {
 	for _, run in g.ws.scenes {
 		for a in run.actions {
 			if a.info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, a.speaker) not_in g.ws.attached {continue}
-			responses := dialogue.responses(&g.db, a.info)
-			if int(a.response) >= len(responses) {continue}
-			append(&lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, a.speaker), responses[a.response].text))
+			c := dialogue_call(g)
+			if line := dialogue.line_text(&c, a.info, int(a.response)); line != "" {
+				append(&lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, a.speaker), line))
+			}
 		}
 	}
 	if len(lines) == 0 {return}

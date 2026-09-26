@@ -195,6 +195,7 @@ DB :: struct {
 	actor_value_info:     map[Form_ID]Actor_Value_Info, // AVIF formID -> its identity (owned strings)
 	actor_value_by_index: map[i32]Form_ID, // engine ActorValue index -> its AVIF form
 	global_values: map[Form_ID]f32, // GLOB formID -> its FLTV baseline value (worldstate.globals overlay overrides at runtime)
+	global_by_edid: map[string]Form_ID, // lowercased GLOB editor id -> formID (key owned): text tags name globals
 	settings:      map[string]Game_Setting, // lower-cased GMST editor id -> its value (key owned; a String value is owned too)
 	messages:      map[Form_ID]Message, // MESG formID -> its on-screen text and buttons (owned strings)
 	perks:         map[Form_ID]Perk, // PERK formID -> its identity and rank link (owned strings)
@@ -734,6 +735,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
 		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
 		global_values = make(map[Form_ID]f32, 1024, allocator),
+		global_by_edid = make(map[string]Form_ID, 1024, allocator),
 		settings      = make(map[string]Game_Setting, 2048, allocator),
 		messages      = make(map[Form_ID]Message, 1024, allocator),
 		perks         = make(map[Form_ID]Perk, 512, allocator),
@@ -895,6 +897,8 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.leveled_lists)
 	delete(db.global_values) // plain f32 values — no owned data
+	for k in db.global_by_edid {delete(k, db.allocator)}
+	delete(db.global_by_edid)
 	for k, v in db.settings {
 		delete(k, db.allocator)
 		if text, is_text := v.(string); is_text {
@@ -2194,6 +2198,16 @@ index_glob :: proc(db: ^DB, rec: esm.Record) {
 	if v, _, vok := esm.global_value(fl); vok {
 		db.global_values[rec.form_id] = v
 	}
+	if edid := esm.editor_id(fl); edid != "" {
+		lower := strings.to_lower(edid, db.allocator)
+		if _, seen := db.global_by_edid[lower]; seen {delete(lower, db.allocator)}
+		db.global_by_edid[lower] = rec.form_id
+	}
+}
+
+// global_by_editor_id resolves a GLOB's editor id, any case.
+global_by_editor_id :: proc(db: ^DB, edid: string) -> (Form_ID, bool) {
+	return db.global_by_edid[strings.to_lower(edid, context.temp_allocator)]
 }
 
 // Game_Setting is a GMST's resolved value. The record's editor-id prefix picks the variant, so a
