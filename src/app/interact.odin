@@ -18,6 +18,7 @@ package main
 // so they stay proximity-fired in frame_traversal, exactly as before.
 
 import "core:log"
+import "../formats/esm"
 import "../gamedb"
 import smath "../math"
 import "../input"
@@ -29,7 +30,6 @@ import "../worldstate"
 import "../formid"
 
 // (hole activate-verbs :tags (ui player) :sev gap) a book is taken like any other item: nothing reads it, and it teaches no skill or spell. Flora (FLOR) and activators do nothing when activated.
-// (hole inventory-refs :tags (player script) :sev gap) a taken item's ref is disabled, not carried: the pack holds only its base (count 1, XCNT ignored), so a quest item loses its identity. Nothing drops items yet (DropObject is not registered).
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen audio-output)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
@@ -124,23 +124,25 @@ frame_cast :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
 }
 
-// (hole npc-activate :tags (ai player) :sev gap) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate: no XTEL move, no take.
-// (hole created-ref-activation :tags script :sev gap) a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
-
-// activate is the one activation path, for the Activate key and for a script's Activate: OnActivate
-// is queued for the ref's scripts (it runs at the next tick, after the default action, as in
-// Papyrus), then the default action runs unless a script blocked it. `default_only` sends no event
-// and ignores the block (abDefaultProcessingOnly).
+// activate is the one activation path, for the Activate key and for a script's Activate, by any
+// actor: OnActivate is queued for the ref's scripts (it runs at the next tick, after the default
+// action, as in Papyrus), then the default action runs unless a script blocked it. `default_only`
+// sends no event and ignores the block (abDefaultProcessingOnly). Menus open for the player only.
 activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	if !default_only {
 		if g.repl_ok {slua.send(&g.repl.vm, form, "OnActivate", by)}
 		if worldstate.activation_blocked(&g.ws, form) {return}
 	}
-	if by != formid.PLAYER {return}
-	ref, ok := gamedb.ref_by_formid(&g.db, form)
-	if !ok {return}
-	switch kind := Activate_Kind.Door if ref.has_tp else classify_base(&g.db, ref.base); kind {
+	ref, is_record := gamedb.ref_by_formid(&g.db, form)
+	base := worldstate.ref_base(&g.ws, &g.db, form)
+	if base == 0 {return}
+	switch kind := Activate_Kind.Door if is_record && ref.has_tp else classify_base(&g.db, base); kind {
 	case .Door:
+		if !ref.has_tp {break}
+		if by != formid.PLAYER {
+			move_through_door(g, by, ref.teleport)
+			break
+		}
 		// Open-interiors mode has its own walk-in, so doors are left to it there.
 		if g.interiors_on {break}
 		hit := Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}
@@ -149,12 +151,20 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 			traversal_finish_load(g, tk)
 		}
 	case .Item:
-		take_item(g, ref)
+		take_item(g, form, base, by)
 	case .Container:
-		open_container(g, form)
+		if by == formid.PLAYER {open_container(g, form)}
 	case .None, .Actor, .Activator, .Flora, .Book:
-		log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])
+		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
+}
+
+// move_through_door puts an actor other than the player at a load door's far side.
+@(private = "file")
+move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
+	c := script.Call{ws = &g.ws, db = &g.db}
+	worldstate.set_moved(&g.ws, actor, script.ref_cell(&c, tp.door), smath.trs(tp.pos, tp.rot, 1), tp.pos)
+	worldstate.mark_scene_dirty(&g.ws, actor)
 }
 
 // tick_activations runs the activations scripts requested since the last tick.
@@ -190,14 +200,14 @@ grab_update :: proc(g: ^Game) {
 	physics.kick(g.fr.active_scene.phys, g.interact.body, vel) // wakes + sets velocity
 }
 
-// take_item puts a world item in the player's pack: its base goes in (OnItemAdded, and
-// OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world.
-take_item :: proc(g: ^Game, ref: gamedb.Ref) {
+// take_item puts a world item in an actor's pack: its whole stack goes in (OnItemAdded, and
+// OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world, carried.
+take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.ws, db = &g.db}
-	script.move_items(&c, {base = ref.base, ref = ref.form_id, to = formid.PLAYER, count = 1})
-	worldstate.set_disabled(&g.ws, ref.form_id, ref.cell_form_id, true)
-	worldstate.mark_scene_dirty(&g.ws, ref.form_id)
-	log.infof("take: %q", interact_subject(g, ref.form_id))
+	script.move_items(&c, {base = base, ref = form, to = by, count = worldstate.stack_count(&g.ws, &g.db, form)})
+	worldstate.set_disabled(&g.ws, form, script.ref_cell(&c, form), true)
+	worldstate.mark_scene_dirty(&g.ws, form)
+	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
 }
 
 // interact_subject is a ref's display name for a log line, or a placeholder when it's unnamed.

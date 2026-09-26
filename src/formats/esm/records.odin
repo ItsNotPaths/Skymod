@@ -13,12 +13,13 @@ import "core:math"
 CELL_INTERIOR :: 0x01
 
 // Placement is a REFR's base reference + world transform. rot is XYZ euler radians;
-// scale defaults to 1 when no XSCL field is present.
+// scale defaults to 1 when no XSCL field is present, count (an item stack) to 1 without XCNT.
 Placement :: struct {
 	base:  u32,
 	pos:   [3]f32,
 	rot:   [3]f32,
 	scale: f32,
+	count: i32,
 }
 
 // Teleport is a door REFR's XTEL: the destination door (in some cell) and the marker
@@ -42,6 +43,15 @@ editor_id :: proc(fields: []Field) -> string {
 model_path :: proc(fields: []Field) -> string {
 	if f, ok := find_field(fields, "MODL"); ok {
 		return cstr(f.data)
+	}
+	return ""
+}
+
+// armor_ground_model is an ARMO's world (ground) model: MOD2 (male), else MOD4 (female). Its MODL
+// fields are ARMA form IDs, not paths. "" for body-only armor (150 vanilla ARMO have neither).
+armor_ground_model :: proc(fields: []Field) -> string {
+	for tag in ([]string{"MOD2", "MOD4"}) {
+		if f, ok := find_field(fields, tag); ok {return cstr(f.data)}
 	}
 	return ""
 }
@@ -168,22 +178,25 @@ lod_model_paths :: proc(fields: []Field) -> (models: [LOD_MODELS]string, count: 
 	return
 }
 
-// object_bounds reads a base form's OBND (object bounds): 6 i16 = min(x,y,z) + max(x,y,z).
-// Returns a bounding RADIUS (half the box diagonal, in world units) — a cheap size proxy
-// for distance/LOD culling WITHOUT loading the mesh. ok=false if absent/short.
-object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
+// object_box reads a base form's OBND (object bounds): 6 i16 = min(x,y,z) + max(x,y,z).
+// ok=false if absent/short.
+object_box :: proc(fields: []Field) -> (box: [2][3]f32, ok: bool) {
 	f, fok := find_field(fields, "OBND")
 	if !fok || len(f.data) < 12 {
-		return 0, false
+		return {}, false
 	}
-	x1 := f32(cast(i16)rd16(f.data, 0))
-	y1 := f32(cast(i16)rd16(f.data, 2))
-	z1 := f32(cast(i16)rd16(f.data, 4))
-	x2 := f32(cast(i16)rd16(f.data, 6))
-	y2 := f32(cast(i16)rd16(f.data, 8))
-	z2 := f32(cast(i16)rd16(f.data, 10))
-	dx, dy, dz := x2 - x1, y2 - y1, z2 - z1
-	return 0.5 * math.sqrt(dx * dx + dy * dy + dz * dz), true
+	for i in 0 ..< 6 {
+		box[i / 3][i % 3] = f32(cast(i16)rd16(f.data, 2 * i))
+	}
+	return box, true
+}
+
+// object_bounds is the OBND bounding RADIUS (half the box diagonal, in world units) — a cheap size
+// proxy for distance/LOD culling WITHOUT loading the mesh. ok=false if absent/short.
+object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
+	box := object_box(fields) or_return
+	d := box[1] - box[0]
+	return 0.5 * math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z), true
 }
 
 // item_value_weight decodes a base item's gold value + weight. The byte layout is per record
@@ -433,6 +446,7 @@ ACBS_TEMPLATE_TRAITS :: 0x0001 // race and more
 ACBS_TEMPLATE_STATS :: 0x0002 // level, auto-calc, skills, offsets, speed, class
 ACBS_TEMPLATE_SPELLS :: 0x0008 // spell list (UESP Mod File Format/NPC_)
 ACBS_TEMPLATE_AI_DATA :: 0x0010
+ACBS_TEMPLATE_BASE_DATA :: 0x0080 // name, short name, flags
 ACBS_TEMPLATE_INVENTORY :: 0x0100
 
 // Actor_Config is an NPC_'s ACBS block (24 bytes): base disposition flags + level band + the
@@ -633,9 +647,9 @@ world_water_height :: proc(fields: []Field) -> (f32, bool) {
 	return 0, false
 }
 
-// decode_refr reads a REFR's NAME (base), DATA (pos+rot) and optional XSCL (scale).
+// decode_refr reads a REFR's NAME (base), DATA (pos+rot) and optional XSCL (scale) and XCNT (count).
 decode_refr :: proc(fields: []Field) -> Placement {
-	p := Placement{scale = 1}
+	p := Placement{scale = 1, count = 1}
 	if f, ok := find_field(fields, "NAME"); ok && len(f.data) >= 4 {
 		p.base = rd32(f.data, 0)
 	}
@@ -645,6 +659,9 @@ decode_refr :: proc(fields: []Field) -> Placement {
 	}
 	if f, ok := find_field(fields, "XSCL"); ok && len(f.data) >= 4 {
 		p.scale = rf32(f.data, 0)
+	}
+	if f, ok := find_field(fields, "XCNT"); ok && len(f.data) >= 4 {
+		p.count = max(i32(rd32(f.data, 0)), 1)
 	}
 	return p
 }

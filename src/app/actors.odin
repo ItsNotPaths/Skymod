@@ -1,7 +1,7 @@
 package main
 
-// Actor bodies: every loaded actor ref gets the player's capsule. The only differences are that
-// nothing drives it yet and it is drawn.
+// Actor bodies: every loaded actor ref gets a capsule, as the player does. The only differences are
+// that nothing drives it yet and it is drawn.
 
 import "../formid"
 import "../gamedb"
@@ -12,7 +12,6 @@ import "../script"
 import "../world"
 import "../worldstate"
 
-// (hole actor-body-size :tags (player physics) :sev gap) every actor gets the player's capsule: race height, ref scale and creature shapes (dragon, giant, mudcrab) are ignored. Where Skyrim takes the size from is not measured yet.
 // (hole actor-hitboxes :tags combat :sev gap :needs (animation)) a hit can only land on the one capsule; combat wants the race skeleton's per-bone colliders, posed each tick, with the weapon swept through them (Precision-style, the default).
 // (hole actor-fall-through :tags physics :sev gap) seen 2026-09-25: one NPC capsule fell through the world and could not be picked; the cause is unknown and nothing catches a falling actor.
 // (hole actor-ragdoll :tags (combat physics) :sev gap) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
@@ -20,8 +19,23 @@ import "../worldstate"
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
 Actor_Body :: struct {
-	char:   physics.Character,
-	placed: smath.Vec3,
+	char:    physics.Character,
+	placed:  smath.Vec3,
+	capsule: Capsule,
+}
+
+Capsule :: struct {
+	radius, half_h: f32,
+}
+
+// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the OBND box (radius = mean half-width, height = box height); whether Skyrim sizes its controller from OBND is unsourced, and a long body (horse, mammoth) is one upright cylinder.
+// actor_capsule fits an upright capsule to an actor's bounds at its scale.
+actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
+	c := script.Call{ws = &g.ws, db = &g.db}
+	box := gamedb.actor_bounds(&g.db, worldstate.record_of(&g.ws, form), worldstate.actor_pick(&g.ws, &g.db, form))
+	size := (box[1] - box[0]) * script.ref_scale(&c, form)
+	radius := (size.x + size.y) / 4
+	return {radius, max(size.z / 2 - radius, 1)}
 }
 
 // tick_actor_bodies gives each actor in the active scene's loaded cells a capsule, moves it one
@@ -57,28 +71,26 @@ actor_body_keep :: proc(g: ^Game, c: ^script.Call, phys: ^physics.World, form: F
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !script.ref_enabled(&g.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := script.ref_pos(c, form)
-	if b, ok := &g.actor_bodies[form]; ok {
+	capsule := actor_capsule(g, form)
+	if b, ok := &g.actor_bodies[form]; ok && b.capsule == capsule {
 		if b.placed != pos {
 			physics.character_set_position(&b.char, pos)
 			b.placed = pos
 		}
 		return
+	} else if ok {
+		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
-	if ch, ok := physics.character_create(phys, pos, PLAYER_RADIUS, PLAYER_HALF_H); ok {
-		g.actor_bodies[form] = {ch, pos}
+	if ch, ok := physics.character_create(phys, pos, capsule.radius, capsule.half_h); ok {
+		g.actor_bodies[form] = {ch, pos, capsule}
+	} else {
+		delete_key(&g.actor_bodies, form)
 	}
 }
 
 @(private = "file")
 is_actor_ref :: proc(g: ^Game, form: Form_ID) -> bool {
-	return gamedb.is_actor(&g.db, ref_base(g, form))
-}
-
-// ref_base is a record or created ref's base form, 0 for neither.
-ref_base :: proc(g: ^Game, form: Form_ID) -> Form_ID {
-	if r, ok := gamedb.ref_by_formid(&g.db, form); ok {return r.base}
-	cr, _ := worldstate.get_created(&g.ws, form)
-	return cr.base
+	return gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form))
 }
 
 actor_bodies_clear :: proc(g: ^Game) {
@@ -90,8 +102,8 @@ actor_bodies_clear :: proc(g: ^Game) {
 @(private = "file")
 actor_box :: proc(g: ^Game, b: ^Actor_Body, grow: f32 = 0) -> [2]smath.Vec3 {
 	feet := physics.character_render_position(&b.char, g.tick.alpha)
-	r := PLAYER_RADIUS + grow
-	return {feet - {r, r, grow}, feet + {r, r, 2 * (PLAYER_HALF_H + PLAYER_RADIUS) + grow}}
+	r := b.capsule.radius + grow
+	return {feet - {r, r, grow}, feet + {r, r, 2 * (b.capsule.half_h + b.capsule.radius) + grow}}
 }
 
 // pick_actor is the nearest actor box along a ray.

@@ -22,7 +22,6 @@ import smath "../math"
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause.
 // (hole crime-reads :tags combat :sev gap) no read for Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime: there is no crime system.
-// (hole set-outfit :tags player :sev gap) ActorBase.SetOutfit is a stub: worn outfits exist (worldstate/equipment.odin), but a base's outfit cannot be changed.
 // (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole dialogue-reads :tags dialogue :sev gap :needs (dialogue-system)) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
@@ -193,13 +192,21 @@ n_set_scale :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_scale :: proc(c: ^Call, args: []Value) -> Value {
-	if d, ok := worldstate.get(c.ws, c.self); ok && .Scaled in d.live {
+	return ref_scale(c, c.self)
+}
+
+// ref_scale is a ref's current scale: a script's SetScale, else its placement's.
+ref_scale :: proc(c: ^Call, form: Form_ID) -> f32 {
+	if d, ok := worldstate.get(c.ws, form); ok && .Scaled in d.live {
 		return d.scale
 	}
-	if r, ok := gamedb.ref_by_formid(c.db, c.self); ok {
+	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
 		return r.scale
 	}
-	return f32(1)
+	if cr, ok := worldstate.get_created(c.ws, form); ok {
+		return cr.scale
+	}
+	return 1
 }
 
 n_delete :: proc(c: ^Call, args: []Value) -> Value {
@@ -353,7 +360,6 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 
 // ref_cell resolves a ref's CURRENT owning cell: the overlay (if it moved), the baseline, or a
 // created ref's cell. 0 when the ref has none. The setters need it for the per-cell patch index.
-@(private)
 ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
 	if d, ok := worldstate.get(c.ws, form); ok && d.cell != 0 {
 		return d.cell

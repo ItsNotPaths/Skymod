@@ -14,7 +14,8 @@ import "../gamedb"
 Worn :: struct {
 	item:  Form_ID,
 	slots: gamedb.Slots,
-	kept:  bool, // EquipItem's abPreventRemoval: another EquipItem cannot take it off
+	kept:   bool, // EquipItem's abPreventRemoval: another EquipItem cannot take it off
+	outfit: bool, // put on from the actor's outfit; SetOutfit takes it away
 }
 
 Equipment :: struct {
@@ -73,7 +74,7 @@ in_slot :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, slot: gamedb.S
 }
 
 @(private)
-put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool) -> bool {
+put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool, outfit := false) -> bool {
 	slots, either := gamedb.slots_of(db, item)
 	if slots == {} {return false}
 	if either {slots = {pick_hand(eq^, slots, hand)}}
@@ -86,7 +87,7 @@ put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Fo
 		ordered_remove(&eq.worn, i)
 		if announce {append(&ws.equip_changes, Equip_Change{actor, w.item, false})}
 	}
-	append(&eq.worn, Worn{item, slots, keep})
+	append(&eq.worn, Worn{item, slots, keep, outfit})
 	if announce {append(&ws.equip_changes, Equip_Change{actor, item, true})}
 	return true
 }
@@ -107,7 +108,43 @@ pick_hand :: proc(eq: Equipment, choices: gamedb.Slots, hand: Maybe(gamedb.Slot)
 wear_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, gear: []gamedb.Content_Entry) {
 	if actor not_in ws.equipment {ws.equipment[actor] = {}}
 	eq := &ws.equipment[actor]
-	for e in gear {put_on(ws, db, eq, actor, e.item, nil, false, false)}
+	for e in gear {put_on(ws, db, eq, actor, e.item, nil, false, false, outfit = true)}
+}
+
+// outfit_items is the gear list of an actor's outfit: one a script set on the actor or its NPC_,
+// else its records'.
+outfit_items :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
+	record := record_of(ws, actor)
+	base := record
+	if r, ok := gamedb.ref_by_formid(db, record); ok {base = r.base}
+	for key in ([2]Form_ID{actor, base}) {
+		if o, ok := ws.outfits[key]; ok {return db.outfits[o]}
+	}
+	return gamedb.outfit_of(db, record, actor_pick(ws, db, actor))
+}
+
+// (hole sleep-outfits :tags (ai player) :sev gap) SetOutfit(abSleepOutfit = true) is ignored: nothing sleeps, so no actor changes into its sleep outfit (NPC_ SOFT is not read).
+// set_outfit dresses `actor` in `outfit`: the old outfit's gear is taken off and out of its
+// inventory, the new gear, rolled at its zone level, goes in and on. It stays through resets.
+set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {
+	eq := equipment(ws, db, actor)
+	for i := 0; i < len(eq.worn); {
+		w := eq.worn[i]
+		if !w.outfit {i += 1; continue}
+		ordered_remove(&eq.worn, i)
+		append(&ws.equip_changes, Equip_Change{actor, w.item, false})
+		inv_add(ws, actor, w.item, -1)
+		move_items(ws, {base = w.item, from = actor, count = 1})
+	}
+	ws.outfits[actor] = outfit
+	gear := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+	level := zone_level(ws, db, gamedb.zone_of(db, actor))
+	for item in db.outfits[outfit] {roll(ws, db, item, level, 1, &gear)}
+	for e in gear {
+		inv_add(ws, actor, e.item, e.count)
+		move_items(ws, {base = e.item, to = actor, count = e.count})
+		put_on(ws, db, eq, actor, e.item, nil, false, true, outfit = true)
+	}
 }
 
 @(private)

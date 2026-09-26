@@ -208,5 +208,5 @@ outfit_of :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> []Form_ID {
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	a, ok := db.actors[base]
 	if !ok {return nil}
-	return db.outfits[template_part(db, a, esm.ACBS_TEMPLATE_INVENTORY, pick).outfit]
+	return db.outfits[template_part(db, base, esm.ACBS_TEMPLATE_INVENTORY, pick).outfit]
 }

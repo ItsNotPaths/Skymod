@@ -105,3 +105,28 @@ test_actor_value_kinds :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 130)
 	testing.expect(t, !worldstate.av_set_cap(&ws, A, "SpeedMult", 500), "a static value has no cap")
 }
+
+// An actor's bounds: its own OBND, else its traits template's, else its race's, else human.
+@(test)
+test_actor_bounds :: proc(t: ^testing.T) {
+	RACE :: gamedb.Form_ID(0x10)
+	OWN :: gamedb.Form_ID(0x20)
+	TEMPLATED :: gamedb.Form_ID(0x21)
+	BARE :: gamedb.Form_ID(0x22)
+	OTHER :: gamedb.Form_ID(0x23)
+	box := [2][3]f32{{-10, -10, 0}, {10, 10, 50}}
+	race_box := [2][3]f32{{-5, -5, 0}, {5, 5, 20}}
+	db: gamedb.DB
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.race_bounds = make(map[gamedb.Form_ID][2][3]f32, context.temp_allocator)
+	db.actors[OWN] = {bounds = box}
+	db.actors[TEMPLATED] = {template = OWN, template_flags = esm.ACBS_TEMPLATE_TRAITS}
+	db.actors[BARE] = {race = RACE}
+	db.actors[OTHER] = {race = 0x11}
+	db.race_bounds[RACE] = race_box
+
+	testing.expect_value(t, gamedb.actor_bounds(&db, OWN), box)
+	testing.expect_value(t, gamedb.actor_bounds(&db, TEMPLATED), box)
+	testing.expect_value(t, gamedb.actor_bounds(&db, BARE), race_box)
+	testing.expect_value(t, gamedb.actor_bounds(&db, OTHER), gamedb.HUMAN_BOUNDS)
+}

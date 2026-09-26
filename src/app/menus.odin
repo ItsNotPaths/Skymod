@@ -13,7 +13,7 @@ import "../input"
 import "../script"
 import "../worldstate"
 
-// (hole inventory-screen :tags ui :sev gap) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons and Use for potions; no categories, icons, item card, 3D preview or drop.
+// (hole inventory-screen :tags ui :sev gap) the inventory is an ImGui placeholder, not a real menu: a name list with equip, drop and Use (potions) buttons; no categories, icons, item card or 3D preview.
 // (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: a flat spell list with hand buttons; no schools, effect text or favourites, and no way to equip a power or shout.
 // (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: Resume and Quit; no save and load lists, settings or help.
@@ -84,6 +84,8 @@ inventory_menu :: proc(g: ^Game) {
 	for item in by_name(g, worldstate.inv_items(ws, db, formid.PLAYER)) {
 		worn := worldstate.is_equipped(ws, db, formid.PLAYER, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s%s  x%d", "* " if worn else "", label(g, item), worldstate.inv_count(ws, db, formid.PLAYER, item)))
+		imgui.SameLine()
+		if imgui.SmallButton(fmt.ctprintf("Drop##%x", item)) {script.drop_object(&c, formid.PLAYER, item, 0, 1)}
 		if p, potion := gamedb.potion_of(db, item); potion && !p.poison {
 			imgui.SameLine()
 			if imgui.SmallButton(fmt.ctprintf("Use##%x", item)) {script.drink(&c, formid.PLAYER, item)}

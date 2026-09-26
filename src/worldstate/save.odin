@@ -82,6 +82,7 @@ Saved_Created :: struct {
 	pos:     [3]f32,
 	rot:     [3]f32,
 	scale:   f32,
+	count:   i32,
 }
 
 // Saved_Update is one form's OnUpdate registrations, or its OnUpdateGameTime ones when `game`.
@@ -193,6 +194,7 @@ Saved_Equip :: struct {
 	actor, item: Form_ID,
 	slots:       []string,
 	kept:        bool,
+	outfit:      bool,
 }
 Saved_Level_State :: struct {
 	actor: Form_ID,
@@ -241,6 +243,8 @@ Save_Body :: struct {
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
 	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
+	outfits:       []Saved_Alias, // alias = the actor or NPC_, form = its OTFT
+	carried:       []Saved_Alias, // alias = the item ref, form = the container holding it
 	zone_ranges:   []Saved_Range,
 	zone_listeners: []Form_ID,
 	equipment:     []Saved_Equip,
@@ -307,6 +311,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			pos     = c.pos,
 			rot     = c.rot,
 			scale   = c.scale,
+			count   = c.count,
 		}
 		j += 1
 	}
@@ -396,6 +401,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
 	picks := make([dynamic]Saved_Alias, 0, len(ws.actor_picks), context.temp_allocator)
 	for ref, npc in ws.actor_picks {append(&picks, Saved_Alias{ref, npc})}
+	outfits := make([dynamic]Saved_Alias, 0, len(ws.outfits), context.temp_allocator)
+	for actor, outfit in ws.outfits {append(&outfits, Saved_Alias{actor, outfit})}
+	carried := make([dynamic]Saved_Alias, 0, len(ws.carried), context.temp_allocator)
+	for ref, holder in ws.carried {append(&carried, Saved_Alias{ref, holder})}
 	ranges := make([dynamic]Saved_Range, 0, len(ws.zone_ranges), context.temp_allocator)
 	for zone, r in ws.zone_ranges {append(&ranges, Saved_Range{zone, r[0], r[1]})}
 	listeners := make([dynamic]Form_ID, 0, len(ws.zone_listeners), context.temp_allocator)
@@ -405,7 +414,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		for w in eq.worn {
 			names := make([dynamic]string, context.temp_allocator)
 			for s in w.slots {append(&names, reflect.enum_string(s))}
-			append(&equips, Saved_Equip{actor, w.item, names[:], w.kept})
+			append(&equips, Saved_Equip{actor, w.item, names[:], w.kept, w.outfit})
 		}
 	}
 	levels := make([dynamic]Saved_Level_State, 0, len(ws.levels), context.temp_allocator)
@@ -433,6 +442,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
 		actor_picks   = picks[:],
+		outfits       = outfits[:],
+		carried       = carried[:],
 		zone_ranges   = ranges[:],
 		zone_listeners = listeners[:],
 		equipment     = equips[:],
@@ -562,7 +573,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for c in body.created {
 		base, _ := rf(remap, have_remap, c.base)
 		cell, _ := rf(remap, have_remap, c.cell)
-		ws.created[c.form_id] = Created_Ref{base = base, cell = cell, pos = c.pos, rot = c.rot, scale = c.scale}
+		ws.created[c.form_id] = Created_Ref{base = base, cell = cell, pos = c.pos, rot = c.rot, scale = c.scale, count = c.count}
 		list, lok := &ws.created_by_cell[cell]
 		if !lok {
 			ws.created_by_cell[cell] = make([dynamic]Form_ID)
@@ -629,12 +640,22 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		for name in e.slots {
 			if s, ok := reflect.enum_from_name(gamedb.Slot, name); ok {slots += {s}}
 		}
-		if eq := &ws.equipment[actor]; iok && slots != {} {append(&eq.worn, Worn{item, slots, e.kept})}
+		if eq := &ws.equipment[actor]; iok && slots != {} {append(&eq.worn, Worn{item, slots, e.kept, e.outfit})}
 	}
 	for p in body.actor_picks {
 		ref, rok := rf(remap, have_remap, p.alias)
 		npc, nok := rf(remap, have_remap, p.form)
 		if rok && (nok || p.form == 0) {ws.actor_picks[ref] = npc}
+	}
+	for o in body.outfits {
+		actor, aok := rf(remap, have_remap, o.alias)
+		outfit, ook := rf(remap, have_remap, o.form)
+		if aok && ook {ws.outfits[actor] = outfit}
+	}
+	for r in body.carried {
+		ref, rok := rf(remap, have_remap, r.alias)
+		holder, hok := rf(remap, have_remap, r.form)
+		if rok && hok {ws.carried[ref] = holder}
 	}
 	for k in body.keyword_data {
 		location, lok := rf(remap, have_remap, k.key.location)
@@ -769,6 +790,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}
+	for o in body.outfits {add_slot(&seen, o.alias);add_slot(&seen, o.form)}
+	for r in body.carried {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.zone_ranges {add_slot(&seen, r.zone)}
 	for f in body.zone_listeners {add_slot(&seen, f)}
 	for e in body.equipment {add_slot(&seen, e.actor);add_slot(&seen, e.item)}

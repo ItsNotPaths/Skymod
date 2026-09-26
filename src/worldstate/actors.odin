@@ -17,6 +17,56 @@ inv_add :: proc(ws: ^World_State, owner, item: Form_ID, delta: i32) {
 	}
 }
 
+// ref_base is a record or created ref's base form, 0 for neither.
+ref_base :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
+	if cr, ok := ws.created[ref]; ok {return cr.base}
+	r, _ := gamedb.ref_by_formid(db, ref)
+	return r.base
+}
+
+// display_name is a form's name, an actor's through its templates.
+display_name :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> string {
+	if n := gamedb.name_of(db, form); n != "" {return n}
+	base := ref_base(ws, db, form)
+	return gamedb.actor_name(db, base if base != 0 else form, actor_pick(ws, db, form))
+}
+
+// stack_count is how many items a world item ref is: its XCNT, or a dropped stack's size.
+stack_count :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> i32 {
+	if cr, ok := ws.created[ref]; ok {return max(cr.count, 1)}
+	r, _ := gamedb.ref_by_formid(db, ref)
+	return max(r.count, 1)
+}
+
+// carry records where an item move leaves its refs (after the counts moved). A named ref goes with
+// the move, or is gone when the move has no destination. A move by base takes the source's carried
+// refs of that base along while they hold more than the source has left.
+carry :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) {
+	if m.ref != 0 {
+		if m.to != 0 {ws.carried[m.ref] = m.to} else {delete_key(&ws.carried, m.ref)}
+		return
+	}
+	if m.from == 0 {return}
+	refs := carried_refs(ws, db, m.from, m.base)
+	total: i32
+	for r in refs {total += stack_count(ws, db, r)}
+	left := inv_count(ws, db, m.from, m.base)
+	for i := len(refs) - 1; i >= 0 && total > left; i -= 1 {
+		total -= stack_count(ws, db, refs[i])
+		if m.to != 0 {ws.carried[refs[i]] = m.to} else {delete_key(&ws.carried, refs[i])}
+	}
+}
+
+// carried_refs lists the refs of `base` that `holder` carries, in form order.
+carried_refs :: proc(ws: ^World_State, db: ^gamedb.DB, holder, base: Form_ID) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for ref, h in ws.carried {
+		if h == holder && ref_base(ws, db, ref) == base {append(&out, ref)}
+	}
+	slice.sort(out[:])
+	return out[:]
+}
+
 // inv_delta returns owner's delta of item from its starting contents.
 inv_delta :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	if inner, ok := ws.inventories[owner]; ok {

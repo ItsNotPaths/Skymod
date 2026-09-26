@@ -117,6 +117,41 @@ test_outfit_worn :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, gamedb.Form_ID(Gear.Hood)), "a reset puts the outfit back")
 }
 
+// SetOutfit takes the old outfit's gear off and out of the pack, puts the new gear in and on, and
+// the change survives a save and a reset.
+@(test)
+test_set_outfit :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0x200)
+	OLD :: gamedb.Form_ID(0x201)
+	NEW :: gamedb.Form_ID(0x202)
+	hood, helmet, dagger := gamedb.Form_ID(Gear.Hood), gamedb.Form_ID(Gear.Helmet), gamedb.Form_ID(Gear.Dagger)
+	db: gamedb.DB
+	gear_db(&db)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[NPC] = {outfit = OLD}
+	db.outfits = make(map[gamedb.Form_ID][]gamedb.Form_ID, context.temp_allocator)
+	db.outfits[OLD] = {hood}
+	db.outfits[NEW] = {helmet}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.equip(&ws, &db, NPC, dagger) // not outfit gear: stays
+	worldstate.set_outfit(&ws, &db, NPC, NEW)
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, helmet), "new gear worn")
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, dagger), "other gear kept")
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, NPC, hood), 0)
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, NPC, helmet), 1)
+
+	path := "test_set_outfit.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
+	_, ok := worldstate.load_from_file(&ws, path)
+	testing.expect(t, ok, "load")
+	worldstate.drop_inventory(&ws, NPC)
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, helmet) && !worldstate.is_equipped(&ws, &db, NPC, hood), "a reset keeps the new outfit")
+}
+
 // No two biped bits share an engine slot, so every plugin item keeps exactly its Skyrim conflicts.
 @(test)
 test_biped_slots_disjoint :: proc(t: ^testing.T) {

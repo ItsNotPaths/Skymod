@@ -48,6 +48,7 @@ Created_Ref :: struct {
 	pos:   [3]f32,
 	rot:   [3]f32, // XYZ euler radians
 	scale: f32,
+	count: i32, // an item stack's size (DropObject); 0 = 1
 }
 
 // create_ref mints a runtime ref in the 0xFF space (no ESM baseline), stores its full placement, and

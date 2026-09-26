@@ -204,9 +204,9 @@ spell_sources :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2]Spell_Sou
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	npc, ok := db.actors[base]
 	if !ok {return {}}
-	race_id := template_part(db, npc, esm.ACBS_TEMPLATE_TRAITS, pick).race
+	race_id := template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick).race
 	race, _ := race_of(db, race_id)
-	return {{race_id, race.spells}, {base, template_part(db, npc, esm.ACBS_TEMPLATE_SPELLS, pick).spells}}
+	return {{race_id, race.spells}, {base, template_part(db, base, esm.ACBS_TEMPLATE_SPELLS, pick).spells}}
 }
 
 // class_of returns a class's level-up weighting (ok=false when the form isn't an indexed CLAS).

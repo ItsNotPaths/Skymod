@@ -30,6 +30,7 @@ Ref :: struct {
 	pos:          [3]f32,
 	rot:          [3]f32,
 	scale:        f32,
+	count:        i32, // XCNT: how many items this ref is (1 without)
 	teleport:     esm.Teleport,
 	has_tp:       bool,
 	disabled:     bool, // REFR "Initially Disabled" flag — not placed in the world
@@ -175,6 +176,7 @@ DB :: struct {
 	messages:      map[Form_ID]Message, // MESG formID -> its on-screen text and buttons (owned strings)
 	perks:         map[Form_ID]Perk, // PERK formID -> its identity and rank link (owned strings)
 	perk_trees:    map[Form_ID][]Perk_Node, // skill AVIF formID -> its constellation nodes (owned)
+	race_bounds:   map[Form_ID][2][3]f32, // race -> the first nonzero OBND among its NPC_
 	recipes:       map[Form_ID]Recipe, // COBJ formID -> its crafting recipe (owned ingredient list)
 	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
@@ -284,6 +286,7 @@ Actor_Base :: struct {
 	skills:        [esm.NPC_SKILLS]u8, // DNAM 18 base skill values
 	skill_offsets: [esm.NPC_SKILLS]u8, // DNAM 18 skill offsets
 	race:          Form_ID, // RNAM
+	bounds:        [2][3]f32, // OBND; all zero on many (the CK left it unset)
 	class:         Form_ID, // CNAM
 	voice:         Form_ID, // VTCK
 	outfit:        Form_ID, // DOFT default outfit
@@ -677,6 +680,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		messages      = make(map[Form_ID]Message, 1024, allocator),
 		perks         = make(map[Form_ID]Perk, 512, allocator),
 		perk_trees    = make(map[Form_ID][]Perk_Node, 32, allocator),
+		race_bounds   = make(map[Form_ID][2][3]f32, 128, allocator),
 		recipes       = make(map[Form_ID]Recipe, 1024, allocator),
 		recipes_by_bench = make(map[Form_ID][dynamic]Form_ID, 16, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
@@ -760,7 +764,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	db.actor_ref_index = nil
 	index_alias_targets(&db)
 	// No plugin holds the player ref: the engine makes it, in no cell. Its placement is its Moved delta.
-	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, persistent = true}
+	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, count = 1, persistent = true}
 	log.infof(
 		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
 		len(db.base_models),
@@ -832,6 +836,7 @@ destroy :: proc(db: ^DB) {
 		free_perk_tree(db, nodes)
 	}
 	delete(db.perk_trees)
+	delete(db.race_bounds)
 	for _, r in db.recipes {
 		free_recipe(db, r)
 	}
@@ -1199,7 +1204,7 @@ contents_of :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> ([]Content_Ent
 	if c, ok := db.containers[base]; ok {return c, true}
 	a, ok := db.actors[base]
 	if !ok {return nil, false}
-	return template_part(db, a, esm.ACBS_TEMPLATE_INVENTORY, pick).inventory, true
+	return template_part(db, base, esm.ACBS_TEMPLATE_INVENTORY, pick).inventory, true
 }
 
 // form_list_of returns an FLST's ordered member forms (remapped to global space). The slice is
@@ -1715,6 +1720,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		pos          = p.pos,
 		rot          = p.rot,
 		scale        = p.scale,
+		count        = p.count,
 		// "Initially Disabled" OR a DELETED override (a plugin removing a master's ref):
 		// either way the ref isn't placed. Treating delete as disable keeps the slot so the
 		// override replaces in place rather than leaving a hole.
@@ -2359,6 +2365,10 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		a.base_stamina = attr.stamina
 	}
 	if r, rok := esm.subrecord_formid(fl, "RNAM"); rok {a.race = esm.remap_form(fm, r)}
+	if b, bok := esm.object_box(fl); bok && b != {} {
+		a.bounds = b
+		if a.race not_in db.race_bounds {db.race_bounds[a.race] = b}
+	}
 	if c, cok := esm.subrecord_formid(fl, "CNAM"); cok {a.class = esm.remap_form(fm, c)}
 	if v, vok := esm.subrecord_formid(fl, "VTCK"); vok {a.voice = esm.remap_form(fm, v)}
 	if o, ook := esm.subrecord_formid(fl, "DOFT"); ook {a.outfit = esm.remap_form(fm, o)}
@@ -2435,7 +2445,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
-	model := esm.model_path(fl)
+	model := esm.armor_ground_model(fl) if rec.type == "ARMO" else esm.model_path(fl)
 	if model != "" {
 		if old, had := db.base_models[rec.form_id]; had {
 			delete(old, db.allocator) // override: free the previous clone

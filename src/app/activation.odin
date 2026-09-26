@@ -101,6 +101,10 @@ resolve_activation :: proc(g: ^Game) -> Activation_Target {
 	}
 	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0}) // {0,0} = screen centre (the crosshair)
 	inst, dist, ok := world.probe_ray(scene, ro, rd)
+	if actor, adist, aok := pick_actor(g, ro, rd); aok && adist <= ACTIVATE_RANGE && (!ok || adist < dist) {
+		name := worldstate.display_name(&g.ws, &g.db, actor)
+		return {kind = .Actor, name = name, form = actor, present = name != ""}
+	}
 	if !ok || dist > ACTIVATE_RANGE || inst.disabled {
 		return {}
 	}

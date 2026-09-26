@@ -125,8 +125,8 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) 
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	npc, ok := db.actors[base]
 	if !ok {return implicit_base(av)}
-	stats := template_part(db, npc, esm.ACBS_TEMPLATE_STATS, pick)
-	race, _ := race_of(db, template_part(db, npc, esm.ACBS_TEMPLATE_TRAITS, pick).race)
+	stats := template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick)
+	race, _ := race_of(db, template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick).race)
 	switch av {
 	case "Health":        return race.info.health + f32(stats.health_off) + f32(attribute_gain(db, stats, 0))
 	case "Magicka":       return race.info.magicka + f32(stats.magicka_off) + f32(attribute_gain(db, stats, 1))
@@ -140,7 +140,7 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) 
 	case "UnarmedDamage": return race.info.unarmed_damage
 	}
 	for name, i in AV_NAMES[:6] {
-		if name == av {return f32(template_part(db, npc, esm.ACBS_TEMPLATE_AI_DATA, pick).ai[i])}
+		if name == av {return f32(template_part(db, base, esm.ACBS_TEMPLATE_AI_DATA, pick).ai[i])}
 	}
 	for name, i in AV_NAMES[6:24] {
 		if name == av {return f32(skill_base(db, stats, race, i))}
@@ -162,15 +162,44 @@ implicit_base :: proc(av: string) -> f32 {
 // template_part is the NPC_ that supplies the part `flag` names: the actor itself, or down its TPLT
 // chain while each link has the flag. At an LVLN the chain goes on from `pick`, the NPC_ it rolled
 // (worldstate.actor_pick), and ends there when there is none.
-template_part :: proc(db: ^DB, npc: Actor_Base, flag: u16, pick: Form_ID = 0) -> Actor_Base {
-	a, pick := npc, pick
-	for hops := 0; a.template_flags & flag != 0 && hops < 8; hops += 1 {
-		next, ok := db.actors[a.template]
-		if !ok {next, ok = db.actors[pick]; pick = 0}
-		if !ok {break}
-		a = next
+template_part :: proc(db: ^DB, base: Form_ID, flag: u16, pick: Form_ID = 0) -> Actor_Base {
+	return db.actors[template_form(db, base, flag, pick)]
+}
+
+// template_form is the NPC_ form template_part reads.
+template_form :: proc(db: ^DB, base: Form_ID, flag: u16, pick: Form_ID = 0) -> Form_ID {
+	form, pick := base, pick
+	for hops := 0; hops < 8; hops += 1 {
+		a, ok := db.actors[form]
+		if !ok || a.template_flags & flag == 0 {break}
+		next := a.template
+		if next not_in db.actors {next, pick = pick, 0}
+		if next not_in db.actors {break}
+		form = next
 	}
-	return a
+	return form
+}
+
+// actor_name is an NPC_'s display name: its own FULL, or its base-data template's (2,866 vanilla
+// NPC_ take theirs that way), `pick` standing in for a leveled one.
+actor_name :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> string {
+	return db.names[template_form(db, base, esm.ACBS_TEMPLATE_BASE_DATA, pick)]
+}
+
+// HUMAN_BOUNDS is the player's OBND, for an actor whose NPC_ and race carry none.
+HUMAN_BOUNDS :: [2][3]f32{{-22, -14, 0}, {22, 14, 128}}
+
+// (hole actor-bounds-missing :tags (player records) :sev gap) 15 vanilla races have no NPC_ with a nonzero OBND (hare, chicken, bear, troll, chaurus, frost atronach, the vampire races...), so they get human bounds; their skeleton or body mesh bounds would give the real size (build/out/wsP/bodies/obnd_se.txt).
+// actor_bounds is an actor's OBND box at scale 1: its NPC_'s (through the traits template, `pick`
+// standing in for a leveled one), else the first nonzero one of its race, else HUMAN_BOUNDS.
+actor_bounds :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2][3]f32 {
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
+	npc, ok := db.actors[base]
+	if !ok {return HUMAN_BOUNDS}
+	part := template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick)
+	if part.bounds != {} {return part.bounds}
+	return db.race_bounds[part.race] or_else HUMAN_BOUNDS
 }
 
 // leveled_template is the LVLN an NPC_'s template chain reaches (0 = none).
@@ -190,7 +219,7 @@ record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> i32 {
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	npc, ok := db.actors[base]
 	if !ok {return 1}
-	return i32(actor_level(db, template_part(db, npc, esm.ACBS_TEMPLATE_STATS, pick)))
+	return i32(actor_level(db, template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick)))
 }
 
 // (hole pc-level-mult :tags (player records) :sev gap) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and this reads the player's record level, not worldstate.actor_level. Settle by disassembly (TESActorBaseData::GetLevel, RELOCATION_ID 14262 SE / 14384 AE).

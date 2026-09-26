@@ -333,7 +333,8 @@ frame_scene_select :: proc(g: ^Game) {
 		if g.char_ok {physics.character_destroy(&g.character);g.char_ok = false}
 		actor_bodies_clear(g)
 		if want_phys != nil {
-			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, PLAYER_RADIUS, PLAYER_HALF_H)
+			player_capsule := actor_capsule(g, formid.PLAYER)
+			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, player_capsule.radius, player_capsule.half_h)
 			if !g.char_ok {g.noclip = true}
 		}
 		g.cur_phys = want_phys
@@ -688,8 +689,8 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	g.fr.active_scene.has_sel = false
 	g.insp.has_sel = true
 	tools.inspector_set_model_strings(&g.insp, "", "")
-	g.insp.sel_display = gamedb.name_of(&g.db, actor)
-	g.insp.sel_base = ref_base(g, actor)
+	g.insp.sel_display = worldstate.display_name(&g.ws, &g.db, actor)
+	g.insp.sel_base = worldstate.ref_base(&g.ws, &g.db, actor)
 	g.insp.sel_pos = script.ref_pos(&c, actor)
 	g.insp.sel_rot = {}
 	g.insp.sel_has_door = false

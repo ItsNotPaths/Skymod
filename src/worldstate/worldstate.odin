@@ -46,6 +46,8 @@ Overlay :: struct {
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
 	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
+	outfits:         map[Form_ID]Form_ID,          // actor or NPC_ -> the OTFT a script set (SetOutfit), over its records'
+	carried:         map[Form_ID]Form_ID,          // item ref taken into a container -> that container
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
 	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
@@ -189,6 +191,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
+	o.outfits = make(map[Form_ID]Form_ID)
+	o.carried = make(map[Form_ID]Form_ID)
 	init_formulas(o)
 	init_level_choices(o)
 	o.levels = make(map[Form_ID]Level_State)
@@ -254,6 +258,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.rolled)
 	delete(o.zone_levels)
 	delete(o.actor_picks)
+	delete(o.outfits)
+	delete(o.carried)
 	for &f in o.formulas {formula.destroy(&f)}
 	free_choices(&o.level_choices)
 	delete(o.levels)

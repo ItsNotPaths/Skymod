@@ -95,7 +95,7 @@ inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.
 	if rolled, ok := ws.rolled[owner]; ok {return rolled[:]}
 	record, pick := record_of(ws, owner), actor_pick(ws, db, owner)
 	start, _ := gamedb.contents_of(db, record, pick)
-	outfit := gamedb.outfit_of(db, record, pick)
+	outfit := outfit_items(ws, db, owner)
 	has_leveled := false
 	for e in start {
 		if _, ok := gamedb.leveled_list_of(db, e.item); ok {has_leveled = true}

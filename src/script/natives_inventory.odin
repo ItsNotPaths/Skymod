@@ -2,9 +2,10 @@ package script
 
 // Inventory natives (docs/scripting-natives.md §B). `self` is the container/actor; items are keyed by
 // their base-object FormID. A count is the starting contents (gamedb) plus the overlay's delta.
-// Not scene geometry → no mark_scene_dirty (a dropped world item would be, but DropObject is deferred).
+// Not scene geometry → no mark_scene_dirty, except a dropped world item.
 
 import "../gamedb"
+import smath "../math"
 import "../worldstate"
 import "../formid"
 
@@ -19,6 +20,7 @@ register_inventory :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "RemoveInventoryEventFilter", n_remove_inventory_event_filter)
 	register(reg, "ObjectReference", "RemoveAllInventoryEventFilters", n_remove_all_inventory_event_filters)
 	register(reg, "Courier", "RemoveRef", n_courier_remove_ref)
+	register(reg, "ObjectReference", "DropObject", n_drop_object)
 }
 
 // Courier.RemoveRef(courier, container, item, toPlayer, countGlobal): the courier's bag gives an
@@ -106,7 +108,40 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 		}
 	}
 	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
+	worldstate.carry(c.ws, c.db, m)
 	worldstate.move_items(c.ws, m)
+}
+
+// DropObject(akObject, aiCount=1): the items leave `self` into the world at its feet. A ref it
+// carries of that item drops whole, as itself; otherwise a new ref holds the count.
+n_drop_object :: proc(c: ^Call, args: []Value) -> Value {
+	base, ref := item_of(c, arg_form(args, 0))
+	if dropped := drop_object(c, c.self, base, ref, max(1, arg_i32(args, 1, 1))); dropped != 0 {return dropped}
+	return nil
+}
+
+// (hole drop-placement :tags (physics player) :sev polish) a dropped item appears 64 units above the dropper's feet, at its centre; it should land on a 1 m (~70 unit) halo around the dropper, each drop at the next angle round it, so items do not stack in one spot.
+drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID {
+	ref := ref
+	if ref == 0 || c.ws.carried[ref] != owner {
+		refs := worldstate.carried_refs(c.ws, c.db, owner, base)
+		ref = refs[0] if len(refs) > 0 else 0
+	}
+	count := worldstate.stack_count(c.ws, c.db, ref) if ref != 0 else count
+	count = min(count, worldstate.inv_count(c.ws, c.db, owner, base))
+	if count <= 0 {return 0}
+	cell := ref_cell(c, owner)
+	pos := ref_pos(c, owner) + {0, 0, 64}
+	if ref != 0 {
+		worldstate.set_moved(c.ws, ref, cell, smath.trs(pos, {}, 1), pos)
+		worldstate.set_disabled(c.ws, ref, cell, false)
+	} else {
+		ref = worldstate.create_ref(c.ws, base, cell, pos, {}, 1)
+		(&c.ws.created[ref]).count = count
+	}
+	worldstate.mark_scene_dirty(c.ws, ref)
+	move_items(c, {base = base, ref = ref, from = owner, count = count})
+	return ref
 }
 
 // item_of splits an item argument into its base object and, when the argument is a reference, the ref.
