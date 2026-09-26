@@ -858,6 +858,11 @@ test_courier_waits_for_dialogue :: proc(t: ^testing.T) {
 	ws.talking = 0
 	script.tick_courier(&c)
 	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(1))
+	e := ws.story_events[len(ws.story_events) - 1]
+	testing.expect(t, e.type == worldstate.STORY_ADD_ITEM && e.value1 == 0 && e.ref2 == BAG, "a script's give is AIPL, acquire type none")
+	script.move_items(&c, {base = LETTER, to = formid.PLAYER, count = 1, via = .World})
+	e = ws.story_events[len(ws.story_events) - 1]
+	testing.expect_value(t, e.value1, i32(4)) // picked up from the world
 }
 
 // A placed actor is in its NPC_'s factions (the ref, not only the base, answers).

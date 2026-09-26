@@ -131,6 +131,21 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
 	worldstate.carry(c.ws, c.db, m)
 	worldstate.move_items(c.ws, m)
+	queue_item_event(c, m)
+}
+
+// (hole item-event-owner :tags (quest player) :sev polish :needs (container-screen)) the player's AIPL and REMP story events name no owner and never say Steal, Buy or Pickpocket: nothing owns items and nothing trades or pickpockets.
+// queue_item_event makes items the player gains or loses a story event (AIPL / REMP):
+// the container, the player's location, the item, how.
+@(private = "file")
+queue_item_event :: proc(c: ^Call, m: worldstate.Item_Move) {
+	loc := worldstate.ref_location(c.ws, c.db, formid.PLAYER)
+	switch formid.PLAYER {
+	case m.to:
+		worldstate.queue_story_event(c.ws, {type = worldstate.STORY_ADD_ITEM, ref2 = m.from, location1 = loc, object = m.base, value1 = i32(m.via)})
+	case m.from:
+		worldstate.queue_story_event(c.ws, {type = worldstate.STORY_REMOVE_ITEM, ref2 = m.ref, location1 = loc, object = m.base, value1 = i32(m.via)})
+	}
 }
 
 // DropObject(akObject, aiCount=1): the items leave `self` into the world beside it. A ref it
@@ -167,7 +182,7 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 		(&c.ws.created[ref]).count = count
 	}
 	worldstate.mark_scene_dirty(c.ws, ref)
-	move_items(c, {base = base, ref = ref, from = owner, count = count})
+	move_items(c, {base = base, ref = ref, from = owner, count = count, via = .World})
 	return ref
 }
 

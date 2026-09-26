@@ -44,6 +44,21 @@ Script_Var :: struct {
 Item_Move :: struct {
 	base, ref, from, to: Form_ID,
 	count:               i32,
+	via:                 Item_Via,
+}
+
+// Item_Via is how the player gains or loses items, as the AIPL and REMP story events carry it:
+// the engine's AQUIRE_TYPE (CommonLibSSE BGSAddToPlayerInventoryEvent.h), which the vanilla nodes
+// test (WIPlayerAddItemPurchaseNode V1 == 2, WIAddItem01 == 4 "just lying around", WIAddItem02 == 5
+// "sifting through trash"). A removal uses the same values: WIRemoveItem01 == 4 is a dropped weapon.
+Item_Via :: enum u32 {
+	None,
+	Steal,
+	Buy,
+	Pickpocket,
+	World,
+	Container,
+	Dead_Body,
 }
 
 // register_update is RegisterFor[Single]Update[GameTime] on `timers` (ws.updates or ws.game_updates):
@@ -122,17 +137,9 @@ anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []
 	return out[:]
 }
 
-// (hole item-acquire-type :tags (quest player) :sev polish) the player's AIPL and REMP story events carry acquire or remove type 0 (no source names the values: steal, buy, pickup...), no owner and no location, so WIAddItem nodes that test them do not start.
-// move_items records items moving for the next tick's inventory events. Items the player gains or
-// loses are story events (AIPL / REMP).
+// move_items records items moving for the next tick's inventory events.
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)
-	switch formid.PLAYER {
-	case m.to:
-		queue_story_event(ws, {type = STORY_ADD_ITEM, ref2 = m.from, object = m.base})
-	case m.from:
-		queue_story_event(ws, {type = STORY_REMOVE_ITEM, ref1 = m.to, ref2 = m.ref, object = m.base})
-	}
 }
 
 // Story_Event is one event for the story manager: its SMEN type and its data, which conditions,

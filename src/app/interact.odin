@@ -222,7 +222,7 @@ grab_update :: proc(g: ^Game) {
 // OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world, carried.
 take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.ws, db = &g.db}
-	script.move_items(&c, {base = base, ref = form, to = by, count = worldstate.stack_count(&g.ws, &g.db, form)})
+	script.move_items(&c, {base = base, ref = form, to = by, count = worldstate.stack_count(&g.ws, &g.db, form), via = .World})
 	worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true)
 	worldstate.mark_scene_dirty(&g.ws, form)
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}

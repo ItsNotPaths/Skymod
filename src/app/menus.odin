@@ -184,12 +184,13 @@ skills_menu :: proc(g: ^Game) {
 container_menu :: proc(g: ^Game) {
 	c := script.Call{ws = &g.ws, db = &g.db}
 	box := g.menu_target
+	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.ws, box) else .Container
 	imgui.TextUnformatted(fmt.ctprintf("%s", label(g, box)))
 	for item in by_name(g, worldstate.inv_items(&g.ws, &g.db, box)) {
 		n := worldstate.inv_count(&g.ws, &g.db, box, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
 		imgui.SameLine()
-		if imgui.SmallButton(fmt.ctprintf("Take##%x", item)) {script.move_items(&c, {base = item, from = box, to = formid.PLAYER, count = n})}
+		if imgui.SmallButton(fmt.ctprintf("Take##%x", item)) {script.move_items(&c, {base = item, from = box, to = formid.PLAYER, count = n, via = via})}
 	}
 	imgui.Separator()
 	imgui.TextUnformatted("Carried")
@@ -198,7 +199,7 @@ container_menu :: proc(g: ^Game) {
 		n := worldstate.inv_count(&g.ws, &g.db, formid.PLAYER, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
 		imgui.SameLine()
-		if imgui.SmallButton(fmt.ctprintf("Store##%x", item)) {script.move_items(&c, {base = item, from = formid.PLAYER, to = box, count = n})}
+		if imgui.SmallButton(fmt.ctprintf("Store##%x", item)) {script.move_items(&c, {base = item, from = formid.PLAYER, to = box, count = n, via = via})}
 	}
 }
 
