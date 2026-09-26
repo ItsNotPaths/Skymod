@@ -7,8 +7,10 @@ import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import imgui "../../vendor/odin-imgui"
+import "../ai"
 import "../formid"
 import "../gamedb"
+import "../nav"
 import smath "../math"
 import "../physics"
 import "../render"
@@ -56,16 +58,22 @@ tick_actor_bodies :: proc(g: ^Game) {
 			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen)} // moved in by a script
 		}
 	}
+	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
+	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
+	nav.rebuild(&g.agents.mesh, &g.db, cells[:])
+	// (hole ai-agent :tags ai :sev blocker :needs (package-tree mover proc-travel proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed. Also: a capsule's walk is never written back to its ref (Moved delta), so scripts, saves and GetDistance see the placed spot.
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {
-			physics.character_move(phys, &b.char, {}, false, TICK_DT)
+			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), TICK_DT)
+			physics.character_move(phys, &b.char, vel, false, TICK_DT)
 		} else {
 			physics.character_destroy(&b.char)
 			append(&gone, form)
 		}
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
+	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen)
 }
 
 @(private = "file")
@@ -83,7 +91,9 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 	} else if ok {
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
-	if ch, ok := physics.character_create(phys, pos, capsule.radius, capsule.half_h, u64(form)); ok {
+	start := pos
+	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form); ok {start = p}
+	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
 	} else {
 		delete_key(&g.actor_bodies, form)
