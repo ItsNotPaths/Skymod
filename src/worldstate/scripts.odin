@@ -120,9 +120,25 @@ anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []
 	return out[:]
 }
 
+// (hole story-item-events :tags (quest player) :sev polish :needs (story-manager)) the player gaining or losing items queues no AIPL / REMP story event (WIAddItem, WIRemoveItem, C00PlayerTheftPoke).
 // move_items records items moving for the next tick's inventory events.
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)
+}
+
+// Story_Event is one event for the story manager: its SMEN type ("SCPT", "CLOC", "KILL"...), the
+// keyword of a script event, and the event data its conditions and From_Event aliases read.
+Story_Event :: struct {
+	type:           string,
+	keyword:        Form_ID,
+	location:       Form_ID,
+	ref1, ref2:     Form_ID,
+	value1, value2: i32,
+}
+
+// queue_story_event keeps an engine event for the next tick's story manager.
+queue_story_event :: proc(ws: ^World_State, e: Story_Event) {
+	append(&ws.story_events, e)
 }
 
 // add_item_filter is AddInventoryEventFilter: filters stack.

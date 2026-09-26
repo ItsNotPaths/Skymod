@@ -7,6 +7,7 @@ package script
 import "../gamedb"
 import "../worldstate"
 
+// (hole story-cast-event :tags (quest magic) :sev polish :needs (story-manager)) a cast queues no CAST story event (MG01ShoutUpdate, WICastMagic).
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
 cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID) -> bool {

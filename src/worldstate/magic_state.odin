@@ -9,6 +9,7 @@ WORD_UNLOCKED :: 2
 
 // teach_word / unlock_word are Game.TeachWord / Game.UnlockWord: taught is not unlocked.
 teach_word :: proc(ws: ^World_State, actor, word: Form_ID) {delta_upsert(&ws.words, actor)[word] |= WORD_TAUGHT}
+// (hole story-voice-power :tags (quest magic) :sev polish :needs (story-manager)) unlocking a word queues no NVPE story event (WINewVoicePower01).
 unlock_word :: proc(ws: ^World_State, actor, word: Form_ID) {delta_upsert(&ws.words, actor)[word] |= WORD_UNLOCKED}
 
 word_taught :: proc(ws: ^World_State, actor, word: Form_ID) -> bool {return word_bits(ws, actor, word) & WORD_TAUGHT != 0}

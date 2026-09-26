@@ -112,6 +112,7 @@ Runtime :: struct {
 	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
+	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
@@ -149,6 +150,7 @@ init :: proc(ws: ^World_State) {
 	ws.zone_level_sets = make([dynamic]Form_ID)
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
+	ws.story_events = make([dynamic]Story_Event)
 	ws.effect_classes = make(map[string]Effect_Class)
 }
 
@@ -167,6 +169,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.equip_changes)
 	for l in ws.level_ups {delete(l.choice)}
 	delete(ws.level_ups)
+	delete(ws.story_events)
 	for k, &c in ws.effect_classes {
 		delete(k)
 		free_effect_class(&c)
@@ -325,6 +328,7 @@ get_global :: proc(ws: ^World_State, id: Form_ID) -> (f32, bool) {
 	v, ok := ws.globals[id]
 	return v, ok
 }
+
 
 // add_to_list is FormList.AddForm: a form already added stays once.
 add_to_list :: proc(ws: ^World_State, list, form: Form_ID) {

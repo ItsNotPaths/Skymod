@@ -28,6 +28,7 @@ transitions_destroy :: proc(t: ^Transitions) {
 	delete(t.persistent)
 }
 
+// (hole story-change-location :tags (quest world) :sev blocker :needs (story-manager)) the player moving to another location queues no CLOC story event (135 SMQN, the radiant quests).
 // tick_transitions compares `now`, the cells attached this tick, with ws.attached and queues the
 // events. A cell that detaches: OnUnload for its loaded refs, then OnCellDetach. A cell that stays:
 // OnLoad / OnUnload for refs a script enabled or disabled. A cell that attaches: OnCellAttach for

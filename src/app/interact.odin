@@ -33,6 +33,7 @@ import "../formid"
 // (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
 // (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
 // (hole dialogue-system :tags (dialogue quest) :sev blocker :needs (dialogue-records condition-functions)) activating an actor logs a line: no greeting, no topic list, no responses or their script fragments. The first cut is an ImGui placeholder with subtitles (the real screen is dialogue-screen, Workstream U).
+// (hole story-dialogue-events :tags (quest dialogue) :sev polish :needs (story-manager dialogue-system)) greetings and persuasion queue no AHEL / FLAT story events (CWDialogueSoldiersHellos, DialogueGenericDogHellos).
 // (hole dialogue-voice :tags (dialogue audio) :sev gap :needs (dialogue-system audio-output)) responses would show as text only: no voice file plays and nothing waits for a line to finish.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap

@@ -8,13 +8,13 @@ package esm
 
 // Records the base game ships that nothing here decodes into their content.
 //
-// (hole dialogue-records :tags (records quest) :sev blocker) DIAL and INFO are never indexed (only their script fragments decode): no topics, responses or conditions. 15,037 DIAL and 31,465 INFO in Skyrim.esm.
+// (hole dialogue-records :tags (records quest) :sev blocker) DIAL and INFO are never indexed (only their script fragments decode): no topics, branches, responses or conditions. 15,037 DIAL, 3,061 DLBR and 31,465 INFO in Skyrim.esm.
 // (hole story-records :tags (records quest) :sev blocker) SMBN, SMQN and SMEN are never decoded: the story manager tree, its node conditions and the quests it starts are unknown.
 // (hole package-records :tags records :sev blocker) PACK bodies are never decoded — an NPC_'s PKID list resolves to empty Package forms, so an actor has no behaviour to run.
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
-// (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.
+// (hole scene-records :tags (records quest) :sev blocker) SCEN is never decoded — no scripted scene can run.
 // (hole relationship-records :tags records :sev gap) RELA is never decoded — relationship rank has no source, so disposition checks read a default.
 // (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
 

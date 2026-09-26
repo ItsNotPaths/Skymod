@@ -206,6 +206,14 @@ tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.level_ups)
 }
 
+// tick_story_events runs the engine's story events through the story manager, in the order they
+// happened.
+tick_story_events :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	cc := vm.ctx
+	for e in ws.story_events {script.story_event(&cc, e)}
+	clear(&ws.story_events)
+}
+
 // tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form
 // in form order.
 tick_zone_levels :: proc(vm: ^VM, ws: ^worldstate.World_State) {
@@ -260,6 +268,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)
+	tick_story_events(vm, ws)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.

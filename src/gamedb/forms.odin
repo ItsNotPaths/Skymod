@@ -599,6 +599,7 @@ index_alias_targets :: proc(db: ^DB) {
 // index_location decodes an LCTN: its display name, the location that contains it (PNAM), its
 // keywords, and its map-marker tint. The parent link is the tree Location.IsChild walks; the
 // LCSR/LCEC/LCID ref+cell membership lists are the quest system's business and stay undecoded.
+// (hole location-ref-types :tags (records quest) :sev gap) LCTN ref types (LCSR/ACSR...) and location keyword data are undecoded, so HasRefType, GetIsEditorLocAlias, HasSameEditorLocAsRefAlias and GetKeywordDataForLocation (2,040 quest and dialogue conditions) cannot answer.
 @(private)
 index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)

@@ -8,7 +8,8 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole alias-fills :tags (script quest) :sev gap :needs (condition-functions story-manager)) only Forced, Unique_Actor and External fills resolve: Create_Ref is not wired to worldstate.create_ref, From_List is not handled, Matching_Ref needs conditions and From_Event a story manager.
+// (hole alias-fills :tags (script quest) :sev gap :needs (condition-functions)) only Forced, Unique_Actor and External fills resolve: Create_Ref is not wired to worldstate.create_ref, From_List is not handled, Matching_Ref needs conditions.
+// (hole alias-event-fills :tags (script quest) :sev gap :needs (story-manager)) From_Event aliases (ALFE, 2,065) never fill: nothing passes the event that started the quest.
 // (hole location-alias-fills :tags script :sev gap) location aliases never fill at quest start: ALFL is not decoded, and ALFA on a location alias is read as a ref Matching_Ref and left empty.
 
 register_alias :: proc(reg: ^Registry) {
