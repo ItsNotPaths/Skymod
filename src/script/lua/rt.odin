@@ -41,7 +41,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__actor_value", rt_actor_value},
 		{"__formula", rt_formula},
 		{"__level_up_choice", rt_level_up_choice},
-		{"__effect_terms", rt_effect_terms},
+		{"__effect_class", rt_effect_class},
 		{"__seed_spell", rt_seed_spell},
 	}
 	for h in hooks {
@@ -110,35 +110,46 @@ rt_seed_spell :: proc "c" (L: ^lua.State) -> c.int {
 	return 0
 }
 
-// __effect_terms(class, {AV = {capacity = "formula", amount = "formula"}}) hands a class's __effect
-// table to the engine when the class loads.
+// __effect_class(class, __effect, claims, pure) hands a class's __effect table to the engine when
+// the class loads: {AV or slot = {capacity = "formula", amount = "formula"}, caster = {...}}.
 @(private)
-rt_effect_terms :: proc "c" (L: ^lua.State) -> c.int {
+rt_effect_class :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	class := to_string(L, 1)
 	srcs := make([dynamic]worldstate.Effect_Src, context.temp_allocator)
+	lua.pushvalue(L, 2)
+	read_effect_table(L, class, &srcs, false)
+	lua.pop(L, 1)
+	worldstate.set_effect_class(vm.ctx.ws, class, srcs[:], bool(lua.toboolean(L, 3)), bool(lua.toboolean(L, 4)))
+	return 0
+}
+
+// read_effect_table reads the AV table on top of the stack; its `caster` part holds terms on the caster.
+@(private)
+read_effect_table :: proc(L: ^lua.State, class: string, srcs: ^[dynamic]worldstate.Effect_Src, on_caster: bool) {
 	lua.pushnil(L)
-	for lua.next(L, 2) != 0 {
+	for lua.next(L, -2) != 0 {
 		av := strings.clone(to_string(L, -2), context.temp_allocator)
-		if lua.istable(L, -1) {
+		switch {
+		case !lua.istable(L, -1):
+			log.warnf("script: %s.__effect %s: not a table of knobs", class, av)
+		case av == "caster" && !on_caster:
+			read_effect_table(L, class, srcs, true)
+		case:
 			lua.pushnil(L)
 			for lua.next(L, -2) != 0 {
 				name := to_string(L, -2)
 				if knob, ok := reflect.enum_from_name(worldstate.Knob, strings.to_pascal_case(name, context.temp_allocator)); ok {
-					append(&srcs, worldstate.Effect_Src{av, knob, strings.clone(to_string(L, -1), context.temp_allocator)})
+					append(srcs, worldstate.Effect_Src{av, knob, strings.clone(to_string(L, -1), context.temp_allocator), on_caster})
 				} else {
 					log.warnf("script: %s.__effect %s: no knob %q (capacity, amount)", class, av, name)
 				}
 				lua.pop(L, 1)
 			}
-		} else {
-			log.warnf("script: %s.__effect %s: not a table of knobs", class, av)
 		}
 		lua.pop(L, 1)
 	}
-	worldstate.set_effect_terms(vm.ctx.ws, class, srcs[:])
-	return 0
 }
 
 // preload compiles `src` and registers it as package.preload[name].

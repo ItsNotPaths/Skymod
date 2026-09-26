@@ -2,7 +2,8 @@ package formula
 
 // A formula is a string of arithmetic over named variables, compiled once and evaluated by the engine
 // (progression math, zone levels, effects). Numbers, the formula's variables, + - * / ^ (^ binds
-// right and above unary -), parentheses, and min, max, clamp, floor, ceil, round, abs, sqrt.
+// right and above unary -), parentheses, and min, max, clamp, floor, ceil, round, abs, sqrt, and
+// select(x, a, b): a when x > 0, else b.
 
 import "core:math"
 import "core:strconv"
@@ -36,7 +37,7 @@ Function :: struct {
 	arity: int,
 }
 
-FUNCTIONS := [?]Function{{"min", 2}, {"max", 2}, {"clamp", 3}, {"floor", 1}, {"ceil", 1}, {"round", 1}, {"abs", 1}, {"sqrt", 1}}
+FUNCTIONS := [?]Function{{"min", 2}, {"max", 2}, {"clamp", 3}, {"floor", 1}, {"ceil", 1}, {"round", 1}, {"abs", 1}, {"sqrt", 1}, {"select", 3}}
 
 MAX_STACK :: 32
 
@@ -93,6 +94,7 @@ eval :: proc(f: Formula, values: []f64) -> f64 {
 			case "round": r = math.round(args[0])
 			case "abs":   r = abs(args[0])
 			case "sqrt":  r = math.sqrt(args[0])
+			case "select": r = args[1] if args[0] > 0 else args[2]
 			}
 			n -= fn.arity - 1
 			stack[n - 1] = r

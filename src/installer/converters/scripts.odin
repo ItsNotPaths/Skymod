@@ -27,17 +27,23 @@ Script_Stats :: struct {
 // game as <name>.patch.lua, and the loader applies it over the transpiled <name>.lua.
 REWRITES := #load_directory("../../script/patches")
 
+// EFFECT_CLASSES are the scripts that play the engine's effect archetypes (Value Modifier, ...),
+// shipped whole: the install writes each as <name>.lua, for mods to layer over.
+EFFECT_CLASSES := #load_directory("../../script/effects")
+
 // SPLIT_LIST names the bodies the transpiler splits at their waits (generated: pexlatent
 // --emit-split).
 SPLIT_LIST :: #load("split.tsv", string)
 
-// rewrites_hash identifies the shipped rewrites and split list, so an install made with others
+// rewrites_hash identifies the shipped rewrites, effect classes and split list, so an install made with others
 // runs again.
 rewrites_hash :: proc() -> u64 {
 	h := hash.fnv64a(transmute([]u8)string(SPLIT_LIST))
-	for f in REWRITES {
-		h = hash.fnv64a(transmute([]u8)f.name, h)
-		h = hash.fnv64a(f.data, h)
+	for files in ([2][]runtime.Load_Directory_File{REWRITES, EFFECT_CLASSES}) {
+		for f in files {
+			h = hash.fnv64a(transmute([]u8)f.name, h)
+			h = hash.fnv64a(f.data, h)
+		}
 	}
 	return h
 }
@@ -122,6 +128,13 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 				return st, false
 			}
 			st.rewrites += 1
+		}
+	}
+	for f in EFFECT_CLASSES {
+		out, _ := filepath.join({out_dir, f.name}, context.temp_allocator)
+		if err := os.write_entire_file(out, f.data); err != nil {
+			log.errorf("scripts: could not write %q: %v", out, err)
+			return st, false
 		}
 	}
 	return st, true

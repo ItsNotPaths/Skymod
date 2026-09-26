@@ -694,10 +694,10 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.effects), 0)
 	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "start:true,finish,tick", got)`), "start, finish, one tick, gone")
 
-	terms := f.ws.effect_terms["glow"]
+	terms := f.ws.effect_classes["glow"].terms
 	testing.expect_value(t, len(terms), 1) // a bad formula and an unknown knob drop their terms
 	testing.expect(t, terms[0].av == "Health" && terms[0].knob == .Capacity, "__effect read when the class loads")
-	testing.expect_value(t, formula.eval(terms[0].f, {1, 10, 2}), 5)
+	testing.expect_value(t, formula.eval(terms[0].f, {1, 10, 2, 0, 1, 0, 0, 0, 0}), 5)
 }
 
 // An effect whose conditions fail at start does not start; they run on the target.
@@ -842,6 +842,88 @@ test_effect_ledger :: proc(t: ^testing.T) {
 	slua.tick_effects(&f.vm, &f.ws, 1.5) // runs past its end: t stops at 2
 	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, ACTOR, "Health"), 100)
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "Health"), 60)
+}
+
+// The archetypes are the shipped pure-formula classes: a Recover fortify holds capacity while it
+// runs, fire's taper adds its linger, a dual modifier moves the second AV by its weight, Absorb moves
+// health to the caster, and an unrecovered timed modifier adds its magnitude each second. A class
+// with its own __effect claims its MGEF; __claims_archetype = false runs both.
+@(test)
+test_effect_archetypes :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_archetypes", {
+		{"archetypevaluemodifier.lua", #load("../../src/script/effects/archetypevaluemodifier.lua", string)},
+		{"archetypepeakvaluemodifier.lua", #load("../../src/script/effects/archetypepeakvaluemodifier.lua", string)},
+		{"archetypedualvaluemodifier.lua", #load("../../src/script/effects/archetypedualvaluemodifier.lua", string)},
+		{"archetypeabsorb.lua", #load("../../src/script/effects/archetypeabsorb.lua", string)},
+		{"fortify.lua", FORTIFY_LUA},
+		{"both.lua", `local rt = require('skymod.rt')
+local C = rt.class("Both", nil)
+C.__effect = { Magicka = { capacity = "m" } }
+C.__claims_archetype = false
+return C
+`},
+	})
+	defer fixture_destroy(&f)
+
+	TARGET, CASTER :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	FORTIFY, FIRE, SHOCK, ABSORB, RESTORE, CLAIMED, BOTH :: gamedb.Form_ID(0x901), gamedb.Form_ID(0x902), gamedb.Form_ID(0x903), gamedb.Form_ID(0x904), gamedb.Form_ID(0x905), gamedb.Form_ID(0x906), gamedb.Form_ID(0x907)
+	HEALTH, MAGICKA :: i32(24), i32(25)
+	harm :: esm.MGEF_DETRIMENTAL
+	f.db.magic_effects = make(map[gamedb.Form_ID]gamedb.Magic_Effect, context.temp_allocator)
+	f.db.magic_effects[FORTIFY] = {info = {archetype = .Peak_Value_Modifier, flags = esm.MGEF_RECOVER, primary_av = HEALTH}}
+	f.db.magic_effects[FIRE] = {info = {archetype = .Value_Modifier, flags = harm, primary_av = HEALTH, taper_weight = 0.3, taper_curve = 2, taper_duration = 1}}
+	f.db.magic_effects[SHOCK] = {info = {archetype = .Dual_Value_Modifier, flags = harm, primary_av = HEALTH, second_av = MAGICKA, second_av_weight = 0.5}}
+	f.db.magic_effects[ABSORB] = {info = {archetype = .Absorb, flags = harm, primary_av = HEALTH}}
+	f.db.magic_effects[RESTORE] = {info = {archetype = .Value_Modifier, primary_av = MAGICKA}}
+	f.db.magic_effects[CLAIMED] = {info = {archetype = .Peak_Value_Modifier, flags = esm.MGEF_RECOVER, primary_av = MAGICKA}}
+	f.db.magic_effects[BOTH] = {info = {archetype = .Peak_Value_Modifier, flags = esm.MGEF_RECOVER, primary_av = HEALTH}}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[CLAIMED] = {scripts = []esm.Script_Attach{{name = "Fortify"}}}
+	f.db.form_scripts[BOTH] = {scripts = []esm.Script_Attach{{name = "Both"}}}
+	for a in ([]gamedb.Form_ID{TARGET, CASTER}) {
+		worldstate.av_set_base(&f.ws, a, "Health", 100)
+		worldstate.av_set_base(&f.ws, a, "Magicka", 100)
+	}
+	start :: proc(f: ^Fixture, e: worldstate.Active_Effect) -> gamedb.Form_ID {
+		h := worldstate.start_effect(&f.ws, e)
+		slua.sync_refs(&f.vm)
+		return h
+	}
+	run :: proc(f: ^Fixture, h: gamedb.Form_ID, seconds: int) {
+		for _ in 0 ..< seconds * 4 {worldstate.advance_effect(&f.ws, &f.db, h, 0.25)}
+	}
+	current :: proc(f: ^Fixture, a: gamedb.Form_ID, av: string) -> f32 {return worldstate.av_current(&f.ws, &f.db, a, av)}
+
+	fort := start(&f, {effect = FORTIFY, target = TARGET, caster = TARGET, duration = 2, magnitude = 50})
+	run(&f, fort, 1)
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, TARGET, "Health"), 150)
+	run(&f, fort, 2)
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, TARGET, "Health"), 100)
+	testing.expect(t, f.ws.effect_classes["archetypepeakvaluemodifier"].pure, "an archetype class is pure")
+
+	fire := start(&f, {effect = FIRE, target = TARGET, caster = CASTER, taper = 1, magnitude = 30})
+	run(&f, fire, 2)
+	testing.expect(t, abs(current(&f, TARGET, "Health") - 67) < 0.01, "30 at once, then 30 * 0.3 * 1 / 3 over the linger")
+
+	worldstate.av_restore(&f.ws, TARGET, "Health", 100)
+	shock := start(&f, {effect = SHOCK, target = TARGET, caster = CASTER, magnitude = 20})
+	run(&f, shock, 1)
+	testing.expect(t, current(&f, TARGET, "Health") == 80 && current(&f, TARGET, "Magicka") == 90, "shock: health, then half on magicka")
+
+	worldstate.av_damage(&f.ws, &f.db, CASTER, "Health", 40)
+	absorb := start(&f, {effect = ABSORB, target = TARGET, caster = CASTER, magnitude = 15})
+	run(&f, absorb, 1)
+	testing.expect(t, current(&f, TARGET, "Health") == 65 && current(&f, CASTER, "Health") == 75, "absorb moves health to the caster")
+
+	restore := start(&f, {effect = RESTORE, target = TARGET, caster = TARGET, duration = 2, magnitude = 3})
+	run(&f, restore, 3)
+	testing.expect_value(t, current(&f, TARGET, "Magicka"), 96)
+
+	start(&f, {effect = CLAIMED, target = CASTER, caster = CASTER, lasts = true, magnitude = 10})
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, CASTER, "Magicka"), 100) // Fortify's Health terms replace the archetype
+	start(&f, {effect = BOTH, target = CASTER, caster = CASTER, lasts = true, magnitude = 10})
+	testing.expect(t, worldstate.av_max(&f.ws, &f.db, CASTER, "Magicka") == 110 && worldstate.av_max(&f.ws, &f.db, CASTER, "Health") == 120, "both run")
 }
 
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with

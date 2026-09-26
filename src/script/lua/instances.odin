@@ -91,7 +91,7 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	effects := make([dynamic]script.Form_ID, 0, len(vm.ctx.ws.effects), context.temp_allocator)
 	for h in vm.ctx.ws.effects {append(&effects, h)}
 	slice.sort(effects[:])
-	for h in effects {made += attach_known(vm, h, gamedb.form_scripts(db, vm.ctx.ws.effects[h].effect))}
+	for h in effects {made += attach_effect(vm, h)}
 
 	call_rt(vm, "start_end")
 	worldstate.av_drop_pending(vm.ctx.ws)
@@ -170,7 +170,7 @@ sync_refs :: proc(vm: ^VM) {
 		clear(&ws.new_effects)
 		for h in started {
 			e := ws.effects[h]
-			attach_known(vm, h, gamedb.form_scripts(vm.ctx.db, e.effect))
+			attach_effect(vm, h)
 			send_own(vm, h, "OnEffectStart", e.target, e.caster)
 		}
 		ended := slice.clone(ws.ended_effects[:], context.temp_allocator)
@@ -210,6 +210,37 @@ sync_refs :: proc(vm: ^VM) {
 			sync_actor(vm, vm.ctx.db, id)
 		}
 	}
+}
+
+// attach_effect gives an effect its classes' instances (worldstate.effect_classes). A pure class,
+// formulas only, gets none: the engine runs its terms.
+@(private)
+attach_effect :: proc(vm: ^VM, h: script.Form_ID) -> int {
+	ws, db := vm.ctx.ws, vm.ctx.db
+	own := gamedb.form_scripts(db, ws.effects[h].effect)
+	for s in own {load_class(vm, s.name)} // their claims decide the archetype's class
+	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
+	for name in worldstate.effect_classes(ws, db, ws.effects[h].effect) {
+		load_class(vm, name)
+		if c, ok := ws.effect_classes[name]; ok && c.pure {continue}
+		attach := esm.Script_Attach{name = name}
+		for s in own {
+			if strings.equal_fold(s.name, name) {attach = s}
+		}
+		append(&scripts, attach)
+	}
+	return attach_known(vm, h, scripts[:])
+}
+
+// load_class is rt.load: the class's files run once, and its __effect reaches the engine.
+@(private)
+load_class :: proc(vm: ^VM, name: string) {
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "load") {return}
+	lua.pushstring(L, strings.clone_to_cstring(name, context.temp_allocator))
+	if lua.pcall(L, 1, 1, 0) != 0 {log.errorf("lua: rt.load %s: %s", name, to_string(L, -1))}
 }
 
 // detach is rt.detach: the form's instances go. Reports whether it had any.

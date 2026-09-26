@@ -27,6 +27,7 @@ test_formula :: proc(t: ^testing.T) {
 		{"m * (1 - t / d)", 25},
 		{"clamp(m * 3, 0, 100)", 100},
 		{"min(t, d) + max(1, floor(2.7))", 7},
+		{"select(t - 6, 1, 2) + select(d, 10, 20)", 12},
 	}
 	vars := []string{"t", "m", "d"}
 	for c in cases {

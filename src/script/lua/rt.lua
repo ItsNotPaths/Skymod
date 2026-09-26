@@ -7,9 +7,10 @@
 local native, method, has_method, none_value = __native, __method, __has_method, __none_value
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
-local effect_terms = __effect_terms
+local effect_class = __effect_class
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
+local load_effect
 local sethook, gethook = debug.sethook, debug.gethook
 
 local rt = { None = None }
@@ -82,7 +83,6 @@ local Class = {
   end,
 }
 
--- (hole archetype-claims :tags (magic script mods) :sev gap ) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
 function rt.class(name, parent)
   local cls = setmetatable({
     __name = name,
@@ -106,13 +106,28 @@ function rt.load(name)
   if cls == nil then
     cls = rt.loader(l) or false
     classes[l] = cls
-    -- __effect = { AV = { capacity = "formula", amount = "formula" } }, formulas in t, m and d
-    if cls and cls.__effect then effect_terms(l, cls.__effect) end
+    if cls then load_effect(l, cls) end
   end
   return cls or nil
 end
 
 local function parent_of(cls) return cls.__parent and rt.load(cls.__parent) end
+
+-- load_effect hands a class's __effect (its own or inherited) to the engine: { AV or slot = {
+-- capacity = "formula", amount = "formula" }, caster = { ... } }, formulas in worldstate.EFFECT_VARS.
+-- It claims its MGEF unless __claims_archetype = false. A class with no functions anywhere in its
+-- chain is pure: the engine runs its terms and it gets no instance.
+load_effect = function(lname, cls)
+  local effect, claims, pure = nil, true, true
+  local c = cls
+  while c do
+    effect = effect or rawget(c, "__effect")
+    if rawget(c, "__claims_archetype") == false then claims = false end
+    if next(c.__fn) or next(c.__states) then pure = false end
+    c = parent_of(c)
+  end
+  if effect then effect_class(lname, effect, claims, pure) end
+end
 
 -- lookup finds a function up the class chain, the current state's table before each level's
 -- default one. Cached per class and state; a miss caches false.

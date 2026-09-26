@@ -104,8 +104,7 @@ Runtime :: struct {
 	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
-	effect_terms:    map[string][dynamic]Effect_Term, // script class (lower case) -> its __effect formulas, compiled when it loads
-	archetype_terms: map[Archetype_Key][dynamic]Effect_Term, // MGEF and shape -> its engine archetype's terms, compiled on first use
+	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -142,8 +141,7 @@ init :: proc(ws: ^World_State) {
 	ws.zone_level_sets = make([dynamic]Form_ID)
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
-	ws.effect_terms = make(map[string][dynamic]Effect_Term)
-	ws.archetype_terms = make(map[Archetype_Key][dynamic]Effect_Term)
+	ws.effect_classes = make(map[string]Effect_Class)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -161,13 +159,11 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.equip_changes)
 	for l in ws.level_ups {delete(l.choice)}
 	delete(ws.level_ups)
-	for k, &terms in ws.effect_terms {
+	for k, &c in ws.effect_classes {
 		delete(k)
-		free_effect_terms(&terms)
+		free_effect_class(&c)
 	}
-	delete(ws.effect_terms)
-	for _, &terms in ws.archetype_terms {free_effect_terms(&terms)}
-	delete(ws.archetype_terms)
+	delete(ws.effect_classes)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
