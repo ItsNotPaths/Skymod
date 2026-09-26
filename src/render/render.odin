@@ -160,6 +160,7 @@ Renderer :: struct {
 	effect_pipeline:  ^sdl.GPUGraphicsPipeline, // alpha-blended ghosted effect shapes
 	highlight_pipeline: ^sdl.GPUGraphicsPipeline, // inspect-mode hover highlight overdraw
 	wire_pipeline:    ^sdl.GPUGraphicsPipeline, // debug collision-hitbox wireframe overlay (--celltest)
+	tint_pipeline:    ^sdl.GPUGraphicsPipeline, // see-through flat-colour shapes (NPC capsules)
 	cube_vbuf:        ^sdl.GPUBuffer,
 	cube_ibuf:        ^sdl.GPUBuffer,
 	cube_index_count: u32,
@@ -336,6 +337,7 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 
 	r.highlight_pipeline = make_highlight_pipeline(&r)
 	r.wire_pipeline = make_wire_pipeline(&r)
+	r.tint_pipeline = make_tint_pipeline(&r)
 	if r.highlight_pipeline == nil {
 		log.errorf("render: highlight pipeline failed: %s", sdl.GetError())
 		shutdown(&r)
@@ -518,6 +520,7 @@ shutdown :: proc(r: ^Renderer) {
 	if r.effect_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.effect_pipeline)}
 	if r.highlight_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.highlight_pipeline)}
 	if r.wire_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.wire_pipeline)}
+	if r.tint_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.tint_pipeline)}
 	if r.portal_mark_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_mark_pipeline)}
 	if r.portal_reset_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.portal_reset_pipeline)}
 	if r.mesh_stencil_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.mesh_stencil_pipeline)}
