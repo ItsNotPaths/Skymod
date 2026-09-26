@@ -375,6 +375,7 @@ Magic_Effect :: struct {
 	info:        esm.Magic_Effect_Info,
 	projectile:  Form_ID, // remapped
 	explosion:   Form_ID, // remapped
+	related:     Form_ID, // remapped: a Peak Value Modifier's no-stack keyword
 	description: string, // DNAM (owned)
 	conditions:  []Condition, // CTDA (owned)
 }

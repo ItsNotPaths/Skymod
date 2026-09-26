@@ -3,9 +3,8 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking)) an effect carries its authored magnitude only: no perk scales it (Mod Spell Magnitude and the rest multiply, UESP Skyrim:Alchemy_Effects), and no resistance cuts it (Resist Magic, then the element's, multiplied; the player caps at 85%, fPlayerMaxResistance; UESP Skyrim:Resist_Magic). Its visuals and sounds do not run.
+// (hole effect-magnitudes :tags (magic player) :sev gap ) an effect carries its authored magnitude only: no perk scales it (Mod Spell Magnitude and the rest multiply, UESP Skyrim:Alchemy_Effects), and no resistance cuts it (Resist Magic, then the element's, multiplied; the player caps at 85%, fPlayerMaxResistance; UESP Skyrim:Resist_Magic). Its visuals and sounds do not run.
 // (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
-// (hole effect-stacking :tags (magic player) :sev gap) every contribution to an AV adds. Researched 2026-09-25: potions of one kind do not stack, only the strongest counts (UESP Skyrim:Alchemy_Effects); enchantments add to each other and to potions (UESP Skyrim:Enchanting_Effects); a Peak Value Modifier's second item is a keyword, and of two PVMs sharing it the lower is dispelled (CK Magic Effect, marked "?"); "Dispel Effects with these Keywords" dispels the matching spells (CK); the same spell cast again replaces itself (unsourced for Skyrim).
 
 import "core:slice"
 import "../conditions"
@@ -137,18 +136,21 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 }
 
 // start_effects starts each effect of `source` whose conditions pass: the source's for that effect,
-// then the MGEF's. They run on the target, with the caster as the condition target. A timed effect
-// goes on for its MGEF's taper after its duration.
+// then the MGEF's. They run on the target, with the caster as the condition target, and stack by
+// worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
 	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
+	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
 		if !conditions.all(&ctx, e.conditions) || !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
-		worldstate.start_effect(c.ws, {effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = e.magnitude})
+		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = e.magnitude}
+		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
 	}
+	for eff in starting {worldstate.start_effect(c.ws, eff)}
 }
 
 // spell_effects lists the live effects `spell` put on `target`.

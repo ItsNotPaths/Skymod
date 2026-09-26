@@ -495,6 +495,7 @@ MGEF_HOSTILE :: 0x0000_0001
 MGEF_RECOVER :: 0x0000_0002
 MGEF_DETRIMENTAL :: 0x0000_0004
 MGEF_NO_HIT_EVENT :: 0x0000_0010
+MGEF_DISPEL_WITH_KEYWORDS :: 0x0000_0100 // applying it dispels the spells whose effects share a keyword
 MGEF_NO_DURATION :: 0x0000_0200
 MGEF_NO_MAGNITUDE :: 0x0000_0400
 MGEF_NO_AREA :: 0x0000_0800
@@ -512,6 +513,7 @@ AV_NONE :: i32(-1)
 Magic_Effect_Info :: struct {
 	flags:        u32, // MGEF_* bits
 	base_cost:    f32,
+	related:      u32, // the archetype's associated item (a Peak Value Modifier's no-stack keyword)
 	magic_skill:  i32, // the school the effect trains (AV index; AV_NONE = none)
 	resist_av:    i32, // the AV that resists it (AV_NONE = unresistable)
 	skill_level:  u32, // minimum skill to cast
@@ -530,7 +532,7 @@ Magic_Effect_Info :: struct {
 	delivery:     Delivery,
 }
 
-// magic_effect_info reads an MGEF's DATA: flags u32@0, base cost f32@4, magic skill i32@12,
+// magic_effect_info reads an MGEF's DATA: flags u32@0, base cost f32@4, related u32@8, magic skill i32@12,
 // resist AV i32@16, taper weight f32@28, min skill level u32@40, area u32@44, casting time f32@48,
 // taper curve f32@52, taper duration f32@56, second AV weight f32@60, archetype u32@64,
 // primary AV i32@68, projectile u32@72, explosion u32@76, cast type u32@80, delivery u32@84,
@@ -546,6 +548,7 @@ magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) 
 	return Magic_Effect_Info {
 			flags        = rd32(d, 0),
 			base_cost    = rf32(d, 4),
+			related      = rd32(d, 8),
 			magic_skill  = cast(i32)rd32(d, 12),
 			resist_av    = cast(i32)rd32(d, 16),
 			skill_level  = rd32(d, 40),

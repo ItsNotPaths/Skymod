@@ -390,6 +390,7 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	me.info, _ = esm.magic_effect_info(fl)
 	me.projectile = esm.remap_form(fm, me.info.projectile)
 	me.explosion = esm.remap_form(fm, me.info.explosion)
+	me.related = esm.remap_form(fm, me.info.related)
 	if f, has := esm.find_field(fl, "DNAM"); has {
 		if txt := resolve_lstring(db, f, db.cur_strings); txt != "" {
 			me.description = strings.clone(txt, db.allocator)
