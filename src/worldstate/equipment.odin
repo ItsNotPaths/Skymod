@@ -34,6 +34,14 @@ equipment :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> ^Equipmen
 	return &ws.equipment[actor]
 }
 
+// worn_has_keyword: an item the actor wears or holds has the keyword.
+worn_has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, actor, keyword: Form_ID) -> bool {
+	for w in equipment(ws, db, actor).worn {
+		if gamedb.has_keyword(db, w.item, keyword) {return true}
+	}
+	return false
+}
+
 // equip puts `item` on `actor`, taking off what shares a slot (those go off first). `hand` picks
 // the hand for an either-hand item. False when the item equips nowhere or a kept item is in the way.
 equip :: proc(ws: ^World_State, db: ^gamedb.DB, actor, item: Form_ID, hand: Maybe(gamedb.Slot) = nil, keep := false) -> bool {
@@ -70,6 +78,27 @@ in_slot :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, slot: gamedb.S
 		if slot in w.slots {return w.item}
 	}
 	return 0
+}
+
+// equipped_item_type is GetEquippedItemType for a hand: 0 fists, 1 sword, 2 dagger, 3 war axe,
+// 4 mace, 5 greatsword, 6 battleaxe or warhammer, 7 bow, 8 staff, 9 spell or scroll, 10 shield,
+// 11 torch, 12 crossbow.
+equipped_item_type :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, hand: gamedb.Slot) -> i32 {
+	s, ok := gamedb.equip_slot_of(db, in_slot(ws, db, actor, hand))
+	if !ok {return 0}
+	#partial switch s.kind {
+	case .Weapon: return 12 if s.weapon_type == 9 else i32(s.weapon_type)
+	case .Spell, .Scroll: return 9
+	case .Armor: return 10 // a shield
+	case .Light: return 11
+	}
+	return 0
+}
+
+// weapon_anim_type is the right hand's WEAP animation type: 0 hand to hand ... 8 staff, 9 crossbow.
+weapon_anim_type :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> i32 {
+	s, ok := gamedb.equip_slot_of(db, in_slot(ws, db, actor, .RightHand))
+	return i32(s.weapon_type) if ok && s.kind == .Weapon else 0
 }
 
 @(private)

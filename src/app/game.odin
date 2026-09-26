@@ -533,7 +533,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// have no collision yet, locomotion falls back to free-fly automatically).
 	if g.phys_ok {
 		capsule := actor_capsule(g, formid.PLAYER)
-		g.character, g.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h)
+		g.character, g.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(formid.PLAYER))
 	}
 	g.noclip = !g.char_ok
 

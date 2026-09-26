@@ -71,6 +71,7 @@ Saved_Delta :: struct {
 	open:     bool,
 	locked:   bool,
 	dead:     bool,
+	lock_level: u8,
 }
 
 // Saved_Created is one Created_Ref flattened for CBOR (the runtime-spawned 0xFF refs). next_created
@@ -202,6 +203,10 @@ Saved_Inv :: struct {
 	item:  Form_ID,
 	count: i32,
 }
+Saved_Flags :: struct {
+	form:  Form_ID,
+	flags: Flag_Override,
+}
 Saved_Level :: struct {
 	zone:  Form_ID,
 	level: i32,
@@ -292,10 +297,15 @@ Save_Body :: struct {
 	teammates:     []Form_ID,
 	no_pc_dialogue: []Form_ID,
 	sneaking:      []Form_ID,
+	grounded:      []Form_ID,
+	actor_flags:   []Saved_Flags,
+	owners:        []Saved_Alias,   // alias = the ref or cell, form = its owner
+	killers:       []Saved_Alias,   // alias = the dead actor, form = its killer
 	courier_waits: []Courier_Remove,
 	scenes:        []Saved_Scene,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
+	los_regs:      []Los_Reg,
 	effects:       []Saved_Effect,
 	next_effect:   u32,
 	clock:         Game_Clock,
@@ -324,6 +334,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			open     = d.open,
 			locked   = d.locked,
 			dead     = d.dead,
+			lock_level = d.lock_level,
 		}
 		i += 1
 	}
@@ -424,6 +435,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
 	picks := make([dynamic]Saved_Alias, 0, len(ws.actor_picks), context.temp_allocator)
 	for ref, npc in ws.actor_picks {append(&picks, Saved_Alias{ref, npc})}
+	actor_flags := make([dynamic]Saved_Flags, 0, len(ws.actor_flags), context.temp_allocator)
+	for form, o in ws.actor_flags {append(&actor_flags, Saved_Flags{form, o})}
 	outfits := make([dynamic]Saved_Alias, 0, len(ws.outfits), context.temp_allocator)
 	for actor, outfit in ws.outfits {append(&outfits, Saved_Alias{actor, outfit})}
 	carried := make([dynamic]Saved_Alias, 0, len(ws.carried), context.temp_allocator)
@@ -517,10 +530,15 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		teammates     = save_set(ws.teammates),
 		no_pc_dialogue = save_set(ws.no_pc_dialogue),
 		sneaking      = save_set(ws.sneaking),
+		grounded      = save_set(ws.grounded),
+		actor_flags   = actor_flags[:],
+		owners        = save_pairs(ws.owners),
+		killers       = save_pairs(ws.killers),
 		courier_waits = ws.courier_waits[:],
 		scenes        = scenes[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
+		los_regs      = ws.los_regs[:],
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
 		clock         = ws.clock,
@@ -618,6 +636,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		e.open = d.open
 		e.locked = d.locked
 		e.dead = d.dead
+		e.lock_level = d.lock_level
 	}
 	// Created refs: restore the exact FormIDs + the allocator cursor (don't re-mint via create_ref,
 	// which would hand out fresh ids). Clamp next_created to the floor for saves predating the field.
@@ -702,6 +721,12 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
 	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
 	load_set(&ws.sneaking, body.sneaking, remap, have_remap, rf)
+	load_set(&ws.grounded, body.grounded, remap, have_remap, rf)
+	for f in body.actor_flags {
+		if form, ok := rf(remap, have_remap, f.form); ok {ws.actor_flags[form] = f.flags}
+	}
+	load_pairs(&ws.owners, body.owners, remap, have_remap, rf)
+	load_pairs(&ws.killers, body.killers, remap, have_remap, rf)
 	for w in body.courier_waits {
 		w := w
 		ok := true
@@ -804,6 +829,12 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		sender, sok := rf(remap, have_remap, a.sender)
 		form, fok := rf(remap, have_remap, a.form)
 		if sok && fok {register_anim_event(ws, sender, form, a.event)}
+	}
+	for l in body.los_regs {
+		form, fok := rf(remap, have_remap, l.form)
+		viewer, vok := rf(remap, have_remap, l.viewer)
+		target, tok := rf(remap, have_remap, l.target)
+		if fok && vok && tok {append(&ws.los_regs, Los_Reg{form, viewer, target, l.mode, l.seen})}
 	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
@@ -918,6 +949,10 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.teammates {add_slot(&seen, a)}
 	for a in body.no_pc_dialogue {add_slot(&seen, a)}
 	for a in body.sneaking {add_slot(&seen, a)}
+	for a in body.grounded {add_slot(&seen, a)}
+	for f in body.actor_flags {add_slot(&seen, f.form)}
+	for r in body.owners {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)
@@ -935,6 +970,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for f in body.level_listeners {add_slot(&seen, f)}
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
+	for l in body.los_regs {add_slot(&seen, l.form);add_slot(&seen, l.viewer);add_slot(&seen, l.target)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
 	for sc in body.scripts {
 		add_slot(&seen, sc.form)

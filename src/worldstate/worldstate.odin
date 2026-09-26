@@ -71,6 +71,7 @@ Overlay :: struct {
 	keyword_data:    map[Keyword_Key]f32,          // Location.SetKeywordData values; absent reads 0
 	pending_moves:   map[Form_ID]Pending_Move,     // MoveToWhenUnloaded: ref -> the move that waits for both locations to unload
 	anim_regs:       map[Form_ID][dynamic]Anim_Reg, // sender -> RegisterForAnimationEvent registrations on it
+	los_regs:        [dynamic]Los_Reg,             // RegisterForLOS and the single gain/lost registrations
 	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
@@ -95,6 +96,10 @@ Overlay :: struct {
 	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
 	no_pc_dialogue:  Form_Set,                     // Actor.AllowPCDialogue(false): will not talk to the player
 	sneaking:        Form_Set,                     // actors in sneak mode (actors.odin)
+	grounded:        Form_Set,                     // Actor.SetAllowFlying(false): may not fly
+	actor_flags:     map[Form_ID]Flag_Override,    // actor or NPC_ -> ACBS bits a script set: ghost, essential, protected, invulnerable
+	owners:          map[Form_ID]Form_ID,          // ref or cell -> the owner a script set; 0 = none (ownership.odin)
+	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller
 	courier_waits:   [dynamic]Courier_Remove,      // Courier.RemoveRef calls waiting for the courier to stop talking
 	scenes:          map[Form_ID]Scene_Run,        // scenes playing or waiting for their actors (scenes.odin)
 }
@@ -259,6 +264,10 @@ init_overlay :: proc(o: ^Overlay) {
 	o.teammates = make(Form_Set)
 	o.no_pc_dialogue = make(Form_Set)
 	o.sneaking = make(Form_Set)
+	o.grounded = make(Form_Set)
+	o.actor_flags = make(map[Form_ID]Flag_Override)
+	o.owners = make(map[Form_ID]Form_ID)
+	o.killers = make(map[Form_ID]Form_ID)
 	o.scenes = make(map[Form_ID]Scene_Run)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
@@ -268,6 +277,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.keyword_data = make(map[Keyword_Key]f32)
 	o.pending_moves = make(map[Form_ID]Pending_Move)
 	o.anim_regs = make(map[Form_ID][dynamic]Anim_Reg)
+	o.los_regs = make([dynamic]Los_Reg)
 	o.effects = make(map[Form_ID]Active_Effect)
 	o.effects_on = make(map[Form_ID][dynamic]Form_ID)
 }
@@ -339,6 +349,10 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.teammates)
 	delete(o.no_pc_dialogue)
 	delete(o.sneaking)
+	delete(o.grounded)
+	delete(o.actor_flags)
+	delete(o.owners)
+	delete(o.killers)
 	delete(o.courier_waits)
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)
@@ -350,6 +364,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.keyword_data)
 	delete(o.pending_moves)
 	delete(o.anim_regs)
+	delete(o.los_regs)
 	delete(o.effects)
 	for _, &list in o.effects_on {delete(list)}
 	delete(o.effects_on)

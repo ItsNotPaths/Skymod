@@ -4,6 +4,7 @@ import "core:log"
 import "core:slice"
 import "core:strings"
 import "../gamedb"
+import "../formid"
 
 // inv_add adjusts owner's delta of `item` from its starting contents; negative when it holds fewer
 // than it started with. The caller clamps against the starting count.
@@ -105,11 +106,34 @@ inv_items :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []Form_ID
 	return out[:]
 }
 
+// inv_weight is what everything owner holds weighs.
+inv_weight :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> f32 {
+	total: f32
+	for item in inv_items(ws, db, owner) {
+		w, _ := gamedb.weight_of(db, item)
+		total += w * f32(inv_count(ws, db, owner, item))
+	}
+	return total
+}
+
+// (hole encumbrance :tags player :sev gap) an actor over its CarryWeight still runs: nothing reads over_encumbered to slow it.
+// over_encumbered: the actor carries more than its CarryWeight.
+over_encumbered :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool {
+	return inv_weight(ws, db, actor) > av_current(ws, db, actor, "CarryWeight")
+}
+
 // record_of is the form whose records describe a ref: a created ref's base, else the ref, which
 // gamedb follows to its base.
 record_of :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
 	if cr, ok := ws.created[ref]; ok {return cr.base}
 	return ref
+}
+
+// actor_box is an actor's bounds box at its current scale, relative to its feet.
+actor_box :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> [2][3]f32 {
+	box := gamedb.actor_bounds(db, record_of(ws, ref), actor_pick(ws, db, ref))
+	s := ref_scale(ws, db, ref)
+	return {box[0] * s, box[1] * s}
 }
 
 // ── actor values (actor -> AV name -> its parts) ──────────────────────────────────────────────
@@ -391,6 +415,15 @@ is_sneaking :: proc(ws: ^World_State, actor: Form_ID) -> bool {
 	return actor in ws.sneaking
 }
 
+// (hole flight :tags (ai combat) :sev gap) the flag is stored, and nothing flies to obey it.
+set_allow_flying :: proc(ws: ^World_State, actor: Form_ID, allow: bool) {
+	set_in_set(&ws.grounded, actor, !allow)
+}
+
+allowed_to_fly :: proc(ws: ^World_State, actor: Form_ID) -> bool {
+	return actor not_in ws.grounded
+}
+
 // actor_factions_now is every faction `actor` is a member of now: its NPC_'s and a script's.
 actor_factions_now :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
 	out := make([dynamic]Form_ID, context.temp_allocator)
@@ -479,6 +512,32 @@ rel_rank :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> i32 {
 rel_association :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> Form_ID {
 	r, _ := gamedb.relationship(db, rel_base(ws, db, a), rel_base(ws, db, b))
 	return r.association
+}
+
+// rel_is_parent reports whether a ParentChild relationship makes `parent`'s NPC_ the parent of `child`'s.
+rel_is_parent :: proc(ws: ^World_State, db: ^gamedb.DB, parent, child: Form_ID) -> bool {
+	me := rel_base(ws, db, parent)
+	r, ok := gamedb.relationship(db, me, rel_base(ws, db, child))
+	return ok && r.association == formid.ASSOC_PARENT_CHILD && r.parent == me
+}
+
+// rel_rank_range is the lowest and highest rank of `actor`'s ties, 0 for none. A script's rank
+// replaces the records' for the same NPC_.
+rel_rank_range :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> (lowest, highest: i32) {
+	ranks := make(map[Form_ID]i32, context.temp_allocator)
+	me := rel_base(ws, db, actor)
+	for p, r in db.relationships {
+		if p[0] == me {ranks[p[1]] = r.rank} else if p[1] == me {ranks[p[0]] = r.rank}
+	}
+	if inner, ok := ws.relationships[actor]; ok {
+		for other, rank in inner {ranks[rel_base(ws, db, other)] = rank}
+	}
+	first := true
+	for _, r in ranks {
+		if first {lowest, highest = r, r}
+		lowest, highest, first = min(lowest, r), max(highest, r), false
+	}
+	return
 }
 
 @(private = "file")

@@ -35,9 +35,8 @@ Capsule :: struct {
 // (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the OBND box (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
 // actor_capsule fits an upright capsule to an actor's bounds at its scale.
 actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
-	c := script.Call{ws = &g.ws, db = &g.db}
-	box := gamedb.actor_bounds(&g.db, worldstate.record_of(&g.ws, form), worldstate.actor_pick(&g.ws, &g.db, form))
-	size := (box[1] - box[0]) * script.ref_scale(&c, form)
+	box := worldstate.actor_box(&g.ws, &g.db, form)
+	size := box[1] - box[0]
 	radius := (size.x + size.y) / 4
 	return {radius, max(size.z / 2 - radius, 1)}
 }
@@ -84,7 +83,7 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 	} else if ok {
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
-	if ch, ok := physics.character_create(phys, pos, capsule.radius, capsule.half_h); ok {
+	if ch, ok := physics.character_create(phys, pos, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
 	} else {
 		delete_key(&g.actor_bodies, form)

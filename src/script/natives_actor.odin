@@ -39,6 +39,9 @@ register_actor :: proc(reg: ^Registry) {
 	register(reg, "Actor", "IsSneaking", n_is_sneaking)
 	register(reg, "Actor", "StartSneaking", n_start_sneaking)
 	register(reg, "Actor", "SetRelationshipRank", n_set_rel_rank)
+	register(reg, "Actor", "SetAllowFlying", n_set_allow_flying)
+	register(reg, "Actor", "SetAllowFlyingEx", n_set_allow_flying)
+	register(reg, "Actor", "IsAllowedToFly", n_is_allowed_to_fly)
 }
 
 // ── actor values ─────────────────────────────────────────────────────────────
@@ -181,6 +184,16 @@ n_is_sneaking :: proc(c: ^Call, args: []Value) -> Value {
 n_start_sneaking :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_sneaking(c.ws, c.self, true)
 	return nil
+}
+
+// SetAllowFlying(abAllowed = true); SetAllowFlyingEx's first argument is the same.
+n_set_allow_flying :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_allow_flying(c.ws, c.self, arg_bool(args, 0, true))
+	return nil
+}
+
+n_is_allowed_to_fly :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.allowed_to_fly(c.ws, c.self)
 }
 
 n_get_rel_rank :: proc(c: ^Call, args: []Value) -> Value {

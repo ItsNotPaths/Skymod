@@ -139,11 +139,10 @@ request_stop :: proc(c: ^Call, quest: Form_ID) {
 	append(&c.ws.quest_steps, worldstate.Quest_Step{quest = quest, stop = true})
 }
 
-// stop_quest empties a quest's aliases and ends its update and animation registrations.
+// stop_quest empties a quest's aliases and ends its registrations.
 stop_quest :: proc(c: ^Call, quest: Form_ID) {
 	worldstate.quest_set_running(c.ws, quest, false)
-	worldstate.unregister_updates(c.ws, quest)
-	worldstate.unregister_anim_events(c.ws, quest)
+	worldstate.unregister_all(c.ws, quest)
 	clear_aliases(c.ws, c.db, quest)
 }
 

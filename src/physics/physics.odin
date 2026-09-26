@@ -16,12 +16,13 @@ package physics
 // LOCAL (small magnitude) and carry the world placement in the (double) body position; the static
 // mesh/hull builders and add_dynamic_body do exactly that.
 
-// (hole spatial-queries :tags (physics query) :sev blocker) no spatial query surface — Jolt's BroadPhaseQuery (CastRay/CollideSphere/CollidePoint) is bound and never called, so nothing can ask what is between two points.
 // (hole sensor-bodies :tags physics :sev blocker) no sensor bodies — Body_SetIsSensor is bound and never called, so trigger volumes are a box test polled each tick (script/lua/triggers.odin) and proximity stays a polled distance test (104 scripts poll GetDistance on a timer).
 // (hole shape-cast :tags physics :sev gap) no shape cast — a moving body can only be swept by the character controller, so projectiles, melee arcs and teleport-safety checks have no primitive.
 
+import "base:runtime"
 import "core:math"
 import "core:math/linalg"
+import "core:slice"
 
 import jolt "../../vendor/joltc-odin"
 
@@ -603,6 +604,38 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 	return id
 }
 
+// set_owner tags a body with the ref it belongs to, so a ray hit can name it.
+set_owner :: proc(w: ^World, b: Body, owner: u64) {
+	jolt.BodyInterface_SetUserData(w.bodies, b, owner)
+}
+
+// Ray_Hit is one body a ray crossed: its owner (0 = none) and how far along the ray, 0..1.
+Ray_Hit :: struct {
+	owner:    u64,
+	fraction: f32,
+}
+
+// ray_hits returns every body the segment from→to crosses, nearest first. Mesh back faces count, so a
+// one-sided wall blocks from both sides. Safe from any thread while the world does not step.
+ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocator) -> []Ray_Hit {
+	found := make([dynamic]jolt.RayCastResult, context.temp_allocator)
+	collect :: proc "c" (found: rawptr, r: ^jolt.RayCastResult) {
+		context = runtime.default_context()
+		append((^[dynamic]jolt.RayCastResult)(found), r^)
+	}
+	origin := to_rvec(from)
+	dir := jolt.Vec3(to - from)
+	settings := jolt.RayCastSettings{.CollideWithBackFaces, .IgnoreBackFaces, true}
+	query := jolt.PhysicsSystem_GetNarrowPhaseQuery(w.system)
+	callback := (^jolt.CastRayResultCallback)(rawptr(collect)) // the binding types the C function pointer as a pointer to one
+	jolt.NarrowPhaseQuery_CastRay3(query, &origin, &dir, &settings, .AllHit, callback, &found, nil, nil, nil, nil)
+
+	hits := make([]Ray_Hit, len(found), allocator)
+	for r, i in found {hits[i] = {jolt.BodyInterface_GetUserData(w.bodies, r.bodyID), r.fraction}}
+	slice.sort_by(hits, proc(a, b: Ray_Hit) -> bool {return a.fraction < b.fraction})
+	return hits
+}
+
 remove_body :: proc(w: ^World, b: Body) {
 	delete_key(&w.prev, b) // Jolt recycles BodyIDs; a stale blend endpoint would pose the next body wrong
 	jolt.BodyInterface_RemoveAndDestroyBody(w.bodies, b)
@@ -699,7 +732,7 @@ STEP_FWD_COS :: f32(0.26) // ≈ cos(75°); unitless
 
 // character_create builds a Z-up capsule character with its origin at `feet`. radius +
 // cylinder half-height → total height 2·(half_h + radius).
-character_create :: proc(w: ^World, feet: [3]f32, radius: f32, half_h: f32) -> (c: Character, ok: bool) {
+character_create :: proc(w: ^World, feet: [3]f32, radius: f32, half_h: f32, owner: u64 = 0) -> (c: Character, ok: bool) {
 	if !init() {return {}, false}
 	cap := jolt.CapsuleShape_Create(half_h, radius)
 	// Jolt capsules run along Y; rotate +90° about X (Y→Z) for our Z-up world and lift the
@@ -724,6 +757,7 @@ character_create :: proc(w: ^World, feet: [3]f32, radius: f32, half_h: f32) -> (
 	cv := jolt.CharacterVirtual_Create(&s, &p, &r, 0, w.system)
 	jolt.Shape_Destroy(cast(^jolt.Shape)rts) // CharacterVirtual holds its own ref
 	if cv == nil {return {}, false}
+	set_owner(w, jolt.CharacterVirtual_GetInnerBodyID(cv), owner)
 	return Character{cv = cv, prev = feet}, true
 }
 

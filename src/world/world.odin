@@ -5,7 +5,7 @@ package world
 // units. Lighting, water and collision have since landed; navmesh and actors have not
 // (see the HOLEs below). Markers and disabled refs are skipped.
 //
-// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh spatial-queries)) actors are capsules that stand where they were placed — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
+// (hole ai-agent :tags ai :sev blocker :needs (package-records navmesh)) actors are capsules that stand where they were placed — no agent, no packages, no schedules, no perception. Every NPC in the world stands still.
 // (hole story-actor-dialogue :tags (quest ai) :sev gap :needs (ai-agent)) no NPC starts a conversation with another: no ADIA story event (163 SMQN, NPC-to-NPC scene quests).
 // (hole story-dead-body :tags (quest ai) :sev polish :needs (ai-agent)) finding a body queues no DEAD story event (DA02DeadBody, WIDeadBody01).
 // (hole navmesh :tags ai :sev blocker) NAVM is never decoded, so there is no navigable surface and nothing can path even once an agent exists.
@@ -875,7 +875,6 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	}
 }
 
-// (hole spatial-queries :tags world :sev blocker) pick_nearest is the engine's ONLY ray — a brute-force loop over every loaded instance then every triangle of the survivors, against RENDER meshes with no acceleration structure. One crosshair per frame is fine; a script or AI query rate is not.
 // pick_nearest ray-casts (origin + t·dir, dir normalized) against loaded instances and
 // returns the nearest hit's chunk + index, by PRECISE ray-vs-FACE — so small detail
 // meshes and foliage are selectable, not just whatever has the biggest bounding sphere.

@@ -181,7 +181,7 @@ DB :: struct {
 	base_models:   map[Form_ID]string, // base formID -> mesh path (owned)
 	names:         map[Form_ID]string, // base/ref formID -> display name (owned; FULL, localized or inline)
 	base_lod:      map[Form_ID][esm.LOD_MODELS]string, // base formID -> MNAM distant-LOD meshes (owned; "" = absent)
-	base_radius:   map[Form_ID]f32, // base formID -> OBND bounding radius (size cull, no mesh load)
+	base_box:      map[Form_ID][2][3]f32, // base formID -> OBND box at scale 1 (size cull, LOS picks, no mesh load)
 	base_value:    map[Form_ID]i32, // base formID -> gold value (carriable items; absent = not a valued item)
 	base_weight:   map[Form_ID]f32, // base formID -> weight (carriable items; absent = not a valued item)
 	containers:    map[Form_ID][]Content_Entry, // CONT base formID -> its baseline inventory (owned slices)
@@ -247,6 +247,11 @@ DB :: struct {
 	equip_types:           map[Form_ID]Equip_Type, // EQUP -> the slots it stands for
 	ref_zones:             map[Form_ID]Form_ID, // REFR/ACHR -> its own XEZN zone (absent = its cell's)
 	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
+	owners:                map[Form_ID]Form_ID, // REFR/ACHR/CELL -> its XOWN owner, an NPC_ or a FACT (queries.odin)
+	activate_parents:      map[Form_ID][]Form_ID, // REFR/ACHR -> its XAPR activate parents (owned)
+	package_templates:     map[Form_ID]Form_ID, // PACK -> the PKCU template it was made from
+	ingredients:           map[Form_ID][]Magic_Effect_Ref, // INGR -> its effects (owned)
+	load_slots:            [dynamic]u32,        // load-order index -> that plugin's slot (Papyrus form ids)
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
 	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
@@ -340,6 +345,7 @@ Actor_Base :: struct {
 	class:         Form_ID, // CNAM
 	voice:         Form_ID, // VTCK
 	outfit:        Form_ID, // DOFT default outfit
+	gift_filter:   Form_ID, // GNAM FLST of what it accepts as a gift
 	template:      Form_ID, // TPLT: an NPC_ or LVLN the template flags draw from
 	template_flags: u16,    // ACBS (esm.ACBS_TEMPLATE_*)
 	ai:            [6]u8,   // AIDT: the AI actor values 0..5 (Aggression .. Assistance)
@@ -723,7 +729,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		base_models   = make(map[Form_ID]string, 4096, allocator),
 		names         = make(map[Form_ID]string, 8192, allocator),
 		base_lod      = make(map[Form_ID][esm.LOD_MODELS]string, 2048, allocator),
-		base_radius   = make(map[Form_ID]f32, 4096, allocator),
+		base_box      = make(map[Form_ID][2][3]f32, 4096, allocator),
 		base_value    = make(map[Form_ID]i32, 4096, allocator),
 		base_weight   = make(map[Form_ID]f32, 4096, allocator),
 		containers    = make(map[Form_ID][]Content_Entry, 512, allocator),
@@ -789,6 +795,11 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		equip_types           = make(map[Form_ID]Equip_Type, 16, allocator),
 		ref_zones             = make(map[Form_ID]Form_ID, 1024, allocator),
 		level_mods            = make(map[Form_ID]u8, 1024, allocator),
+		owners                = make(map[Form_ID]Form_ID, 4096, allocator),
+		activate_parents      = make(map[Form_ID][]Form_ID, 1024, allocator),
+		package_templates     = make(map[Form_ID]Form_ID, 512, allocator),
+		ingredients           = make(map[Form_ID][]Magic_Effect_Ref, 128, allocator),
+		load_slots            = make([dynamic]u32, allocator),
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
 		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
@@ -806,6 +817,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	done_bytes := 0
 	for &p in plugins {
 		if p.name != "" {db.plugin_slots[strings.to_lower(p.name, allocator)] = p.self_slot}
+		append(&db.load_slots, p.self_slot)
 		// A LOCALIZED plugin stores FULL/DESC as string ids; resolve names via its STRINGS
 		// table (loaded loose by the caller, attached to the input). Parse it once, expose it
 		// to the visitor as build scaffolding, walk, then free it — the names we keep are
@@ -895,7 +907,7 @@ destroy :: proc(db: ^DB) {
 		delete(n)
 	}
 	delete(db.names)
-	delete(db.base_radius)
+	delete(db.base_box)
 	delete(db.base_value)
 	delete(db.base_weight)
 	for _, c in db.containers {
@@ -1041,6 +1053,7 @@ destroy :: proc(db: ^DB) {
 	for _, types in db.ref_types {delete(types)}
 	delete(db.ref_types)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
+	free_query_indexes(db) // owners, activate parents, package templates, ingredients
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}
 }
@@ -1178,7 +1191,15 @@ has_lod_models :: proc(db: ^DB, base_form_id: Form_ID) -> bool {
 // base_size returns a base form's OBND bounding radius (world units), or 0 if unknown —
 // a cheap size proxy for distance/LOD culling without loading the mesh.
 base_size :: proc(db: ^DB, base_form_id: Form_ID) -> f32 {
-	return db.base_radius[base_form_id] if base_form_id in db.base_radius else 0
+	box := db.base_box[base_form_id]
+	d := box[1] - box[0]
+	return 0.5 * math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+}
+
+// base_bounds returns a base form's OBND box at scale 1.
+base_bounds :: proc(db: ^DB, base_form_id: Form_ID) -> (box: [2][3]f32, ok: bool) {
+	box, ok = db.base_box[base_form_id]
+	return
 }
 
 // ref_by_formid looks up a placed reference by its formID (e.g. an XTEL teleport's
@@ -1523,6 +1544,11 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_lscr(db, rec) // its DESC loading-tip text (we skip the NNAM 3D model)
 	case s == "NPC_":
 		index_npc(db, rec, ctx.fm) // actor base identity (stats, links, inventory, name)
+	case s == "PACK":
+		index_package(db, rec, ctx.fm) // its PKCU template
+	case s == "INGR":
+		index_base(db, rec, ctx.fm)
+		index_ingredient(db, rec, ctx.fm)
 	case is_base_type(s):
 		index_base(db, rec, ctx.fm)
 	}
@@ -1855,6 +1881,7 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	if z, zok := esm.subrecord_formid(fl, "XEZN"); zok {
 		cell.zone = esm.remap_form(ctx.fm, z)
 	}
+	index_owner(db, rec.form_id, fl, ctx.fm)
 	if gx, gy, gok := esm.cell_grid(fl); gok {
 		cell.gx, cell.gy, cell.has_grid = gx, gy, true
 		if ctx.world_form_id != 0 {
@@ -1976,6 +2003,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	db.ref_by_id[rec.form_id] = ref
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
+	index_ref_ties(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
 	index_edid(db, rec.form_id, fl)
 	index_linked_refs(db, rec.form_id, fl, ctx.fm) // XLKR links (GetLinkedRef's baseline)
@@ -2024,6 +2052,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	db.ref_by_id[rec.form_id] = ref
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
+	index_ref_ties(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
 	index_edid(db, rec.form_id, fl)
 }
@@ -2600,6 +2629,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if c, cok := esm.subrecord_formid(fl, "CNAM"); cok {a.class = esm.remap_form(fm, c)}
 	if v, vok := esm.subrecord_formid(fl, "VTCK"); vok {a.voice = esm.remap_form(fm, v)}
 	if o, ook := esm.subrecord_formid(fl, "DOFT"); ook {a.outfit = esm.remap_form(fm, o)}
+	if g, gok := esm.subrecord_formid(fl, "GNAM"); gok {a.gift_filter = esm.remap_form(fm, g)}
 	if t, tok := esm.subrecord_formid(fl, "TPLT"); tok {a.template = esm.remap_form(fm, t)}
 
 	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.
@@ -2701,8 +2731,8 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		}
 		db.base_lod[rec.form_id] = arr
 	}
-	if radius, rok := esm.object_bounds(fl); rok {
-		db.base_radius[rec.form_id] = radius
+	if box, bok := esm.object_box(fl); bok {
+		db.base_box[rec.form_id] = box
 	}
 	// Carriable items (WEAP/ARMO/ALCH/…) carry a gold value + weight; static-world types don't.
 	if value, weight, vok := esm.item_value_weight(rec.type, fl); vok {

@@ -161,6 +161,23 @@ effects_on :: proc(ws: ^World_State, target: Form_ID) -> []Form_ID {
 	return list[:]
 }
 
+// has_effect is HasMagicEffect: a running effect of that MGEF on the target.
+has_effect :: proc(ws: ^World_State, target, effect: Form_ID) -> bool {
+	for h in effects_on(ws, target) {
+		if e := ws.effects[h]; e.effect == effect && !e.finished {return true}
+	}
+	return false
+}
+
+// has_effect_keyword is HasMagicEffectWithKeyword: a running effect on the target whose MGEF has
+// the keyword.
+has_effect_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, target, keyword: Form_ID) -> bool {
+	for h in effects_on(ws, target) {
+		if e := ws.effects[h]; !e.finished && gamedb.has_keyword(db, e.effect, keyword) {return true}
+	}
+	return false
+}
+
 @(private)
 index_effect :: proc(ws: ^World_State, h, target: Form_ID) {
 	if target not_in ws.effects_on {ws.effects_on[target] = make([dynamic]Form_ID)}

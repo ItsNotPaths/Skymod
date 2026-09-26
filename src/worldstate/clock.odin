@@ -21,6 +21,7 @@ Game_Clock :: struct {
 	hours:     f64, // game hours since day 0 began; GameDaysPassed is hours / 24
 	start_day: i64, // calendar day of day 0, counted from 1 Morning Star of year 0
 	skipped:   f64, // hours skipped since the last tick, still owed to the script clocks
+	played:    f64, // real seconds of ticks in this game, across saves (GetCurrentRealTime)
 	state:     Clock_State,
 }
 
@@ -31,6 +32,7 @@ start_clock :: proc(ws: ^World_State, year, month, day, hour, days_passed: f32) 
 	ws.clock = {
 		hours     = whole * 24 + f64(hour),
 		start_day = calendar_day(i64(year), i64(month), i64(day)) - i64(whole),
+		played    = ws.clock.played,
 		state     = .Starting,
 	}
 	write_time_globals(ws)
@@ -41,6 +43,7 @@ advance_clock :: proc(ws: ^World_State, dt, time_scale: f32) -> f64 {
 	c := &ws.clock
 	step := f64(dt) * f64(time_scale) / 3600
 	c.hours += step
+	c.played += f64(dt)
 	passed := step + c.skipped
 	c.skipped = 0
 	write_time_globals(ws)
@@ -101,6 +104,13 @@ calendar_date :: proc(d: i64) -> (year, month, day: i64) {
 game_date :: proc(ws: ^World_State) -> (year, month, day: i64, hour: f64) {
 	year, month, day = calendar_date(ws.clock.start_day + i64(math.floor(ws.clock.hours / 24)))
 	return year, month, day, math.mod(ws.clock.hours, 24)
+}
+
+// (hole start-weekday :tags quest :sev polish) that 17 Last Seed 4E 201 is a Morndas is from memory, not the data: check the wait menu on a new game.
+// weekday is the day of the week: 0 Sundas, 1 Morndas .. 6 Loredas.
+weekday :: proc(ws: ^World_State) -> i64 {
+	today := ws.clock.start_day + i64(math.floor(ws.clock.hours / 24))
+	return ((today - calendar_day(201, 7, 17) + 1) % 7 + 7) % 7
 }
 
 @(private = "file")

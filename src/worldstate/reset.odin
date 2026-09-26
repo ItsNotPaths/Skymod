@@ -30,12 +30,14 @@ reset_ref_state :: proc(ws: ^World_State, form: Form_ID, inventory: bool) {
 		d.live &= {.Disabled, .Deleted, .Delete_When_Detached}
 		if d.live == {} {drop_delta(ws, form)}
 	}
+	delete_key(&ws.killers, form)
 	if inventory {
 		drop_inventory(ws, form)
 		if inner, ok := ws.actor_values[form]; ok {delete(inner)}
 		delete_key(&ws.actor_values, form)
 		drop_deltas(&ws.spells, form)
 		delete_key(&ws.actor_picks, form)
+		delete_key(&ws.actor_flags, form)
 	}
 }
 

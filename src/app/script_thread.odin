@@ -8,7 +8,9 @@ import "base:runtime"
 import "core:sync"
 import "core:thread"
 
+import "../render"
 import slua "../script/lua"
+import "../sight"
 import "../worldstate"
 
 Script_Thread :: struct {
@@ -50,6 +52,7 @@ script_start :: proc(g: ^Game) {
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
+	sight.view = {g.cur_phys, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r))}
 	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
 	clear(&g.loaded_cells)
 	clear(&st.attached)

@@ -129,21 +129,10 @@ n_get_equipped_shout :: proc(c: ^Call, args: []Value) -> Value {
 	return form_or_none(held_kind(c, .Voice, .Shout))
 }
 
-// GetEquippedItemType(aiHand): 0 fists, 1 sword, 2 dagger, 3 war axe, 4 mace, 5 greatsword, 6 battleaxe
-// or warhammer, 7 bow, 8 staff, 9 spell or scroll, 10 shield, 11 torch, 12 crossbow.
 n_get_equipped_item_type :: proc(c: ^Call, args: []Value) -> Value {
 	h, ok := hand_arg(args, 0)
 	if !ok || h == .Voice {return i32(0)}
-	s, has := gamedb.equip_slot_of(c.db, held(c, h))
-	if !has {return i32(0)}
-	switch s.kind {
-	case .Weapon: return i32(12) if s.weapon_type == 9 else i32(s.weapon_type)
-	case .Spell, .Scroll: return i32(9)
-	case .Armor: return i32(10) // a shield
-	case .Light: return i32(11)
-	case .Shout, .Ammo:
-	}
-	return i32(0)
+	return worldstate.equipped_item_type(c.ws, c.db, c.self, h)
 }
 
 n_get_equipped_weapon :: proc(c: ^Call, args: []Value) -> Value {

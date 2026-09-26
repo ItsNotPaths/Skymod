@@ -21,6 +21,32 @@ close :: proc(a, b: f32) -> bool {return math.abs(a - b) < 0.01}
 test_fixed_tick_interpolation :: proc(t: ^testing.T) {
 	body_transform_interpolates(t)
 	character_render_position_interpolates(t)
+	ray_hits_nearest_first(t)
+}
+
+// A ray names each body it crosses by owner, nearest first; a one-sided mesh blocks from behind.
+@(private = "file")
+ray_hits_nearest_first :: proc(t: ^testing.T) {
+	w, ok := physics.world_create()
+	testing.expect(t, ok, "world_create")
+	defer physics.world_destroy(&w)
+
+	far := physics.add_box(&w, {10, 100, 100}, {200, 0, 0})
+	near := physics.add_box(&w, {10, 100, 100}, {100, 0, 0})
+	wall := physics.add_static_mesh(&w, {{-50, -100, -100}, {-50, 100, -100}, {-50, 0, 100}}, {0, 1, 2})
+	physics.set_owner(&w, far, 2)
+	physics.set_owner(&w, near, 1)
+	physics.set_owner(&w, wall, 3)
+	physics.optimize_broadphase(&w)
+
+	hits := physics.ray_hits(&w, {0, 0, 0}, {300, 0, 0})
+	testing.expect_value(t, len(hits), 2)
+	if len(hits) == 2 {
+		testing.expect_value(t, hits[0].owner, 1)
+		testing.expect_value(t, hits[1].owner, 2)
+	}
+	testing.expect_value(t, len(physics.ray_hits(&w, {0, 0, 0}, {-100, 0, 0})), 1)
+	testing.expect_value(t, len(physics.ray_hits(&w, {-100, 0, 0}, {0, 0, 0})), 1)
 }
 
 @(private = "file")

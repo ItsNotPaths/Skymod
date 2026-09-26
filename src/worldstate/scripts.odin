@@ -137,6 +137,41 @@ anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []
 	return out[:]
 }
 
+Los_Mode :: enum u8 {
+	Both, // RegisterForLOS: every gain and loss
+	Gain, // RegisterForSingleLOSGain
+	Lost, // RegisterForSingleLOSLost
+}
+
+// Los_Reg is one LOS registration: `form` hears about `viewer` seeing `target`. `seen` starts
+// false, or true for Lost, so a single registration fires at once when the state already holds.
+Los_Reg :: struct {
+	form, viewer, target: Form_ID,
+	mode:                 Los_Mode,
+	seen:                 bool,
+}
+
+// register_los replaces `form`'s registration for the pair.
+register_los :: proc(ws: ^World_State, form, viewer, target: Form_ID, mode: Los_Mode) {
+	unregister_los(ws, form, viewer, target)
+	append(&ws.los_regs, Los_Reg{form, viewer, target, mode, mode == .Lost})
+}
+
+// unregister_los drops `form`'s LOS registrations for the pair, or all of them when both are 0.
+unregister_los :: proc(ws: ^World_State, form, viewer, target: Form_ID) {
+	all := viewer == 0 && target == 0
+	#reverse for r, i in ws.los_regs {
+		if r.form == form && (all || (r.viewer == viewer && r.target == target)) {ordered_remove(&ws.los_regs, i)}
+	}
+}
+
+// unregister_all ends every registration `form` holds: a stopped quest or alias, an ended effect.
+unregister_all :: proc(ws: ^World_State, form: Form_ID) {
+	unregister_updates(ws, form)
+	unregister_anim_events(ws, form)
+	unregister_los(ws, form, 0, 0)
+}
+
 // move_items records items moving for the next tick's inventory events.
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)

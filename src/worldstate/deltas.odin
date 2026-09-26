@@ -60,3 +60,21 @@ load_set :: proc(m: ^Form_Set, saved: []Form_ID, remap: map[u32]u32, on: bool, r
 		if f, ok := rf(remap, on, s); ok {m[f] = true}
 	}
 }
+
+// save_pairs flattens a form -> form store; the alias field holds the key.
+@(private)
+save_pairs :: proc(m: map[Form_ID]Form_ID) -> []Saved_Alias {
+	out := make([dynamic]Saved_Alias, 0, len(m), context.temp_allocator)
+	for k, v in m {append(&out, Saved_Alias{k, v})}
+	return out[:]
+}
+
+// load_pairs drops a pair either side of which comes from a missing mod.
+@(private)
+load_pairs :: proc(m: ^map[Form_ID]Form_ID, saved: []Saved_Alias, remap: map[u32]u32, on: bool, rf: proc(map[u32]u32, bool, Form_ID) -> (Form_ID, bool)) {
+	for s in saved {
+		k, kok := rf(remap, on, s.alias)
+		v, vok := rf(remap, on, s.form)
+		if kok && vok {m[k] = v}
+	}
+}

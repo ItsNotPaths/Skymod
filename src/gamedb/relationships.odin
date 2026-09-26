@@ -8,6 +8,7 @@ import "../formats/esm"
 Relationship :: struct {
 	rank:        i32, // as GetRelationshipRank reads it: 4 Lover .. 0 Acquaintance .. -4 Archnemesis
 	association: Form_ID, // ASTP
+	parent:      Form_ID, // the NPC_ the record names first; the parent of a ParentChild tie
 }
 
 // ASTP DATA flag.
@@ -23,7 +24,7 @@ index_relationship :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		if f.type != "DATA" || len(f.data) < 16 {continue}
 		a, b := esm.remap_form(fm, u32_le(f.data, 0)), esm.remap_form(fm, u32_le(f.data, 4))
 		rank := i32(u16(f.data[8]) | u16(f.data[9]) << 8) // 0 Lover .. 4 Acquaintance .. 8 Archnemesis
-		db.relationships[pair(a, b)] = {rank = 4 - rank, association = esm.remap_form(fm, u32_le(f.data, 12))}
+		db.relationships[pair(a, b)] = {rank = 4 - rank, association = esm.remap_form(fm, u32_le(f.data, 12)), parent = a}
 	}
 }
 

@@ -191,14 +191,6 @@ object_box :: proc(fields: []Field) -> (box: [2][3]f32, ok: bool) {
 	return box, true
 }
 
-// object_bounds is the OBND bounding RADIUS (half the box diagonal, in world units) — a cheap size
-// proxy for distance/LOD culling WITHOUT loading the mesh. ok=false if absent/short.
-object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
-	box := object_box(fields) or_return
-	d := box[1] - box[0]
-	return 0.5 * math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z), true
-}
-
 // BOOK DATA flags (UESP; build/out/wsP/perks/books.py: 90 skill books, 94 spell tomes in Skyrim.esm).
 BOOK_TEACHES_SKILL :: 0x01
 BOOK_TEACHES_SPELL :: 0x04
@@ -509,6 +501,7 @@ ACBS_PC_LEVEL_MULT :: 0x0000_0080 // `level` field is a ×1000 multiplier of the
 ACBS_PROTECTED :: 0x0000_0800
 ACBS_SUMMONABLE :: 0x0000_4000
 ACBS_GHOST :: 0x2000_0000
+ACBS_INVULNERABLE :: 0x8000_0000
 
 // ACBS template flags: which parts of an NPC_ come from its TPLT.
 ACBS_TEMPLATE_TRAITS :: 0x0001 // race and more

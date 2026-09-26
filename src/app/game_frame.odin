@@ -336,7 +336,7 @@ frame_scene_select :: proc(g: ^Game) {
 		actor_bodies_clear(g)
 		if want_phys != nil {
 			player_capsule := actor_capsule(g, formid.PLAYER)
-			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, player_capsule.radius, player_capsule.half_h)
+			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
 			if !g.char_ok {g.noclip = true}
 		}
 		g.cur_phys = want_phys

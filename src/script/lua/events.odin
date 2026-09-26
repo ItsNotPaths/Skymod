@@ -12,6 +12,7 @@ import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../gamedb"
+import "../../sight"
 import "../../worldstate"
 import "../../formid"
 
@@ -182,6 +183,19 @@ tick_deaths :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.deaths)
 }
 
+// tick_los checks each LOS registration and sends OnGainLOS / OnLostLOS to the registering form
+// alone when what it watches changes. A single registration ends with its event.
+tick_los :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
+	for i := 0; i < len(ws.los_regs); {
+		r := &ws.los_regs[i]
+		seen := sight.has_los(ws, db, r.viewer, r.target)
+		if seen == r.seen {i += 1;continue}
+		r.seen = seen
+		send_own(vm, r.form, "OnGainLOS" if seen else "OnLostLOS", r.viewer, r.target)
+		if r.mode == .Both {i += 1} else {ordered_remove(&ws.los_regs, i)}
+	}
+}
+
 // tick_equips starts and ends the enchantments of gear that went on or off
 // (script.sync_constant_effects), then sends OnObjectUnequipped / OnObjectEquipped(akBaseObject,
 // akReference) for each item, in order, to the actor and its aliases and effects. Inventory items
@@ -331,6 +345,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	for cell in loaded {attach_cell(vm, db, cell)}
 	tick_transitions(vm, db, ws, t, attached)
 	tick_triggers(vm, db, ws)
+	tick_los(vm, db, ws)
 	tick_location(vm, ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)

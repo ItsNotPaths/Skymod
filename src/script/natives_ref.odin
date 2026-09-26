@@ -5,6 +5,7 @@ package script
 
 import "core:math"
 import "../gamedb"
+import "../sight"
 import smath "../math"
 import "../worldstate"
 
@@ -18,6 +19,7 @@ register_ref_reads :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "GetAngleY", n_get_angle_y)
 	register(reg, "ObjectReference", "GetAngleZ", n_get_angle_z)
 	register(reg, "ObjectReference", "GetDistance", n_get_distance)
+	register(reg, "Actor", "HasLOS", n_has_los)
 	register(reg, "ObjectReference", "GetLinkedRef", n_get_linked_ref)
 	register(reg, "ObjectReference", "GetNthLinkedRef", n_get_nth_linked_ref)
 	register(reg, "ObjectReference", "GetParentCell", n_get_parent_cell)
@@ -49,6 +51,10 @@ n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(
 
 n_get_distance :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.ref_distance(c.ws, c.db, c.self, arg_form(args, 0))
+}
+
+n_has_los :: proc(c: ^Call, args: []Value) -> Value {
+	return sight.has_los(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 // n_get_linked_ref follows the link on the keyword's channel; no keyword is the default link.
@@ -109,14 +115,8 @@ n_get_leveled_actor_base :: proc(c: ^Call, args: []Value) -> Value {
 	return form_or_none(worldstate.ref_base(c.ws, c.db, c.self))
 }
 
-// n_get_open_state answers 1 (open) or 3 (closed) for a door or a ref SetOpen touched, else 0 (none).
-// (hole door-default-open :tags world :sev gap) a door's authored open-by-default flag is not decoded; an untouched door reads closed.
 n_get_open_state :: proc(c: ^Call, args: []Value) -> Value {
-	if d, ok := worldstate.get(c.ws, c.self); ok && .Open in d.live {
-		return i32(1) if d.open else i32(3)
-	}
-	if gamedb.is_door(c.db, worldstate.ref_base(c.ws, c.db, c.self)) {return i32(3)}
-	return i32(0)
+	return worldstate.open_state(c.ws, c.db, c.self)
 }
 
 n_cell_is_attached :: proc(c: ^Call, args: []Value) -> Value {

@@ -403,6 +403,24 @@ potion_is_poison :: proc(fields: []Field) -> bool {
 	return ok && len(f.data) >= 8 && rd32(f.data, 4) & 0x20000 != 0
 }
 
+// package_template reads a PACK's PKCU (data input count u32@0, template PACK u32@4, version u32@8).
+package_template :: proc(fields: []Field) -> (u32, bool) {
+	f, ok := find_field(fields, "PKCU")
+	if !ok || len(f.data) < 8 {return 0, false}
+	return rd32(f.data, 4), rd32(f.data, 4) != 0
+}
+
+// activate_parents reads a placement's XAPR entries (parent ref u32@0, delay f32@4), one per subrecord.
+activate_parents :: proc(fields: []Field, allocator := context.allocator) -> []u32 {
+	out: [dynamic]u32
+	for f in fields {
+		if f.type != "XAPR" || len(f.data) < 4 {continue}
+		if out == nil {out = make([dynamic]u32, allocator)}
+		append(&out, rd32(f.data, 0))
+	}
+	return out[:]
+}
+
 // effect_items collects a record's EFID/EFIT effect pairs in declaration order — the shape
 // shared by SPEL, SCRL, ENCH, ALCH and INGR. An EFID with no following EFIT contributes a
 // zero-magnitude entry (the effect is still applied). The CTDAs after an EFIT are its

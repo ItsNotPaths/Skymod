@@ -17,7 +17,7 @@ import "../../worldstate"
 // detaches or is disabled forgets the player without an event.
 tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
-	box := gamedb.actor_bounds(db, formid.PLAYER, worldstate.actor_pick(ws, db, formid.PLAYER))
+	box := worldstate.actor_box(ws, db, formid.PLAYER)
 	head := feet + {0, 0, box[1].z - box[0].z}
 	c := vm.ctx
 	live := make(map[script.Form_ID]bool, context.temp_allocator)
@@ -26,7 +26,7 @@ tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 			shape, ok := db.triggers[trig]
 			if !ok || !worldstate.ref_enabled(ws, db, trig) {continue}
 			live[trig] = true
-			inside := segment_in(shape, worldstate.ref_pos(ws, db, trig), worldstate.ref_rot(ws, db, trig), script.ref_scale(&c, trig), feet, head)
+			inside := segment_in(shape, worldstate.ref_pos(ws, db, trig), worldstate.ref_rot(ws, db, trig), worldstate.ref_scale(ws, db, trig), feet, head)
 			if inside == (trig in ws.in_triggers) {continue}
 			if inside {
 				ws.in_triggers[trig] = true

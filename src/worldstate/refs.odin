@@ -1,5 +1,6 @@
 package worldstate
 
+import "core:math"
 import "core:slice"
 import smath "../math"
 import "../gamedb"
@@ -20,9 +21,10 @@ Ref_Field :: enum u8 {
 	Activation_Blocked, // BlockActivation: no default action on Activate. The bit is the whole state (a baseline ref is never blocked)
 	Delete_When_Detached, // DeleteWhenAble on an attached ref: deleted when its cell detaches. The bit is the whole state
 	Harvested, // flora picked; a cell reset grows it back. The bit is the whole state
+	Lock_Level, // SetLockLevel: the lock's level
 }
 
-// (hole combat-damage :tags combat :sev blocker :needs (spatial-queries)) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
+// (hole combat-damage :tags combat :sev blocker) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as
@@ -40,6 +42,7 @@ Ref_Delta :: struct {
 	open:     bool, // Open: door/container open-state
 	locked:   bool, // Locked: lock-state (level/key reserved for the lock subsystem)
 	dead:     bool, // Dead: actor life-state (Actor.Kill / IsDead)
+	lock_level: u8, // Lock_Level: 0 Novice .. 100 Master, 255 key only
 }
 
 // Created_Ref is a runtime-spawned reference with NO ESM baseline — the overlay stores its WHOLE
@@ -194,6 +197,33 @@ set_locked :: proc(ws: ^World_State, form_id, cell: Form_ID, locked: bool) {
 	d.locked = locked
 }
 
+set_lock_level :: proc(ws: ^World_State, form_id, cell: Form_ID, level: u8) {
+	d := upsert(ws, form_id, cell)
+	d.live += {.Lock_Level}
+	d.lock_level = level
+}
+
+// lock_level is GetLockLevel: a script's SetLockLevel, else the ref's XLOC; 0 with neither.
+lock_level :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> u8 {
+	if d, ok := get(ws, form); ok && .Lock_Level in d.live {return d.lock_level}
+	lock, _ := gamedb.lock_of(db, form)
+	return lock.level
+}
+
+// is_locked is a ref's current lock state: a script's or the player's change, else an XLOC on the ref.
+is_locked :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> bool {
+	if d, ok := get(ws, form); ok && .Locked in d.live {return d.locked}
+	_, locked := gamedb.lock_of(db, form)
+	return locked
+}
+
+// (hole door-default-open :tags world :sev gap) a door's authored open-by-default flag is not decoded; an untouched door reads closed.
+// open_state is GetOpenState: 1 open or 3 closed for a door or a ref SetOpen touched, else 0 (none).
+open_state :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> i32 {
+	if d, ok := get(ws, form); ok && .Open in d.live {return 1 if d.open else 3}
+	return 3 if gamedb.is_door(db, ref_base(ws, db, form)) else 0
+}
+
 // set_dead records a Dead delta (actor life-state; Actor.Kill flips it, IsDead reads it).
 set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 	d := upsert(ws, form_id, cell)
@@ -210,6 +240,24 @@ Death :: struct {
 is_dead :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
 	d, ok := get(ws, form_id)
 	return ok && .Dead in d.live && d.dead
+}
+
+// dead_count is how many actors placed from the NPC_ `base` are dead.
+dead_count :: proc(ws: ^World_State, db: ^gamedb.DB, base: Form_ID) -> i32 {
+	n: i32
+	for ref, d in ws.ref_deltas {
+		if .Dead in d.live && d.dead && ref_base(ws, db, ref) == base {n += 1}
+	}
+	return n
+}
+
+// ref_type_count is how many of a location's refs of a location ref type are dead, or alive.
+ref_type_count :: proc(ws: ^World_State, db: ^gamedb.DB, location, ref_type: Form_ID, dead: bool) -> i32 {
+	n: i32
+	for ref in gamedb.location_special_refs(db, location, ref_type) {
+		if is_dead(ws, ref) == dead {n += 1}
+	}
+	return n
 }
 
 // set_deleted marks an ESM ref destroyed: the cell-build suppresses it entirely (never instantiated).
@@ -296,6 +344,13 @@ ref_distance :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
 	return smath.length3(ref_pos(ws, db, a) - ref_pos(ws, db, b))
 }
 
+// heading_angle is the turn from a's facing to b, in degrees, -180 to 180; positive is clockwise.
+heading_angle :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
+	d := ref_pos(ws, db, b) - ref_pos(ws, db, a)
+	turn := math.to_degrees(math.atan2(d.x, d.y) - ref_rot(ws, db, a).z)
+	return math.mod(math.mod(turn, 360) + 540, 360) - 180
+}
+
 // has_keyword checks the form, a ref's base form, and the aliases that hold it.
 has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) -> bool {
 	if gamedb.has_keyword(db, form, keyword) || gamedb.has_keyword(db, ref_base(ws, db, form), keyword) {return true}
@@ -303,6 +358,20 @@ has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) ->
 		if slice.contains(a.keywords, keyword) {return true}
 	}
 	return false
+}
+
+// ref_scale is a ref's current scale: a script's SetScale, else its placement's.
+ref_scale :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> f32 {
+	if d, ok := get(ws, form); ok && .Scaled in d.live {return d.scale}
+	if r, ok := gamedb.ref_by_formid(db, form); ok {return r.scale}
+	if cr, ok := get_created(ws, form); ok {return cr.scale}
+	return 1
+}
+
+// ref_3d_loaded reports whether a ref is enabled and in an attached cell.
+ref_3d_loaded :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> bool {
+	cell := ref_grid_cell(ws, db, form)
+	return cell != 0 && cell in ws.attached && ref_enabled(ws, db, form)
 }
 
 // ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline

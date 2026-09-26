@@ -189,8 +189,7 @@ sync_refs :: proc(vm: ^VM) {
 			e, ok := &ws.effects[h]
 			if !ok {continue}
 			e.finished = true
-			worldstate.unregister_anim_events(ws, h)
-			worldstate.unregister_updates(ws, h)
+			worldstate.unregister_all(ws, h)
 			send_own(vm, h, "OnEffectFinish", e.target, e.caster)
 		}
 	}

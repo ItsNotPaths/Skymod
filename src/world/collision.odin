@@ -523,6 +523,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 		}
 	}
 	inst.body_count = len(chunk.bodies) - inst.body_first
+	for b in chunk.bodies[inst.body_first:] {physics.set_owner(w, b, u64(inst.form_id))}
 
 	// Hinges (Phase B): link the built bodies. Pivot/axis/perp are in NIF-root space → apply inst.world.
 	inst.con_first = len(chunk.constraints)

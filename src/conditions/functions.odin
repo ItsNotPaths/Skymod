@@ -8,9 +8,10 @@ import "core:math/rand"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
+import "../sight"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest query) :sev gap) no body for IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 93 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
+// (hole condition-functions :tags (records dialogue query) :sev polish) no body for GetClothingValue (2 uses, build/out/wsQ/measure14.py), so it passes: the CK wiki gives no formula for how an item's value is scaled by the slots it covers.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;
@@ -20,10 +21,14 @@ Eval :: #type proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (value: f
 @(rodata)
 TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	1   = fn_get_distance,
+	5   = fn_get_locked,
 	14  = fn_get_actor_value,
 	18  = fn_get_current_time,
+	25  = fn_resting,
+	27  = fn_get_line_of_sight,
 	32  = fn_get_in_same_cell,
 	35  = fn_get_disabled,
+	39  = fn_get_disease,
 	45  = fn_resting,
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
@@ -45,9 +50,11 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	74  = fn_get_global_value,
 	75  = fn_resting,
 	77  = fn_get_random_percent,
+	79  = fn_get_quest_variable,
 	80  = fn_get_level,
 	84  = fn_get_dead_count,
 	101 = fn_resting,
+	108 = fn_get_weapon_anim_type,
 	125 = fn_is_guard,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
@@ -56,8 +63,11 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	144 = fn_resting,
 	145 = fn_resting,
 	149 = fn_resting,
+	157 = fn_get_open_state,
 	159 = fn_resting,
 	161 = fn_resting,
+	170 = fn_get_day_of_week,
+	180 = fn_has_same_editor_loc_as_ref,
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
 	214 = fn_has_magic_effect,
@@ -69,6 +79,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	255 = fn_get_offers_services_now,
 	258 = fn_has_association_type,
 	259 = fn_has_family_relationship,
+	261 = fn_has_parent_relationship,
 	263 = fn_resting,
 	264 = fn_has_spell,
 	266 = fn_resting_true,
@@ -90,6 +101,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	376 = fn_resting,
 	402 = fn_resting,
 	403 = fn_get_relationship_rank,
+	408 = fn_is_killer,
 	415 = fn_resting,
 	426 = fn_get_is_voice_type,
 	430 = fn_get_health_percentage,
@@ -122,17 +134,21 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	592 = fn_get_ref_type_alive_count,
 	594 = fn_resting,
 	596 = fn_spell_has_keyword,
+	597 = fn_get_equipped_item_type,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
+	604 = fn_is_in_same_current_loc_as_ref_alias,
 	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
 	610 = fn_loc_alias_has_keyword,
+	616 = fn_get_lowest_relationship_rank,
 	624 = fn_get_in_container,
 	629 = fn_get_vm_quest_variable,
 	630 = fn_get_vm_script_variable,
 	632 = fn_resting,
 	633 = fn_resting,
 	635 = fn_resting,
+	638 = fn_is_in_friend_state_with_player,
 	640 = fn_get_actor_value_percent,
 	641 = fn_is_unique,
 	650 = fn_is_linked_to,
@@ -143,9 +159,11 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	656 = fn_resting,
 	657 = fn_resting,
 	682 = fn_worn_has_keyword,
+	698 = fn_is_allowed_to_fly,
 	699 = fn_has_magic_effect_keyword,
 	700 = fn_resting,
 	707 = fn_resting,
+	726 = fn_does_not_exist,
 }
 
 @(private)
@@ -211,6 +229,18 @@ fn_get_is_alias_ref :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 	ref, ok := alias_ref(ctx, i32(c.param1))
 	if !ok {return 0, false}
 	return yes(ref != 0 && ref == on)
+}
+
+// GetQuestVariable is deprecated and does not work in Skyrim (CK wiki): it reads 0.
+@(private = "file")
+fn_get_quest_variable :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return 0, true
+}
+
+// GetDayOfWeek: 0 Sundas .. 6 Loredas.
+@(private = "file")
+fn_get_day_of_week :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.weekday(ctx.ws)), true
 }
 
 // GetVMQuestVariable(quest, "::name_var"): a quest script's int, float or bool member.
@@ -288,7 +318,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting, GetDetected, IsSmallBump and GetGroupMemberCount read 0 and GetAllowWorldInteractions 1: no actor runs a package, uses furniture, bumps or looks for anyone.
+// (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting, GetDetected, IsSmallBump, GetGroupMemberCount and IsMoving read 0 and GetAllowWorldInteractions 1: no actor runs a package, walks, uses furniture, bumps or looks for anyone.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (ai combat) :sev gap :needs (ai-agent)) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
@@ -312,7 +342,7 @@ fn_get_player_teammate :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) 
 
 @(private = "file")
 fn_is_unique :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(actor_flags(ctx, on) & esm.ACBS_UNIQUE != 0)
+	return yes(worldstate.actor_flag(ctx.ws, ctx.db, on, esm.ACBS_UNIQUE))
 }
 
 // IsChild: the actor's race has the Child flag (RACE DATA 0x4).
@@ -387,6 +417,60 @@ fn_has_family_relationship :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 	return yes(gamedb.association_is_family(ctx.db, worldstate.rel_association(ctx.ws, ctx.db, on, other)))
 }
 
+// HasParentRelationship(other): `on` is the parent in their tie.
+@(private = "file")
+fn_has_parent_relationship :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(worldstate.rel_is_parent(ctx.ws, ctx.db, on, other))
+}
+
+// GetLowestRelationshipRank: the lowest rank of the actor's ties, 0 for none.
+@(private = "file")
+fn_get_lowest_relationship_rank :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	lowest, _ := worldstate.rel_rank_range(ctx.ws, ctx.db, on)
+	return f32(lowest), true
+}
+
+// IsInFriendStateWithPlayer: the actor is the player's Friend or closer (rank 1 or more).
+@(private = "file")
+fn_is_in_friend_state_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.rel_rank(ctx.ws, ctx.db, on, formid.PLAYER) >= 1)
+}
+
+// IsKiller(actor): the actor killed `on`.
+@(private = "file")
+fn_is_killer :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	killer, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(killer != 0 && ctx.ws.killers[on] == killer)
+}
+
+@(private = "file")
+fn_is_allowed_to_fly :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.allowed_to_fly(ctx.ws, on))
+}
+
+// GetDisease: the actor has a disease spell.
+@(private = "file")
+fn_get_disease :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	for id in worldstate.spell_list(ctx.ws, ctx.db, on) {
+		if sp, ok := gamedb.spell_of(ctx.db, id); ok && sp.info.type == .Disease {return 1, true}
+	}
+	return 0, true
+}
+
+// GetEquippedItemType(hand): 0 left, 1 right.
+@(private = "file")
+fn_get_equipped_item_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.equipped_item_type(ctx.ws, ctx.db, on, .LeftHand if c.param1 == 0 else .RightHand)), true
+}
+
+@(private = "file")
+fn_get_weapon_anim_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.weapon_anim_type(ctx.ws, ctx.db, on)), true
+}
+
 // GetOffersServicesNow: the actor is in a vendor faction that trades now, inside its hours and
 // its vendor conditions.
 @(private = "file")
@@ -406,11 +490,7 @@ fn_get_offers_services_now :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 // GetDeadCount(actor base): how many of its placed actors are dead.
 @(private = "file")
 fn_get_dead_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	n := 0
-	for ref, d in ctx.ws.ref_deltas {
-		if .Dead in d.live && d.dead && worldstate.ref_base(ctx.ws, ctx.db, ref) == p1(c) {n += 1}
-	}
-	return f32(n), true
+	return f32(worldstate.dead_count(ctx.ws, ctx.db, p1(c))), true
 }
 
 // SpellHasKeyword(hand, keyword): the spell in that hand (0 left, 1 right) or one of its effects
@@ -495,10 +575,7 @@ fn_is_spell_target :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (
 
 @(private = "file")
 fn_has_magic_effect_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	for h in worldstate.effects_on(ctx.ws, on) {
-		if e := ctx.ws.effects[h]; !e.finished && gamedb.has_keyword(ctx.db, e.effect, p1(c)) {return 1, true}
-	}
-	return 0, true
+	return yes(worldstate.has_effect_keyword(ctx.ws, ctx.db, on, p1(c)))
 }
 
 @(private = "file")
@@ -509,42 +586,29 @@ fn_get_in_current_loc_form_list :: proc(ctx: ^Context, c: gamedb.Condition, on: 
 
 @(private = "file")
 fn_worn_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	for w in worldstate.equipment(ctx.ws, ctx.db, on).worn {
-		if gamedb.has_keyword(ctx.db, w.item, p1(c)) {return 1, true}
-	}
-	return 0, true
+	return yes(worldstate.worn_has_keyword(ctx.ws, ctx.db, on, p1(c)))
 }
 
 // GetRefTypeAliveCount(location, ref type): the location's refs of that type that are alive.
 @(private = "file")
 fn_get_ref_type_alive_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	n := 0
-	for ref in gamedb.location_special_refs(ctx.db, p1(c), gamedb.condition_param2_form(c)) {
-		if !worldstate.is_dead(ctx.ws, ref) {n += 1}
-	}
-	return f32(n), true
+	return f32(worldstate.ref_type_count(ctx.ws, ctx.db, p1(c), gamedb.condition_param2_form(c), false)), true
 }
 
-// GetIsGhost, IsEssential, IsProtected and IsUnique: the NPC_'s ACBS flags.
+// GetIsGhost, IsEssential, IsProtected and IsUnique: the ACBS flags, as scripts set them.
 @(private = "file")
 fn_get_is_ghost :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(actor_flags(ctx, on) & esm.ACBS_GHOST != 0)
+	return yes(worldstate.actor_flag(ctx.ws, ctx.db, on, esm.ACBS_GHOST))
 }
 
 @(private = "file")
 fn_is_essential :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(actor_flags(ctx, on) & esm.ACBS_ESSENTIAL != 0)
+	return yes(worldstate.actor_flag(ctx.ws, ctx.db, on, esm.ACBS_ESSENTIAL))
 }
 
 @(private = "file")
 fn_is_protected :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(actor_flags(ctx, on) & esm.ACBS_PROTECTED != 0)
-}
-
-@(private = "file")
-actor_flags :: proc(ctx: ^Context, on: Form_ID) -> u32 {
-	base := worldstate.ref_base(ctx.ws, ctx.db, on)
-	return gamedb.template_part(ctx.db, base, esm.ACBS_TEMPLATE_BASE_DATA, worldstate.actor_pick(ctx.ws, ctx.db, on)).flags
+	return yes(worldstate.actor_flag(ctx.ws, ctx.db, on, esm.ACBS_PROTECTED))
 }
 
 @(private = "file")
@@ -585,6 +649,24 @@ fn_get_disabled :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32
 }
 
 @(private = "file")
+fn_get_locked :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.is_locked(ctx.ws, ctx.db, on))
+}
+
+@(private = "file")
+fn_get_open_state :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.open_state(ctx.ws, ctx.db, on)), true
+}
+
+// DoesNotExist: `on` is no ref, or a deleted one.
+@(private = "file")
+fn_does_not_exist :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	_, placed := gamedb.ref_by_formid(ctx.db, on)
+	_, created := ctx.ws.created[on]
+	return yes(!(placed || created) || worldstate.is_deleted(ctx.ws, on))
+}
+
+@(private = "file")
 fn_get_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return f32(worldstate.inv_count(ctx.ws, ctx.db, on, formid.GOLD)), true
 }
@@ -603,10 +685,7 @@ fn_get_is_reference :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 
 @(private = "file")
 fn_has_magic_effect :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	for h in worldstate.effects_on(ctx.ws, on) {
-		if e := ctx.ws.effects[h]; e.effect == p1(c) && !e.finished {return 1, true}
-	}
-	return 0, true
+	return yes(worldstate.has_effect(ctx.ws, on, p1(c)))
 }
 
 @(private = "file")
@@ -744,15 +823,36 @@ fn_get_is_editor_loc_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 	return yes(loc != 0 && loc == gamedb.editor_location(ctx.db, on))
 }
 
-// HasSameEditorLocAsRefAlias(ref alias, keyword): both refs were placed in the same location, each
-// taken up to its nearest parent with the keyword.
+// HasSameEditorLocAsRef(ref, keyword) and HasSameEditorLocAsRefAlias(ref alias, keyword): both refs
+// were placed in the same location, each taken up to its nearest parent with the keyword.
+@(private = "file")
+fn_has_same_editor_loc_as_ref :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(same_location(ctx, gamedb.editor_location(ctx.db, on), gamedb.editor_location(ctx.db, other), c))
+}
+
 @(private = "file")
 fn_has_same_editor_loc_as_ref_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	other, ok := alias_ref(ctx, i32(c.param1))
 	if !ok {return 0, false}
+	return yes(same_location(ctx, gamedb.editor_location(ctx.db, on), gamedb.editor_location(ctx.db, other), c))
+}
+
+// IsInSameCurrentLocAsRefAlias(ref alias, keyword): as HasSameEditorLocAsRefAlias, on current locations.
+@(private = "file")
+fn_is_in_same_current_loc_as_ref_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	return yes(same_location(ctx, worldstate.ref_location(ctx.ws, ctx.db, on), worldstate.ref_location(ctx.ws, ctx.db, other), c))
+}
+
+// same_location: the two locations, each taken up to its nearest parent with the keyword (param2), are one.
+@(private = "file")
+same_location :: proc(ctx: ^Context, a, b: Form_ID, c: gamedb.Condition) -> bool {
 	kw := gamedb.condition_param2_form(c)
-	a := gamedb.location_with_keyword(ctx.db, gamedb.editor_location(ctx.db, on), kw)
-	return yes(a != 0 && a == gamedb.location_with_keyword(ctx.db, gamedb.editor_location(ctx.db, other), kw))
+	top := gamedb.location_with_keyword(ctx.db, a, kw)
+	return top != 0 && top == gamedb.location_with_keyword(ctx.db, b, kw)
 }
 
 // location_of is where `on` is; a location is its own (CK wiki: LocationHasKeyword filling a
@@ -785,11 +885,7 @@ fn_location_has_ref_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID
 loc_alias_ref_type_count :: proc(ctx: ^Context, c: gamedb.Condition, dead: bool) -> (f32, bool) {
 	loc, ok := alias_ref(ctx, i32(c.param1))
 	if !ok {return 0, false}
-	n := 0
-	for ref in gamedb.location_special_refs(ctx.db, loc, gamedb.condition_param2_form(c)) {
-		if worldstate.is_dead(ctx.ws, ref) == dead {n += 1}
-	}
-	return f32(n), true
+	return f32(worldstate.ref_type_count(ctx.ws, ctx.db, loc, gamedb.condition_param2_form(c), dead)), true
 }
 
 @(private = "file")
@@ -818,6 +914,14 @@ fn_get_distance :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32
 	other, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
 	return worldstate.ref_distance(ctx.ws, ctx.db, on, other), true
+}
+
+// GetLineOfSight(ref): `on` sees the ref, as Actor.HasLOS.
+@(private = "file")
+fn_get_line_of_sight :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(sight.has_los(ctx.ws, ctx.db, on, other))
 }
 
 // IsLinkedTo(ref, keyword): `on`'s link on that keyword is the ref.

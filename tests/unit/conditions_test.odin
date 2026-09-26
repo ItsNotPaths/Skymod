@@ -844,3 +844,40 @@ test_condition_tail :: proc(t: ^testing.T) {
 	ws.carried[RING] = CHEST
 	testing.expect(t, conditions.all(&ctx, cond(624, CHEST)), "GetInContainer")
 }
+
+// The Workstream L tail: reads over stores the natives share, and IsMoving at rest.
+@(test)
+test_condition_tail_queries :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	ACTOR, NPC, KILLER :: gamedb.Form_ID(0xF01), gamedb.Form_ID(0xF02), gamedb.Form_ID(0xF03)
+	db: gamedb.DB
+	defer delete(db.ref_by_id)
+	db.ref_by_id[ACTOR] = {form_id = ACTOR, base = NPC}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ACTOR}
+	holds :: proc(ctx: ^conditions.Context, fn: u16, value: f32, p1: gamedb.Form_ID = 0) -> bool {
+		c := []gamedb.Condition{{function = fn, op = .Equal, value = value, param1 = u64(p1)}}
+		return conditions.all(ctx, c)
+	}
+
+	testing.expect(t, holds(&ctx, 698, 1), "IsAllowedToFly by default")
+	worldstate.set_allow_flying(&ws, ACTOR, false)
+	testing.expect(t, holds(&ctx, 698, 0), "SetAllowFlying(false) grounds it")
+	testing.expect(t, holds(&ctx, 408, 0, KILLER), "nobody killed it")
+	ws.killers[ACTOR] = KILLER
+	testing.expect(t, holds(&ctx, 408, 1, KILLER), "IsKiller")
+	testing.expect(t, holds(&ctx, 5, 0), "unlocked")
+	worldstate.set_locked(&ws, ACTOR, 0, true)
+	testing.expect(t, holds(&ctx, 5, 1), "GetLocked")
+	worldstate.set_open(&ws, ACTOR, 0, true)
+	testing.expect(t, holds(&ctx, 157, 1), "GetOpenState: open")
+	testing.expect(t, holds(&ctx, 726, 0), "a placed ref exists")
+	worldstate.set_deleted(&ws, ACTOR, 0)
+	testing.expect(t, holds(&ctx, 726, 1), "a deleted ref does not")
+	testing.expect(t, holds(&ctx, 79, 0), "GetQuestVariable is deprecated")
+	testing.expect(t, holds(&ctx, 25, 0), "IsMoving rests at 0")
+	testing.expect(t, holds(&ctx, 638, 0), "an acquaintance")
+	worldstate.rel_set(&ws, &db, ACTOR, formid.PLAYER, 1)
+	testing.expect(t, holds(&ctx, 638, 1), "a friend")
+}

@@ -40,8 +40,7 @@ clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_I
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
 		worldstate.clear_alias(ws, h)
-		worldstate.unregister_updates(ws, h)
-		worldstate.unregister_anim_events(ws, h)
+		worldstate.unregister_all(ws, h)
 	}
 }
 

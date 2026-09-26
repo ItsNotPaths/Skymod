@@ -121,12 +121,21 @@ actor_traits :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> gamedb
 // (hole level-mod-picks :tags records :sev polish) an Easy actor should pick from every level up to its target and a Very Hard one a step above Hard's pick; both use the list's own flags.
 actor_pick :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
 	if p, ok := ws.actor_picks[ref]; ok {return p}
-	if db == nil {return 0}
+	if db == nil || pick_list(ws, db, ref) == 0 {return 0}
+	return roll_pick(ws, db, ref, f32(zone_level(ws, db, gamedb.zone_of(db, ref))) * level_mult(db, ref))
+}
+
+// pick_list is the LVLN an actor's base template chain reaches; 0 for an actor that is not leveled.
+pick_list :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
 	base := record_of(ws, ref)
 	if r, ok := db.ref_by_id[base]; ok {base = r.base}
-	list := gamedb.leveled_template(db, base)
+	return gamedb.leveled_template(db, base)
+}
+
+// roll_pick rolls and keeps the NPC_ a leveled actor spawns as at `level`.
+roll_pick :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID, level: f32) -> Form_ID {
+	list := pick_list(ws, db, ref)
 	if list == 0 {return 0}
-	level := f32(zone_level(ws, db, gamedb.zone_of(db, ref))) * level_mult(db, ref)
 	out := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
 	roll(ws, db, list, max(i32(level), 1), 1, &out)
 	pick: Form_ID
@@ -135,12 +144,22 @@ actor_pick :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
 	return pick
 }
 
+// encounter_level is a zone's level at a difficulty (esm.LEVEL_MOD_*; any other is none), as
+// CalculateEncounterLevel and PlaceActorAtMe take it.
+encounter_level :: proc(ws: ^World_State, db: ^gamedb.DB, zone: Form_ID, difficulty: i32) -> i32 {
+	return max(i32(f32(zone_level(ws, db, zone)) * difficulty_mult(db, difficulty)), 1)
+}
+
 // level_mult scales a leveled actor's target level by its difficulty (XLCM); none is 1.
 @(private)
 level_mult :: proc(db: ^gamedb.DB, ref: Form_ID) -> f32 {
 	m, ok := db.level_mods[ref]
-	if !ok {return 1}
-	switch m {
+	return difficulty_mult(db, i32(m)) if ok else 1
+}
+
+// difficulty_mult is a leveled difficulty's level multiplier; none is 1.
+difficulty_mult :: proc(db: ^gamedb.DB, difficulty: i32) -> f32 {
+	switch difficulty {
 	case esm.LEVEL_MOD_EASY:      return gamedb.setting_float(db, "fLeveledActorMultEasy", 0.33)
 	case esm.LEVEL_MOD_MEDIUM:    return gamedb.setting_float(db, "fLeveledActorMultMedium", 0.67)
 	case esm.LEVEL_MOD_HARD:      return gamedb.setting_float(db, "fLeveledActorMultHard", 1)

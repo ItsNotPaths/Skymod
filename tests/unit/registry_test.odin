@@ -10,6 +10,7 @@ import "core:log"
 import "core:os"
 import "core:math"
 import "core:testing"
+import "../../src/conditions"
 import "../../src/formats/esm"
 import "../../src/formid"
 import "../../src/gamedb"
@@ -26,10 +27,10 @@ test_registry_manifest_and_stubs :: proc(t: ^testing.T) {
 	testing.expect(t, len(reg.declared) >= 600, "manifest auto-stubbed")
 	testing.expect(t, script.is_declared(&reg, "ObjectReference", "Disable"), "Disable declared")
 	testing.expect(t, script.is_implemented(&reg, "ObjectReference", "Disable"), "Disable implemented")
-	// Declared but no body yet -> known, not implemented. (IsGhost has no body yet; swap this if it
-	// ever gets one.)
-	testing.expect(t, script.is_declared(&reg, "Actor", "IsGhost"), "IsGhost declared")
-	testing.expect(t, !script.is_implemented(&reg, "Actor", "IsGhost"), "IsGhost not impl")
+	// Declared but no body yet -> known, not implemented. (GetWarmthRating has no body yet; swap this
+	// if it ever gets one.)
+	testing.expect(t, script.is_declared(&reg, "Actor", "GetWarmthRating"), "GetWarmthRating declared")
+	testing.expect(t, !script.is_implemented(&reg, "Actor", "GetWarmthRating"), "GetWarmthRating not impl")
 }
 
 @(test)
@@ -880,4 +881,58 @@ test_placed_actor_factions :: proc(t: ^testing.T) {
 	db.actors[NPC] = {factions = []gamedb.Faction_Membership{{SHOP, 0}}}
 	testing.expect(t, worldstate.in_faction(&ws, &db, REF, SHOP), "the ref is in its base's faction")
 	testing.expect_value(t, len(worldstate.actor_factions_now(&ws, &db, REF)), 1)
+}
+
+// Query natives read the stores their setters write, and a condition reads the same one.
+@(test)
+test_registry_queries :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	NPC :: script.Form_ID(0x0001_0000)
+	LIST :: script.Form_ID(0x0001_0001)
+	FACTION :: script.Form_ID(0x0001_0002)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base)
+	db.factions = make(map[gamedb.Form_ID]gamedb.Faction)
+	defer {delete(db.actors);delete(db.factions)}
+	db.actors[NPC] = {flags = esm.ACBS_ESSENTIAL}
+	db.factions[FACTION] = {}
+
+	c := script.Call{self = LIST, ws = &ws, db = &db}
+	testing.expect_value(t, script.call(&reg, "FormList", "Find", &c, {NPC}), script.Value(i32(-1)))
+	worldstate.add_to_list(&ws, LIST, NPC)
+	testing.expect_value(t, script.call(&reg, "FormList", "Find", &c, {NPC}), script.Value(i32(0)))
+
+	actor := worldstate.create_ref(&ws, NPC, 0, {}, {}, 1)
+	a := script.Call{self = actor, ws = &ws, db = &db}
+	base := script.Call{self = NPC, ws = &ws, db = &db}
+	testing.expect_value(t, script.call(&reg, "Actor", "IsEssential", &a, nil), script.Value(bool(true)))
+	script.call(&reg, "ActorBase", "SetEssential", &base, {false})
+	testing.expect_value(t, script.call(&reg, "Actor", "IsEssential", &a, nil), script.Value(bool(false)))
+	script.call(&reg, "Actor", "SetGhost", &a, {true})
+	testing.expect_value(t, script.call(&reg, "Actor", "IsGhost", &a, nil), script.Value(bool(true)))
+	testing.expect_value(t, script.call(&reg, "ActorBase", "IsInvulnerable", &base, nil), script.Value(bool(false)))
+	ctx := conditions.Context{db = &db, ws = &ws, subject = actor}
+	ghost := []gamedb.Condition{{function = 237, op = .Equal, value = 1}}
+	testing.expect(t, conditions.all(&ctx, ghost), "GetIsGhost reads SetGhost")
+
+	thing := script.Call{self = script.Form_ID(0x0001_0003), ws = &ws, db = &db}
+	script.call(&reg, "ObjectReference", "SetFactionOwner", &thing, {FACTION})
+	testing.expect_value(t, script.call(&reg, "ObjectReference", "GetFactionOwner", &thing, nil), script.Value(FACTION))
+	testing.expect_value(t, script.call(&reg, "ObjectReference", "GetActorOwner", &thing, nil), script.Value(nil))
+
+	worldstate.advance_clock(&ws, 2, 20)
+	testing.expect_value(t, script.call(&reg, "Utility", "GetCurrentRealTime", &c, nil), script.Value(f32(2)))
+
+	CHILD :: script.Form_ID(0x0001_0004)
+	db.relationships = make(map[[2]gamedb.Form_ID]gamedb.Relationship)
+	defer delete(db.relationships)
+	db.relationships[{NPC, CHILD}] = {association = formid.ASSOC_PARENT_CHILD, parent = NPC}
+	child := script.Call{self = CHILD, ws = &ws, db = &db}
+	testing.expect_value(t, script.call(&reg, "Actor", "HasParentRelationship", &base, {CHILD}), script.Value(bool(true)))
+	testing.expect_value(t, script.call(&reg, "Actor", "HasParentRelationship", &child, {NPC}), script.Value(bool(false)))
 }

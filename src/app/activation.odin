@@ -85,16 +85,6 @@ classify_base :: proc(db: ^gamedb.DB, base: gamedb.Form_ID) -> Activate_Kind {
 	return .Activator
 }
 
-// effective_locked is a ref's CURRENT lock state: the worldstate overlay wins (a picked/scripted
-// lock diverges from the ESM), else the gamedb baseline (an XLOC on the ref = starts locked).
-effective_locked :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, ref_form: gamedb.Form_ID) -> bool {
-	if d, ok := worldstate.get(ws, u64(ref_form)); ok && .Locked in d.live {
-		return d.locked
-	}
-	_, baseline := gamedb.lock_of(db, ref_form)
-	return baseline
-}
-
 // resolve_activation casts a ray down the screen centre and resolves what it hits into an
 // Activation_Target for this frame. No world state is mutated (uses world.probe_ray). Names come
 // from gamedb; strings are borrowed (valid for the DB's lifetime) — no allocation.
@@ -118,7 +108,7 @@ resolve_activation :: proc(g: ^Game) -> Activation_Target {
 	t := Activation_Target {
 		kind     = .Door if inst.has_tp else classify_base(&g.db, gamedb.Form_ID(inst.base)),
 		name     = gamedb.name_of(&g.db, ref_form),
-		locked   = effective_locked(&g.ws, &g.db, ref_form),
+		locked   = worldstate.is_locked(&g.ws, &g.db, ref_form),
 		form     = ref_form,
 		dyn_body = inst.dyn_body, // non-zero → this REFR is carried by a movable clutter body (grabbable)
 	}

@@ -44,6 +44,7 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	if worldstate.is_dead(c.ws, c.self) {return nil}
 	append(&c.ws.deaths, worldstate.Death{c.self, arg_form(args, 0)})
+	c.ws.killers[c.self] = arg_form(args, 0)
 	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	boss_died(c, c.self)
@@ -69,11 +70,12 @@ n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {
 // hint with no bearing on our overlay (created refs already persist). abInitiallyDisabled writes a
 // Disabled delta on the new ref so the streamer skips it until Enable.
 n_place_at_me :: proc(c: ^Call, args: []Value) -> Value {
-	base := arg_form(args, 0)
-	if base == 0 {return nil} // Papyrus: placing None places nothing and returns None
-	count := max(1, int(arg_i32(args, 1, 1)))
-	disabled := arg_bool(args, 3, false)
+	return form_or_none(place_at_me(c, arg_form(args, 0), max(1, int(arg_i32(args, 1, 1))), arg_bool(args, 3, false)))
+}
 
+// place_at_me mints `count` refs of `base` where the caller stands and returns the last; 0 for no base.
+place_at_me :: proc(c: ^Call, base: Form_ID, count := 1, disabled := false) -> Form_ID {
+	if base == 0 {return 0} // Papyrus: placing None places nothing and returns None
 	cell := worldstate.ref_cell(c.ws, c.db, c.self)
 	pos := worldstate.ref_pos(c.ws, c.db, c.self)
 	rot: [3]f32

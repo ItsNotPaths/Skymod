@@ -18,13 +18,6 @@ import smath "../math"
 // (hole ai-natives :tags ai :sev blocker :needs (ai-agent)) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
 // (hole ai-natives :tags ai :sev blocker) the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 
-// Queries (Workstream L; counts are corpus call sites, build/out/wsX/*.tsv).
-// (hole los-queries :tags (query script) :sev blocker :needs (spatial-queries)) Actor.HasLOS (50 sites, 25 scripts) reads false and the GetLineOfSight condition (21 uses) passes: WordWallTriggerScript.isLooking never passes, so no word wall teaches and MS13 and every word-wall stage stop at the wall.
-// (hole los-events :tags (query script) :sev gap :needs (los-queries)) RegisterForLOS and RegisterForSingleLOSGain/Lost (33 sites) do nothing, so OnGainLOS / OnLostLOS never fire (13 scripts; CWMission03Script sets a stage from one).
-// (hole find-refs :tags (query script) :sev gap) Game.FindClosest* and FindRandom* (6 natives, 16 sites) answer None: nothing searches the loaded refs by type, list or distance.
-// (hole data-queries :tags (query script) :sev gap) 56 query natives whose data exists have no body (425 sites, build/out/wsX/data_queries.tsv) and answer their type's zero. Wrong zeros: FormList.Find 0 means "found at 0" where scripts test < 0 (22 sites); GetCurrentRealTime 0 (91) stops real-time timers; CalculateEncounterLevel 0 (20); GetGoldValue 0 (11); PlaceActorAtMe None (58) spawns nothing.
-// (hole actor-flag-reads :tags (query script) :sev gap) SetGhost (215 sites), SetEssential (131) and SetInvulnerable (65) store nothing, so IsGhost, IsEssential, IsInvulnerable and GetIsGhost read false and no guard can test them.
-
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
@@ -67,6 +60,12 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Form", "UnregisterForUpdateGameTime", n_unregister_for_update_game_time)
 	register(reg, "Form", "RegisterForAnimationEvent", n_register_anim_event)
 	register(reg, "Form", "UnregisterForAnimationEvent", n_unregister_anim_event)
+	for class in ([?]string{"Form", "Alias", "ActiveMagicEffect"}) {
+		register(reg, class, "RegisterForLOS", n_register_los)
+		register(reg, class, "RegisterForSingleLOSGain", n_register_single_los_gain)
+		register(reg, class, "RegisterForSingleLOSLost", n_register_single_los_lost)
+		register(reg, class, "UnregisterForLOS", n_unregister_los)
+	}
 	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
 	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
 
@@ -101,6 +100,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register_levels(reg) // encounter zone levels for mods
 	register_equip(reg) // what actors wear and hold
 	register_leveling(reg) // skill XP, levels, perk points
+	register_query(reg) // reads over records and the stores their setters write
+	register_find(reg) // Game.FindClosest* / FindRandom* over the loaded refs
 }
 
 // ── ObjectReference verbs (write through the overlay) ────────────────────────
@@ -123,8 +124,7 @@ n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
 
 // n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
 n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
-	cell := worldstate.ref_grid_cell(c.ws, c.db, c.self)
-	return cell != 0 && cell in c.ws.attached && worldstate.ref_enabled(c.ws, c.db, c.self)
+	return worldstate.ref_3d_loaded(c.ws, c.db, c.self)
 }
 
 n_register_single_update :: proc(c: ^Call, args: []Value) -> Value {
@@ -168,6 +168,20 @@ n_unregister_anim_event :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
+n_register_los :: proc(c: ^Call, args: []Value) -> Value {return register_los(c, args, .Both)}
+n_register_single_los_gain :: proc(c: ^Call, args: []Value) -> Value {return register_los(c, args, .Gain)}
+n_register_single_los_lost :: proc(c: ^Call, args: []Value) -> Value {return register_los(c, args, .Lost)}
+
+register_los :: proc(c: ^Call, args: []Value, mode: worldstate.Los_Mode) -> Value {
+	worldstate.register_los(c.ws, c.self, arg_form(args, 0), arg_form(args, 1), mode)
+	return nil
+}
+
+n_unregister_los :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.unregister_los(c.ws, c.self, arg_form(args, 0), arg_form(args, 1))
+	return nil
+}
+
 // n_activate queues the activation for the app's next tick. It returns whether default processing
 // will run: false when blocked, unless abDefaultProcessingOnly ignores the block.
 n_activate :: proc(c: ^Call, args: []Value) -> Value {
@@ -192,21 +206,7 @@ n_set_scale :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_scale :: proc(c: ^Call, args: []Value) -> Value {
-	return ref_scale(c, c.self)
-}
-
-// ref_scale is a ref's current scale: a script's SetScale, else its placement's.
-ref_scale :: proc(c: ^Call, form: Form_ID) -> f32 {
-	if d, ok := worldstate.get(c.ws, form); ok && .Scaled in d.live {
-		return d.scale
-	}
-	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
-		return r.scale
-	}
-	if cr, ok := worldstate.get_created(c.ws, form); ok {
-		return cr.scale
-	}
-	return 1
+	return worldstate.ref_scale(c.ws, c.db, c.self)
 }
 
 n_delete :: proc(c: ^Call, args: []Value) -> Value {
@@ -282,10 +282,7 @@ n_lock :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_is_locked :: proc(c: ^Call, args: []Value) -> Value {
-	if d, ok := worldstate.get(c.ws, c.self); ok && .Locked in d.live {
-		return d.locked
-	}
-	return false // no baseline lock-state surfaced yet
+	return worldstate.is_locked(c.ws, c.db, c.self)
 }
 
 n_set_open :: proc(c: ^Call, args: []Value) -> Value {
