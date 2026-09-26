@@ -173,11 +173,11 @@ n_remove_from_all_factions :: proc(c: ^Call, args: []Value) -> Value {
 // ── relationship rank ──────────────────────────────────────────────────────────
 
 n_get_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.rel_rank(c.ws, c.self, arg_form(args, 0))
+	return worldstate.rel_rank(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 n_set_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.rel_set(c.ws, c.self, arg_form(args, 0), arg_i32(args, 1, 0))
+	worldstate.rel_set(c.ws, c.db, c.self, arg_form(args, 0), arg_i32(args, 1, 0))
 	return nil
 }
 

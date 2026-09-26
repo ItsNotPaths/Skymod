@@ -243,6 +243,8 @@ DB :: struct {
 	branches:      map[Form_ID]Branch, // DLBR form -> its dialogue branch
 	infos:         map[Form_ID]Info,   // INFO form -> its response
 	scenes:        map[Form_ID]Scene,  // SCEN form -> its phases, actors and actions
+	relationships: map[[2]Form_ID]Relationship, // {lower, higher} NPC_ pair -> RELA
+	associations:  map[Form_ID]u32,    // ASTP form -> its flags
 	story_roots:   []Form_ID, // the top nodes (event nodes), in sibling order; owned
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
 	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
@@ -772,6 +774,8 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		branches      = make(map[Form_ID]Branch, 4096, allocator),
 		infos         = make(map[Form_ID]Info, 32768, allocator),
 		scenes        = make(map[Form_ID]Scene, 2048, allocator),
+		relationships = make(map[[2]Form_ID]Relationship, 2048, allocator),
+		associations  = make(map[Form_ID]u32, 16, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
 		load_tips      = make([dynamic]string, allocator),
@@ -999,6 +1003,8 @@ destroy :: proc(db: ^DB) {
 	free_story_nodes(db)
 	free_dialogue(db)
 	free_scenes(db)
+	delete(db.relationships)
+	delete(db.associations)
 	delete(db.unique_refs)
 	delete(db.alias_targets)
 	delete(db.persistent_refs, db.allocator)
@@ -1424,6 +1430,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_info(db, rec, ctx.topic_form_id, ctx.fm)
 	case s == "SCEN":
 		index_scene(db, rec, ctx.fm)
+	case s == "RELA":
+		index_relationship(db, rec, ctx.fm)
+	case s == "ASTP":
+		index_association(db, rec)
 	case s == "CONT":
 		index_base(db, rec, ctx.fm) // container mesh + name (CONT is a base type)
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory

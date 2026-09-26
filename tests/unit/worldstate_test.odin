@@ -68,7 +68,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.av_set_base(&src, 0x000AC701, "Health", 87.5)
 	ws.av_damage(&src, nil, 0x000AC701, "Health", 7.5)
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
-	ws.rel_set(&src, 0x000AC701, 0x000F00D5, 3)
+	ws.rel_set(&src, nil, 0x000AC701, 0x000F00D5, 3)
 	ws.perk_add(&src, 0x000AC701, 0x000BABE0)
 
 	path := "test_quicksave.skysave"
@@ -173,8 +173,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.av_current(&dst, nil, 0x000AC701, "Health"), f32(80))
 	fr, fok := ws.faction_rank(&dst, nil, 0x000AC701, 0x000FAC70)
 	testing.expect(t, fok && fr == 4, "faction rank lost")
-	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))
-	testing.expect_value(t, ws.rel_rank(&dst, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
+	testing.expect_value(t, ws.rel_rank(&dst, nil, 0x000AC701, 0x000F00D5), i32(3))
+	testing.expect_value(t, ws.rel_rank(&dst, nil, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
 	testing.expect(t, ws.perk_has(&dst, nil, 0x000AC701, 0x000BABE0), "perk lost")
 }
 

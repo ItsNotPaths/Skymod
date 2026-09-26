@@ -429,18 +429,34 @@ rel_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]i32 {
 // rel_set stores the relationship rank for the (a,b) pair. Skyrim relationships are symmetric (one
 // RELA record per pair), so we mirror it both ways → GetRelationshipRank works from either actor.
 // A change is a story event (CHRR).
-rel_set :: proc(ws: ^World_State, a, b: Form_ID, rank: i32) {
-	if old := rel_rank(ws, a, b); old != rank {queue_story_event(ws, {type = STORY_RELATIONSHIP, ref1 = a, ref2 = b, value1 = old, value2 = rank})}
+rel_set :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID, rank: i32) {
+	if old := rel_rank(ws, db, a, b); old != rank {queue_story_event(ws, {type = STORY_RELATIONSHIP, ref1 = a, ref2 = b, value1 = old, value2 = rank})}
 	ia := rel_upsert(ws, a)
 	ia^[b] = rank
 	ib := rel_upsert(ws, b)
 	ib^[a] = rank
 }
 
-// rel_rank returns a's relationship rank toward b (0 = Acquaintance/neutral if unset).
-rel_rank :: proc(ws: ^World_State, a, b: Form_ID) -> i32 {
+// rel_rank is a's relationship rank toward b: a script's SetRelationshipRank, else the RELA between
+// their NPC_s, else 0 (Acquaintance).
+rel_rank :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> i32 {
 	if inner, ok := ws.relationships[a]; ok {
-		return inner[b]
+		if rank, set := inner[b]; set {return rank}
 	}
-	return 0
+	r, _ := gamedb.relationship(db, rel_base(ws, db, a), rel_base(ws, db, b))
+	return r.rank
+}
+
+// rel_association is the kind of tie (ASTP) between two actors' NPC_s; 0 when none.
+rel_association :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> Form_ID {
+	r, _ := gamedb.relationship(db, rel_base(ws, db, a), rel_base(ws, db, b))
+	return r.association
+}
+
+@(private = "file")
+rel_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> Form_ID {
+	if db == nil {return actor}
+	if pick := actor_pick(ws, db, actor); pick != 0 {return pick}
+	base := ref_base(ws, db, actor)
+	return base if base != 0 else actor
 }

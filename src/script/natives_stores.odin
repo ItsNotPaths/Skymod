@@ -50,7 +50,7 @@ n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 		ref1      = c.self,
 		ref2      = arg_form(args, 0),
 		location1 = worldstate.ref_location(c.ws, c.db, c.self),
-		value2    = worldstate.rel_rank(c.ws, c.self, formid.PLAYER), // value1, the crime status, stays 0: there is no crime
+		value2    = worldstate.rel_rank(c.ws, c.db, c.self, formid.PLAYER), // value1, the crime status, stays 0: there is no crime
 	})
 	return nil
 }

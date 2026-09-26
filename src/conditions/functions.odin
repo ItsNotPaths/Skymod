@@ -11,7 +11,6 @@ import "../gamedb"
 import "../worldstate"
 
 // (hole condition-functions :tags (records quest) :sev gap) no body for GetOffersServicesNow (vendor hours, FACT VENV), GetAllowWorldInteractions, GetDeadCount, GetIsObjectType, SpellHasKeyword, GetVMScriptVariable and the rest of the tail, about 1,400 quest and dialogue conditions: they pass.
-// (hole relationship-records :tags (records quest) :sev gap) RELA is never indexed, so GetRelationshipRank (363 quest and dialogue conditions) has no body: an untouched pair reads Acquaintance at runtime.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;
@@ -59,6 +58,8 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	214 = fn_has_magic_effect,
 	248 = fn_is_scene_playing,
 	249 = fn_is_in_dialogue_with_player,
+	258 = fn_has_association_type,
+	259 = fn_has_family_relationship,
 	263 = fn_resting,
 	264 = fn_has_spell,
 	277 = fn_get_base_actor_value,
@@ -76,6 +77,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	375 = fn_resting,
 	376 = fn_resting,
 	402 = fn_resting,
+	403 = fn_get_relationship_rank,
 	426 = fn_get_is_voice_type,
 	430 = fn_get_health_percentage,
 	448 = fn_has_perk,
@@ -325,6 +327,30 @@ fn_is_scene_playing :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_is_scene_action_complete :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(worldstate.scene_action_done(ctx.ws, p1(c), u32(c.param2)))
+}
+
+// GetRelationshipRank(other): 4 Lover .. 0 Acquaintance .. -4 Archnemesis.
+@(private = "file")
+fn_get_relationship_rank :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return f32(worldstate.rel_rank(ctx.ws, ctx.db, on, other)), true
+}
+
+// HasAssociationType(other, association): their tie is of that kind (spouse, sibling...).
+@(private = "file")
+fn_has_association_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	kind := worldstate.rel_association(ctx.ws, ctx.db, on, other)
+	return yes(kind != 0 && kind == gamedb.condition_param2_form(c))
+}
+
+@(private = "file")
+fn_has_family_relationship :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(gamedb.association_is_family(ctx.db, worldstate.rel_association(ctx.ws, ctx.db, on, other)))
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.
