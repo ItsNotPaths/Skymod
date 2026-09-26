@@ -338,6 +338,7 @@ Magic_Effect_Ref :: struct {
 	magnitude: f32,
 	area:      u32,
 	duration:  u32,
+	conditions: []Condition, // the CTDAs after its EFIT (owned)
 }
 
 // Spell is a SPEL or SCRL baseline: its SPIT cast parameters plus the effects it applies. `scroll`
@@ -367,6 +368,7 @@ Magic_Effect :: struct {
 	projectile:  Form_ID, // remapped
 	explosion:   Form_ID, // remapped
 	description: string, // DNAM (owned)
+	conditions:  []Condition, // CTDA (owned)
 }
 
 // Linked_Ref is one XLKR link of a placed reference (both handles remapped). `keyword` 0 is the

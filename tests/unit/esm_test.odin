@@ -2124,6 +2124,8 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	field(&dear, "FULL", transmute([]u8)string("Frostbite\x00"))
 	dd := mgef_data(40, .Dual_Value_Modifier, 24)
 	field(&dear, "DATA", dd[:])
+	mctda: [32]u8;put_u32(mctda[:], 8, 448)
+	field(&dear, "CTDA", mctda[:])
 	record(&mgefs, "MGEF", 0, 0x0000_0602, dear[:])
 
 	// A spell applying both, cheap effect first (so the costliest index isn't trivially 0).
@@ -2144,6 +2146,8 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	field(&spel, "EFID", u32_bytes(0x0000_0602))
 	ef1: [12]u8;put_f32(ef1[:], 0, 20);put_u32(ef1[:], 8, 1)
 	field(&spel, "EFIT", ef1[:])
+	ctda: [32]u8;put_u32(ctda[:], 8, 448)
+	field(&spel, "CTDA", ctda[:]) // the second effect's condition
 	spels := make([dynamic]u8, 0, 192);defer delete(spels)
 	record(&spels, "SPEL", 0, 0x0000_0610, spel[:])
 
@@ -2197,6 +2201,9 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	testing.expect_value(t, sp.effects[0].magnitude, f32(50))
 	testing.expect_value(t, sp.effects[0].duration, u32(5))
 	testing.expect_value(t, sp.effects[1].effect, gamedb.Form_ID(0x0000_0602))
+	testing.expect(t, len(sp.effects[0].conditions) == 0 && len(sp.effects[1].conditions) == 1, "a CTDA belongs to the effect before it")
+	dear_me, _ := gamedb.magic_effect_of(&db, 0x0000_0602)
+	testing.expect_value(t, len(dear_me.conditions), 1)
 
 	// Effect 1 costs 40 base at magnitude 20 — well past effect 0's 2 base at magnitude 50.
 	costliest, cok := gamedb.spell_costliest_effect(&db, 0x0000_0610)

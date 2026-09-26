@@ -313,7 +313,7 @@ index_spell :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map, scroll: bool) {
 	sp.effects = index_effects(db, fl, fm)
 
 	if old, existed := db.spells[rec.form_id]; existed {
-		delete(old.effects, db.allocator) // override: free the previous effect list
+		free_effects(db, old.effects) // override: free the previous effect list
 	}
 	db.spells[rec.form_id] = sp
 }
@@ -338,7 +338,7 @@ index_enchantment :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	e.effects = index_effects(db, fl, fm)
 
 	if old, existed := db.enchantments[rec.form_id]; existed {
-		delete(old.effects, db.allocator) // override: free the previous effect list
+		free_effects(db, old.effects) // override: free the previous effect list
 	}
 	db.enchantments[rec.form_id] = e
 }
@@ -370,14 +370,18 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		}
 	}
 
+	me.conditions = index_conditions(db, fl, fm)
+
 	if old, existed := db.magic_effects[rec.form_id]; existed {
 		delete(old.description, db.allocator) // override: free the previous clone
+		delete(old.conditions, db.allocator)
 	}
 	db.magic_effects[rec.form_id] = me
 }
 
-// index_effects decodes a record's EFID/EFIT effect list into DB-owned, remapped entries. Shared
-// by every magic record (spell, scroll, enchantment). nil when the record applies none.
+// index_effects decodes a record's EFID/EFIT effect list into DB-owned, remapped entries, each with
+// the CTDAs up to the next EFID. Shared by every magic record (spell, scroll, enchantment). nil
+// when the record applies none.
 @(private)
 index_effects :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Magic_Effect_Ref {
 	raw := esm.effect_items(fl, context.allocator) // walk has no temp reset — explicit free
@@ -385,16 +389,28 @@ index_effects :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Magic_Ef
 		return nil
 	}
 	defer delete(raw, context.allocator)
+	starts := make([dynamic]int, 0, len(raw) + 1, context.temp_allocator)
+	for f, k in fl {
+		if f.type == "EFID" && len(f.data) >= 4 {append(&starts, k)}
+	}
+	append(&starts, len(fl))
 	out := make([]Magic_Effect_Ref, len(raw), db.allocator)
 	for e, i in raw {
 		out[i] = Magic_Effect_Ref {
-			effect    = esm.remap_form(fm, e.effect),
-			magnitude = e.magnitude,
-			area      = e.area,
-			duration  = e.duration,
+			effect     = esm.remap_form(fm, e.effect),
+			magnitude  = e.magnitude,
+			area       = e.area,
+			duration   = e.duration,
+			conditions = index_conditions(db, fl[starts[i]:starts[i + 1]], fm),
 		}
 	}
 	return out
+}
+
+@(private)
+free_effects :: proc(db: ^DB, effects: []Magic_Effect_Ref) {
+	for e in effects {delete(e.conditions, db.allocator)}
+	delete(effects, db.allocator)
 }
 
 // spell_of returns a SPEL/SCRL's baseline (ok=false when the form isn't an indexed spell). Its
@@ -715,15 +731,16 @@ free_form_indexes :: proc(db: ^DB) {
 	}
 	delete(db.factions)
 	for _, s in db.spells {
-		delete(s.effects, db.allocator)
+		free_effects(db, s.effects)
 	}
 	delete(db.spells)
 	for _, e in db.enchantments {
-		delete(e.effects, db.allocator)
+		free_effects(db, e.effects)
 	}
 	delete(db.enchantments)
 	for _, m in db.magic_effects {
 		delete(m.description, db.allocator)
+		delete(m.conditions, db.allocator)
 	}
 	delete(db.magic_effects)
 	delete(db.locations) // plain values — no owned data (names live in db.names)

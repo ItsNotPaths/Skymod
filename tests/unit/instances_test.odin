@@ -685,6 +685,29 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	testing.expect_value(t, formula.eval(terms[0].f, {1, 10, 2}), 5)
 }
 
+// An effect whose conditions fail at start does not start; they run on the target.
+@(test)
+test_effect_start_conditions :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_effect_ctda", {{"glow.lua", GLOW_LUA}})
+	defer fixture_destroy(&f)
+
+	SPELL, MGEF, PERK :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901), gamedb.Form_ID(0x902)
+	PERKED :: gamedb.Form_ID(0x701)
+	has_perk := []gamedb.Condition{{function = 448, op = .Equal, value = 1, param1 = u64(PERK)}}
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 2, conditions = has_perk}, {effect = MGEF, duration = 2}}}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x700), "AddSpell", ref(0x900))`), "AddSpell")
+	testing.expect_value(t, len(f.ws.effects), 1)
+	f.ws.perks[PERKED] = make(map[gamedb.Form_ID]bool)
+	(&f.ws.perks[PERKED])[PERK] = true
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x701), "AddSpell", ref(0x900))`), "AddSpell with the perk")
+	testing.expect_value(t, len(f.ws.effects), 3)
+}
+
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with
 // no instances (its cell never loaded) gets none.
 @(test)

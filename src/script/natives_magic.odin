@@ -8,6 +8,7 @@ package script
 // (hole effect-stacking :tags (magic player) :sev gap) unsourced how effect contributions combine on one actor value: plain sums, or a multiply step (perks that scale magnitudes, the *Mult AVs); research before the effect design.
 // (hole spell-lists :tags (magic player) :sev gap) race and NPC spell lists (SPLO), enchantments and potions start no effects; only AddSpell, Cast and RemoteCast do.
 
+import "../conditions"
 import "../gamedb"
 import "../worldstate"
 
@@ -79,16 +80,20 @@ n_effect_base :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.w
 n_effect_target :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].target)}
 n_effect_caster :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].caster)}
 
-// start_spell starts each of the spell's effects that carries a script. An ability or a constant
-// effect lasts until removed; any other lasts its authored duration.
+// start_spell starts each of the spell's effects that carries a script and whose conditions pass:
+// the spell's for that effect, then the MGEF's. They run on the target, with the caster as the
+// condition target. An ability or a constant effect lasts until removed; any other lasts its
+// authored duration.
 // (hole effect-archetypes :tags magic :sev gap :needs (av-live)) only scripted MGEFs start an effect: the engine archetypes (Value Modifier, Peak Value Modifier, Dual Value Modifier, Absorb, ...) with their formulas from the MGEF's AV, magnitude and Recover flag do not exist.
-// (hole effect-start-conditions :tags magic :sev gap) an effect's conditions (CTDA) are not checked when it starts; the condition system has 3 functions.
 start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
 	sp, ok := gamedb.spell_of(c.db, spell)
 	if !ok || target == 0 {return}
 	lasts := sp.info.type == .Ability || sp.info.cast_type == .Constant_Effect
+	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
 	for e in sp.effects {
 		if len(gamedb.form_scripts(c.db, e.effect)) == 0 {continue}
+		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
+		if !conditions.all(&ctx, e.conditions) || !conditions.all(&ctx, mgef.conditions) {continue}
 		worldstate.start_effect(c.ws, {effect = e.effect, spell = spell, target = target, caster = caster, lasts = lasts, duration = f32(e.duration)})
 	}
 }

@@ -399,8 +399,8 @@ Effect_Item :: struct {
 
 // effect_items collects a record's EFID/EFIT effect pairs in declaration order — the shape
 // shared by SPEL, SCRL, ENCH, ALCH and INGR. An EFID with no following EFIT contributes a
-// zero-magnitude entry (the effect is still applied). Any CTDA conditions attached to an
-// effect are skipped. Returns a freshly-allocated slice the caller owns (nil when none).
+// zero-magnitude entry (the effect is still applied). The CTDAs after an EFIT are its
+// conditions; gamedb reads them. Returns a freshly-allocated slice the caller owns (nil when none).
 // (Validated vs MGArchMageRobeHoodedEnchant: 7 EFID/EFIT pairs, magnitudes 15/15/15/15/15/100/50.)
 effect_items :: proc(fields: []Field, allocator := context.allocator) -> []Effect_Item {
 	n := 0
