@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest) :sev gap) no body for IsSneaking and GetOffersServicesNow, nor for the quest and dialogue tail past the top 40 (4% of 68,007 conditions): they pass.
+// (hole condition-functions :tags (records quest) :sev gap) no body for GetOffersServicesNow (vendor hours, FACT VENV), GetAllowWorldInteractions, GetDeadCount, GetIsObjectType, SpellHasKeyword, GetVMScriptVariable and the rest of the tail, about 1,400 quest and dialogue conditions: they pass.
 // (hole relationship-records :tags (records quest) :sev gap) RELA is never indexed, so GetRelationshipRank (363 quest and dialogue conditions) has no body: an untouched pair reads Acquaintance at runtime.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
@@ -23,14 +23,19 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	1   = fn_get_distance,
 	14  = fn_get_actor_value,
 	18  = fn_get_current_time,
+	32  = fn_get_in_same_cell,
 	35  = fn_get_disabled,
+	45  = fn_resting,
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
 	48  = fn_get_gold,
+	49  = fn_resting,
 	50  = fn_get_talked_to_pc,
 	56  = fn_get_quest_running,
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
+	61  = fn_resting,
+	66  = fn_resting,
 	67  = fn_get_in_cell,
 	69  = fn_get_is_race,
 	70  = fn_get_is_sex,
@@ -40,22 +45,45 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	74  = fn_get_global_value,
 	77  = fn_get_random_percent,
 	80  = fn_get_level,
+	101 = fn_resting,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
+	132 = fn_get_pc_in_faction,
 	136 = fn_get_is_reference,
+	144 = fn_resting,
+	145 = fn_resting,
+	159 = fn_resting,
+	161 = fn_resting,
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
 	214 = fn_has_magic_effect,
+	248 = fn_resting,
 	249 = fn_is_in_dialogue_with_player,
+	263 = fn_resting,
 	264 = fn_has_spell,
 	277 = fn_get_base_actor_value,
+	286 = fn_resting,
+	288 = fn_resting,
+	289 = fn_resting,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
+	314 = fn_resting,
+	353 = fn_is_actor,
 	359 = fn_get_in_current_loc,
 	360 = fn_get_in_current_loc_alias,
+	365 = fn_is_child,
 	372 = fn_is_in_list,
+	375 = fn_resting,
+	376 = fn_resting,
+	402 = fn_resting,
 	426 = fn_get_is_voice_type,
+	430 = fn_get_health_percentage,
 	448 = fn_has_perk,
+	453 = fn_get_player_teammate,
+	459 = fn_resting,
+	497 = fn_resting,
+	499 = fn_resting,
+	513 = fn_resting,
 	543 = fn_get_quest_completed,
 	555 = fn_has_loaded_3d,
 	560 = fn_has_keyword,
@@ -67,14 +95,26 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	567 = fn_get_is_editor_loc_alias,
 	576 = fn_get_event_data,
 	579 = fn_get_equipped_shout,
+	580 = fn_resting,
+	590 = fn_resting,
+	594 = fn_resting,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
 	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
 	629 = fn_get_vm_quest_variable,
+	632 = fn_resting,
+	633 = fn_resting,
 	640 = fn_get_actor_value_percent,
+	641 = fn_is_unique,
 	650 = fn_is_linked_to,
 	651 = fn_get_keyword_data_for_current_location,
+	654 = fn_resting,
+	655 = fn_resting,
+	656 = fn_resting,
+	657 = fn_resting,
+	700 = fn_resting,
+	707 = fn_resting,
 }
 
 @(private)
@@ -211,6 +251,64 @@ fn_get_talked_to_pc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(on != 0 && ctx.ws.talking == on)
+}
+
+// Functions about a system that does not exist yet answer its resting state, which is the true
+// answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
+// (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
+// (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
+// (hole scene-conditions :tags (quest dialogue) :sev gap :needs (scene-system)) IsInScene and IsScenePlaying read 0: no scene plays.
+// (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting and GetDetected read 0: no actor runs a package, uses furniture or looks for anyone.
+// (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
+// (hole flight :tags (ai combat) :sev gap :needs (ai-agent)) GetIsFlying and GetFlyingState read 0: no dragon flies.
+// (hole player-sneak :tags player :sev gap) IsSneaking reads 0: there is no sneak key or sneak state.
+// (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
+@(private = "file")
+fn_resting :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return 0, true
+}
+
+@(private = "file")
+fn_get_player_teammate :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on in ctx.ws.teammates)
+}
+
+@(private = "file")
+fn_is_unique :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	base := gamedb.template_part(ctx.db, worldstate.ref_base(ctx.ws, ctx.db, on), esm.ACBS_TEMPLATE_BASE_DATA, worldstate.actor_pick(ctx.ws, ctx.db, on))
+	return yes(base.flags & esm.ACBS_UNIQUE != 0)
+}
+
+// IsChild: the actor's race has the Child flag (RACE DATA 0x4).
+@(private = "file")
+fn_is_child :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	race, _ := gamedb.race_of(ctx.db, worldstate.actor_traits(ctx.ws, ctx.db, on).race)
+	return yes(race.info.flags & 0x4 != 0)
+}
+
+@(private = "file")
+fn_is_actor :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on == formid.PLAYER || worldstate.ref_base(ctx.ws, ctx.db, on) in ctx.db.actors)
+}
+
+@(private = "file")
+fn_get_in_same_cell :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	cell := worldstate.ref_cell(ctx.ws, ctx.db, on)
+	return yes(cell != 0 && cell == worldstate.ref_cell(ctx.ws, ctx.db, other))
+}
+
+@(private = "file")
+fn_get_pc_in_faction :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.in_faction(ctx.ws, ctx.db, formid.PLAYER, p1(c)))
+}
+
+// GetHealthPercentage: current Health over its maximum, 0 to 1.
+@(private = "file")
+fn_get_health_percentage :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	most := worldstate.av_max(ctx.ws, ctx.db, on, "Health")
+	return worldstate.av_current(ctx.ws, ctx.db, on, "Health") / most if most > 0 else 1, true
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

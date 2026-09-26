@@ -282,6 +282,7 @@ Save_Body :: struct {
 	random_said:   []Saved_Alias,   // alias = the speaker, form = the info
 	exclusive:     []Saved_Alias,   // alias = the speaker, form = the branch
 	talked_to_pc:  []Form_ID,
+	teammates:     []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -500,6 +501,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		random_said   = random_said[:],
 		exclusive     = exclusive[:],
 		talked_to_pc  = save_set(ws.talked_to_pc),
+		teammates     = save_set(ws.teammates),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -680,6 +682,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		if sok && bok {ws.exclusive[speaker] = branch}
 	}
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
+	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -870,6 +873,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.random_said {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.exclusive {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for a in body.talked_to_pc {add_slot(&seen, a)}
+	for a in body.teammates {add_slot(&seen, a)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

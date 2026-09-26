@@ -92,6 +92,7 @@ Overlay :: struct {
 	random_said:     map[Speaker_Info]bool,        // Random infos said this round of their topic
 	exclusive:       map[Form_ID]Form_ID,          // speaker -> the Exclusive branch it is in
 	talked_to_pc:    Form_Set,                     // actors that have spoken to the player
+	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -246,6 +247,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.random_said = make(map[Speaker_Info]bool)
 	o.exclusive = make(map[Form_ID]Form_ID)
 	o.talked_to_pc = make(Form_Set)
+	o.teammates = make(Form_Set)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -322,6 +324,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.random_said)
 	delete(o.exclusive)
 	delete(o.talked_to_pc)
+	delete(o.teammates)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)
