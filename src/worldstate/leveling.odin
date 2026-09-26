@@ -89,6 +89,7 @@ raise_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: str
 		if level >= av_train_cap(ws, db, actor, skill) {break}
 		av_set_base(ws, actor, skill, level + 1)
 		level_state(ws, actor).xp += f32(calc(ws, .PlayerXPFromSkill, f64(level + 1), per_rank))
+		if i, ok := skill_index(skill); ok && actor == formid.PLAYER {queue_story_event(ws, {type = STORY_SKILL, value1 = i32(6 + i)})}
 	}
 	return rose
 }
@@ -155,7 +156,6 @@ level_up_cost :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> f32 {
 	return f32(calc(ws, .PlayerXPToNext, f64(actor_level(ws, db, actor)), base, mult))
 }
 
-// (hole story-level-events :tags (quest player) :sev gap) level_up queues no LEVL story event and raise_skill no SKIL (LEVL starts DA02, DA06, DA09, MS04, MS06).
 // level_up spends one ready level-up with a choice: the level rises, the choice's changes land on
 // capacities, a perk point comes, and OnLevelUp goes out. False when no level-up is ready or there
 // is no such choice.
@@ -174,6 +174,7 @@ level_up :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, choice: strin
 		av_mod(ws, actor, av, f32(formula.eval(ch.amount, {f64(level)})))
 	}
 	append(&ws.level_ups, Level_Up{actor, level, strings.clone(key)})
+	if actor == formid.PLAYER {queue_story_event(ws, {type = STORY_LEVEL, value1 = level})}
 	return true
 }
 

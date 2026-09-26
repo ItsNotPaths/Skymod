@@ -834,4 +834,6 @@ test_boss_death_clears_location :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Location", "IsCleared", &loc, nil).(bool), false)
 	script.call(&reg, "Actor", "Kill", &b, nil)
 	testing.expect_value(t, script.call(&reg, "Location", "IsCleared", &loc, nil).(bool), true)
+	e := ws.story_events[len(ws.story_events) - 1]
+	testing.expect(t, e.type == worldstate.STORY_KILL && e.ref1 == BOSS_B, "a death is a KILL story event")
 }

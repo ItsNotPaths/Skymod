@@ -122,10 +122,17 @@ anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []
 	return out[:]
 }
 
-// (hole story-item-events :tags (quest player) :sev polish) the player gaining or losing items queues no AIPL / REMP story event (WIAddItem, WIRemoveItem, C00PlayerTheftPoke).
-// move_items records items moving for the next tick's inventory events.
+// (hole item-acquire-type :tags (quest player) :sev polish) the player's AIPL and REMP story events carry acquire or remove type 0 (no source names the values: steal, buy, pickup...), no owner and no location, so WIAddItem nodes that test them do not start.
+// move_items records items moving for the next tick's inventory events. Items the player gains or
+// loses are story events (AIPL / REMP).
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)
+	switch formid.PLAYER {
+	case m.to:
+		queue_story_event(ws, {type = STORY_ADD_ITEM, ref2 = m.from, object = m.base})
+	case m.from:
+		queue_story_event(ws, {type = STORY_REMOVE_ITEM, ref1 = m.to, ref2 = m.ref, object = m.base})
+	}
 }
 
 // Story_Event is one event for the story manager: its SMEN type and its data, which conditions,
@@ -147,6 +154,14 @@ Story_Type :: [4]u8
 
 STORY_SCRIPT :: Story_Type{'S', 'C', 'P', 'T'}
 STORY_CHANGE_LOCATION :: Story_Type{'C', 'L', 'O', 'C'}
+STORY_KILL :: Story_Type{'K', 'I', 'L', 'L'}
+STORY_LEVEL :: Story_Type{'L', 'E', 'V', 'L'}
+STORY_SKILL :: Story_Type{'S', 'K', 'I', 'L'} // value1: the skill's actor value index
+STORY_CAST :: Story_Type{'C', 'A', 'S', 'T'}
+STORY_ADD_ITEM :: Story_Type{'A', 'I', 'P', 'L'}
+STORY_REMOVE_ITEM :: Story_Type{'R', 'E', 'M', 'P'}
+STORY_RELATIONSHIP :: Story_Type{'C', 'H', 'R', 'R'}
+STORY_VOICE_POWER :: Story_Type{'N', 'V', 'P', 'E'}
 
 // queue_story_event keeps an engine event for the next tick's story manager.
 queue_story_event :: proc(ws: ^World_State, e: Story_Event) {

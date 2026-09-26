@@ -45,6 +45,13 @@ n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	boss_died(c, c.self)
+	worldstate.queue_story_event(c.ws, {
+		type      = worldstate.STORY_KILL,
+		ref1      = c.self,
+		ref2      = arg_form(args, 0),
+		location1 = worldstate.ref_location(c.ws, c.db, c.self),
+		value2    = worldstate.rel_rank(c.ws, c.self, formid.PLAYER), // value1, the crime status, stays 0: there is no crime
+	})
 	return nil
 }
 

@@ -33,7 +33,7 @@ import "../formid"
 // (hole book-screen :tags ui :sev gap) activating a book reads it at once and takes it: there is no reading screen with its text and a Take button.
 // (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
 // (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
-// (hole story-dialogue-events :tags (quest dialogue) :sev polish) greetings and persuasion queue no AHEL / FLAT story events (CWDialogueSoldiersHellos, DialogueGenericDogHellos).
+// (hole story-dialogue-events :tags (quest dialogue) :sev polish :needs (dialogue-barks persuasion)) no AHEL (an actor passing another says hello) or FLAT (a flatter check passes) story event is queued (CWDialogueSoldiersHellos, DialogueGenericDogHellos).
 // (hole dialogue-voice :tags (dialogue audio) :sev gap :needs (audio-output)) responses show as text only: no voice file plays, and a line lasts as long as its text.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap

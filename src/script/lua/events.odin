@@ -206,6 +206,30 @@ tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.level_ups)
 }
 
+// Story_Handler is the OnStory event a story event type sends, and which event members fill its
+// arguments, in order (Quest.psc): R1 R2 refs, L1 L2 locations, K1 keyword, O1 an item base, F1 a
+// form, V1 V2 numbers, S1 the skill V1 names.
+@(private = "file")
+Story_Handler :: struct {
+	type:    worldstate.Story_Type,
+	name:    string,
+	members: []string,
+}
+
+@(private = "file")
+STORY_HANDLERS := []Story_Handler {
+	{worldstate.STORY_SCRIPT, "OnStoryScript", {"K1", "L1", "R1", "R2", "V1", "V2"}},
+	{worldstate.STORY_CHANGE_LOCATION, "OnStoryChangeLocation", {"R1", "L1", "L2"}},
+	{worldstate.STORY_KILL, "OnStoryKillActor", {"R1", "R2", "L1", "V1", "V2"}},
+	{worldstate.STORY_LEVEL, "OnStoryIncreaseLevel", {"V1"}},
+	{worldstate.STORY_SKILL, "OnStoryIncreaseSkill", {"S1"}},
+	{worldstate.STORY_CAST, "OnStoryCastMagic", {"R1", "R2", "L1", "F1"}},
+	{worldstate.STORY_ADD_ITEM, "OnStoryAddToPlayer", {"R1", "R2", "L1", "O1", "V1"}},
+	{worldstate.STORY_REMOVE_ITEM, "OnStoryRemoveFromPlayer", {"R1", "R2", "L1", "O1", "V1"}},
+	{worldstate.STORY_RELATIONSHIP, "OnStoryRelationshipChange", {"R1", "R2", "V1", "V2"}},
+	{worldstate.STORY_VOICE_POWER, "OnStoryNewVoicePower", {"R1", "F1"}},
+}
+
 // tick_story_events runs the engine's story events through the story manager, in the order they
 // happened, then sends each quest an event started its OnStory handler with the event's data.
 tick_story_events :: proc(vm: ^VM, ws: ^worldstate.World_State) {
@@ -215,14 +239,37 @@ tick_story_events :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	for quest in ws.story_quests {
 		e, ok := ws.quest_events[quest]
 		if !ok {continue}
-		switch e.type {
-		case worldstate.STORY_SCRIPT:
-			send(vm, quest, "OnStoryScript", e.keyword, e.location1, e.ref1, e.ref2, e.value1, e.value2)
-		case worldstate.STORY_CHANGE_LOCATION:
-			send(vm, quest, "OnStoryChangeLocation", e.ref1, e.location1, e.location2)
+		for h in STORY_HANDLERS {
+			if h.type != e.type {continue}
+			args := make([dynamic]any, 0, len(h.members), context.temp_allocator)
+			for m in h.members {append(&args, story_member(e, m))}
+			send(vm, quest, h.name, ..args[:])
 		}
 	}
 	clear(&ws.story_quests)
+}
+
+@(private = "file")
+story_member :: proc(e: worldstate.Story_Event, m: string) -> any {
+	switch m {
+	case "R1": return boxed(e.ref1)
+	case "R2": return boxed(e.ref2)
+	case "L1": return boxed(e.location1)
+	case "L2": return boxed(e.location2)
+	case "K1": return boxed(e.keyword)
+	case "O1": return boxed(e.object)
+	case "F1": return boxed(e.form)
+	case "V1": return boxed(e.value1)
+	case "V2": return boxed(e.value2)
+	case "S1": return boxed(gamedb.AV_NAMES[e.value1] if e.value1 >= 0 && int(e.value1) < len(gamedb.AV_NAMES) else "")
+	}
+	return nil
+}
+
+// boxed is `v` as an any that outlives this call.
+@(private = "file")
+boxed :: proc(v: $T) -> any {
+	return any{new_clone(v, context.temp_allocator), typeid_of(T)}
 }
 
 // tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form

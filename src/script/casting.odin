@@ -7,7 +7,6 @@ package script
 import "../gamedb"
 import "../worldstate"
 
-// (hole story-cast-event :tags (quest magic) :sev polish) a cast queues no CAST story event (MG01ShoutUpdate, WICastMagic).
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
 cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID) -> bool {
@@ -17,7 +16,9 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	cost := f32(sp.info.cost)
 	if worldstate.av_current(c.ws, c.db, caster, "Magicka") < cost {return false}
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
-	start_spell(c, spell, caster if sp.info.delivery == .Self else target, caster)
+	hit := caster if sp.info.delivery == .Self else target
+	start_spell(c, spell, hit, caster)
+	worldstate.queue_story_event(c.ws, {type = worldstate.STORY_CAST, ref1 = caster, ref2 = hit, location1 = worldstate.ref_location(c.ws, c.db, caster), form = spell})
 	if school, trains := spell_school(c.db, spell); trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}
 	return true
 }

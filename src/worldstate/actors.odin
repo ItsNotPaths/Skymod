@@ -426,10 +426,11 @@ rel_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]i32 {
 	return &ws.relationships[actor]
 }
 
-// (hole story-relationship-event :tags (quest) :sev polish) a rank change queues no CHRR story event (FavorJarlsMakeFriendsTrackEvent, RelationshipMarriageBreakUp).
 // rel_set stores the relationship rank for the (a,b) pair. Skyrim relationships are symmetric (one
 // RELA record per pair), so we mirror it both ways → GetRelationshipRank works from either actor.
+// A change is a story event (CHRR).
 rel_set :: proc(ws: ^World_State, a, b: Form_ID, rank: i32) {
+	if old := rel_rank(ws, a, b); old != rank {queue_story_event(ws, {type = STORY_RELATIONSHIP, ref1 = a, ref2 = b, value1 = old, value2 = rank})}
 	ia := rel_upsert(ws, a)
 	ia^[b] = rank
 	ib := rel_upsert(ws, b)
