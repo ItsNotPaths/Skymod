@@ -1,5 +1,6 @@
 package worldstate
 
+import "core:slice"
 import smath "../math"
 import "../gamedb"
 
@@ -291,7 +292,11 @@ ref_distance :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
 	return smath.length3(ref_pos(ws, db, a) - ref_pos(ws, db, b))
 }
 
-// has_keyword checks the form, then a ref's base form.
+// has_keyword checks the form, a ref's base form, and the aliases that hold it.
 has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) -> bool {
-	return gamedb.has_keyword(db, form, keyword) || gamedb.has_keyword(db, ref_base(ws, db, form), keyword)
+	if gamedb.has_keyword(db, form, keyword) || gamedb.has_keyword(db, ref_base(ws, db, form), keyword) {return true}
+	for a in holder_aliases(ws, db, form) {
+		if slice.contains(a.keywords, keyword) {return true}
+	}
+	return false
 }

@@ -2,6 +2,7 @@ package worldstate
 
 import "core:strings"
 import "../formid"
+import "../gamedb"
 
 // Update_Timers is one form's update registrations, as time left until each fires: real seconds for
 // OnUpdate, game hours for OnUpdateGameTime. The single and the repeating one are independent, and
@@ -178,6 +179,18 @@ remove_item_filters :: proc(ws: ^World_State, container: Form_ID) {
 alias_ref :: proc(ws: ^World_State, quest: Form_ID, id: i32) -> Form_ID {
 	h, ok := formid.alias_handle(quest, u32(id))
 	return ws.aliases[h] if ok && id >= 0 else 0
+}
+
+// holder_aliases are the quest aliases that hold `form` now.
+holder_aliases :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> []gamedb.Quest_Alias {
+	holders, ok := ws.alias_holders[form]
+	if !ok || db == nil {return nil}
+	out := make([dynamic]gamedb.Quest_Alias, 0, len(holders), context.temp_allocator)
+	for h in holders {
+		quest, id, _ := formid.alias_key(h)
+		if a, aok := gamedb.quest_alias(db, quest, id); aok {append(&out, a)}
+	}
+	return out[:]
 }
 
 // fill_alias puts `form` in `alias`, replacing what it held.

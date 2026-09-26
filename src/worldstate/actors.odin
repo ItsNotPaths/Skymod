@@ -349,9 +349,21 @@ faction_set_rank :: proc(ws: ^World_State, actor, faction: Form_ID, rank: i32) {
 	faction_upsert(ws, actor)^[faction] = rank
 }
 
-// faction_rank is actor's rank in faction: its delta, else its NPC_'s row. ok=false when it is not
-// in the faction at all.
+// faction_rank is actor's rank in faction: its delta, else its NPC_'s row; an alias that holds it
+// and lists the faction makes it a member at rank 0 or above. ok=false when it is not in the faction.
+// (hole alias-faction-removal :tags quest :sev polish) NOT VANILLA (user choice 2026-09-26): an alias's factions count only while it holds the actor. Vanilla calls RemoveFromFaction when the alias clears, which also drops a membership the actor had on its own (CK wiki bug); a script relying on that removal behaves differently here.
 faction_rank :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) -> (i32, bool) {
+	r, ok := stored_faction_rank(ws, db, actor, faction)
+	if !ok || r < 0 {
+		for a in holder_aliases(ws, db, actor) {
+			if slice.contains(a.factions, faction) {return max(r, 0) if ok else 0, true}
+		}
+	}
+	return r, ok
+}
+
+@(private = "file")
+stored_faction_rank :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) -> (i32, bool) {
 	if inner, ok := ws.factions[actor]; ok {
 		if r, has := inner[faction]; has {return r, r != FACTION_REMOVED}
 	}

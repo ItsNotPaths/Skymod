@@ -403,7 +403,7 @@ Linked_Ref :: struct {
 	ref:     Form_ID,
 }
 
-// (hole alias-data :tags (quest ai) :sev gap) an alias applies none of its data while filled: the Essential, Protected and Quest Object flags, its factions (ALFC), spells (ALSP), package data and override lists, display name (ALDN) and inventory (CNTO) are not decoded.
+// (hole alias-data :tags (quest ai) :sev gap) an alias applies only its factions and keywords while filled: the Essential, Protected and Quest Object flags, spells (ALSP), package data (ALPC) and override lists, display name (ALDN, with SetDisplayName) and inventory (CNTO) are not decoded.
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
 // (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
 // the quest engine fills it at start. `name` and `conditions` are owned by the DB.
@@ -419,6 +419,8 @@ Quest_Alias :: struct {
 	create_in:    bool,
 	create_level: u32,
 	conditions:   []Condition, // the Match Conditions (owned)
+	factions:     []Form_ID, // ALFC: the holder counts as a member while in the alias (owned)
+	keywords:     []Form_ID, // KWDA: the holder has these keywords while in the alias (owned)
 	name:         string, // owned
 }
 
@@ -986,6 +988,8 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 	for a in qb.aliases {
 		delete(a.name, db.allocator)
 		free_conditions(db, a.conditions)
+		delete(a.factions, db.allocator)
+		delete(a.keywords, db.allocator)
 	}
 	delete(qb.aliases, db.allocator)
 	free_conditions(db, qb.dialogue_conditions)

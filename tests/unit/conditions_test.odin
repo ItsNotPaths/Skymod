@@ -666,6 +666,21 @@ test_alias_fills :: proc(t: ^testing.T) {
 	q7[0].flags = esm.ALIAS_ALLOW_CLEARED
 	testing.expect(t, script.start_quest(&c, Q7, &{location1 = LOC}), "Allow Cleared")
 
+	// Alias data: its factions and keywords count only while it holds the ref, and clearing it
+	// leaves the ref's own membership alone.
+	Q8, GUILD, OWN, MARKED :: gamedb.Form_ID(0xC08), gamedb.Form_ID(0xE01), gamedb.Form_ID(0xE02), gamedb.Form_ID(0xE03)
+	q8 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = B, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED, factions = {GUILD, OWN}, keywords = {MARKED}}}
+	db.quest_baseline[Q8] = {aliases = q8}
+	worldstate.faction_set_rank(&ws, B, OWN, 2)
+	testing.expect(t, script.start_quest(&c, Q8), "Q8 starts")
+	testing.expect(t, worldstate.in_faction(&ws, &db, B, GUILD), "a member through the alias")
+	testing.expect(t, worldstate.has_keyword(&ws, &db, B, MARKED), "the alias's keyword")
+	own, _ := worldstate.faction_rank(&ws, &db, B, OWN)
+	testing.expect_value(t, own, i32(2))
+	script.clear_aliases(&ws, &db, Q8)
+	testing.expect(t, !worldstate.in_faction(&ws, &db, B, GUILD) && !worldstate.has_keyword(&ws, &db, B, MARKED), "gone with the alias")
+	testing.expect(t, worldstate.in_faction(&ws, &db, B, OWN), "its own membership stays")
+
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
 	db.quest_baseline[Q5] = {aliases = q5}
 	testing.expect(t, script.start_quest(&c, Q5), "Q5 starts")

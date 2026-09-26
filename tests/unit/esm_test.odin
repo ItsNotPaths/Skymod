@@ -2301,6 +2301,9 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 
 	// alias 4: the ref of a location ref type in location alias 2. alias 5: create in alias 0.
 	field(&qust, "ALST", u32_bytes(4))
+	field(&qust, "ALFC", u32_bytes(0x0000_0704))
+	field(&qust, "KSIZ", u32_bytes(1))
+	field(&qust, "KWDA", u32_bytes(0x0000_0705))
 	field(&qust, "ALFA", u32_bytes(2))
 	field(&qust, "ALRT", u32_bytes(0x0000_0702))
 	field(&qust, "ALED", nil)
@@ -2356,6 +2359,8 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 	testing.expect_value(t, victim.flags, u32(esm.ALIAS_ALLOW_DEAD))
 	boss, _ := gamedb.quest_alias(&db, 0x0000_0700, 4)
 	testing.expect(t, boss.fill == .Location_Ref && boss.alias == 2 && boss.target == 0x0000_0702, "a ref of a type in location alias 2")
+	testing.expect(t, len(boss.factions) == 1 && boss.factions[0] == 0x0000_0704, "alias factions")
+	testing.expect(t, len(boss.keywords) == 1 && boss.keywords[0] == 0x0000_0705, "alias keywords")
 	made, _ := gamedb.quest_alias(&db, 0x0000_0700, 5)
 	testing.expect(t, made.fill == .Create_Ref && made.alias == 0 && made.create_in && made.create_level == 2, "created in alias 0, hard")
 	testing.expect_value(t, player.force_into, i32(-1))

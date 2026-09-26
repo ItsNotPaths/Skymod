@@ -617,6 +617,7 @@ Quest_Alias :: struct {
 	create_in:    bool, // ALCA: create inside the container alias, not at it
 	create_level: u32, // ALCL: 0 easy, 1 medium, 2 hard, 3 very hard, 4 none
 	match:        []Field, // the Match Conditions (CTDA/CIS runs), for esm.conditions
+	body:         []Field, // every subrecord between ALST/ALLS and ALED: the alias data (ALFC, KWDA...)
 	name:         string,
 }
 
@@ -632,6 +633,7 @@ quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Ques
 	cur: Quest_Alias
 	open := false
 	near := false
+	start := 0
 	close :: proc(out: ^[dynamic]Quest_Alias, cur: ^Quest_Alias, near: bool) {
 		if cur.fill == .None && (len(cur.match) > 0 || near || cur.event != {}) {cur.fill = .Matching}
 		append(out, cur^)
@@ -640,11 +642,17 @@ quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Ques
 		switch f.type {
 		case "ALST", "ALLS":
 			if len(f.data) < 4 {continue}
-			if open {close(&out, &cur, near)} // a missing ALED still closes the previous alias
+			if open { // a missing ALED still closes the previous alias
+				cur.body = fields[start:i]
+				close(&out, &cur, near)
+			}
 			cur = Quest_Alias{id = rd32(f.data, 0), location = f.type == "ALLS", alias = -1, force_into = -1}
-			open, near = true, false
+			open, near, start = true, false, i + 1
 		case "ALED":
-			if open {close(&out, &cur, near)}
+			if open {
+				cur.body = fields[start:i]
+				close(&out, &cur, near)
+			}
 			open = false
 		case:
 			if !open {continue} // the same tags appear outside aliases (objective FNAM, quest CTDA)
@@ -685,7 +693,10 @@ quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Ques
 			}
 		}
 	}
-	if open {close(&out, &cur, near)}
+	if open {
+		cur.body = fields[start:]
+		close(&out, &cur, near)
+	}
 	if len(out) == 0 {
 		delete(out)
 		return nil

@@ -530,9 +530,21 @@ index_quest_aliases :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Qu
 			create_in    = a.create_in,
 			create_level = a.create_level,
 			conditions   = index_conditions(db, a.match, fm),
+			factions     = remapped_list(db, esm.formid_list(a.body, "ALFC"), fm),
+			keywords     = remapped_list(db, esm.keywords(a.body), fm),
 			name         = strings.clone(a.name, db.allocator),
 		}
 	}
+	return out
+}
+
+// remapped_list remaps a decoded formID list into a DB-owned slice, and frees the decoded one.
+@(private = "file")
+remapped_list :: proc(db: ^DB, raw: []u32, fm: ^esm.Form_Map) -> []Form_ID {
+	if raw == nil {return nil}
+	defer delete(raw)
+	out := make([]Form_ID, len(raw), db.allocator)
+	for r, i in raw {out[i] = esm.remap_form(fm, r)}
 	return out
 }
 
