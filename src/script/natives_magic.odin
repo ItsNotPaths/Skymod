@@ -3,7 +3,7 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap) no perk scales an effect's magnitude (script.perk_value answers): Mod Spell Magnitude, Mod Incoming Spell Magnitude and the potion/enchantment perks multiply it at cast or brew (UESP Skyrim:Alchemy_Effects).
+// (hole brew-enchant-perks :tags (magic player) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
 // (hole effect-fx :tags (magic vfx audio) :sev gap :needs (particles audio-output)) an effect's art, shaders, light and sounds (its MGEF's hit art, casting art, sounds) do not play.
 
 import "core:slice"
@@ -191,20 +191,29 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // start_effects starts each effect of `source` whose MGEF's conditions pass. The source's own
 // conditions for that effect decide whether it is active, now and at each second's recheck (CK
 // wiki, Magic Effect: Target Conditions). They run on the target, with the caster as the condition
-// target. Effects are resisted (worldstate.resisted) and stacked (worldstate.stack_effect). A timed
-// effect goes on for its MGEF's taper after its duration.
+// target. A spell's magnitude and duration go through the caster's Mod Spell perks and the
+// target's Mod Incoming Spell perks, then resistance (worldstate.resisted); effects stack by
+// worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
 // (hole concentration-conditions :tags magic :sev polish :needs (spell-casting)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
 	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
+	_, is_spell := gamedb.spell_of(c.db, source)
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
 		if !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
-		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, e.magnitude)
-		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = m, item = i}
+		magnitude, duration := e.magnitude, f32(e.duration)
+		if is_spell {
+			magnitude = perk_value(c, .Mod_Spell_Magnitude, caster, magnitude, source, target)
+			magnitude = perk_value(c, .Mod_Incoming_Spell_Magnitude, target, magnitude, source)
+			duration = perk_value(c, .Mod_Spell_Duration, caster, duration, source, target)
+			duration = perk_value(c, .Mod_Incoming_Spell_Duration, target, duration, source)
+		}
+		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
+		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)
 		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
 	}
