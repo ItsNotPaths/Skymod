@@ -178,6 +178,7 @@ local C = rt.class("Tome", nil)
 local function log(s) __log = (__log or "") .. s .. ";" end
 C.__fn["oninit"] = function(self) log("init") end
 C.__fn["oncontainerchanged"] = function(self, new, old) log("moved") end
+C.__fn["onequipped"] = function(self, actor) log("equipped") end
 return C
 `
 
@@ -723,6 +724,15 @@ test_scripted_item_stacks :: proc(t: ^testing.T) {
 	native(&f, CHEST, "DropObject", TOME, i32(500))
 	n, units = stacks(&f, CHEST)
 	testing.expect(t, n == 1 && units == 1000 && worldstate.inv_count(&f.ws, &f.db, CHEST, TOME) == 1000, "a partial drop leaves the stack the rest")
+	slua.drain(&f.vm)
+	slua.do_string(&f.vm, `__log = nil`)
+
+	worldstate.inv_add(&f.ws, OTHER, 0x31, 2) // starting contents: counts, no ref
+	f.db.form_scripts[0x31] = f.db.form_scripts[TOME]
+	append(&f.ws.equip_changes, worldstate.Equip_Change{OTHER, 0x31, true})
+	slua.tick_equips(&f.vm, &f.ws)
+	slua.drain(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "init;equipped;", __log)`), "an item with no ref gets a stack, then hears its own OnEquipped")
 }
 
 // A stage runs the fragment of each item whose conditions pass, inside SetStage: a fragment that sets

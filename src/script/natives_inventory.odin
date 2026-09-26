@@ -168,6 +168,21 @@ stack_into :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
 			return 0
 		}
 	}
+	return new_stack(c, container, base, count)
+}
+
+// item_stack is the ref an item in a container is to its scripts: a ref the container carries, or,
+// for a scripted item no ref holds yet (starting contents), a new stack of all of it. 0 when there
+// is neither.
+item_stack :: proc(c: ^Call, container, base: Form_ID) -> Form_ID {
+	if refs := worldstate.carried_refs(c.ws, c.db, container, base); len(refs) > 0 {return refs[0]}
+	n := worldstate.inv_count(c.ws, c.db, container, base)
+	if n <= 0 || len(gamedb.base_scripts(c.db, base)) == 0 {return 0}
+	return new_stack(c, container, base, n)
+}
+
+@(private = "file")
+new_stack :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
 	ref := worldstate.create_ref(c.ws, base, 0, {}, {}, 1)
 	(&c.ws.created[ref]).count = count
 	c.ws.carried[ref] = container

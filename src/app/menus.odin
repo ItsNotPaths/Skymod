@@ -224,8 +224,7 @@ item_card :: proc(g: ^Game, item: Form_ID) {
 	imgui.Spacing()
 	switch {
 	case item in db.books:
-		carried := worldstate.carried_refs(ws, db, formid.PLAYER, item)
-		if imgui.Button("Read") && read_book(g, carried[0] if len(carried) > 0 else 0, item) {
+		if imgui.Button("Read") && read_book(g, script.item_stack(&c, formid.PLAYER, item), item) {
 			script.move_items(&c, {base = item, from = formid.PLAYER, count = 1}) // a learned tome is used up
 		}
 	case is_drink(db, item):

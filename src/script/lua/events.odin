@@ -198,8 +198,8 @@ tick_los :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 
 // tick_equips starts and ends the enchantments of gear that went on or off
 // (script.sync_constant_effects), then sends OnObjectUnequipped / OnObjectEquipped(akBaseObject,
-// akReference) for each item, in order, to the actor and its aliases and effects. Inventory items
-// have no reference.
+// akReference) for each item, in order, to the actor and its aliases and effects, and OnUnequipped /
+// OnEquipped(akActor) to the item's own ref (script.item_stack; a new stack runs OnInit first).
 tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	c := vm.ctx
 	synced := make([dynamic]script.Form_ID, context.temp_allocator)
@@ -209,10 +209,15 @@ tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 			script.sync_constant_effects(&c, e.actor)
 		}
 	}
-	for e in ws.equip_changes {
-		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, script.Form_ID(0))
-	}
+	changes := slice.clone(ws.equip_changes[:], context.temp_allocator)
 	clear(&ws.equip_changes)
+	refs := make([]script.Form_ID, len(changes), context.temp_allocator)
+	for e, i in changes {refs[i] = script.item_stack(&c, e.actor, e.item)}
+	sync_refs(vm)
+	for e, i in changes {
+		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, refs[i])
+		if refs[i] != 0 {send(vm, refs[i], "OnEquipped" if e.on else "OnUnequipped", e.actor)}
+	}
 }
 
 // tick_level_ups sends OnLevelUp(akActor, aiLevel, asChoice) for each level-up to every registered

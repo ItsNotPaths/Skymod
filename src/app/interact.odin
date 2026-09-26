@@ -226,11 +226,13 @@ take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
 }
 
-// (hole item-base-scripts :tags script :sev gap) a scripted item in a container's starting contents has no instance until it moves (script.stack_into), so reading or equipping it there sends it nothing, and no item hears its own OnEquipped / OnUnequipped (the DLC2 acolyte masks, Miraak's robes).
 // read_book is the player reading a book: OnRead to its ref (for a book in the pack, a carried
 // ref of it), then what reading teaches. True when the book is used up.
 read_book :: proc(g: ^Game, ref, base: Form_ID) -> bool {
-	if g.repl_ok && ref != 0 {slua.send(&g.repl.vm, ref, "OnRead")}
+	if g.repl_ok && ref != 0 {
+		slua.sync_refs(&g.repl.vm) // a stack script.item_stack just made gets its instance first
+		slua.send(&g.repl.vm, ref, "OnRead")
+	}
 	return worldstate.read_book(&g.ws, &g.db, formid.PLAYER, base)
 }
 
