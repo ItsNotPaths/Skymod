@@ -155,7 +155,7 @@ level_up_cost :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> f32 {
 	return f32(calc(ws, .PlayerXPToNext, f64(actor_level(ws, db, actor)), base, mult))
 }
 
-// (hole story-level-events :tags (quest player) :sev gap :needs (story-manager)) level_up queues no LEVL story event and raise_skill no SKIL (LEVL starts DA02, DA06, DA09, MS04, MS06).
+// (hole story-level-events :tags (quest player) :sev gap) level_up queues no LEVL story event and raise_skill no SKIL (LEVL starts DA02, DA06, DA09, MS04, MS06).
 // level_up spends one ready level-up with a choice: the level rises, the choice's changes land on
 // capacities, a perk point comes, and OnLevelUp goes out. False when no level-up is ready or there
 // is no such choice.

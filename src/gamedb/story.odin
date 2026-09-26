@@ -35,7 +35,7 @@ Story_Node :: struct {
 // Story_Quest is one quest a quest node can start, and how long before it may start again.
 Story_Quest :: struct {
 	quest:       Form_ID,
-	reset_hours: f32, // RNAM; 0 = no wait
+	reset_hours: f32, // RNAM / 24; 0 = no wait
 }
 
 @(private)
@@ -67,7 +67,8 @@ index_story_node :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		case "NNAM":
 			if v, vok := esm.field_u32(f); vok {append(&quests, Story_Quest{quest = esm.remap_form(fm, v)})}
 		case "RNAM":
-			if len(quests) > 0 {quests[len(quests) - 1].reset_hours, _ = esm.field_f32(f)}
+			// Stored in hours × 24 (xEdit scales it by 1/24): vanilla's common 576 is a day.
+			if raw, fok := esm.field_f32(f); fok && len(quests) > 0 {quests[len(quests) - 1].reset_hours = raw / 24}
 		}
 	}
 	if conds_at >= 0 {n.conditions = index_conditions(db, esm.condition_run(fl, conds_at), fm)}

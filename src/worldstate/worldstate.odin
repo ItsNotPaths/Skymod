@@ -116,6 +116,7 @@ Runtime :: struct {
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
+	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
@@ -154,6 +155,7 @@ init :: proc(ws: ^World_State) {
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
 	ws.story_events = make([dynamic]Story_Event)
+	ws.story_quests = make([dynamic]Form_ID)
 	ws.effect_classes = make(map[string]Effect_Class)
 }
 
@@ -173,6 +175,7 @@ destroy :: proc(ws: ^World_State) {
 	for l in ws.level_ups {delete(l.choice)}
 	delete(ws.level_ups)
 	delete(ws.story_events)
+	delete(ws.story_quests)
 	for k, &c in ws.effect_classes {
 		delete(k)
 		free_effect_class(&c)

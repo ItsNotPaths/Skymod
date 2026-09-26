@@ -121,7 +121,7 @@ anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []
 	return out[:]
 }
 
-// (hole story-item-events :tags (quest player) :sev polish :needs (story-manager)) the player gaining or losing items queues no AIPL / REMP story event (WIAddItem, WIRemoveItem, C00PlayerTheftPoke).
+// (hole story-item-events :tags (quest player) :sev polish) the player gaining or losing items queues no AIPL / REMP story event (WIAddItem, WIRemoveItem, C00PlayerTheftPoke).
 // move_items records items moving for the next tick's inventory events.
 move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)

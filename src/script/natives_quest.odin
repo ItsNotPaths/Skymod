@@ -52,7 +52,7 @@ n_quest_set_stage :: proc(c: ^Call, args: []Value) -> Value {
 	if exists, known := gamedb.quest_stage_exists(c.db, c.self, stage); known && !exists {
 		return false
 	}
-	n_quest_start(c, nil)
+	if !worldstate.quest_running(c.ws, c.db, c.self) && !n_quest_start(c, nil).(bool) {return false}
 	worldstate.quest_set_stage(c.ws, c.self, stage)
 	return true
 }
@@ -107,13 +107,16 @@ n_quest_is_obj_failed :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── run-state ────────────────────────────────────────────────────────────────
 
-// Start() -> bool: true if it wasn't already running (Papyrus returns whether the start took effect).
-// A starting quest fills its aliases.
+// Start() -> bool: whether the quest started. A quest with a story manager event starts only
+// through the story manager (CK wiki, Quest Data Tab).
 n_quest_start :: proc(c: ^Call, args: []Value) -> Value {
-	if worldstate.quest_running(c.ws, c.db, c.self) {return false}
-	worldstate.quest_set_running(c.ws, c.self, true)
-	fill_aliases(c.ws, c.db, c.self)
-	return true
+	return !story_only(c, c.self) && start_quest(c, c.self)
+}
+
+@(private = "file")
+story_only :: proc(c: ^Call, quest: Form_ID) -> bool {
+	qb, _ := gamedb.quest_baseline_of(c.db, quest)
+	return qb.event != {}
 }
 
 // A stopped quest's aliases empty, and its update and animation registrations stop.

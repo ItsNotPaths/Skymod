@@ -207,11 +207,20 @@ tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 }
 
 // tick_story_events runs the engine's story events through the story manager, in the order they
-// happened.
+// happened, then sends each quest an event started its OnStory handler with the event's data.
 tick_story_events :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	cc := vm.ctx
 	for e in ws.story_events {script.story_event(&cc, e)}
 	clear(&ws.story_events)
+	for quest in ws.story_quests {
+		e, ok := ws.quest_events[quest]
+		if !ok {continue}
+		switch e.type {
+		case worldstate.STORY_SCRIPT:
+			send(vm, quest, "OnStoryScript", e.keyword, e.location1, e.ref1, e.ref2, e.value1, e.value2)
+		}
+	}
+	clear(&ws.story_quests)
 }
 
 // tick_zone_levels sends OnZoneLevelSet for each zone that took its level, to every registered form

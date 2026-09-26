@@ -4,12 +4,13 @@ package script
 // filling it lives in worldstate.aliases. A quest fills its aliases when it starts and empties them
 // when it stops (CK "Quest Alias Tab"). `self` is the alias handle.
 
+import "../formats/esm"
 import "../formid"
 import "../gamedb"
 import "../worldstate"
 
 // (hole alias-fills :tags (script quest) :sev gap) only Forced, Unique_Actor and External fills resolve: Create_Ref is not wired to worldstate.create_ref, From_List is not handled, Matching_Ref needs conditions.
-// (hole alias-event-fills :tags (script quest) :sev gap :needs (story-manager)) From_Event aliases (ALFE, 2,065) never fill: nothing passes the event that started the quest.
+// (hole alias-event-fills :tags (script quest) :sev gap) From_Event aliases (ALFE, 2,065) never fill: nothing passes the event that started the quest.
 // (hole location-alias-fills :tags script :sev gap) location aliases never fill at quest start: ALFL is not decoded, and ALFA on a location alias is read as a ref Matching_Ref and left empty. GetInCurrentLocAlias and LocAliasIsLocation have no body until they fill.
 
 register_alias :: proc(reg: ^Registry) {
@@ -35,8 +36,10 @@ register_alias :: proc(reg: ^Registry) {
 }
 
 // fill_aliases fills a starting quest's aliases in declaration order, so an External fill can read
-// one filled above it.
-fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) {
+// one filled above it. False when a required (not Optional) alias of a fill type built here stays
+// empty: the quest fails to start (CK wiki, Quest Alias Tab). The other fill types never fail it.
+fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) -> bool {
+	filled := true
 	for a in gamedb.quest_aliases_of(db, quest) {
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
@@ -48,9 +51,13 @@ fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID
 			form, _ = gamedb.unique_actor_ref(db, a.target)
 		case .External:
 			if other, hok := formid.alias_handle(a.target, a.extra); hok {form = ws.aliases[other]}
+		case:
+			continue
 		}
 		worldstate.fill_alias(ws, h, form)
+		if form == 0 && a.flags & esm.ALIAS_OPTIONAL == 0 {filled = false}
 	}
+	return filled
 }
 
 // clear_aliases empties a stopping quest's aliases and stops their update and animation registrations.

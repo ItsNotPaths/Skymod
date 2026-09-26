@@ -141,6 +141,8 @@ faction_memberships :: proc(fields: []Field, allocator := context.allocator) -> 
 
 // FACT DATA flag bits. Only the ones a consumer branches on are named; the raw u32 is kept so
 // unlisted bits survive.
+ALIAS_OPTIONAL :: 0x0000_0002 // FNAM: the quest starts without this alias filled
+
 FACT_HIDDEN_FROM_PC :: 0x0000_0001
 FACT_SPECIAL_COMBAT :: 0x0000_0002
 FACT_TRACK_CRIME :: 0x0000_0040

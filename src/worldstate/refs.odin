@@ -193,7 +193,7 @@ set_locked :: proc(ws: ^World_State, form_id, cell: Form_ID, locked: bool) {
 	d.locked = locked
 }
 
-// (hole story-kill :tags (quest combat) :sev gap :needs (story-manager)) a death queues no KILL story event with victim and killer (13 quests: TG and MG monitors, DA02, DA08, WIKill).
+// (hole story-kill :tags (quest combat) :sev gap) a death queues no KILL story event with victim and killer (13 quests: TG and MG monitors, DA02, DA08, WIKill).
 // set_dead records a Dead delta (actor life-state; Actor.Kill flips it, IsDead reads it).
 set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 	d := upsert(ws, form_id, cell)

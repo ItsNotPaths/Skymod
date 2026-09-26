@@ -12,6 +12,7 @@ import "core:testing"
 import "../../src/conditions"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/script"
 import "../../src/worldstate"
 import "../../src/formid"
 
@@ -468,7 +469,7 @@ test_story_records :: proc(t: ^testing.T) {
 	testing.expect_value(t, n.flags, u32(gamedb.STORY_DO_ALL_BEFORE_REPEATING))
 	testing.expect_value(t, len(n.conditions), 1)
 	if testing.expect_value(t, len(n.quests), 2) {
-		testing.expect_value(t, n.quests[0], gamedb.Story_Quest{0x0000_0C01, 24})
+		testing.expect_value(t, n.quests[0], gamedb.Story_Quest{0x0000_0C01, 1})
 		testing.expect_value(t, n.quests[1], gamedb.Story_Quest{0x0000_0C02, 0})
 	}
 
@@ -477,4 +478,99 @@ test_story_records :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(q.dialogue_conditions), 1)
 	testing.expect_value(t, len(q.event_conditions), 2)
 	if len(q.event_conditions) == 2 {testing.expect_value(t, q.event_conditions[0].run_on, esm.Condition_Run_On.EventData)}
+}
+
+// The story manager walks the tree: node and quest conditions, the event consumed by the first start,
+// Hours Until Reset, Random nodes in rounds, the story-only start rule and a failing required alias.
+@(test)
+test_story_manager :: proc(t: ^testing.T) {
+	u32b :: proc(v: u32) -> [4]u8 {b: [4]u8; put_u32(b[:], 0, v); return b}
+	f32b :: proc(v: f32) -> [4]u8 {b: [4]u8; put_f32(b[:], 0, v); return b}
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0900)
+	field(&tes4, "HEDR", hedr[:])
+
+	ROOT, EVENT, STACKED, RANDOM, LATER :: u32(0x801), u32(0x802), u32(0x803), u32(0x804), u32(0x805)
+	QA, QB, QC, QD, QE, QSTORY :: u32(0xC01), u32(0xC02), u32(0xC03), u32(0xC04), u32(0xC05), u32(0xC06)
+	nodes := make([dynamic]u8, 0, 1024);defer delete(nodes)
+	record(&nodes, "SMBN", 0, ROOT, {})
+	ev := make([dynamic]u8, 0, 64);defer delete(ev)
+	p := u32b(ROOT);field(&ev, "PNAM", p[:])
+	field(&ev, "ENAM", transmute([]u8)string("SCPT"))
+	record(&nodes, "SMEN", 0, EVENT, ev[:])
+	// STACKED (value1 == 1): QA, QB with a day's reset. RANDOM (value1 == 2): QC, QD. LATER: QE.
+	quest_node :: proc(nodes: ^[dynamic]u8, form, previous: u32, value1: f32, flags: u32, quests: []u32, reset: f32) {
+		b := make([dynamic]u8, 0, 128);defer delete(b)
+		p := u32b(0x802);field(&b, "PNAM", p[:])
+		if previous != 0 {s := u32b(previous);field(&b, "SNAM", s[:])}
+		ctda(&b, 576, 0, 0, value1, 2 | conditions.EVENT_VALUE_1 << 16, 0) // GetEventData GetValue V1
+		d := u32b(flags);field(&b, "DNAM", d[:])
+		for q in quests {
+			n := u32b(q);field(&b, "NNAM", n[:])
+			r := f32b(reset * 24);field(&b, "RNAM", r[:])
+		}
+		record(nodes, "SMQN", 0, form, b[:])
+	}
+	quest_node(&nodes, STACKED, 0, 1, 0, {QA, QB}, 24)
+	quest_node(&nodes, RANDOM, STACKED, 2, gamedb.STORY_RANDOM, {QC, QD}, 0)
+	quest_node(&nodes, LATER, RANDOM, 1, 0, {QE}, 0)
+
+	quests := make([dynamic]u8, 0, 1024);defer delete(quests)
+	for q in ([]u32{QA, QB, QC, QD, QE, QSTORY}) {
+		b := make([dynamic]u8, 0, 128);defer delete(b)
+		dnam: [12]u8;field(&b, "DNAM", dnam[:])
+		field(&b, "ENAM", transmute([]u8)string("SCPT"))
+		field(&b, "NEXT", {})
+		// QA wants actor 1 to be of base 0xD01; the events here send the player.
+		if q == QA {ctda(&b, 576, 0, 0, 1, 0 | conditions.EVENT_ACTOR_1 << 16, 0, param2 = 0xD01)}
+		if q == QSTORY {
+			// A required Unique_Actor alias whose NPC_ is never placed: the start fails.
+			id := u32b(0);field(&b, "ALST", id[:])
+			fl := u32b(0);field(&b, "FNAM", fl[:])
+			ua := u32b(0xD99);field(&b, "ALUA", ua[:])
+			field(&b, "ALED", {})
+		}
+		record(&quests, "QUST", 0, q, b[:])
+	}
+
+	out := make([dynamic]u8, 0, 4096);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("SMBN"), 0, nodes[:])
+	group(&out, transmute([]u8)string("QUST"), 0, quests[:])
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	c := script.Call{ws = &ws, db = &db}
+	running :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, q: u32) -> bool {return worldstate.quest_running(ws, db, gamedb.Form_ID(q))}
+	send :: proc(c: ^script.Call, value1: i32) -> bool {
+		return script.story_event(c, {type = worldstate.STORY_SCRIPT, ref1 = formid.PLAYER, value1 = value1})
+	}
+
+	testing.expect(t, !send(&c, 9), "no node takes value 9")
+	testing.expect(t, send(&c, 1), "value 1 starts a quest")
+	testing.expect(t, !running(&ws, &db, QA) && running(&ws, &db, QB), "QA's conditions fail, QB starts")
+	testing.expect(t, !running(&ws, &db, QE), "the start consumed the event")
+	testing.expect_value(t, ws.quest_events[gamedb.Form_ID(QB)].value1, i32(1))
+	testing.expect_value(t, len(ws.story_quests), 1)
+
+	worldstate.quest_set_running(&ws, gamedb.Form_ID(QB), false)
+	testing.expect(t, send(&c, 1), "QB waits out its reset, so LATER's QE starts")
+	testing.expect(t, running(&ws, &db, QE), "QE")
+	ws.clock.hours += 25
+	testing.expect(t, send(&c, 1) && running(&ws, &db, QB), "a day later QB starts again")
+
+	testing.expect(t, send(&c, 2), "a random pick")
+	first := QC if running(&ws, &db, QC) else QD
+	worldstate.quest_set_running(&ws, gamedb.Form_ID(first), false)
+	testing.expect(t, send(&c, 2), "a second pick")
+	testing.expect(t, running(&ws, &db, QC ~ QD ~ first), "the round runs the other quest first")
+
+	worldstate.quest_set_running(&ws, gamedb.Form_ID(QA), false)
+	by_script := script.Call{ws = &ws, db = &db, self = gamedb.Form_ID(QA)}
+	testing.expect(t, !script.n_quest_start(&by_script, nil).(bool), "Quest.Start refuses a quest with an event")
+	testing.expect(t, !script.story_event(&c, {type = {'K', 'I', 'L', 'L'}}), "no KILL node")
+	testing.expect(t, !script.start_quest(&c, gamedb.Form_ID(QSTORY)), "a required alias stays empty")
+	testing.expect(t, !running(&ws, &db, QSTORY), "so the quest does not run")
 }
