@@ -15,7 +15,7 @@ import "../../gamedb"
 import "../../worldstate"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit, OnDying or OnDeath: no attack makes a hit, Health at 0 does not kill, and Actor.Kill sets Dead with no events.
+// (hole hit-death-events :tags combat :sev gap :needs (combat-damage kill-events)) nothing sends OnHit (8 script classes set a stage from it) and Health at 0 does not kill: no attack makes a hit.
 // (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (448 scripts define one or both); there are no trigger volumes.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.

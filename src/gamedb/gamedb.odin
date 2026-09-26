@@ -122,6 +122,7 @@ Quest_Baseline :: struct {
 	// every QOBJ contributes to objective_text (its NNAM display line).
 	stage_log:          map[u16]string, // stage index -> journal log entry text (resolved; owned)
 	objective_text:     map[u16]string, // objective index -> display text (resolved; owned)
+	// (hole quest-targets :tags (quest records) :sev gap) QSTA objective targets are not decoded: no movetoqt in the console, no quest markers.
 	// Alias slots in declaration order (ALST/ALLS). The quest's scripts address these by id, so
 	// consumers index by `id`, not position — quest_alias does that lookup. Owned.
 	aliases:            []Quest_Alias,
@@ -210,6 +211,7 @@ DB :: struct {
 	books:         map[Form_ID]Book, // BOOK base formID -> what reading it teaches (absent = teaches nothing)
 	produce:       map[Form_ID]Form_ID, // FLOR / TREE base formID -> its PFIG harvest (an item or a leveled list)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
+	// (hole console-edids :tags (quest ui) :sev polish) only cells, keywords and globals index their editor ids: the console names a quest or an NPC by form ID, not by MQ101 or Lydia.
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
 	actor_refs:    map[Form_ID][dynamic]Ref, // cell formID -> actor placements (ACHR; base = an NPC_)

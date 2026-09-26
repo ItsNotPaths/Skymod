@@ -31,6 +31,7 @@ transitions_destroy :: proc(t: ^Transitions) {
 }
 
 // (hole npc-change-location :tags (quest ai) :sev polish :needs (ai-agent)) only the player sends CLOC; 7 vanilla CLOC conditions run on actor 1, so an NPC's move may be meant to send it too (unsourced).
+// (hole location-change-events :tags (quest script) :sev gap) the player's move sends no OnLocationChange(old, new) to the player and its aliases: MQ203PlayerScript and CWPlayerScript set stages from it.
 // tick_location queues a Change Location story event when the player's location differs from the
 // last tick's: actor 1 the player, location 1 the old, location 2 the new.
 tick_location :: proc(ws: ^worldstate.World_State, t: ^Transitions, now: script.Form_ID) {

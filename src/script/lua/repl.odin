@@ -43,6 +43,8 @@ out_allocator :: proc(repl: ^Repl) -> runtime.Allocator {
 
 // REPL_PRELUDE installs the capture-aware `print`, the `__repl_eval` driver, and the
 // `cmd` table. It runs on the gameplay VM after the ref system is up.
+// (hole quest-console :tags (quest ui) :sev gap) no quest verbs: the console can call Quest natives on a form ID (ref(0x...):SetStage(10)), but has no sqs (stages, log text, done marks), sqo, setstage, getstage, startquest, stopquest, completequest or resetquest.
+// (hole console-trigger :tags (quest physics) :sev gap) no verb sends OnTriggerEnter(player) to a trigger ref, so a quest moved by a trigger box (7 script classes set a stage from one, build/out/wsQ/stage_triggers_se.txt) moves only by setstage until trigger-events.
 @(private)
 REPL_PRELUDE :: `
 function print(...)
