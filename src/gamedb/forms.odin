@@ -286,9 +286,11 @@ faction_reaction :: proc(
 }
 
 // actor_factions is an NPC_'s authored SNAM factions, through its factions template; `pick`
-// stands in for a leveled one.
-actor_factions :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> []Faction_Membership {
+// stands in for a leveled one. A placed actor reads its base's.
+actor_factions :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> []Faction_Membership {
 	if db == nil {return nil}
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	return template_part(db, base, esm.ACBS_TEMPLATE_FACTIONS, pick).factions
 }
 

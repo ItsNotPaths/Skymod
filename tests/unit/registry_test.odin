@@ -859,3 +859,20 @@ test_courier_waits_for_dialogue :: proc(t: ^testing.T) {
 	script.tick_courier(&c)
 	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(1))
 }
+
+// A placed actor is in its NPC_'s factions (the ref, not only the base, answers).
+@(test)
+test_placed_actor_factions :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	REF, NPC, SHOP :: gamedb.Form_ID(0xD01), gamedb.Form_ID(0xD02), gamedb.Form_ID(0xD03)
+	db: gamedb.DB
+	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base)
+	defer {delete(db.ref_by_id);delete(db.actors)}
+	db.ref_by_id[REF] = {form_id = REF, base = NPC}
+	db.actors[NPC] = {factions = []gamedb.Faction_Membership{{SHOP, 0}}}
+	testing.expect(t, worldstate.in_faction(&ws, &db, REF, SHOP), "the ref is in its base's faction")
+	testing.expect_value(t, len(worldstate.actor_factions_now(&ws, &db, REF)), 1)
+}
