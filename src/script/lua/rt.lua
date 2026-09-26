@@ -889,6 +889,16 @@ function rt.event(inst, name, ...)
   if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
 end
 
+-- rt.fragment runs fragment `fn` of the script `file` on `form`: a quest stage's, a topic info's.
+function rt.fragment(form, file, fn, ...)
+  local inst = find_instance(form, low(file))
+  if not inst then
+    warn_once("frag:" .. low(file), "no fragment script '" .. file .. "' on " .. tostring(form))
+    return
+  end
+  rt.event(inst, fn, ...)
+end
+
 -- rt.guard runs any function the way a handler runs: under the budget, an error only warns.
 function rt.guard(label, f, ...)
   local ok, err = budgeted(f, ...)

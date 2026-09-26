@@ -106,16 +106,15 @@ Form_Kind :: enum u8 {
 
 // Quest_Baseline is a QUST record's script-relevant baseline (the immutable half of a quest's state;
 // the mutable half is worldstate.Quest_State). `start_game_enabled` (DNAM flag) means the quest is
-// running from a new game — so an untouched SGE quest reads IsRunning=true. `stages` maps each defined
-// stage index to whether it's flagged "Complete Quest" (QSDT 0x01); a key's presence = the stage
-// exists (SetCurrentStageID validates against it). Objectives/aliases are later phases.
+// running from a new game — so an untouched SGE quest reads IsRunning=true. `stages` holds each
+// defined stage; a key's presence = the stage exists (SetCurrentStageID validates against it).
 Quest_Baseline :: struct {
 	start_game_enabled: bool,
 	run_once:           bool, // DNAM 0x100: the story manager starts it once per game
 	event:              [4]u8, // ENAM: the story manager event that starts it ("KILL"), zero when none
 	dialogue_conditions: []Condition, // gate every INFO of the quest (owned)
 	event_conditions:   []Condition, // the story manager's conditions, after NEXT (owned)
-	stages:             map[u16]bool, // stage index -> completes-the-quest; presence = valid stage
+	stages:             map[u16]Quest_Stage,
 	objectives:         map[u16]bool, // defined objective indices (QOBJ); presence = defined
 	// Display text (the journal half). Owned, English-resolved at index time. Only stages with a
 	// CNAM log entry appear in stage_log (silent stages — script-only bookkeeping — are absent);
@@ -125,6 +124,25 @@ Quest_Baseline :: struct {
 	// Alias slots in declaration order (ALST/ALLS). The quest's scripts address these by id, so
 	// consumers index by `id`, not position — quest_alias does that lookup. Owned.
 	aliases:            []Quest_Alias,
+}
+
+// Stage flags (INDX).
+STAGE_START_UP :: 0x2
+STAGE_SHUT_DOWN :: 0x4
+
+Quest_Stage :: struct {
+	flags: u8,
+	items: []Stage_Item, // owned
+}
+
+// Stage item flags (QSDT).
+ITEM_COMPLETE_QUEST :: 0x1
+ITEM_FAIL_QUEST :: 0x2
+
+// Stage_Item is one log entry of a stage: its fragment runs when its conditions pass.
+Stage_Item :: struct {
+	flags:      u8,
+	conditions: []Condition, // owned
 }
 
 // CELL_SIZE is the side of one exterior cell in world units: the grid step.
@@ -993,6 +1011,10 @@ destroy :: proc(db: ^DB) {
 // destroy and the override path (a later plugin replacing the same QUST).
 @(private)
 free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
+	for _, st in qb.stages {
+		for it in st.items {free_conditions(db, it.conditions)}
+		delete(st.items, db.allocator)
+	}
 	delete(qb.stages)
 	delete(qb.objectives)
 	for _, s in qb.stage_log {
@@ -1500,13 +1522,15 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		free_quest_baseline(db, old) // override: free the previous clone
 	}
 	qb := Quest_Baseline {
-		stages         = make(map[u16]bool, 16, db.allocator),
+		stages         = make(map[u16]Quest_Stage, 16, db.allocator),
 		objectives     = make(map[u16]bool, 8, db.allocator),
 		stage_log      = make(map[u16]string, 16, db.allocator),
 		objective_text = make(map[u16]string, 8, db.allocator),
 	}
 	cur_stage: u16
 	have_stage := false
+	items := make(map[u16][dynamic]Stage_Item, 16, context.temp_allocator)
+	item_conds := false // the current stage item already took its CTDA run
 	cur_obj: u16
 	have_obj := false
 	past_next := false
@@ -1522,8 +1546,12 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 			if len(f.data) >= 4 {copy(qb.event[:], f.data[:4])}
 		case "CTDA":
 			// The run before NEXT is the dialogue conditions; every later run has its own owner.
-			if !past_next && qb.dialogue_conditions == nil {
+			if !past_next && !have_stage && qb.dialogue_conditions == nil {
 				qb.dialogue_conditions = index_conditions(db, esm.condition_run(fl, i), fm)
+			} else if have_stage && !item_conds && len(items[cur_stage]) > 0 {
+				its := &items[cur_stage]
+				its[len(its) - 1].conditions = index_conditions(db, esm.condition_run(fl, i), fm)
+				item_conds = true
 			}
 		case "NEXT":
 			past_next = true
@@ -1533,14 +1561,16 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 			if len(f.data) >= 2 {
 				cur_stage = u16(f.data[0]) | u16(f.data[1]) << 8
 				have_stage = true
-				if _, seen := qb.stages[cur_stage]; !seen {
-					qb.stages[cur_stage] = false
-				}
+				st := qb.stages[cur_stage]
+				if len(f.data) >= 3 {st.flags = f.data[2]}
+				qb.stages[cur_stage] = st
+				if cur_stage not_in items {items[cur_stage] = make([dynamic]Stage_Item, context.temp_allocator)}
 			}
 		case "QSDT":
-			// One stage-data flags byte; bit 0x01 = Complete Quest. Applies to the current INDX.
-			if have_stage && len(f.data) >= 1 && f.data[0] & 0x01 != 0 {
-				qb.stages[cur_stage] = true
+			// Starts one stage item (log entry) of the current INDX.
+			if have_stage && len(f.data) >= 1 {
+				append(&items[cur_stage], Stage_Item{flags = f.data[0]})
+				item_conds = false
 			}
 		case "CNAM":
 			// Journal log-entry text for the current stage. Long-text lstring → DLSTRINGS (or inline
@@ -1572,6 +1602,11 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 				}
 			}
 		}
+	}
+	for stage, its in items {
+		st := &qb.stages[stage]
+		st.items = make([]Stage_Item, len(its), db.allocator)
+		copy(st.items, its[:])
 	}
 	qb.aliases = index_quest_aliases(db, fl, fm)
 	db.quest_baseline[rec.form_id] = qb
@@ -1627,10 +1662,21 @@ quest_stage_exists :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (exists: bool
 	return exists, true
 }
 
+// quest_stage returns one defined stage of a quest.
+quest_stage :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (Quest_Stage, bool) {
+	qb, ok := quest_baseline_of(db, quest)
+	if !ok {return {}, false}
+	return qb.stages[stage]
+}
+
 // quest_stage_completes reports whether reaching `stage` completes the quest (QSDT "Complete Quest").
 quest_stage_completes :: proc(db: ^DB, quest: Form_ID, stage: u16) -> bool {
 	qb, ok := quest_baseline_of(db, quest)
-	return ok && qb.stages[stage]
+	if !ok {return false}
+	for it in qb.stages[stage].items {
+		if it.flags & ITEM_COMPLETE_QUEST != 0 {return true}
+	}
+	return false
 }
 
 // quest_stage_log returns the journal log-entry text shown when `stage` is reached (CNAM, English-

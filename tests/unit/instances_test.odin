@@ -169,6 +169,23 @@ return C
 `
 
 @(private = "file")
+STAGES_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("QF_Test", nil)
+local set_stage = rt.native("Quest", "SetCurrentStageID", false)
+local running = rt.native("Quest", "IsRunning", false)
+C.__fn["fragment_0"] = function(self) __stages = (__stages or "") .. "start;" end
+C.__fn["fragment_1"] = function(self)
+  __stages = (__stages or "") .. "10a;"
+  set_stage(self, 20)
+  __stages = __stages .. "10a after 20;"
+end
+C.__fn["fragment_2"] = function(self) __stages = (__stages or "") .. "10b;" end
+C.__fn["fragment_3"] = function(self) __stages = (__stages or "") .. "20;" end
+C.__fn["fragment_4"] = function(self) __stages = (__stages or "") .. "stop, running " .. tostring(running(self)) .. ";" end
+return C
+`
+
+@(private = "file")
 COUNTER_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Counter", nil)
 C.__vars = {
@@ -541,6 +558,59 @@ test_item_events :: proc(t: ^testing.T) {
 	testing.expect(t, logged(&f, "rem1;rem11;"), "RemoveAllItems: one event per item type")
 }
 
+// A stage runs the fragment of each item whose conditions pass, inside SetStage: a fragment that sets
+// another stage waits for that stage's fragments. Start runs the start-up stage first; Stop runs the
+// shut-down stage while the quest still runs.
+@(test)
+test_stage_fragments :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_stages", {{"qf_test.lua", STAGES_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST :: script.Form_ID(0x900)
+	never := []gamedb.Condition{{function = 74, op = .Equal, value = 1, param1 = 0xDEAD}} // GetGlobalValue: an unset global reads 0
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	defer delete(f.db.quest_baseline)
+	stages := make(map[u16]gamedb.Quest_Stage)
+	defer delete(stages)
+	stages[0] = {flags = gamedb.STAGE_START_UP, items = []gamedb.Stage_Item{{}}}
+	stages[10] = {items = []gamedb.Stage_Item{{}, {}, {conditions = never}}}
+	stages[20] = {items = []gamedb.Stage_Item{{}}}
+	stages[255] = {flags = gamedb.STAGE_SHUT_DOWN, items = []gamedb.Stage_Item{{}}}
+	f.db.quest_baseline[QUEST] = {stages = stages}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts)
+	defer delete(f.db.form_scripts)
+	f.db.form_scripts[QUEST] = {
+		scripts   = []esm.Script_Attach{{name = "QF_Test"}},
+		frag_file = "QF_Test",
+		fragments = []esm.Script_Fragment {
+			{index = 0, function = "Fragment_0"},
+			{index = 10, item = 0, function = "Fragment_1"},
+			{index = 10, item = 1, function = "Fragment_2"},
+			{index = 10, item = 2, function = "Fragment_2"},
+			{index = 20, function = "Fragment_3"},
+			{index = 255, function = "Fragment_4"},
+		},
+	}
+	slua.attach(&f.vm, QUEST, f.db.form_scripts[QUEST].scripts, false)
+	quest :: proc(f: ^Fixture, fn: string, args: ..script.Value) {
+		c := script.Call{self = QUEST, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "Quest", fn, &c, args)
+		slua.sync_refs(&f.vm) // as rt_native does after every native
+	}
+	stages_were :: proc(f: ^Fixture, want: string) -> bool {
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__stages or "") == "`, want, `", __stages); __stages = nil`}, context.temp_allocator))
+	}
+
+	quest(&f, "SetCurrentStageID", i32(10))
+	testing.expect(t, stages_were(&f, "start;10a;20;10a after 20;10b;"), "start-up stage, then 10's items in order, 20 inside 10a")
+	quest(&f, "SetCurrentStageID", i32(10))
+	testing.expect(t, stages_were(&f, ""), "a done stage runs once")
+	quest(&f, "Stop")
+	testing.expect(t, stages_were(&f, "stop, running true;"), "the shut-down stage runs before the stop")
+	testing.expect(t, !worldstate.quest_running(&f.ws, &f.db, QUEST), "then the quest stops")
+}
+
 // A starting quest fills its Forced alias, then its External one from it; the alias's scripts get
 // the events of the ref it holds (not the ref's OnUpdate); a stopped quest empties both.
 @(test)
@@ -561,6 +631,7 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 	quest :: proc(f: ^Fixture, fn: string) {
 		c := script.Call{self = QUEST, ws = &f.ws, db = &f.db}
 		script.call(&f.reg, "Quest", fn, &c, nil)
+		slua.sync_refs(&f.vm) // as rt_native does after every native
 	}
 	guard_saw :: proc(f: ^Fixture, want: string) -> bool {
 		slua.drain(&f.vm)

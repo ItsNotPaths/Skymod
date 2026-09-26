@@ -29,6 +29,13 @@ Quest_State :: struct {
 	objectives:  map[u16]Objective_State, // objective id -> its flags
 }
 
+// Quest_Step is a stage whose fragments must run, or a stop that waits for its shut-down stages.
+Quest_Step :: struct {
+	quest: Form_ID,
+	stage: u16,
+	stop:  bool,
+}
+
 // quest_free releases a Quest_State's owned nested maps (called on destroy/clear/load-replace).
 @(private)
 quest_free :: proc(q: ^Quest_State) {

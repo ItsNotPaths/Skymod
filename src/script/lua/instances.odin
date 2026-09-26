@@ -47,12 +47,19 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 // (hole quest-reset :tags script :sev gap) a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
 
 // new_game fills the aliases of the quests that run from a new game, then starts the game's
-// scripts. A loaded save keeps its own fills, so it calls start_game alone.
+// scripts, then runs those quests' start-up stages. A loaded save keeps its own fills, so it calls
+// start_game alone.
 new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
-	for q in sorted_quests(db) {
+	quests := sorted_quests(db)
+	for q in quests {
 		if gamedb.quest_start_game_enabled(db, q) {script.fill_aliases(&vm.ctx, q, new_game = true)}
 	}
-	return start_game(vm, db)
+	made := start_game(vm, db)
+	for q in quests {
+		if gamedb.quest_start_game_enabled(db, q) {script.queue_stages(&vm.ctx, q, gamedb.STAGE_START_UP)}
+	}
+	sync_refs(vm)
+	return made
 }
 
 // start_game gives every quest and every alias its scripts, then every persistent ref and actor:
@@ -161,8 +168,10 @@ attach_created :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) -> int {
 // sync_refs gives refs created since the last call their scripts, OnInit included, so a script's
 // PlaceAtMe returns a ref whose OnInit has run. It drops the scripts of refs deleted since: they
 // leave the tick schedule, and their registrations and saved members go. Effects started or ended
-// since get their instance and OnEffectStart, or OnEffectFinish.
+// since get their instance and OnEffectStart, or OnEffectFinish. Stages set since run their
+// fragments last.
 sync_refs :: proc(vm: ^VM) {
+	defer run_quest_steps(vm)
 	ws := vm.ctx.ws
 	for len(ws.new_effects) > 0 || len(ws.ended_effects) > 0 {
 		started := slice.clone(ws.new_effects[:], context.temp_allocator)

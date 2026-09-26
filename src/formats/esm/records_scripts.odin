@@ -101,9 +101,11 @@ Script_Attach :: struct {
 // the record's own numbering to that function.
 //
 // `index` is the quest STAGE (QUST), the scene PHASE (SCEN), the perk ENTRY (PERK), or the
-// fragment's bit slot in the flags byte (INFO/PACK, where slot 0 is begin and 1 is end).
+// fragment's bit slot in the flags byte (INFO/PACK, where slot 0 is begin and 1 is end). `item` is
+// the stage's log entry (QUST only).
 Script_Fragment :: struct {
 	index:    u16,
+	item:     u16,
 	script:   string,
 	function: string,
 }
@@ -540,8 +542,10 @@ vm_fragments :: proc(
 			}
 			index := vm_u16(c) // quest stage
 			vm_i16(c) // unknown
-			vm_u32(c) // log entry this fragment belongs to
-			append(&list, vm_fragment(c, index, allocator))
+			item := vm_u32(c) // log entry this fragment belongs to
+			fr := vm_fragment(c, index, allocator)
+			fr.item = u16(item)
+			append(&list, fr)
 		}
 		out.fragments = list[:]
 		out.aliases = vm_aliases(c, obj_format, fm, allocator)

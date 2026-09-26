@@ -326,9 +326,11 @@ test_registry_quest_baseline :: proc(t: ^testing.T) {
 	q := script.Form_ID(0x000C_0DE0)
 	db: gamedb.DB
 	db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
-	stages := make(map[u16]bool)
-	stages[10] = false
-	stages[20] = true
+	complete := []gamedb.Stage_Item{{flags = gamedb.ITEM_COMPLETE_QUEST}}
+	stages := make(map[u16]gamedb.Quest_Stage)
+	stages[10] = {}
+	stages[20] = {items = complete}
+	stages[30] = {}
 	objectives := make(map[u16]bool)
 	objectives[5] = true
 	objectives[15] = true
@@ -346,6 +348,7 @@ test_registry_quest_baseline :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(10)}).(bool), true)
 	testing.expect_value(t, script.call(&reg, "Quest", "GetCurrentStageID", &c, nil).(i32), i32(10))
 	testing.expect_value(t, script.call(&reg, "Quest", "IsCompleted", &c, nil).(bool), false)
+	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(10)}).(bool), false) // done: runs once
 
 	// Reaching a Complete-flagged stage marks the quest completed (baseline stage flag).
 	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(20)}).(bool), true)
@@ -356,10 +359,13 @@ test_registry_quest_baseline :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Quest", "IsObjectiveCompleted", &c, {i32(5)}).(bool), true)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsObjectiveCompleted", &c, {i32(15)}).(bool), true)
 
-	// Explicit Stop overrides the baseline SGE; SetCurrentStageID starts a stopped quest again.
+	// Explicit Stop overrides the baseline SGE once the VM runs the queued stop; SetCurrentStageID
+	// starts a stopped quest again.
 	script.call(&reg, "Quest", "Stop", &c, nil)
+	testing.expect_value(t, len(ws.quest_steps) > 0 && ws.quest_steps[len(ws.quest_steps) - 1].stop, true)
+	script.stop_quest(&c, q)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsRunning", &c, nil).(bool), false)
-	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(10)}).(bool), true)
+	testing.expect_value(t, script.call(&reg, "Quest", "SetCurrentStageID", &c, {i32(30)}).(bool), true)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsRunning", &c, nil).(bool), true)
 }
 
@@ -480,10 +486,11 @@ test_registry_quest :: proc(t: ^testing.T) {
 	script.call(&reg, "Quest", "FailAllObjectives", &c, nil)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsObjectiveFailed", &c, {i32(5)}).(bool), true)
 
-	// CompleteQuest sets the completed bit; Stop clears running.
+	// CompleteQuest sets the completed bit; Stop clears running once the VM runs the stop.
 	script.call(&reg, "Quest", "CompleteQuest", &c, nil)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsCompleted", &c, nil).(bool), true)
 	script.call(&reg, "Quest", "Stop", &c, nil)
+	script.stop_quest(&c, c.self)
 	testing.expect_value(t, script.call(&reg, "Quest", "IsRunning", &c, nil).(bool), false)
 
 	// Reset wipes state back to baseline.

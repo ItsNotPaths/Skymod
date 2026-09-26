@@ -8,6 +8,7 @@ package script
 // Quest state is world-fact, not scene geometry, so these do NOT mark_scene_dirty (nothing in the
 // resident 3D scene changes when a stage advances; quest-driven ref enable/disable rides its own verb).
 
+import "core:slice"
 import "../gamedb"
 import "../worldstate"
 
@@ -43,17 +44,19 @@ register_quest :: proc(reg: ^Registry) {
 
 // ── stages ───────────────────────────────────────────────────────────────────
 
-// SetCurrentStageID(aiStageID) -> bool: set a stage, starting the quest first if it is not running
-// (CK: "will wait for the quest to start if it has to start the quest"). Returns false (no-op) if
-// the stage isn't a defined stage of the quest. Stage validation is skipped when the quest's
-// baseline is unknown (unparsed / synthetic DB) so it still works there.
+// SetCurrentStageID(aiStageID) -> bool: set a stage, starting the quest first if it is not running.
+// Its fragments run inside the call (CK: the function "will also wait for those fragments to finish
+// running before returning"). False, and nothing runs, for a stage that is not defined or is done
+// already. Stage validation is skipped when the quest's baseline is unknown (synthetic DB).
 n_quest_set_stage :: proc(c: ^Call, args: []Value) -> Value {
 	stage := u16(arg_i32(args, 0, 0))
 	if exists, known := gamedb.quest_stage_exists(c.db, c.self, stage); known && !exists {
 		return false
 	}
+	if worldstate.quest_is_stage_done(c.ws, c.self, stage) {return false}
 	if !worldstate.quest_running(c.ws, c.db, c.self) && !n_quest_start(c, nil).(bool) {return false}
 	worldstate.quest_set_stage(c.ws, c.self, stage)
+	append(&c.ws.quest_steps, worldstate.Quest_Step{quest = c.self, stage = stage})
 	return true
 }
 
@@ -119,13 +122,31 @@ story_only :: proc(c: ^Call, quest: Form_ID) -> bool {
 	return qb.event != {}
 }
 
-// A stopped quest's aliases empty, and its update and animation registrations stop.
+// Stop runs the shut-down stages first, while the aliases are still filled; stop_quest follows
+// them (the VM runs both once the native returns).
 n_quest_stop :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.quest_set_running(c.ws, c.self, false)
-	worldstate.unregister_updates(c.ws, c.self)
-	worldstate.unregister_anim_events(c.ws, c.self)
-	clear_aliases(c.ws, c.db, c.self)
+	queue_stages(c, c.self, gamedb.STAGE_SHUT_DOWN)
+	append(&c.ws.quest_steps, worldstate.Quest_Step{quest = c.self, stop = true})
 	return nil
+}
+
+// stop_quest empties a quest's aliases and ends its update and animation registrations.
+stop_quest :: proc(c: ^Call, quest: Form_ID) {
+	worldstate.quest_set_running(c.ws, quest, false)
+	worldstate.unregister_updates(c.ws, quest)
+	worldstate.unregister_anim_events(c.ws, quest)
+	clear_aliases(c.ws, c.db, quest)
+}
+
+// queue_stages queues the fragments of every stage of `quest` that has `flag`, in stage order.
+queue_stages :: proc(c: ^Call, quest: Form_ID, flag: u8) {
+	qb, _ := gamedb.quest_baseline_of(c.db, quest)
+	stages := make([dynamic]u16, 0, 2, context.temp_allocator)
+	for index, st in qb.stages {
+		if st.flags & flag != 0 {append(&stages, index)}
+	}
+	slice.sort(stages[:])
+	for index in stages {append(&c.ws.quest_steps, worldstate.Quest_Step{quest = quest, stage = index})}
 }
 
 n_quest_reset :: proc(c: ^Call, args: []Value) -> Value {
