@@ -15,6 +15,7 @@ package main
 //   --trace              print Debug.Trace and Notification lines with the tick time they ran at
 //   --all-warnings       print every warning row, not the top 40
 //   --where <script>     repeatable: only list the refs (with their cells), quests and aliases that carry <script>
+//   --talk <name>        repeatable: after the ticks, print the greeting and topic list of the actor with this name
 //
 // <scripts dir> is converted Lua, e.g. <base>/content/basescripts/scripts after an install.
 
@@ -38,7 +39,7 @@ TICK_HZ :: 60
 Args :: struct {
 	root, scripts, patches: string,
 	driver:                 string,
-	cells, find:            [dynamic]string, // cells: hex form ids, or "all"; find: --where scripts
+	cells, find, talk:      [dynamic]string, // cells: hex form ids, or "all"; find: --where scripts; talk: actor names
 	seconds:                int,
 	skip:                   f64,
 	trace, all_warnings:    bool,
@@ -114,6 +115,7 @@ main :: proc() {
 	}
 	update_took := time.since(start)
 	context.logger = log.create_console_logger(.Info)
+	for name in args.talk {talk(&vm, &db, name)}
 
 	fmt.printfln("game start: instances %d, OnInit run in %v", made, took)
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
@@ -134,7 +136,7 @@ main :: proc() {
 	}
 }
 
-USAGE :: "usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]... [--patches <dir>] [--driver <file.lua>] [--seconds <n>] [--skip <hours>] [--trace] [--all-warnings] [--where <script>]"
+USAGE :: "usage: scriptrun <Skyrim root> <scripts dir> [--cell <formid>|all]... [--patches <dir>] [--driver <file.lua>] [--seconds <n>] [--skip <hours>] [--trace] [--all-warnings] [--where <script>] [--talk <name>]"
 
 parse_args :: proc() -> Args {
 	a := Args{seconds = 10}
@@ -150,7 +152,7 @@ parse_args :: proc() -> Args {
 		case "--all-warnings":
 			a.all_warnings = true
 			continue
-		case "--cell", "--patches", "--driver", "--where", "--seconds", "--skip":
+		case "--cell", "--patches", "--driver", "--where", "--talk", "--seconds", "--skip":
 			if len(rest) == 0 {usage_exit()}
 			value := rest[0]
 			rest = rest[1:]
@@ -163,6 +165,8 @@ parse_args :: proc() -> Args {
 				a.driver = value
 			case "--where":
 				append(&a.find, value)
+			case "--talk":
+				append(&a.talk, value)
 			case "--seconds":
 				n, ok := strconv.parse_int(value)
 				if !ok || n < 0 {usage_exit()}
