@@ -5,18 +5,10 @@ import "core:slice"
 import "core:strings"
 import "../gamedb"
 
-@(private)
-inv_upsert :: proc(ws: ^World_State, owner: Form_ID) -> ^map[Form_ID]i32 {
-	if _, ok := ws.inventories[owner]; !ok {
-		ws.inventories[owner] = make(map[Form_ID]i32)
-	}
-	return &ws.inventories[owner]
-}
-
 // inv_add adjusts owner's delta of `item` from its starting contents; negative when it holds fewer
 // than it started with. The caller clamps against the starting count.
 inv_add :: proc(ws: ^World_State, owner, item: Form_ID, delta: i32) {
-	inner := inv_upsert(ws, owner)
+	inner := delta_upsert(&ws.inventories, owner)
 	n := inner^[item] + delta
 	if n == 0 {
 		delete_key(inner, item)

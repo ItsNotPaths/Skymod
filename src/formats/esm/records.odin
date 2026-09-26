@@ -431,6 +431,7 @@ ACBS_SUMMONABLE :: 0x0000_4000
 // ACBS template flags: which parts of an NPC_ come from its TPLT.
 ACBS_TEMPLATE_TRAITS :: 0x0001 // race and more
 ACBS_TEMPLATE_STATS :: 0x0002 // level, auto-calc, skills, offsets, speed, class
+ACBS_TEMPLATE_SPELLS :: 0x0008 // spell list (UESP Mod File Format/NPC_)
 ACBS_TEMPLATE_AI_DATA :: 0x0010
 ACBS_TEMPLATE_INVENTORY :: 0x0100
 

@@ -76,6 +76,7 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	for _, cell in db.actor_refs {
 		for r in cell {if r.persistent {append(&refs, r)}}
 	}
+	if p, ok := db.ref_by_id[formid.PLAYER]; ok {append(&refs, p)} // in no cell
 	slice.sort_by(refs[:], proc(a, b: gamedb.Ref) -> bool {return a.form_id < b.form_id})
 	for r in refs {
 		made += attach_ref(vm, db, r)
@@ -94,6 +95,8 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 
 	call_rt(vm, "start_end")
 	worldstate.av_drop_pending(vm.ctx.ws)
+	for r in refs {sync_actor(vm, db, r.form_id)}
+	for id in created {sync_actor(vm, db, id)}
 	return made
 }
 
@@ -112,10 +115,23 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 	made := 0
 	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
 		for r in list {
-			if !r.persistent {made += attach_ref(vm, db, r)}
+			if r.persistent {continue}
+			made += attach_ref(vm, db, r)
+			sync_actor(vm, db, r.form_id)
 		}
 	}
 	return made
+}
+
+// sync_actor catches an actor's abilities up with its spell list, which OnGameLoaded and mod
+// updates change (script.sync_abilities).
+@(private)
+sync_actor :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) {
+	c := vm.ctx
+	base := worldstate.record_of(c.ws, id)
+	if r, ok := db.ref_by_id[base]; ok {base = r.base}
+	if base not_in db.actors || worldstate.is_deleted(c.ws, id) {return}
+	script.sync_abilities(&c, id)
 }
 
 @(private)
@@ -177,6 +193,7 @@ sync_refs :: proc(vm: ^VM) {
 		} else {
 			attach_created(vm, vm.ctx.db, id)
 		}
+		sync_actor(vm, vm.ctx.db, id)
 		send_own(vm, id, "OnReset")
 	}
 	for len(ws.new_refs) > 0 || len(ws.gone_refs) > 0 {
@@ -188,7 +205,10 @@ sync_refs :: proc(vm: ^VM) {
 		}
 		made := slice.clone(ws.new_refs[:], context.temp_allocator)
 		clear(&ws.new_refs)
-		for id in made {attach_created(vm, vm.ctx.db, id)}
+		for id in made {
+			attach_created(vm, vm.ctx.db, id)
+			sync_actor(vm, vm.ctx.db, id)
+		}
 	}
 }
 

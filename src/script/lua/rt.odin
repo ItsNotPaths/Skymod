@@ -42,6 +42,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__formula", rt_formula},
 		{"__level_up_choice", rt_level_up_choice},
 		{"__effect_terms", rt_effect_terms},
+		{"__seed_spell", rt_seed_spell},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -95,6 +96,17 @@ rt_level_up_choice :: proc "c" (L: ^lua.State) -> c.int {
 		}
 	}
 	worldstate.set_level_choice(vm.ctx.ws, to_string(L, 1), changes)
+	return 0
+}
+
+// __seed_spell(owner, spell, change) is rt.seed_spell's and rt.unseed_spell's engine half.
+@(private)
+rt_seed_spell :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	owner, _ := ref_form(L, 1)
+	spell, _ := ref_form(L, 2)
+	worldstate.seed_spell(vm.ctx.ws, owner, spell, i32(lua.tointeger(L, 3)))
 	return 0
 }
 

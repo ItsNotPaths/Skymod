@@ -1025,6 +1025,18 @@ function rt.formula(name, src)
   __formula(name, src)
 end
 
+-- rt.seed_spell(owner, spell) puts a spell on a race's or an NPC_'s records' list, for every actor
+-- of it; rt.unseed_spell(owner, spell) takes one off. Only inside OnGameLoaded: they last until the
+-- next new game or load, like a record edit. A plugin's record edit is the better tool; they say so.
+local function seed_spell(name, owner, spell, change)
+  if not game_loading then error("rt." .. name .. " outside OnGameLoaded", 3) end
+  warn_once(name, "rt." .. name .. ": prefer editing the RACE or NPC_ spell list (SPLO) in a plugin")
+  __seed_spell(form_of(owner), form_of(spell), change)
+end
+
+function rt.seed_spell(owner, spell) seed_spell("seed_spell", owner, spell, 1) end
+function rt.unseed_spell(owner, spell) seed_spell("unseed_spell", owner, spell, -1) end
+
 -- ── saves ───────────────────────────────────────────────────────────────────
 
 local function same(a, b)

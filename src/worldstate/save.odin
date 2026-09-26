@@ -238,6 +238,7 @@ Save_Body :: struct {
 	globals:       []Saved_Global,
 	quests:        []Saved_Quest,
 	inventory:     []Saved_Inv,
+	spells:        []Saved_Inv,   // actor -> spell, GIVEN / REMOVED
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
 	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
@@ -336,13 +337,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		quests[qi] = Saved_Quest{form_id = fid, stage = q.stage, flags = flags, done = done, objectives = objs}
 		qi += 1
 	}
-	// The three Wave-1 stores: flatten each map-of-maps to a triple array (size = sum of inner sizes).
-	inv := make([dynamic]Saved_Inv, 0, len(ws.inventories), context.temp_allocator)
-	for owner, items in ws.inventories {
-		for item, count in items {
-			append(&inv, Saved_Inv{owner = owner, item = item, count = count})
-		}
-	}
+	// The Wave-1 stores: flatten each map-of-maps to a triple array (size = sum of inner sizes).
 	avs := make([dynamic]Saved_AV, 0, len(ws.actor_values), context.temp_allocator)
 	for actor, vals in ws.actor_values {
 		for av, p in vals {
@@ -432,7 +427,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		next_created  = ws.next_created,
 		globals       = globals,
 		quests        = quests,
-		inventory     = inv[:],
+		inventory     = save_deltas(ws.inventories),
+		spells        = save_deltas(ws.spells),
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
 		actor_picks   = picks[:],
@@ -702,12 +698,8 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// pending_avs until OnGameLoaded creates it); relationship pairs are stored both directions, so
 	// each directed entry is set on its own. Entries keyed on a missing mod drop; a secondary ref
 	// (item/faction/b) that won't resolve keeps its saved value (dangles).
-	for r in body.inventory {
-		owner, kok := rf(remap, have_remap, r.owner)
-		if !kok {continue}
-		item, _ := rf(remap, have_remap, r.item)
-		inv_upsert(ws, owner)^[item] = r.count
-	}
+	load_deltas(&ws.inventories, body.inventory, remap, have_remap, rf)
+	load_deltas(&ws.spells, body.spells, remap, have_remap, rf)
 	for a in body.actor_values {
 		actor, kok := rf(remap, have_remap, a.actor)
 		if !kok {continue}
@@ -751,6 +743,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for g in body.globals {add_slot(&seen, g.id)}
 	for q in body.quests {add_slot(&seen, q.form_id)}
 	for r in body.inventory {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
+	for r in body.spells {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
 	for r in body.relationships {add_slot(&seen, r.a);add_slot(&seen, r.b)}

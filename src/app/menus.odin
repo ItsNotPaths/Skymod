@@ -104,8 +104,7 @@ magic_menu :: proc(g: ^Game) {
 		imgui.TextUnformatted(fmt.ctprintf("%v: %s", slot, label(g, worldstate.in_slot(ws, db, formid.PLAYER, slot))))
 	}
 	imgui.Separator()
-	base, _ := gamedb.actor_base(db, formid.PLAYER_BASE)
-	for spell in by_name(g, base.spells) {
+	for spell in by_name(g, worldstate.spell_list(ws, db, formid.PLAYER)) {
 		imgui.TextUnformatted(fmt.ctprintf("%s", label(g, spell)))
 		for slot in ([]gamedb.Slot{.LeftHand, .RightHand}) {
 			imgui.SameLine()

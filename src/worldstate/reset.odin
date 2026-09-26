@@ -34,6 +34,7 @@ reset_ref_state :: proc(ws: ^World_State, form: Form_ID, inventory: bool) {
 		drop_inventory(ws, form)
 		if inner, ok := ws.actor_values[form]; ok {delete(inner)}
 		delete_key(&ws.actor_values, form)
+		drop_deltas(&ws.spells, form)
 		delete_key(&ws.actor_picks, form)
 	}
 }
@@ -46,8 +47,7 @@ restart_scripts :: proc(ws: ^World_State, form: Form_ID) {
 
 // drop_inventory puts a container's contents back to its baseline; leveled entries roll again.
 drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
-	if inner, ok := ws.inventories[form]; ok {delete(inner)}
-	delete_key(&ws.inventories, form)
+	drop_deltas(&ws.inventories, form)
 	if list, ok := ws.rolled[form]; ok {delete(list)}
 	delete_key(&ws.rolled, form)
 	drop_equipment(ws, form)

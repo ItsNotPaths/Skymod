@@ -17,6 +17,7 @@ import "../formats/esm"
 Race :: struct {
 	info:        esm.Race_Info,
 	description: string, // DESC (owned; "" when absent)
+	spells:      []Form_ID, // SPLO (owned)
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
@@ -57,9 +58,11 @@ index_race :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	r: Race
 	r.info, _ = esm.race_info(fl)
 	r.description = index_description(db, fl)
+	r.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
 
 	if old, existed := db.races[rec.form_id]; existed {
 		delete(old.description, db.allocator) // override: free the previous clone
+		delete(old.spells, db.allocator)
 	}
 	db.races[rec.form_id] = r
 }
@@ -188,6 +191,24 @@ race_of :: proc(db: ^DB, race: Form_ID) -> (Race, bool) {
 	return r, ok
 }
 
+// Spell_Source is one part of an actor's records' spell list and the form that owns it.
+Spell_Source :: struct {
+	owner:  Form_ID, // the RACE, or the actor's own NPC_
+	spells: []Form_ID,
+}
+
+// spell_sources is the spell list an actor's records give it: its race's, then its NPC_'s, each
+// through its template (`pick` standing in for a leveled one). Leveled lists stay unrolled.
+spell_sources :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2]Spell_Source {
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
+	npc, ok := db.actors[base]
+	if !ok {return {}}
+	race_id := template_part(db, npc, esm.ACBS_TEMPLATE_TRAITS, pick).race
+	race, _ := race_of(db, race_id)
+	return {{race_id, race.spells}, {base, template_part(db, npc, esm.ACBS_TEMPLATE_SPELLS, pick).spells}}
+}
+
 // class_of returns a class's level-up weighting (ok=false when the form isn't an indexed CLAS).
 class_of :: proc(db: ^DB, class: Form_ID) -> (Class, bool) {
 	if db == nil {
@@ -295,6 +316,7 @@ free_actor_value_info :: proc(db: ^DB, av: Actor_Value_Info) {
 free_actor_indexes :: proc(db: ^DB) {
 	for _, r in db.races {
 		delete(r.description, db.allocator)
+		delete(r.spells, db.allocator)
 	}
 	delete(db.races)
 	for _, c in db.classes {

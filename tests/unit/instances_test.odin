@@ -184,6 +184,13 @@ return C
 `
 
 @(private = "file")
+SEEDS_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Seeds", nil)
+C.__fn["ongameloaded"] = function(self) rt.seed_spell(ref(0x500), ref(0x902)) end
+return C
+`
+
+@(private = "file")
 STATS_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Stats", nil)
 C.__fn["ongameloaded"] = function(self)
@@ -667,8 +674,9 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
 	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
 
-	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); assert(rt.call(ref(0x700), "AddSpell", ref(0x900)) == true)`), "AddSpell")
-	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "AddSpell", ref(0x900)) == false)`), "a second AddSpell is refused")
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[SPELL] = .Spell
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x700))`), "Cast")
 	testing.expect_value(t, len(f.ws.effects), 1)
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	slua.tick_end(&f.vm, 1)
@@ -700,11 +708,13 @@ test_effect_start_conditions :: proc(t: ^testing.T) {
 	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
 	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
 
-	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x700), "AddSpell", ref(0x900))`), "AddSpell")
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[SPELL] = .Spell
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x700))`), "Cast")
 	testing.expect_value(t, len(f.ws.effects), 1)
 	f.ws.perks[PERKED] = make(map[gamedb.Form_ID]bool)
 	(&f.ws.perks[PERKED])[PERK] = true
-	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x701), "AddSpell", ref(0x900))`), "AddSpell with the perk")
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x900), "Cast", ref(0x701))`), "Cast on the perked")
 	testing.expect_value(t, len(f.ws.effects), 3)
 }
 
@@ -732,6 +742,73 @@ test_potion_equip :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, DRINKER, POISON), 1)
 	testing.expect_value(t, len(f.ws.effects), 1)
 	testing.expect(t, len(f.ws.equip_changes) == 1 && f.ws.equip_changes[0].item == POTION, "OnObjectEquipped for the potion only")
+}
+
+// AddSpell teaches; only an ability starts. DispelSpell ends effects and keeps the spell; RemoveSpell
+// forgets it. sync_abilities catches an actor up when a mod update changes its records' list.
+@(test)
+test_spell_natives :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_spells", {{"glow.lua", GLOW_LUA}})
+	defer fixture_destroy(&f)
+
+	FIREBALL, ABILITY, RACIAL, MGEF :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x902), gamedb.Form_ID(0x903), gamedb.Form_ID(0x901)
+	ACTOR :: gamedb.Form_ID(0x700)
+	glow := []gamedb.Magic_Effect_Ref{{effect = MGEF}}
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[FIREBALL] = {effects = glow}
+	f.db.spells[ABILITY] = {info = {type = .Ability}, effects = glow}
+	f.db.spells[RACIAL] = {info = {type = .Ability}, effects = glow}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
+	f.db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	f.db.actors[ACTOR] = {}
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); local a = ref(0x700)
+assert(rt.call(a, "AddSpell", ref(0x900)) and rt.call(a, "AddSpell", ref(0x902)))
+assert(not rt.call(a, "AddSpell", ref(0x902)), "known")`), "AddSpell")
+	testing.expect_value(t, len(f.ws.effects), 1)
+	testing.expect(t, slua.do_string(&f.vm, `local a = ref(0x700)
+assert(rt.call(a, "DispelSpell", ref(0x902)) and rt.call(a, "HasSpell", ref(0x902)), "dispelled, still known")
+assert(rt.call(a, "RemoveSpell", ref(0x900)) and not rt.call(a, "HasSpell", ref(0x900)), "forgotten")`), "DispelSpell, RemoveSpell")
+
+	c := script.Call{ws = &f.ws, db = &f.db}
+	f.db.actors[ACTOR] = {spells = {RACIAL}} // a mod update
+	script.sync_abilities(&c, ACTOR)
+	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, RACIAL)), 1)
+	f.db.actors[ACTOR] = {}
+	script.sync_abilities(&c, ACTOR)
+	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, RACIAL)), 0)
+}
+
+// rt.seed_spell from OnGameLoaded gives a race an ability; game start starts it on its actors.
+@(test)
+test_seed_spell :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_seeds", {{"seeds.lua", SEEDS_LUA}, {"glow.lua", GLOW_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST, RACE, NPC, ACTOR, CELL :: gamedb.Form_ID(0x800), gamedb.Form_ID(0x500), gamedb.Form_ID(0x501), gamedb.Form_ID(0x700), gamedb.Form_ID(0x100)
+	ABILITY, MGEF :: gamedb.Form_ID(0x902), gamedb.Form_ID(0x901)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "Seeds"}}}
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[ABILITY] = {info = {type = .Ability}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF}}}
+	f.db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	f.db.actors[NPC] = {race = RACE}
+	actor := gamedb.Ref{form_id = ACTOR, base = NPC, cell_form_id = CELL, persistent = true}
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[ACTOR] = actor
+	f.db.actor_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.actor_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
+	append(&f.db.actor_refs[CELL], actor)
+
+	slua.start_game(&f.vm, &f.db)
+	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, ABILITY)), 1)
+	testing.expect(t, slua.do_string(&f.vm, `assert(not pcall(require('skymod.rt').seed_spell, ref(0x500), ref(0x902)))`), "only inside OnGameLoaded")
 }
 
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with

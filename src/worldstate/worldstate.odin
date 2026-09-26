@@ -40,7 +40,9 @@ Overlay :: struct {
 	next_created:    Form_ID,                      // next FormID to hand out (>= formid.CREATED_FORM_BASE)
 	globals:         map[Form_ID]f32,              // GLOB FormID -> value (script globals; NOT quest stages)
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
-	inventories:     map[Form_ID]map[Form_ID]i32,  // owner FormID -> (item FormID -> count delta from baseline)
+	inventories:     Deltas,                       // owner FormID -> (item FormID -> count delta from baseline)
+	spells:          Deltas,                       // actor -> (spell or shout -> GIVEN / REMOVED against its records' list)
+	spell_seeds:     Deltas,                       // RACE or NPC_ -> (spell -> GIVEN / REMOVED): rt.seed_spell (not saved; OnGameLoaded rebuilds it)
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
 	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
@@ -177,7 +179,9 @@ init_overlay :: proc(o: ^Overlay) {
 	o.next_created = formid.CREATED_FORM_BASE
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
-	o.inventories = make(map[Form_ID]map[Form_ID]i32)
+	o.inventories = make(Deltas)
+	o.spells = make(Deltas)
+	o.spell_seeds = make(Deltas)
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
@@ -216,7 +220,6 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, &list in o.by_cell {delete(list)}
 	for _, &list in o.created_by_cell {delete(list)}
 	for _, &q in o.quests {quest_free(&q)}
-	for _, &inner in o.inventories {delete(inner)}
 	for _, &list in o.rolled {delete(list)}
 	for _, &inner in o.actor_values {delete(inner)}
 	for k, m in o.mod_avs {delete(k); delete(m.name)}
@@ -238,7 +241,9 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.created_by_cell)
 	delete(o.globals)
 	delete(o.quests)
-	delete(o.inventories)
+	free_deltas(&o.inventories)
+	free_deltas(&o.spells)
+	free_deltas(&o.spell_seeds)
 	delete(o.rolled)
 	delete(o.zone_levels)
 	delete(o.actor_picks)

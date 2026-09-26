@@ -6,16 +6,19 @@ package script
 // (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking effect-archetypes)) effects have no magnitude and change no actor value; their visuals, sounds and conditions (CTDA) do not run.
 // (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
 // (hole effect-stacking :tags (magic player) :sev gap) unsourced how effect contributions combine on one actor value: plain sums, or a multiply step (perks that scale magnitudes, the *Mult AVs); research before the effect design.
-// (hole spell-lists :tags (magic player) :sev gap) race and NPC spell lists (SPLO) and enchantments start no effects; only AddSpell, Cast, RemoteCast and drinking do.
 
+import "core:slice"
 import "../conditions"
 import "../gamedb"
 import "../worldstate"
 
 register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "AddSpell", n_add_spell)
-	register(reg, "Actor", "RemoveSpell", n_end_spell)
-	register(reg, "Actor", "DispelSpell", n_end_spell)
+	register(reg, "Actor", "RemoveSpell", n_remove_spell)
+	register(reg, "Actor", "DispelSpell", n_dispel_spell)
+	register(reg, "Actor", "HasSpell", n_has_spell)
+	register(reg, "Actor", "AddShout", n_add_shout)
+	register(reg, "Actor", "RemoveShout", n_remove_shout)
 	register(reg, "Actor", "DispelAllSpells", n_dispel_all_spells)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
@@ -33,19 +36,50 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "ActiveMagicEffect", "UnregisterForAnimationEvent", n_unregister_anim_event)
 }
 
-// AddSpell: false when the target already has the spell.
+// AddSpell: the actor learns the spell; an ability starts. False when it already knew it.
 n_add_spell :: proc(c: ^Call, args: []Value) -> Value {
 	spell := arg_form(args, 0)
-	if len(spell_effects(c.ws, c.self, spell)) > 0 {return false}
-	start_spell(c, spell, c.self, c.self)
+	if !worldstate.give_spell(c.ws, c.db, c.self, spell) {return false}
+	if is_ability(c.db, spell) {start_spell(c, spell, c.self, c.self)}
 	return true
 }
 
-// RemoveSpell / DispelSpell: true when the spell had effects on the target.
-n_end_spell :: proc(c: ^Call, args: []Value) -> Value {
+// RemoveSpell: the actor forgets the spell and its effects end. False when it did not know it.
+n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
+	spell := arg_form(args, 0)
+	if !worldstate.remove_spell(c.ws, c.db, c.self, spell) {return false}
+	for h in spell_effects(c.ws, c.self, spell) {worldstate.end_effect(c.ws, h)}
+	return true
+}
+
+// DispelSpell ends the spell's effects; the actor still knows it. True when it had any.
+n_dispel_spell :: proc(c: ^Call, args: []Value) -> Value {
 	effects := spell_effects(c.ws, c.self, arg_form(args, 0))
 	for h in effects {worldstate.end_effect(c.ws, h)}
 	return len(effects) > 0
+}
+
+n_has_spell :: proc(c: ^Call, args: []Value) -> Value {return worldstate.has_spell(c.ws, c.db, c.self, arg_form(args, 0))}
+n_add_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.give_spell(c.ws, c.db, c.self, arg_form(args, 0))}
+n_remove_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.remove_spell(c.ws, c.db, c.self, arg_form(args, 0))}
+
+// sync_abilities starts the abilities in `actor`'s spell list that have no effects on it and ends
+// the ability effects whose spell the list no longer holds: after a mod update, on load or attach.
+sync_abilities :: proc(c: ^Call, actor: Form_ID) {
+	known := worldstate.spell_list(c.ws, c.db, actor)
+	for h in worldstate.effects_on(c.ws, actor) {
+		e := c.ws.effects[h]
+		if !e.ended && is_ability(c.db, e.spell) && !slice.contains(known, e.spell) {worldstate.end_effect(c.ws, h)}
+	}
+	for s in known {
+		if is_ability(c.db, s) && len(spell_effects(c.ws, actor, s)) == 0 {start_spell(c, s, actor, actor)}
+	}
+}
+
+@(private)
+is_ability :: proc(db: ^gamedb.DB, spell: Form_ID) -> bool {
+	sp, ok := gamedb.spell_of(db, spell)
+	return ok && sp.info.type == .Ability
 }
 
 // DispelAllSpells ends every effect with a duration; abilities stay.
