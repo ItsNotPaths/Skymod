@@ -208,7 +208,7 @@ pump :: proc(p: ^Platform) -> bool {
 	if held(keys, .S) {move.x -= 1}
 	if held(keys, .D) {move.y += 1}
 	if held(keys, .A) {move.y -= 1}
-	if held(keys, .E) || held(keys, .SPACE) {move.z += 1}
+	if held(keys, .SPACE) {move.z += 1}
 	if held(keys, .Q) {move.z -= 1}
 	fast := held(keys, .LSHIFT) || held(keys, .RSHIFT)
 	hover := held(keys, .LCTRL) || held(keys, .RCTRL) // inspect-mode modifier

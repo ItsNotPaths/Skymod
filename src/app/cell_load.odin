@@ -739,7 +739,7 @@ stream_spawn :: proc(db: ^gamedb.DB, world_fid: Form_ID, gx, gy: i32) -> (pos: s
 // it. We never destroy the exterior scene; we PAUSE the streamer (+ collapse its window)
 // on interior entry and resume it on return.
 
-// Door activation ranges. A manual door (real mesh) arms a "Go Through" prompt within DOOR_RANGE (press F). An auto-
+// Door activation ranges. A manual door (real mesh) arms a "Go Through" prompt within DOOR_RANGE (press E). An auto-
 // load door (an invisible AutoLoadMarker — cave/dungeon entrances) fires on PROXIMITY within
 // the tighter AUTO_DOOR_RANGE, no key. After any transition, auto-firing is suppressed until
 // the player walks AUTO_REARM away from the arrival spot — else the partner door (right where

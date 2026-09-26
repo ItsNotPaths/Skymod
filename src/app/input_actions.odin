@@ -25,7 +25,7 @@ Default_Action :: struct {
 // field is typed in, so a menu's own key closes it. Bindings are the DEFAULTS;
 // a per-profile settings.txt `bind.<id>` line overrides any of them.
 DEFAULT_ACTIONS := [?]Default_Action {
-	{"Activate",      "gameplay", .Button, "f"},
+	{"Activate",      "gameplay", .Button, "e"},
 	{"CastLeft",      "gameplay", .Button, "mouse1"},
 	{"CastRight",     "gameplay", .Button, "mouse2"},
 	{"ToggleOverlay", "global",   .Button, "grave"},
