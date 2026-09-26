@@ -149,7 +149,8 @@ sync_actor :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) {
 @(private)
 attach_ref :: proc(vm: ^VM, db: ^gamedb.DB, r: gamedb.Ref) -> int {
 	if r.deleted || worldstate.is_deleted(vm.ctx.ws, r.form_id) {return 0}
-	scripts := gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator)
+	pick := vm.ctx.ws.actor_picks[r.form_id] // only a pick already rolled: rolling here would fix its level early
+	scripts := gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator, pick)
 	if len(scripts) == 0 {return 0}
 	return attach_known(vm, r.form_id, scripts)
 }

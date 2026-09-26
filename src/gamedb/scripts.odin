@@ -54,13 +54,14 @@ form_scripts :: proc(db: ^DB, form: Form_ID) -> []esm.Script_Attach {
 	return db.form_scripts[form].scripts
 }
 
-// (hole leveled-template-scripts :tags script :sev gap) a Use Script chain that reaches a leveled list stops there: the scripts of the NPC_ it rolls are not attached, because the roll waits for the actor's zone level.
+// (hole leveled-template-scripts :tags (script mods) :sev polish) a Use Script chain through a leveled list takes the pick's scripts only when the pick was rolled before the ref's scripts attached; a persistent actor attaches at game start, before its roll. No vanilla, DLC or CC pick carries scripts (3,887 NPC_ entries under the 223 lists such chains reach).
 // base_scripts are the scripts a ref of `base` inherits: its own, and for an NPC_ with Use Script
-// its template's too; its own win a name both carry. The union is unsourced: 136 vanilla NPC_s with
-// Use Script carry scripts their template lacks (DLC2MiraakScript on Miraak), so own scripts stay.
-base_scripts :: proc(db: ^DB, base: Form_ID, allocator := context.temp_allocator) -> []esm.Script_Attach {
+// its template's too (through `pick` at a leveled list); its own win a name both carry. The union
+// is unsourced: 136 vanilla NPC_s with Use Script carry scripts their template lacks
+// (DLC2MiraakScript on Miraak), so own scripts stay.
+base_scripts :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0, allocator := context.temp_allocator) -> []esm.Script_Attach {
 	own := form_scripts(db, base)
-	from := template_form(db, base, esm.ACBS_TEMPLATE_SCRIPT)
+	from := template_form(db, base, esm.ACBS_TEMPLATE_SCRIPT, pick)
 	if from == base {return own}
 	out := make([dynamic]esm.Script_Attach, 0, len(own), allocator)
 	append(&out, ..own)
@@ -107,12 +108,13 @@ effective_scripts :: proc(
 	ref: Form_ID,
 	base: Form_ID,
 	allocator := context.allocator,
+	pick: Form_ID = 0,
 ) -> []esm.Script_Attach {
 	if db == nil {
 		return nil
 	}
 	own := db.form_scripts[ref].scripts
-	inherited := base_scripts(db, base, allocator)
+	inherited := base_scripts(db, base, pick, allocator)
 	if len(own) == 0 {
 		return clone_attachments(inherited, allocator) // nothing to override or remove
 	}
