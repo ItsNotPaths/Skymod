@@ -18,6 +18,7 @@ Race :: struct {
 	info:        esm.Race_Info,
 	description: string, // DESC (owned; "" when absent)
 	spells:      []Form_ID, // SPLO (owned)
+	skeletons:   [2]string, // ANAM after the male and female markers: skeleton .nif paths (owned)
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
@@ -59,10 +60,17 @@ index_race :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	r.info, _ = esm.race_info(fl)
 	r.description = index_description(db, fl)
 	r.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
+	n := 0
+	for f in fl {
+		if f.type != "ANAM" || n >= 2 {continue}
+		r.skeletons[n] = strings.clone(strings.trim_right_null(string(f.data)), db.allocator)
+		n += 1
+	}
 
 	if old, existed := db.races[rec.form_id]; existed {
 		delete(old.description, db.allocator) // override: free the previous clone
 		delete(old.spells, db.allocator)
+		for s in old.skeletons {delete(s, db.allocator)}
 	}
 	db.races[rec.form_id] = r
 }
@@ -317,6 +325,7 @@ free_actor_indexes :: proc(db: ^DB) {
 	for _, r in db.races {
 		delete(r.description, db.allocator)
 		delete(r.spells, db.allocator)
+		for s in r.skeletons {delete(s, db.allocator)}
 	}
 	delete(db.races)
 	for _, c in db.classes {

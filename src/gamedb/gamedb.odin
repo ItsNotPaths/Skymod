@@ -200,7 +200,7 @@ DB :: struct {
 	messages:      map[Form_ID]Message, // MESG formID -> its on-screen text and buttons (owned strings)
 	perks:         map[Form_ID]Perk, // PERK formID -> its identity and rank link (owned strings)
 	perk_trees:    map[Form_ID][]Perk_Node, // skill AVIF formID -> its constellation nodes (owned)
-	race_bounds:   map[Form_ID][2][3]f32, // race -> the first nonzero OBND among its NPC_
+	race_bounds:   map[Form_ID][2][3]f32, // race -> its skeleton's BBX box (set_race_bounds, from the app)
 	recipes:       map[Form_ID]Recipe, // COBJ formID -> its crafting recipe (owned ingredient list)
 	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
@@ -2532,7 +2532,6 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if r, rok := esm.subrecord_formid(fl, "RNAM"); rok {a.race = esm.remap_form(fm, r)}
 	if b, bok := esm.object_box(fl); bok && b != {} {
 		a.bounds = b
-		if a.race not_in db.race_bounds {db.race_bounds[a.race] = b}
 	}
 	if c, cok := esm.subrecord_formid(fl, "CNAM"); cok {a.class = esm.remap_form(fm, c)}
 	if v, vok := esm.subrecord_formid(fl, "VTCK"); vok {a.voice = esm.remap_form(fm, v)}

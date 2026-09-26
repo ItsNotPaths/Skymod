@@ -438,3 +438,18 @@ parse_footer :: proc(data: []u8, h: ^Header) -> []i32 {
 	}
 	return roots
 }
+
+// bound reads a skeleton's BBX (its BSBound): center and half extents, in game units. For every
+// vanilla race it matches the OBND the CK writes on its NPC_, and forums call it the actor's
+// living collision shape (build/out/wsP/bbx/bbx_se.txt).
+bound :: proc(data: []u8) -> (center, half: [3]f32, ok: bool) {
+	h := parse_header(data, context.temp_allocator) or_return
+	for i in 0 ..< int(h.num_blocks) {
+		if block_type(&h, i) != "BSBound" {continue}
+		b := block_data(&h, data, i)
+		if len(b) < 28 {return}
+		f :: proc(b: []u8, o: int) -> f32 {return transmute(f32)(u32(b[o]) | u32(b[o + 1]) << 8 | u32(b[o + 2]) << 16 | u32(b[o + 3]) << 24)}
+		return {f(b, 4), f(b, 8), f(b, 12)}, {f(b, 16), f(b, 20), f(b, 24)}, true
+	}
+	return
+}

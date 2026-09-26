@@ -196,9 +196,9 @@ actor_name :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> string {
 // HUMAN_BOUNDS is the player's OBND, for an actor whose NPC_ and race carry none.
 HUMAN_BOUNDS :: [2][3]f32{{-22, -14, 0}, {22, 14, 128}}
 
-// (hole actor-bounds-missing :tags (player records) :sev gap) 15 vanilla races have no NPC_ with a nonzero OBND (hare, chicken, bear, troll, chaurus, frost atronach, the vampire races...), so they get human bounds; their skeletons carry no controller capsule either, so the real size needs the engine's runtime rule (build/out/wsP/bodies/obnd_se.txt, research/findings.md section 8).
-// actor_bounds is an actor's OBND box at scale 1: its NPC_'s (through the traits template, `pick`
-// standing in for a leveled one), else the first nonzero one of its race, else HUMAN_BOUNDS.
+// actor_bounds is an actor's box at scale 1: its NPC_'s OBND (through the traits template, `pick`
+// standing in for a leveled one), else its race skeleton's BBX (the CK writes one from the other),
+// else HUMAN_BOUNDS.
 actor_bounds :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2][3]f32 {
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
@@ -207,6 +207,11 @@ actor_bounds :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2][3]f32 {
 	part := template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick)
 	if part.bounds != {} {return part.bounds}
 	return db.race_bounds[part.race] or_else HUMAN_BOUNDS
+}
+
+// set_race_bounds gives a race its skeleton's BBX box: center ± half extents.
+set_race_bounds :: proc(db: ^DB, race: Form_ID, center, half: [3]f32) {
+	db.race_bounds[race] = {center - half, center + half}
 }
 
 // leveled_template is the LVLN an NPC_'s template chain reaches (0 = none).

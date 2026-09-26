@@ -12,6 +12,7 @@ import "core:strings"
 import "core:sync"
 
 import "../formats/esm"
+import "../formats/nif"
 import "../gamedb"
 import "../installer"
 import smath "../math"
@@ -146,7 +147,25 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	order := gamedb.resolve_load_order(inputs[:], context.allocator)
 	defer delete(order, context.allocator)
 	log.infof("loading gamedb from %d plugin(s)…", len(order))
-	return gamedb.build_plugins(order, context.allocator), true
+	db := gamedb.build_plugins(order, context.allocator)
+	load_race_bounds(&db, &v)
+	return db, true
+}
+
+// load_race_bounds sizes each race from its skeleton's BBX (gamedb.actor_bounds): the male
+// skeleton, else the female one.
+load_race_bounds :: proc(db: ^gamedb.DB, v: ^vfs.VFS) {
+	for id, r in db.races {
+		for path in r.skeletons {
+			if path == "" {continue}
+			data, ok := vfs.read(v, strings.concatenate({"meshes\\", path}, context.temp_allocator), context.temp_allocator)
+			if !ok {continue}
+			if center, half, found := nif.bound(data); found {
+				gamedb.set_race_bounds(db, id, center, half)
+				break
+			}
+		}
+	}
 }
 
 // MODS_DIRNAME is the folder under the exe dir (base) that holds installed mod folders (MO2-style).
@@ -468,6 +487,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, v: ^vfs.VFS,
 	log.infof("gamedb: %d plugin(s) (vanilla base + %d enabled mod[s])", len(order), nmods)
 	done: ^int = &progress.done if progress != nil else nil
 	db := gamedb.build_plugins(order, context.allocator, done)
+	load_race_bounds(&db, v)
 	if progress != nil {sync.atomic_store(&progress.done, sync.atomic_load(&progress.total))} // 100%
 	return db, true
 }
