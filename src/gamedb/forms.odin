@@ -595,6 +595,13 @@ index_alias_targets :: proc(db: ^DB) {
 	}
 	slice.sort(persistent[:])
 	db.persistent_refs = persistent[:]
+	db.ref_types = make(map[Form_ID][dynamic]Form_ID, 4096, db.allocator)
+	for _, l in db.locations {
+		for s in l.special_refs {
+			if s.ref not_in db.ref_types {db.ref_types[s.ref] = make([dynamic]Form_ID, db.allocator)}
+			append(&db.ref_types[s.ref], s.ref_type)
+		}
+	}
 	db.linked_children = make(map[Form_ID][dynamic]Form_ID, 1024, db.allocator)
 	for ref, links in db.linked_refs {
 		for l in links {
@@ -619,8 +626,7 @@ index_alias_targets :: proc(db: ^DB) {
 
 // index_location decodes an LCTN: its display name, the location that contains it (PNAM), its
 // keywords, and its map-marker tint. The parent link is the tree Location.IsChild walks; the
-// LCSR/LCEC/LCID ref+cell membership lists are the quest system's business and stay undecoded.
-// (hole location-ref-types :tags (records quest) :sev gap) LCTN special refs (LCSR/ACSR/RCSR) are undecoded, so HasRefType and LocationHasRefType cannot answer, and a Location_Ref alias fill (2,084) cannot find its ref.
+// special refs (LCSR/ACSR/RCSR). The persistent and unique-NPC lists and LCEC cells stay undecoded.
 @(private)
 index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
@@ -638,6 +644,12 @@ index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		loc.parent = esm.remap_form(fm, p)
 	}
 	loc.marker_color, loc.has_marker_color = esm.location_marker_color(fl)
+	if raw := esm.location_special_refs(fl); raw != nil {
+		loc.special_refs = make([]Special_Ref, len(raw), db.allocator)
+		for r, i in raw {loc.special_refs[i] = {esm.remap_form(fm, r.ref_type), esm.remap_form(fm, r.ref)}}
+		delete(raw)
+	}
+	if old, existed := db.locations[rec.form_id]; existed {delete(old.special_refs, db.allocator)}
 	db.locations[rec.form_id] = loc
 }
 
@@ -689,6 +701,23 @@ cell_location :: proc(db: ^DB, cell_id: Form_ID) -> Form_ID {
 	if !ok {return 0}
 	if cell.location != 0 {return cell.location}
 	return db.world_location[cell.world_form_id]
+}
+
+// location_special_refs is a location's refs of a location ref type (LCRT); 0 for any type.
+location_special_refs :: proc(db: ^DB, location, ref_type: Form_ID) -> []Form_ID {
+	l, ok := db.locations[location]
+	if !ok {return nil}
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for s in l.special_refs {
+		if ref_type == 0 || s.ref_type == ref_type {append(&out, s.ref)}
+	}
+	return out[:]
+}
+
+// has_ref_type: the ref is a special ref of that location ref type in some location.
+has_ref_type :: proc(db: ^DB, ref, ref_type: Form_ID) -> bool {
+	types, ok := db.ref_types[ref]
+	return ok && slice.contains(types[:], ref_type)
 }
 
 // location_is_child reports whether `child` sits under `ancestor` in the location tree — the
@@ -804,7 +833,8 @@ free_form_indexes :: proc(db: ^DB) {
 		free_conditions(db, m.conditions)
 	}
 	delete(db.magic_effects)
-	delete(db.locations) // plain values — no owned data (names live in db.names)
+	for _, l in db.locations {delete(l.special_refs, db.allocator)}
+	delete(db.locations) // names live in db.names
 	delete(db.weathers)
 }
 

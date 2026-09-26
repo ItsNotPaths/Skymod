@@ -48,7 +48,7 @@ fill_ref :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[F
 		return usable(c, quest, a, ref, used if a.fill == .Matching else nil, new_game, external) && passes(c, quest, a, ref)
 	}
 	switch a.fill {
-	case .None, .Location_Ref:
+	case .None:
 		return 0, false
 	case .Specific:
 		return a.target if fits(c, quest, a, a.target, used, new_game) else 0, true
@@ -61,7 +61,7 @@ fill_ref :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[F
 		return ref if passes(c, quest, a, formid.PLAYER) && usable(c, quest, a, ref, nil, new_game) else 0, true
 	case .Create_Ref:
 		return create_ref(c, quest, a) if passes(c, quest, a, formid.PLAYER) else 0, true
-	case .Matching:
+	case .Location_Ref, .Matching:
 		found := make([dynamic]Form_ID, context.temp_allocator)
 		for ref in candidates(c, quest, a) {
 			if fits(c, quest, a, ref, used, new_game) {append(&found, ref)}
@@ -90,11 +90,15 @@ fill_location :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> (form:
 	return 0, false
 }
 
-// candidates are the refs a Matching fill tests: the event member (From Event), the refs whose
-// default link is another alias's ref (Near Alias), the loaded cells' refs, or else every
-// persistent ref, unique actor and created ref.
+// candidates are the refs a searching fill tests: a Location_Ref fill's refs of its type in its
+// location alias; for Matching the event member (From Event), the refs whose default link is
+// another alias's ref (Near Alias), the loaded cells' refs, or else every persistent ref, unique
+// actor and created ref.
 @(private = "file")
 candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID {
+	if a.fill == .Location_Ref {
+		return gamedb.location_special_refs(c.db, worldstate.alias_ref(c.ws, quest, a.alias), a.target)
+	}
 	out := make([dynamic]Form_ID, context.temp_allocator)
 	switch {
 	case a.event_member != 0:

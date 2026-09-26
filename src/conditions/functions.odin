@@ -46,10 +46,14 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	448 = fn_has_perk,
 	543 = fn_get_quest_completed,
 	560 = fn_has_keyword,
+	561 = fn_has_ref_type,
 	576 = fn_get_event_data,
 	562 = fn_location_has_keyword,
+	563 = fn_location_has_ref_type,
 	566 = fn_get_is_alias_ref,
 	579 = fn_get_equipped_shout,
+	600 = fn_get_loc_alias_ref_type_dead_count,
+	601 = fn_get_loc_alias_ref_type_alive_count,
 	606 = fn_get_keyword_data_for_location,
 	629 = fn_get_vm_quest_variable,
 	651 = fn_get_keyword_data_for_current_location,
@@ -257,9 +261,51 @@ fn_get_in_current_loc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 	return yes(gamedb.location_within(ctx.db, worldstate.ref_location(ctx.ws, ctx.db, on), p1(c)))
 }
 
+// location_of is where `on` is; a location is its own (CK wiki: LocationHasKeyword filling a
+// location alias tests the locations themselves).
+@(private = "file")
+location_of :: proc(ctx: ^Context, on: Form_ID) -> Form_ID {
+	if on in ctx.db.locations {return on}
+	return worldstate.ref_location(ctx.ws, ctx.db, on)
+}
+
 @(private = "file")
 fn_location_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(gamedb.has_keyword(ctx.db, worldstate.ref_location(ctx.ws, ctx.db, on), p1(c)))
+	return yes(gamedb.has_keyword(ctx.db, location_of(ctx, on), p1(c)))
+}
+
+// HasRefType(location ref type): the ref is one of that type.
+@(private = "file")
+fn_has_ref_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(gamedb.has_ref_type(ctx.db, on, p1(c)))
+}
+
+// LocationHasRefType(location ref type): the location holds a ref of that type.
+@(private = "file")
+fn_location_has_ref_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(len(gamedb.location_special_refs(ctx.db, location_of(ctx, on), p1(c))) > 0)
+}
+
+// GetLocAliasRefTypeAlive/DeadCount(location alias, ref type): its refs of that type, living or dead.
+@(private = "file")
+loc_alias_ref_type_count :: proc(ctx: ^Context, c: gamedb.Condition, dead: bool) -> (f32, bool) {
+	loc, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	n := 0
+	for ref in gamedb.location_special_refs(ctx.db, loc, gamedb.condition_param2_form(c)) {
+		if worldstate.is_dead(ctx.ws, ref) == dead {n += 1}
+	}
+	return f32(n), true
+}
+
+@(private = "file")
+fn_get_loc_alias_ref_type_alive_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return loc_alias_ref_type_count(ctx, c, false)
+}
+
+@(private = "file")
+fn_get_loc_alias_ref_type_dead_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return loc_alias_ref_type_count(ctx, c, true)
 }
 
 // GetKeywordDataForLocation(location, keyword): the value Location.SetKeywordData stored; 0 unset.

@@ -694,6 +694,36 @@ quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Ques
 
 // --- LCTN (location) ---------------------------------------------------------------------
 
+// Special_Ref is one LCTN special ref: a ref of a location ref type (LCRT) in the location. Raw.
+Special_Ref :: struct {
+	ref_type, ref: u32,
+}
+
+// location_special_refs is an LCTN's special refs: its master list (LCSR) and the ones plugins added
+// (ACSR), minus the ones they removed (RCSR). 16-byte entries (xEdit; all 10,497 in Skyrim.esm are
+// an LCRT then a ref). The caller frees the slice; nil when the location has none.
+location_special_refs :: proc(fields: []Field, allocator := context.allocator) -> []Special_Ref {
+	removed := make(map[u32]bool, 8, allocator)
+	defer delete(removed)
+	for f in fields {
+		if f.type != "RCSR" {continue}
+		for k := 0; k + 4 <= len(f.data); k += 4 {removed[rd32(f.data, k)] = true}
+	}
+	out := make([dynamic]Special_Ref, allocator)
+	for f in fields {
+		if f.type != "LCSR" && f.type != "ACSR" {continue}
+		for k := 0; k + 16 <= len(f.data); k += 16 {
+			r := Special_Ref{rd32(f.data, k), rd32(f.data, k + 4)}
+			if !removed[r.ref] {append(&out, r)}
+		}
+	}
+	if len(out) == 0 {
+		delete(out)
+		return nil
+	}
+	return out[:]
+}
+
 // location_parent reads an LCTN's PNAM — the location that contains this one ("Whiterun Hold"
 // over "Whiterun"). ok=false for a root location. Raw/local until remapped. Locations form a
 // tree, which is what Location.IsChild / HasCommonParent walk.

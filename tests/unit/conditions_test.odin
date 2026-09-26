@@ -639,9 +639,55 @@ test_alias_fills :: proc(t: ^testing.T) {
 	testing.expect(t, script.start_quest(&c, Q4, &{ref1 = B}), "this one is")
 	testing.expect_value(t, ref_in(&ws, Q4, 0), B)
 
+	// Location_Ref: the living ref of type BOSS in location alias 0.
+	LOC, BOSS :: gamedb.Form_ID(0xD01), gamedb.Form_ID(0xD02)
+	Q6 :: gamedb.Form_ID(0xC06)
+	db.locations = make(map[gamedb.Form_ID]gamedb.Location)
+	defer delete(db.locations)
+	db.locations[LOC] = {special_refs = {{BOSS, A}, {BOSS, C}, {0xD03, B}}}
+	worldstate.set_dead(&ws, C, 0, true)
+	q6 := []gamedb.Quest_Alias{{id = 0, location = true, fill = .Specific, target = LOC, alias = -1, force_into = -1}, {id = 1, fill = .Location_Ref, target = BOSS, alias = 0, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}}
+	db.quest_baseline[Q6] = {aliases = q6}
+	testing.expect(t, script.start_quest(&c, Q6), "Q6 starts")
+	testing.expect_value(t, ref_in(&ws, Q6, 1), A)
+	worldstate.set_dead(&ws, C, 0, false)
+
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
 	db.quest_baseline[Q5] = {aliases = q5}
 	testing.expect(t, script.start_quest(&c, Q5), "Q5 starts")
 	made := ref_in(&ws, Q5, 1)
 	testing.expect(t, worldstate.ref_base(&ws, &db, made) == MADE && worldstate.ref_pos(&ws, &db, made) == {10, 0, 0}, "made at alias 0")
+}
+
+// LCTN special refs: the master list plus the added ones, minus the removed ones.
+@(test)
+test_location_special_refs :: proc(t: ^testing.T) {
+	entry :: proc(b: ^[dynamic]u8, ref_type, ref: u32) {
+		e: [16]u8;put_u32(e[:], 0, ref_type);put_u32(e[:], 4, ref)
+		append(b, ..e[:])
+	}
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0900)
+	field(&tes4, "HEDR", hedr[:])
+	lcsr := make([dynamic]u8, 0, 64);defer delete(lcsr)
+	entry(&lcsr, 0xD02, 0xA01)
+	entry(&lcsr, 0xD03, 0xA02)
+	acsr := make([dynamic]u8, 0, 32);defer delete(acsr)
+	entry(&acsr, 0xD02, 0xA03)
+	loc := make([dynamic]u8, 0, 128);defer delete(loc)
+	field(&loc, "LCSR", lcsr[:])
+	field(&loc, "ACSR", acsr[:])
+	rc: [4]u8;put_u32(rc[:], 0, 0xA02);field(&loc, "RCSR", rc[:])
+	locs := make([dynamic]u8, 0, 256);defer delete(locs)
+	record(&locs, "LCTN", 0, 0x0000_0B01, loc[:])
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("LCTN"), 0, locs[:])
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	bosses := gamedb.location_special_refs(&db, 0x0000_0B01, 0x0000_0D02)
+	testing.expect(t, len(bosses) == 2 && bosses[0] == 0xA01 && bosses[1] == 0xA03, "master and added")
+	testing.expect_value(t, len(gamedb.location_special_refs(&db, 0x0000_0B01, 0x0000_0D03)), 0)
+	testing.expect(t, gamedb.has_ref_type(&db, 0xA03, 0xD02) && !gamedb.has_ref_type(&db, 0xA02, 0xD03), "ref types, minus the removed")
 }

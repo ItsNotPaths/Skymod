@@ -224,6 +224,7 @@ DB :: struct {
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
 	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
 	persistent_refs: []Form_ID,          // every persistent placed ref, in form order: a world alias search (owned)
+	ref_types:      map[Form_ID][dynamic]Form_ID, // ref -> its location ref types, from the locations' special refs
 	linked_children: map[Form_ID][dynamic]Form_ID, // ref -> the refs whose default link is it (Near Alias)
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
@@ -433,6 +434,12 @@ Location :: struct {
 	parent:           Form_ID, // PNAM containing location (0 = a root location)
 	marker_color:     u32, // CNAM packed RGBA
 	has_marker_color: bool,
+	special_refs:     []Special_Ref, // the refs of a location ref type in it (owned)
+}
+
+// Special_Ref is a ref of a location ref type (LCRT) in a location, remapped.
+Special_Ref :: struct {
+	ref_type, ref: Form_ID,
 }
 
 // Weather_Class is a weather's kind — the low four DATA flag bits, and what
@@ -955,6 +962,8 @@ destroy :: proc(db: ^DB) {
 	delete(db.persistent_refs, db.allocator)
 	for _, kids in db.linked_children {delete(kids)}
 	delete(db.linked_children)
+	for _, types in db.ref_types {delete(types)}
+	delete(db.ref_types)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}
