@@ -2,7 +2,7 @@ package script
 
 // Casting: an actor uses the spell in one of its hands. Rudimentary for now: the spell lands at
 // once, its cost is paid up front, a Self spell hits the caster and any other hits `target`.
-// (hole spell-casting :tags (combat magic ai) :sev gap) casting is instant: no charge time, no concentration (hold, drain and reapply each second), no projectile or area, no dual cast, no cost perks, no skill XP, and NPCs never cast.
+// (hole spell-casting :tags (combat magic ai) :sev gap) casting is instant: no charge time, no concentration (hold, drain and reapply each second), no projectile or area, no dual cast, no cost perks, and NPCs never cast.
 
 import "../gamedb"
 import "../worldstate"
@@ -17,5 +17,17 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	if worldstate.av_current(c.ws, c.db, caster, "Magicka") < cost {return false}
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
 	start_spell(c, spell, caster if sp.info.delivery == .Self else target, caster)
+	if school, trains := spell_school(c.db, spell); trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}
 	return true
+}
+
+// spell_school is the skill a spell trains: its costliest effect's magic skill. A cast gives that
+// skill XP equal to the spell's cost (UESP Skyrim:Leveling).
+spell_school :: proc(db: ^gamedb.DB, spell: Form_ID) -> (skill: string, ok: bool) {
+	i := gamedb.spell_costliest_effect(db, spell) or_return
+	sp, _ := gamedb.spell_of(db, spell)
+	m, _ := gamedb.magic_effect_of(db, sp.effects[i].effect)
+	av := m.info.magic_skill
+	if av < 6 || av >= 24 {return}
+	return gamedb.AV_NAMES[av], true
 }

@@ -12,7 +12,7 @@ import "../formid"
 import "../formula"
 import "../gamedb"
 
-// (hole skill-use-xp :tags (player combat magic) :sev gap) no act gives skill XP (hits, blocks, casts, lockpicks, sales...): only AdvanceSkill and IncrementSkill do. Each system calls advance_skill when it exists.
+// (hole skill-use-xp :tags (player combat) :sev gap) only casts, AdvanceSkill and IncrementSkill give skill XP; hits, blocks, lockpicks, sales, smithing and the rest call advance_skill when their systems exist.
 
 Level_State :: struct {
 	level:       i32, // 0 = the records' level
