@@ -105,7 +105,7 @@ run_on_form :: proc(ctx: ^Context, c: gamedb.Condition) -> (Form_ID, bool) {
 	case .QuestAlias:
 		return alias_ref(ctx, c.param3)
 	case .EventData:
-		return event_ref(ctx, c.param3)
+		return event_form(ctx, c.param3)
 	case .LinkedRef:
 		if ctx.db == nil {return 0, false}
 		ref, _ := gamedb.linked_ref(ctx.db, subject)
@@ -130,18 +130,40 @@ alias_ref :: proc(ctx: ^Context, id: i32) -> (Form_ID, bool) {
 	return worldstate.alias_ref(ctx.ws, ctx.quest, id), true
 }
 
-// EVENT_* are the story event members run-on Event Data names, two characters read as an i32.
+// EVENT_* are the story event members, two characters read as an i32 (xEdit).
 EVENT_ACTOR_1 :: 0x3152 // R1
 EVENT_ACTOR_2 :: 0x3252 // R2
+EVENT_OBJECT :: 0x314F // O1
+EVENT_FORM :: 0x3146 // F1
+EVENT_KEYWORD :: 0x314B // K1
+EVENT_LOCATION_1 :: 0x314C // L1
+EVENT_LOCATION_2 :: 0x324C // L2
+EVENT_QUEST :: 0x3151 // Q1
+EVENT_VALUE_1 :: 0x3156 // V1
+EVENT_VALUE_2 :: 0x3256 // V2
 
+// event_form is a story event's form member; ok=false with no event or for a value member.
 @(private)
-event_ref :: proc(ctx: ^Context, member: i32) -> (Form_ID, bool) {
+event_form :: proc(ctx: ^Context, member: i32) -> (Form_ID, bool) {
 	if ctx.event == nil {return 0, false}
+	e := ctx.event
 	switch member {
 	case EVENT_ACTOR_1:
-		return ctx.event.ref1, true
+		return e.ref1, true
 	case EVENT_ACTOR_2:
-		return ctx.event.ref2, true
+		return e.ref2, true
+	case EVENT_OBJECT:
+		return e.object, true
+	case EVENT_FORM:
+		return e.form, true
+	case EVENT_KEYWORD:
+		return e.keyword, true
+	case EVENT_LOCATION_1:
+		return e.location1, true
+	case EVENT_LOCATION_2:
+		return e.location2, true
+	case EVENT_QUEST:
+		return e.quest, true
 	}
 	return 0, false
 }

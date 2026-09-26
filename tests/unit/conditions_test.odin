@@ -355,7 +355,7 @@ test_conditions_aliases_and_events :: proc(t: ^testing.T) {
 	ctx.subject = ref
 	testing.expect(t, conditions.all(&ctx, alias_ref), "the ref is")
 
-	e := worldstate.Story_Event{type = "KILL", ref1 = ref}
+	e := worldstate.Story_Event{type = {'K', 'I', 'L', 'L'}, ref1 = ref}
 	on_event := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .EventData, param3 = conditions.EVENT_ACTOR_1}}
 	testing.expect(t, conditions.all(&ctx, on_event), "no event: passes")
 	ctx.event = &e
@@ -363,6 +363,15 @@ test_conditions_aliases_and_events :: proc(t: ^testing.T) {
 	testing.expect(t, !conditions.all(&ctx, on_event), "actor 1 is the player")
 	e.ref1 = ref
 	testing.expect(t, conditions.all(&ctx, on_event), "actor 1 is the ref")
+
+	// GetEventData: param1 packs the function (low 16 bits) and the member (high 16 bits).
+	e.value1 = 5
+	value := []gamedb.Condition{{function = 576, op = .Equal, value = 5, param1 = 2 | conditions.EVENT_VALUE_1 << 16}}
+	testing.expect(t, conditions.all(&ctx, value), "GetValue V1")
+	is_id := []gamedb.Condition{{function = 576, op = .Equal, value = 1, param1 = 0 | conditions.EVENT_ACTOR_1 << 16, param2 = u64(BASE)}}
+	testing.expect(t, conditions.all(&ctx, is_id), "GetIsID R1 reads the ref's base")
+	e.ref1 = formid.PLAYER
+	testing.expect(t, !conditions.all(&ctx, is_id), "the player is not that base")
 }
 
 // A few bodies over the stores: quest stages, globals, factions.

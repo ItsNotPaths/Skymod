@@ -46,6 +46,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	448 = fn_has_perk,
 	543 = fn_get_quest_completed,
 	560 = fn_has_keyword,
+	576 = fn_get_event_data,
 	562 = fn_location_has_keyword,
 	566 = fn_get_is_alias_ref,
 	579 = fn_get_equipped_shout,
@@ -273,6 +274,37 @@ fn_is_linked_to :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32
 	if !ok {return 0, false}
 	linked, _ := gamedb.linked_ref(ctx.db, on, gamedb.condition_param2_form(c))
 	return yes(linked != 0 && linked == other)
+}
+
+// GetEventData(function and member, form): the one way to test an event's values and non-ref forms.
+// param1 packs the function (low 16 bits: 0 GetIsID, 1 IsInList, 2 GetValue, 3 HasKeyword,
+// 4 GetItemValue) and the member (high 16 bits).
+@(private = "file")
+fn_get_event_data :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	if ctx.event == nil {return 0, false}
+	function, member := c.param1 & 0xFFFF, i32(c.param1 >> 16)
+	if function == 2 {
+		switch member {
+		case EVENT_VALUE_1:
+			return f32(ctx.event.value1), true
+		case EVENT_VALUE_2:
+			return f32(ctx.event.value2), true
+		}
+		return 0, false
+	}
+	want := gamedb.condition_param2_form(c)
+	form, ok := event_form(ctx, member)
+	if !ok {return 0, false}
+	switch function {
+	case 0:
+		base := worldstate.ref_base(ctx.ws, ctx.db, form)
+		return yes(form == want || (base != 0 && base == want))
+	case 1:
+		return yes(matches(ctx, form, want) || matches(ctx, worldstate.ref_base(ctx.ws, ctx.db, form), want))
+	case 3:
+		return yes(worldstate.has_keyword(ctx.ws, ctx.db, form, want))
+	}
+	return 0, false
 }
 
 // (hole ctda-659 :tags records :sev gap :needs (crafting-screen)) EPTemperingItemIsEnchanted (659; 384 uses on COBJ, second only to HasPerk) is not implemented: no crafting screen says which item is selected, and player-made enchantments have no instance data, so every tempering recipe is offered.

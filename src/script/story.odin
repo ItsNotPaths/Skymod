@@ -9,7 +9,7 @@ import "../worldstate"
 // Script events come through the natives below. Engine events queue in ws.story_events and the
 // script tick runs them; each event family is its own story-* hole at the site the event happens.
 
-// (hole story-manager :tags (quest script) :sev blocker) story_event answers false and starts nothing: no tree walk, no node conditions (run-on Event Data, GetEventData), no quest start. SCPT events reach it; CLOC is the first engine event (story-change-location). 448 SMQN, 99 SMBN and 24 SMEN in Skyrim.esm.
+// (hole story-manager :tags (quest script) :sev blocker) story_event answers false and starts nothing: no tree walk, no quest start. SCPT events reach it; CLOC is the first engine event (story-change-location). 448 SMQN, 99 SMBN and 24 SMEN in Skyrim.esm.
 
 Story_Event :: worldstate.Story_Event
 
@@ -36,5 +36,13 @@ n_send_story_event_and_wait :: proc(c: ^Call, args: []Value) -> Value {
 
 @(private = "file")
 event_of :: proc(c: ^Call, args: []Value) -> Story_Event {
-	return {"SCPT", c.self, arg_form(args, 0), arg_form(args, 1), arg_form(args, 2), arg_i32(args, 3, 0), arg_i32(args, 4, 0)}
+	return {
+		type      = worldstate.STORY_SCRIPT,
+		keyword   = c.self,
+		location1 = arg_form(args, 0),
+		ref1      = arg_form(args, 1),
+		ref2      = arg_form(args, 2),
+		value1    = max(arg_i32(args, 3, 0), 0), // a negative value arrives as 0 (CK wiki)
+		value2    = max(arg_i32(args, 4, 0), 0),
+	}
 }

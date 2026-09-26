@@ -127,15 +127,24 @@ move_items :: proc(ws: ^World_State, m: Item_Move) {
 	append(&ws.item_moves, m)
 }
 
-// Story_Event is one event for the story manager: its SMEN type ("SCPT", "CLOC", "KILL"...), the
-// keyword of a script event, and the event data its conditions and From_Event aliases read.
+// Story_Event is one event for the story manager: its SMEN type and its data, which conditions,
+// From_Event aliases and the started quest's handlers read. Which members an event fills depends on
+// its type (CK wiki, GetEventData).
 Story_Event :: struct {
-	type:           string,
-	keyword:        Form_ID,
-	location:       Form_ID,
-	ref1, ref2:     Form_ID,
-	value1, value2: i32,
+	type:                 Story_Type,
+	keyword:              Form_ID, // K1: a script event's keyword
+	location1, location2: Form_ID, // L1, L2
+	ref1, ref2:           Form_ID, // R1, R2: the actors or refs
+	object:               Form_ID, // O1: an item that is not a ref (Player Add Item)
+	form:                 Form_ID, // F1
+	quest:                Form_ID, // Q1
+	value1, value2:       i32,     // V1, V2
 }
+
+// Story_Type is an SMEN event type, as its four characters.
+Story_Type :: [4]u8
+
+STORY_SCRIPT :: Story_Type{'S', 'C', 'P', 'T'}
 
 // queue_story_event keeps an engine event for the next tick's story manager.
 queue_story_event :: proc(ws: ^World_State, e: Story_Event) {
