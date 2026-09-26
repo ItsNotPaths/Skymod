@@ -115,6 +115,15 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
+// frame_cast casts the spell in a hand when its button fires, at what the crosshair is on.
+frame_cast :: proc(g: ^Game) {
+	if g.menu != .None {return}
+	c := script.Call{ws = &g.ws, db = &g.db}
+	target := g.fr.act.form if g.fr.act.present else 0
+	if input.fired(&g.imgr, "CastLeft") {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
+	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
+}
+
 // (hole npc-activate :tags ai :sev gap) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate: no XTEL move, no take.
 // (hole created-ref-activation :tags script :sev gap) a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
 

@@ -780,3 +780,26 @@ test_registry_magic_state :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Game", "IsWordUnlocked", &c, {WORD}).(bool), true)
 	testing.expect(t, ws.beast_form && NPC in ws.vampires && NPC not_in ws.werewolves, "beast form, vampire, not a werewolf")
 }
+
+// Casting (the scaffold): the spell in a hand costs its magicka and lands at once, a Self spell on
+// the caster; a caster that cannot pay casts nothing.
+@(test)
+test_cast_hand :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	CASTER, HEAL, MGEF :: script.Form_ID(0x700), script.Form_ID(0x800), script.Form_ID(0x900)
+	db.equip_slots = make(map[gamedb.Form_ID]gamedb.Equip_Slot, context.temp_allocator)
+	db.equip_slots[HEAL] = {kind = .Spell, etyp = gamedb.EQUP_LEFT_HAND}
+	db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	db.spells[HEAL] = {info = {cost = 30, cast_type = .Fire_And_Forget, delivery = .Self}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 1}}}
+	worldstate.av_set_base(&ws, CASTER, "Magicka", 50)
+	worldstate.equip(&ws, &db, CASTER, HEAL)
+	c := script.Call{ws = &ws, db = &db}
+
+	testing.expect(t, script.cast_hand(&c, CASTER, .LeftHand, 0), "cast")
+	testing.expect_value(t, worldstate.av_current(&ws, &db, CASTER, "Magicka"), 20)
+	testing.expect_value(t, len(worldstate.effects_on(&ws, CASTER)), 1)
+	testing.expect(t, !script.cast_hand(&c, CASTER, .LeftHand, 0), "cannot pay")
+}

@@ -26,6 +26,8 @@ Default_Action :: struct {
 // a per-profile settings.txt `bind.<id>` line overrides any of them.
 DEFAULT_ACTIONS := [?]Default_Action {
 	{"Activate",      "gameplay", .Button, "f"},
+	{"CastLeft",      "gameplay", .Button, "mouse1"},
+	{"CastRight",     "gameplay", .Button, "mouse2"},
 	{"ToggleOverlay", "global",   .Button, "grave"},
 	{"NoClip",        "gameplay", .Button, "v"},
 	{"QuickSave",     "gameplay", .Button, "f5"},

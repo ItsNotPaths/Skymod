@@ -576,7 +576,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	}
 
 	g.p.keep_escape = true // Esc opens the pause menu from here on
-	log.info("Section F: Tamriel streaming around Riverwood. RMB look, WASD/QE fly, Esc for the pause menu.")
+	log.info("Section F: Tamriel streaming around Riverwood. Mouse look, WASD/QE fly, LMB/RMB cast, Esc for the pause menu.")
 
 	// Full-load screen: pump the decode pool + cook collision behind the loading screen until the
 	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in. This is

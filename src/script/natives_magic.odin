@@ -187,7 +187,7 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // wiki, Magic Effect: Target Conditions). They run on the target, with the caster as the condition
 // target. Effects are resisted (worldstate.resisted) and stacked (worldstate.stack_effect). A timed
 // effect goes on for its MGEF's taper after its duration.
-// (hole concentration-conditions :tags magic :sev polish) a concentration spell inverts the checks (its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies); nothing casts one yet, so both run the fire-and-forget way.
+// (hole concentration-conditions :tags magic :sev polish :needs (spell-casting)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
