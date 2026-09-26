@@ -7,17 +7,18 @@ package worldstate
 
 import "core:log"
 import "core:strings"
+import "../formats/esm"
 import "../formid"
 import "../formula"
 import "../gamedb"
 
 // (hole skill-use-xp :tags (player combat magic) :sev gap) no act gives skill XP (hits, blocks, casts, lockpicks, sales...): only AdvanceSkill and IncrementSkill do. Each system calls advance_skill when it exists.
-// (hole legendary-skills :tags player :sev polish) a skill at its cap cannot be made legendary (reset to 15, perks refunded).
 
 Level_State :: struct {
 	level:       i32, // 0 = the records' level
 	xp:          f32,
 	perk_points: i32,
+	legendary:   [esm.NPC_SKILLS]i32, // times each skill (AV_NAMES[6:24] order) was made legendary
 }
 
 // Level_Choice is one answer to a level-up: formulas of `level` (the new level), each added to an
@@ -88,6 +89,45 @@ raise_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: str
 		level_state(ws, actor).xp += f32(calc(ws, .PlayerXPFromSkill, f64(level + 1), per_rank))
 	}
 	return rose
+}
+
+// make_legendary resets a skill at its cap to fLegendarySkillResetValue, refunds the perks the
+// actor holds in its tree and marks it legendary. Level and XP stay. False below the cap.
+make_legendary :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: string) -> bool {
+	i, ok := skill_index(skill)
+	if !ok || av_base(ws, db, actor, skill) < av_train_cap(ws, db, actor, skill) {return false}
+	av_set_base(ws, actor, skill, gamedb.setting_float(db, "fLegendarySkillResetValue", 15))
+	s := level_state(ws, actor)
+	s.perk_points += refund_perks(ws, db, actor, skill)
+	s.legendary[i] += 1
+	return true
+}
+
+// (hole perk-refund-hook :tags (player mods) :sev wish) the refund is engine code: a mod cannot change which perks come back or what a refund gives.
+// refund_perks removes every rank the actor holds in a skill's perk tree and returns the count.
+@(private)
+refund_perks :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: string) -> (n: i32) {
+	i, _ := skill_index(skill)
+	for node in gamedb.perk_tree_of(db, db.actor_value_by_index[i32(i + 6)]) {
+		perk := node.perk
+		for _ in 0 ..< gamedb.perk_ranks(db, node.perk) {
+			if perk_has(ws, actor, perk) {
+				perk_remove(ws, actor, perk)
+				n += 1
+			}
+			p, _ := gamedb.perk_of(db, perk)
+			perk = p.next_rank
+		}
+	}
+	return
+}
+
+@(private)
+skill_index :: proc(skill: string) -> (int, bool) {
+	for name, i in gamedb.AV_NAMES[6:24] {
+		if name == skill {return i, true}
+	}
+	return 0, false
 }
 
 add_perk_points :: proc(ws: ^World_State, actor: Form_ID, n: i32) {

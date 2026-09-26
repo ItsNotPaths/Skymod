@@ -132,3 +132,38 @@ test_leveling :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.level_up(&ws, &db, A, "Magicka"), "second level-up")
 	testing.expect_value(t, worldstate.av_max(&ws, &db, A, "Magicka"), 15)
 }
+
+// A skill at its cap resets to 15, refunds every rank held in its tree, and keeps level and XP.
+@(test)
+test_make_legendary :: proc(t: ^testing.T) {
+	A :: gamedb.Form_ID(0xA1)
+	AVIF :: gamedb.Form_ID(0x44C)
+	RANK1 :: gamedb.Form_ID(0x100)
+	RANK2 :: gamedb.Form_ID(0x101)
+	OTHER :: gamedb.Form_ID(0x200)
+	db: gamedb.DB
+	db.actor_value_by_index = make(map[i32]gamedb.Form_ID, context.temp_allocator)
+	db.actor_value_by_index[6] = AVIF // OneHanded
+	db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
+	db.perks[RANK1] = {next_rank = RANK2}
+	db.perks[RANK2] = {}
+	db.perk_trees = make(map[gamedb.Form_ID][]gamedb.Perk_Node, context.temp_allocator)
+	db.perk_trees[AVIF] = {{perk = 0}, {perk = RANK1}}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.av_set_base(&ws, A, "OneHanded", 99)
+	testing.expect(t, !worldstate.make_legendary(&ws, &db, A, "OneHanded"), "below the cap")
+
+	worldstate.av_set_base(&ws, A, "OneHanded", 100)
+	worldstate.perk_add(&ws, A, RANK1)
+	worldstate.perk_add(&ws, A, RANK2)
+	worldstate.perk_add(&ws, A, OTHER)
+	testing.expect(t, worldstate.make_legendary(&ws, &db, A, "OneHanded"), "at the cap")
+	testing.expect_value(t, worldstate.av_base(&ws, &db, A, "OneHanded"), 15)
+	testing.expect_value(t, ws.levels[A].perk_points, 2)
+	testing.expect_value(t, ws.levels[A].legendary[0], 1)
+	testing.expect(t, !worldstate.perk_has(&ws, A, RANK2), "both ranks refunded")
+	testing.expect(t, worldstate.perk_has(&ws, A, OTHER), "other trees keep their perks")
+}

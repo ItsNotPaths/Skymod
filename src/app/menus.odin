@@ -13,9 +13,9 @@ import "../input"
 import "../script"
 import "../worldstate"
 
-// (hole inventory-screen :tags (ui player) :sev gap) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons and Use for potions; no categories, icons, item card, 3D preview or drop.
-// (hole magic-screen :tags (ui player) :sev gap) the magic menu is an ImGui placeholder, not a real menu: a flat spell list with hand buttons; no schools, effect text or favourites, and no way to equip a power or shout.
-// (hole skills-screen :tags (ui player) :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
+// (hole inventory-screen :tags ui :sev gap) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons and Use for potions; no categories, icons, item card, 3D preview or drop.
+// (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: a flat spell list with hand buttons; no schools, effect text or favourites, and no way to equip a power or shout.
+// (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: Resume and Quit; no save and load lists, settings or help.
 // (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership.
 
@@ -130,7 +130,7 @@ skills_menu :: proc(g: ^Game) {
 		}
 	}
 	imgui.Separator()
-	for skill in gamedb.AV_NAMES[6:24] {
+	for skill, i in gamedb.AV_NAMES[6:24] {
 		level := worldstate.av_current(ws, db, formid.PLAYER, skill)
 		cap := worldstate.av_train_cap(ws, db, formid.PLAYER, skill)
 		advance, _ := gamedb.skill_advance_av(skill)
@@ -140,6 +140,12 @@ skills_menu :: proc(g: ^Game) {
 			imgui.TextUnformatted(fmt.ctprintf("%-12s %3.0f / %3.0f   XP %.0f / %.0f", skill, level, cap, xp, next))
 		} else {
 			imgui.TextUnformatted(fmt.ctprintf("%-12s %3.0f / %3.0f", skill, level, cap))
+			imgui.SameLine()
+			if imgui.SmallButton(fmt.ctprintf("Legendary##%s", skill)) {worldstate.make_legendary(ws, db, formid.PLAYER, skill)}
+		}
+		if s.legendary[i] > 0 {
+			imgui.SameLine()
+			imgui.TextUnformatted(fmt.ctprintf("legendary x%d", s.legendary[i]))
 		}
 	}
 }
