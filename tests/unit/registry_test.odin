@@ -810,3 +810,28 @@ test_cast_hand :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(worldstate.effects_on(&ws, CASTER)), 1)
 	testing.expect(t, !script.cast_hand(&c, CASTER, .LeftHand, 0), "cannot pay")
 }
+
+// A location is cleared once every one of its Boss refs is dead (CK IsCleared).
+@(test)
+test_boss_death_clears_location :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	LOC, BOSS_A, BOSS_B :: script.Form_ID(0xB00), script.Form_ID(0xB01), script.Form_ID(0xB02)
+	db: gamedb.DB
+	db.locations = make(map[gamedb.Form_ID]gamedb.Location)
+	defer delete(db.locations)
+	specials := []gamedb.Special_Ref{{formid.LOC_REF_BOSS, BOSS_A}, {formid.LOC_REF_BOSS, BOSS_B}}
+	db.locations[LOC] = {special_refs = specials}
+
+	loc := script.Call{self = LOC, ws = &ws, db = &db}
+	a := script.Call{self = BOSS_A, ws = &ws, db = &db}
+	b := script.Call{self = BOSS_B, ws = &ws, db = &db}
+	script.call(&reg, "Actor", "Kill", &a, nil)
+	testing.expect_value(t, script.call(&reg, "Location", "IsCleared", &loc, nil).(bool), false)
+	script.call(&reg, "Actor", "Kill", &b, nil)
+	testing.expect_value(t, script.call(&reg, "Location", "IsCleared", &loc, nil).(bool), true)
+}

@@ -23,7 +23,11 @@ enter_cell :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, cell: Form_ID) {
 	if !s.reset_asked && !reset_due(db, ws, cell, s.left) {return}
 	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
 		for r in list {
-			if gamedb.ref_respawns(db, r) {reset_ref(db, ws, r)}
+			if !gamedb.ref_respawns(db, r) {continue}
+			reset_ref(db, ws, r)
+			if !worldstate.is_dead(ws, r.form_id) {
+				for loc in gamedb.special_ref_locations(db, r.form_id, formid.LOC_REF_BOSS) {delete_key(&ws.cleared, loc)} // it respawned (CK IsCleared)
+			}
 		}
 	}
 	if s.reset_asked {drop_created(ws, cell)}
@@ -107,7 +111,18 @@ n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// (hole location-auto-clear :tags (quest world) :sev gap) only Location.SetCleared marks a location cleared; the engine likely clears one itself (its boss dead: unsourced), and 877 of 892 vanilla location aliases skip cleared locations, so radiant quests may send the player back to a place they emptied.
+// boss_died clears each location whose Boss refs are all dead now (CK IsCleared: "whenever all
+// enemies that have a Boss LocationRefType assigned to them is killed").
+boss_died :: proc(c: ^Call, ref: Form_ID) {
+	for loc in gamedb.special_ref_locations(c.db, ref, formid.LOC_REF_BOSS) {
+		all_dead := true
+		for boss in gamedb.location_special_refs(c.db, loc, formid.LOC_REF_BOSS) {
+			if !worldstate.is_dead(c.ws, boss) {all_dead = false}
+		}
+		if all_dead {c.ws.cleared[loc] = true}
+	}
+}
+
 n_location_set_cleared :: proc(c: ^Call, args: []Value) -> Value {
 	if arg_bool(args, 0, true) {
 		c.ws.cleared[c.self] = true

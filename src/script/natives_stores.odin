@@ -44,6 +44,7 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
+	boss_died(c, c.self)
 	return nil
 }
 

@@ -745,6 +745,17 @@ editor_location :: proc(db: ^DB, ref: Form_ID) -> Form_ID {
 }
 
 // has_ref_type: the ref is a special ref of that location ref type in some location.
+// special_ref_locations are the locations that name `ref` as their special ref of `ref_type`.
+special_ref_locations :: proc(db: ^DB, ref, ref_type: Form_ID) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for id, l in db.locations {
+		for s in l.special_refs {
+			if s.ref == ref && s.ref_type == ref_type {append(&out, id)}
+		}
+	}
+	return out[:]
+}
+
 has_ref_type :: proc(db: ^DB, ref, ref_type: Form_ID) -> bool {
 	types, ok := db.ref_types[ref]
 	return ok && slice.contains(types[:], ref_type)
