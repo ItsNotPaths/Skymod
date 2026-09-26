@@ -272,18 +272,17 @@ faction_reaction :: proc(
 	return .Neutral, 0, false
 }
 
-// actor_faction_rank returns an actor base's BASELINE rank in `faction` (its authored SNAM row).
-// ok=false when the actor isn't an authored member — the caller falls through to the runtime
-// faction overlay, which is where scripted joins/leaves live.
-actor_faction_rank :: proc(db: ^DB, actor: Form_ID, faction: Form_ID) -> (i8, bool) {
-	a, ok := actor_base(db, actor)
-	if !ok {
-		return 0, false
-	}
-	for m in a.factions {
-		if m.faction == faction {
-			return m.rank, true
-		}
+// actor_factions is an NPC_'s authored SNAM factions, through its factions template; `pick`
+// stands in for a leveled one.
+actor_factions :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> []Faction_Membership {
+	if db == nil {return nil}
+	return template_part(db, base, esm.ACBS_TEMPLATE_FACTIONS, pick).factions
+}
+
+// actor_faction_rank returns an NPC_'s BASELINE rank in `faction`; ok=false when it has no row.
+actor_faction_rank :: proc(db: ^DB, base: Form_ID, faction: Form_ID, pick: Form_ID = 0) -> (i8, bool) {
+	for m in actor_factions(db, base, pick) {
+		if m.faction == faction {return m.rank, true}
 	}
 	return 0, false
 }

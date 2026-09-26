@@ -328,8 +328,13 @@ av_drop_pending :: proc(ws: ^World_State) {
 }
 
 // ── faction membership/rank + relationship rank ────────────────────────────────────────────────
-// Overlay-only: baseline faction memberships (NPC_/ACHR) + relationships aren't indexed, so these
-// see only runtime changes; a non-member reads rank -1, an unset relationship reads 0 (Acquaintance).
+// Factions are the NPC_'s SNAM rows with a delta per faction; relationships are overlay-only (RELA
+// is not indexed), so an unset relationship reads 0 (Acquaintance). Rank -1 is in the faction but
+// not a member: 753 vanilla SNAM rows use it (40 potential followers in CurrentFollowerFaction,
+// which dialogue tests only through GetInFaction), and scripts leave with SetFactionRank(-1).
+
+// FACTION_REMOVED is a faction delta that takes the actor out of a baseline faction.
+FACTION_REMOVED :: min(i32)
 
 @(private)
 faction_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]i32 {
@@ -339,33 +344,35 @@ faction_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]i32 {
 	return &ws.factions[actor]
 }
 
-// faction_set_rank sets actor's rank in faction — also the "add to faction" verb (membership =
-// presence of the entry, so setting a rank adds the actor).
+// faction_set_rank sets actor's rank in faction — also the "add to faction" verb.
 faction_set_rank :: proc(ws: ^World_State, actor, faction: Form_ID, rank: i32) {
-	inner := faction_upsert(ws, actor)
-	inner^[faction] = rank
+	faction_upsert(ws, actor)^[faction] = rank
 }
 
-// faction_rank returns (rank, member?). A non-member's rank is meaningless (callers use -1).
-faction_rank :: proc(ws: ^World_State, actor, faction: Form_ID) -> (i32, bool) {
+// faction_rank is actor's rank in faction: its delta, else its NPC_'s row. ok=false when it is not
+// in the faction at all.
+faction_rank :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) -> (i32, bool) {
 	if inner, ok := ws.factions[actor]; ok {
-		if r, has := inner[faction]; has {
-			return r, true
-		}
+		if r, has := inner[faction]; has {return r, r != FACTION_REMOVED}
 	}
-	return 0, false
+	r, ok := gamedb.actor_faction_rank(db, record_of(ws, actor), faction, actor_pick(ws, db, actor))
+	return i32(r), ok
+}
+
+// in_faction is membership: in the faction at rank 0 or above.
+in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) -> bool {
+	r, ok := faction_rank(ws, db, actor, faction)
+	return ok && r >= 0
 }
 
 faction_remove :: proc(ws: ^World_State, actor, faction: Form_ID) {
-	if inner, ok := &ws.factions[actor]; ok {
-		delete_key(inner, faction)
-	}
+	faction_upsert(ws, actor)^[faction] = FACTION_REMOVED
 }
 
-faction_remove_all :: proc(ws: ^World_State, actor: Form_ID) {
-	if inner, ok := &ws.factions[actor]; ok {
-		clear(inner)
-	}
+faction_remove_all :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+	inner := faction_upsert(ws, actor)
+	for f in inner {inner[f] = FACTION_REMOVED}
+	for m in gamedb.actor_factions(db, record_of(ws, actor), actor_pick(ws, db, actor)) {inner[m.faction] = FACTION_REMOVED}
 }
 
 // ── perks ─────────────────────────────────────────────────────────────────────────────────────

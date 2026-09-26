@@ -1,8 +1,7 @@
 package script
 
 // Actor store natives (docs/scripting-natives.md §B): actor values + faction/relationship ranks.
-// `self` is the actor. Baseline faction memberships (NPC_/ACHR) and relationships aren't indexed
-// yet, so those reflect runtime changes (a non-member's rank is -1, an unset relationship is 0).
+// `self` is the actor. Relationships aren't indexed yet, so an unset relationship reads 0.
 
 import "core:log"
 import "../gamedb"
@@ -134,8 +133,7 @@ av_arg :: proc(c: ^Call, args: []Value) -> (string, bool) {
 // ── faction membership + rank ──────────────────────────────────────────────────
 
 n_is_in_faction :: proc(c: ^Call, args: []Value) -> Value {
-	_, ok := worldstate.faction_rank(c.ws, c.self, arg_form(args, 0))
-	return ok
+	return worldstate.in_faction(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 // SetFactionRank(akFaction, aiRank) — also the "add to faction" verb (there is no AddToFaction native;
@@ -149,14 +147,14 @@ n_set_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
 // already a member, i.e. from a base of 0).
 n_mod_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
 	faction := arg_form(args, 0)
-	cur, _ := worldstate.faction_rank(c.ws, c.self, faction)
+	cur, _ := worldstate.faction_rank(c.ws, c.db, c.self, faction)
 	worldstate.faction_set_rank(c.ws, c.self, faction, cur + arg_i32(args, 1, 0))
 	return nil
 }
 
-// GetFactionRank -> rank, or -1 if not in the faction (per overlay).
+// GetFactionRank -> rank, or -1 if not in the faction.
 n_get_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
-	if r, ok := worldstate.faction_rank(c.ws, c.self, arg_form(args, 0)); ok {
+	if r, ok := worldstate.faction_rank(c.ws, c.db, c.self, arg_form(args, 0)); ok {
 		return r
 	}
 	return i32(-1)
@@ -168,7 +166,7 @@ n_remove_from_faction :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_remove_from_all_factions :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.faction_remove_all(c.ws, c.self)
+	worldstate.faction_remove_all(c.ws, c.db, c.self)
 	return nil
 }
 

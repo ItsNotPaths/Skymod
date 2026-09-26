@@ -165,7 +165,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.inv_delta(&dst, 0x000B0B00, 0x0000000A), i32(-4))
 	testing.expect_value(t, ws.av_base(&dst, nil, 0x000AC701, "Health"), f32(87.5))
 	testing.expect_value(t, ws.av_current(&dst, nil, 0x000AC701, "Health"), f32(80))
-	fr, fok := ws.faction_rank(&dst, 0x000AC701, 0x000FAC70)
+	fr, fok := ws.faction_rank(&dst, nil, 0x000AC701, 0x000FAC70)
 	testing.expect(t, fok && fr == 4, "faction rank lost")
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror

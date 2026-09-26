@@ -13,6 +13,7 @@ import "../../src/formats/esm"
 import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/mods"
+import "../../src/worldstate"
 
 @(test)
 test_esm_walk_and_decode :: proc(t: ^testing.T) {
@@ -2088,6 +2089,23 @@ test_gamedb_faction :: proc(t: ^testing.T) {
 	testing.expect_value(t, rank, i8(1))
 	_, notmember := gamedb.actor_faction_rank(&db, 0x0000_0510, 0x0000_0502)
 	testing.expect(t, !notmember, "not a member of the other faction")
+
+	// The runtime store reads the SNAM row until a delta overrides it.
+	w: worldstate.World_State
+	worldstate.init(&w)
+	defer worldstate.destroy(&w)
+	NPC :: gamedb.Form_ID(0x0000_0510)
+	testing.expect(t, worldstate.in_faction(&w, &db, NPC, 0x0000_0501), "authored member")
+	worldstate.faction_set_rank(&w, NPC, 0x0000_0501, -1)
+	r, in_it := worldstate.faction_rank(&w, &db, NPC, 0x0000_0501)
+	testing.expect(t, in_it && r == -1, "rank -1 is still in the faction")
+	testing.expect(t, !worldstate.in_faction(&w, &db, NPC, 0x0000_0501), "rank -1 is not a member")
+	worldstate.faction_remove(&w, NPC, 0x0000_0501)
+	_, still := worldstate.faction_rank(&w, &db, NPC, 0x0000_0501)
+	testing.expect(t, !still, "removed from an authored faction")
+	worldstate.faction_set_rank(&w, NPC, 0x0000_0502, 2)
+	worldstate.faction_remove_all(&w, &db, NPC)
+	testing.expect(t, !worldstate.in_faction(&w, &db, NPC, 0x0000_0502), "remove all takes the given one")
 }
 
 // The magic records: an MGEF's DATA archetype/actor-value block, a SPEL's SPIT cast parameters +
