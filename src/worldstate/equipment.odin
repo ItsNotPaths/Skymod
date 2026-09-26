@@ -135,7 +135,8 @@ set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {
 	}
 	ws.outfits[actor] = outfit
 	gear := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
-	for item in db.outfits[outfit] {roll(ws, db, item, player_level(ws, db), 1, &gear)}
+	items, _ := db.outfits[outfit] // not `for x in m[k]`: a missing key hangs (odin-map-index-iteration)
+	for item in items {roll(ws, db, item, player_level(ws, db), 1, &gear)}
 	for e in gear {
 		inv_add(ws, actor, e.item, e.count)
 		move_items(ws, {base = e.item, to = actor, count = e.count})
