@@ -4,9 +4,9 @@ package gamedb
 // This is the link that makes a transpiled Papyrus script reachable: the record says a form runs
 // `TrapBearScript`, and the runtime loads the file of that name.
 //
-// Indexed for the record types that carry scripts AND have something to dispatch on. INFO, SCEN
-// and PACK carry plenty (INFO is the single largest source) but dialogue, scenes and AI packages
-// do not exist yet, so indexing them would only hold memory. `esmdump --vmad` still surveys them.
+// Indexed for the record types that carry scripts AND have something to dispatch on. SCEN and PACK
+// carry plenty but scenes and AI packages do not exist yet, so indexing them would only hold
+// memory. `esmdump --vmad` still surveys them.
 
 import "base:runtime"
 import "core:strings"
@@ -17,7 +17,7 @@ import "../formats/esm"
 // ones whose forms something can dispatch to today.
 carries_scripts :: proc(s: string) -> bool {
 	switch s {
-	case "REFR", "ACHR", "QUST", "NPC_", "MGEF", "PERK", "PHZD", "TACT":
+	case "REFR", "ACHR", "QUST", "NPC_", "MGEF", "PERK", "PHZD", "TACT", "INFO":
 		return true
 	}
 	return is_base_type(s) // ACTI, CONT, DOOR, FURN, MISC, WEAP, ARMO, BOOK, KEYM, FLOR, INGR, LIGH …

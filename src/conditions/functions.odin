@@ -27,6 +27,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
 	48  = fn_get_gold,
+	50  = fn_get_talked_to_pc,
 	56  = fn_get_quest_running,
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
@@ -45,6 +46,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
 	214 = fn_has_magic_effect,
+	249 = fn_is_in_dialogue_with_player,
 	264 = fn_has_spell,
 	277 = fn_get_base_actor_value,
 	300 = fn_is_in_interior,
@@ -199,6 +201,16 @@ fn_get_pc_is_sex :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f3
 @(private = "file")
 fn_get_dead :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(worldstate.is_dead(ctx.ws, on))
+}
+
+@(private = "file")
+fn_get_talked_to_pc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.talked_to_pc(ctx.ws, on))
+}
+
+@(private = "file")
+fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on != 0 && ctx.ws.talking == on)
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

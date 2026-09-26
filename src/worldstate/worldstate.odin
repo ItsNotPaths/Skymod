@@ -88,6 +88,10 @@ Overlay :: struct {
 	story_starts:    map[Form_ID]f64,              // quest -> the game hour the story manager last started it
 	story_ran:       map[[2]Form_ID]bool,          // {quest node, quest} started this round (do all before repeating)
 	alias_rounds:    map[[2]Form_ID]bool,          // {alias handle, ref or location} a searching fill took this round
+	infos_said:      map[Speaker_Info]f64,         // {speaker, info} -> the game hour it was last said (dialogue.odin)
+	random_said:     map[Speaker_Info]bool,        // Random infos said this round of their topic
+	exclusive:       map[Form_ID]Form_ID,          // speaker -> the Exclusive branch it is in
+	talked_to_pc:    Form_Set,                     // actors that have spoken to the player
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -119,6 +123,8 @@ Runtime :: struct {
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
+	info_runs:       [dynamic]Info_Run,     // topic info fragments the dialogue asked for since the last tick
+	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
@@ -159,6 +165,7 @@ init :: proc(ws: ^World_State) {
 	ws.story_events = make([dynamic]Story_Event)
 	ws.story_quests = make([dynamic]Form_ID)
 	ws.quest_steps = make([dynamic]Quest_Step)
+	ws.info_runs = make([dynamic]Info_Run)
 	ws.effect_classes = make(map[string]Effect_Class)
 }
 
@@ -180,6 +187,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.story_events)
 	delete(ws.story_quests)
 	delete(ws.quest_steps)
+	delete(ws.info_runs)
 	for k, &c in ws.effect_classes {
 		delete(k)
 		free_effect_class(&c)
@@ -234,6 +242,10 @@ init_overlay :: proc(o: ^Overlay) {
 	o.story_starts = make(map[Form_ID]f64)
 	o.story_ran = make(map[[2]Form_ID]bool)
 	o.alias_rounds = make(map[[2]Form_ID]bool)
+	o.infos_said = make(map[Speaker_Info]f64)
+	o.random_said = make(map[Speaker_Info]bool)
+	o.exclusive = make(map[Form_ID]Form_ID)
+	o.talked_to_pc = make(Form_Set)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -306,6 +318,10 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.story_starts)
 	delete(o.story_ran)
 	delete(o.alias_rounds)
+	delete(o.infos_said)
+	delete(o.random_said)
+	delete(o.exclusive)
+	delete(o.talked_to_pc)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

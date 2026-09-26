@@ -9,7 +9,8 @@ package main
 //   Phys item  → TAP: collect into the pack (stubbed — no player inventory yet, just a log).
 //                HOLD: grab it and float it in front of you; release to drop.
 //   Container  → open (stubbed — no container/inventory UI yet, just a log).
-//   Other      → activate (stubbed — dialogue/loot menus hook in here later).
+//   Actor      → talk (dialogue.odin).
+//   Other      → activate (stubbed — loot menus hook in here later).
 //
 // Every activation, a key press or a script's Activate, goes through activate(): OnActivate to the
 // ref's scripts, then the default action above unless a script called BlockActivation.
@@ -32,9 +33,8 @@ import "../formid"
 // (hole book-screen :tags ui :sev gap) activating a book reads it at once and takes it: there is no reading screen with its text and a Take button.
 // (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
 // (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
-// (hole dialogue-system :tags (dialogue quest) :sev blocker) activating an actor logs a line: no greeting, no topic list, no responses or their script fragments, and IsInDialogueWithPlayer has no body. The first cut is an ImGui placeholder with subtitles (the real screen is dialogue-screen, Workstream U).
-// (hole story-dialogue-events :tags (quest dialogue) :sev polish :needs (dialogue-system)) greetings and persuasion queue no AHEL / FLAT story events (CWDialogueSoldiersHellos, DialogueGenericDogHellos).
-// (hole dialogue-voice :tags (dialogue audio) :sev gap :needs (dialogue-system audio-output)) responses would show as text only: no voice file plays and nothing waits for a line to finish.
+// (hole story-dialogue-events :tags (quest dialogue) :sev polish) greetings and persuasion queue no AHEL / FLAT story events (CWDialogueSoldiersHellos, DialogueGenericDogHellos).
+// (hole dialogue-voice :tags (dialogue audio) :sev gap :needs (audio-output)) responses show as text only: no voice file plays, and a line lasts as long as its text.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a
@@ -168,7 +168,9 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		harvest(g, form, base, by)
 	case .Container:
 		if by == formid.PLAYER {open_container(g, form)}
-	case .None, .Actor, .Activator:
+	case .Actor:
+		if by == formid.PLAYER {open_dialogue(g, form)}
+	case .None, .Activator:
 		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
 }

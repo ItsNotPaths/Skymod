@@ -1,0 +1,48 @@
+package worldstate
+
+// What dialogue remembers: which lines each speaker said and when, and the Exclusive branch a
+// speaker is in. Say Once and the reset timers are saved for every quest; vanilla forgets Say Once
+// on a restart for quests that are not Start Game Enabled (CK Topic Info), a bug we do not keep.
+
+Speaker_Info :: [2]Form_ID // {speaker, info}
+
+// Info_Run is a topic info fragment to run on the script thread: begin when a line starts, end
+// when its last response is done.
+Info_Run :: struct {
+	info, speaker: Form_ID,
+	end:           bool,
+}
+
+// info_said records that `speaker` said `info` now, and that it spoke to the player.
+info_said :: proc(ws: ^World_State, speaker, info: Form_ID) {
+	ws.infos_said[{speaker, info}] = ws.clock.hours
+	ws.talked_to_pc[speaker] = true
+}
+
+// info_said_at is the game hour `speaker` last said `info`.
+info_said_at :: proc(ws: ^World_State, speaker, info: Form_ID) -> (f64, bool) {
+	return ws.infos_said[{speaker, info}]
+}
+
+talked_to_pc :: proc(ws: ^World_State, speaker: Form_ID) -> bool {
+	return speaker in ws.talked_to_pc
+}
+
+// exclusive_branch is the Exclusive branch `speaker` is in; 0 when none.
+exclusive_branch :: proc(ws: ^World_State, speaker: Form_ID) -> Form_ID {
+	return ws.exclusive[speaker]
+}
+
+set_exclusive_branch :: proc(ws: ^World_State, speaker, branch: Form_ID) {
+	if branch == 0 {delete_key(&ws.exclusive, speaker)} else {ws.exclusive[speaker] = branch}
+}
+
+// random_said: `speaker` said this Random info in the current round of its topic (Do All Before
+// Repeating).
+random_said :: proc(ws: ^World_State, speaker, info: Form_ID) -> bool {
+	return {speaker, info} in ws.random_said
+}
+
+set_random_said :: proc(ws: ^World_State, speaker, info: Form_ID, said: bool) {
+	if said {ws.random_said[{speaker, info}] = true} else {delete_key(&ws.random_said, Speaker_Info{speaker, info})}
+}

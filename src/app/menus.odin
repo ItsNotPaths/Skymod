@@ -26,6 +26,7 @@ Menu :: enum u8 {
 	Skills,
 	Container,
 	Pause,
+	Dialogue,
 }
 
 Menu_Kind :: struct {
@@ -41,6 +42,7 @@ MENUS := [Menu]Menu_Kind {
 	.Skills    = {"Skills (placeholder)", "Skills", true},
 	.Container = {"Container (placeholder)", "", true},
 	.Pause     = {"Paused (placeholder)", "", true},
+	.Dialogue  = {"Dialogue (placeholder)", "", false},
 }
 
 // world_paused reports whether an open menu stops the ticks.
@@ -59,7 +61,13 @@ frame_menus :: proc(g: ^Game) {
 	for kind, m in MENUS {
 		if kind.action != "" && input.fired(&g.imgr, kind.action) {g.menu = .None if g.menu == m else m}
 	}
-	if input.fired(&g.imgr, "Pause") {g.menu = .Pause if g.menu == .None else .None} // Esc closes any menu
+	if input.fired(&g.imgr, "Pause") {
+		switch g.menu {
+		case .None:     g.menu = .Pause
+		case .Dialogue: back_out(g)
+		case .Inventory, .Magic, .Skills, .Container, .Pause: g.menu = .None // Esc closes any menu
+		}
+	}
 	if g.menu == .None {return}
 	open := true
 	imgui.SetNextWindowSize({520, 560}, .FirstUseEver)
@@ -70,11 +78,14 @@ frame_menus :: proc(g: ^Game) {
 		case .Skills:    skills_menu(g)
 		case .Container: container_menu(g)
 		case .Pause:     pause_menu(g)
+		case .Dialogue:  dialogue_menu(g)
 		case .None:
 		}
 	}
 	imgui.End()
-	if !open {g.menu = .None}
+	if !open {
+		if g.menu == .Dialogue {back_out(g)} else {g.menu = .None}
+	}
 }
 
 @(private = "file")

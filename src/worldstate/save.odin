@@ -119,6 +119,11 @@ Saved_Restock :: struct {
 	hour:  f64,
 }
 
+Saved_Said :: struct {
+	speaker, info: Form_ID,
+	hour:          f64,
+}
+
 Saved_Quest_Event :: struct {
 	quest: Form_ID,
 	event: Story_Event,
@@ -273,6 +278,10 @@ Save_Body :: struct {
 	story_starts:  []Saved_Restock, // chest = the quest
 	story_ran:     []Saved_Alias,   // alias = the quest node, form = the quest
 	alias_rounds:  []Saved_Alias,
+	infos_said:    []Saved_Said,
+	random_said:   []Saved_Alias,   // alias = the speaker, form = the info
+	exclusive:     []Saved_Alias,   // alias = the speaker, form = the branch
+	talked_to_pc:  []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -433,6 +442,12 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k in ws.story_ran {append(&story_ran, Saved_Alias{k[0], k[1]})}
 	alias_rounds := make([dynamic]Saved_Alias, 0, len(ws.alias_rounds), context.temp_allocator)
 	for k in ws.alias_rounds {append(&alias_rounds, Saved_Alias{k[0], k[1]})}
+	said := make([dynamic]Saved_Said, 0, len(ws.infos_said), context.temp_allocator)
+	for k, hour in ws.infos_said {append(&said, Saved_Said{k[0], k[1], hour})}
+	random_said := make([dynamic]Saved_Alias, 0, len(ws.random_said), context.temp_allocator)
+	for k in ws.random_said {append(&random_said, Saved_Alias{k[0], k[1]})}
+	exclusive := make([dynamic]Saved_Alias, 0, len(ws.exclusive), context.temp_allocator)
+	for speaker, branch in ws.exclusive {append(&exclusive, Saved_Alias{speaker, branch})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
@@ -481,6 +496,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		story_starts  = story_starts[:],
 		story_ran     = story_ran[:],
 		alias_rounds  = alias_rounds[:],
+		infos_said    = said[:],
+		random_said   = random_said[:],
+		exclusive     = exclusive[:],
+		talked_to_pc  = save_set(ws.talked_to_pc),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -645,6 +664,22 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		form, fok := rf(remap, have_remap, r.form)
 		if aok && fok {ws.alias_rounds[{alias, form}] = true}
 	}
+	for r in body.infos_said {
+		speaker, sok := rf(remap, have_remap, r.speaker)
+		info, iok := rf(remap, have_remap, r.info)
+		if sok && iok {ws.infos_said[{speaker, info}] = r.hour}
+	}
+	for r in body.random_said {
+		speaker, sok := rf(remap, have_remap, r.alias)
+		info, iok := rf(remap, have_remap, r.form)
+		if sok && iok {ws.random_said[{speaker, info}] = true}
+	}
+	for r in body.exclusive {
+		speaker, sok := rf(remap, have_remap, r.alias)
+		branch, bok := rf(remap, have_remap, r.form)
+		if sok && bok {ws.exclusive[speaker] = branch}
+	}
+	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -831,6 +866,10 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.story_starts {add_slot(&seen, r.chest)}
 	for r in body.story_ran {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.alias_rounds {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.infos_said {add_slot(&seen, r.speaker);add_slot(&seen, r.info)}
+	for r in body.random_said {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.exclusive {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for a in body.talked_to_pc {add_slot(&seen, a)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

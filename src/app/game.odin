@@ -194,6 +194,7 @@ Game :: struct {
 	published: Placement, // the player's cell and feet as player_publish last wrote them
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
+	talk:        Conversation, // the conversation the dialogue menu shows (dialogue.odin)
 	quit:        bool,    // the pause menu's Quit: the main loop ends
 	// Debug (open-interiors): when `entered`, we've loaded fully INTO the active portal's
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
@@ -603,6 +604,7 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.actor_bodies)
 	render.release_mesh(&g.r, g.actor_wire)
 	delete(g.drops)
+	delete(g.talk.choices)
 	if g.up.marker {render.release_mesh(&g.r, g.drop_marker)}
 	tools.inspector_destroy(&g.insp) // frees the owned selection strings (safe on zero value)
 	if g.up.console {tools.console_destroy(&g.console)}

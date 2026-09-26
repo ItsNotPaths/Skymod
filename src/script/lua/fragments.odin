@@ -1,9 +1,11 @@
 package script_lua
 
 // Fragments: the compiler-generated functions a record calls on its own fragment script. A quest
-// stage's run when the stage is set (CK Quest Stages Tab: each stage item whose conditions pass).
+// stage's run when the stage is set (CK Quest Stages Tab: each stage item whose conditions pass); a
+// topic info's when its line begins and ends (CK Topic Info Fragments).
 
 import "core:log"
+import "core:slice"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
@@ -38,6 +40,23 @@ run_stage :: proc(vm: ^VM, quest: script.Form_ID, stage: u16) {
 		if !conditions.all(&ctx, item.conditions) {continue}
 		for fr in frags {
 			if fr.index == stage && int(fr.item) == i {run_fragment(vm, quest, file, fr.function)}
+		}
+	}
+}
+
+// tick_info_fragments runs the topic info fragments dialogue asked for since the last tick, with
+// the speaker as akSpeakerRef. An info gets its fragment script the first time one runs.
+tick_info_fragments :: proc(vm: ^VM) {
+	ws := vm.ctx.ws
+	runs := slice.clone(ws.info_runs[:], context.temp_allocator)
+	clear(&ws.info_runs)
+	for r in runs {
+		file, frags := gamedb.form_fragments(vm.ctx.db, r.info)
+		slot := u16(1) if r.end else 0
+		for fr in frags {
+			if fr.index != slot {continue}
+			attach_known(vm, r.info, gamedb.form_scripts(vm.ctx.db, r.info))
+			run_fragment(vm, r.info, file, fr.function, r.speaker)
 		}
 	}
 }

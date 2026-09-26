@@ -111,6 +111,7 @@ Form_Kind :: enum u8 {
 Quest_Baseline :: struct {
 	start_game_enabled: bool,
 	run_once:           bool, // DNAM 0x100: the story manager starts it once per game
+	priority:           u8, // DNAM: the higher quest's blocking dialogue wins
 	event:              [4]u8, // ENAM: the story manager event that starts it ("KILL"), zero when none
 	dialogue_conditions: []Condition, // gate every INFO of the quest (owned)
 	event_conditions:   []Condition, // the story manager's conditions, after NEXT (owned)
@@ -1537,11 +1538,12 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	for f, i in fl {
 		switch f.type {
 		case "DNAM":
-			// DNAM flags u16: 0x01 Start Game Enabled, 0x100 Run Once.
+			// DNAM flags u16: 0x01 Start Game Enabled, 0x100 Run Once; then the priority byte.
 			if len(f.data) >= 2 {
 				qb.start_game_enabled = f.data[0] & 0x01 != 0
 				qb.run_once = f.data[1] & 0x01 != 0
 			}
+			if len(f.data) >= 3 {qb.priority = f.data[2]}
 		case "ENAM":
 			if len(f.data) >= 4 {copy(qb.event[:], f.data[:4])}
 		case "CTDA":

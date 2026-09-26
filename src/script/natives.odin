@@ -24,7 +24,7 @@ import smath "../math"
 // (hole crime-reads :tags combat :sev gap) no read for Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime: there is no crime system.
 // (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-reads)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): there is no crime system.
 // (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
-// (hole dialogue-reads :tags dialogue :sev gap :needs (dialogue-system)) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
+// (hole dialogue-reads :tags dialogue :sev gap) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
@@ -82,6 +82,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_math(reg) // Math.* — pure callstatic leaves
 	register_quest(reg) // Quest.* — the quest-state store
 	register_story(reg) // Keyword.SendStoryEvent — the story manager
+	register_dialogue(reg) // who talks to the player, a topic info's quest
 	register_scene(reg) // Scene.Start — scenes
 	register_alias(reg) // quest aliases
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)

@@ -281,6 +281,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)
 	tick_story_events(vm, ws)
+	tick_info_fragments(vm)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.

@@ -186,6 +186,16 @@ return C
 `
 
 @(private = "file")
+TIF_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("TIF_Test", nil)
+local owner = rt.native("TopicInfo", "GetOwningQuest", false)
+local set_stage = rt.native("Quest", "SetCurrentStageID", false)
+C.__fn["fragment_0"] = function(self, akSpeakerRef) __said = tostring(akSpeakerRef); set_stage(owner(self), 10) end
+C.__fn["fragment_1"] = function(self, akSpeakerRef) __said = __said .. " done" end
+return C
+`
+
+@(private = "file")
 COUNTER_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Counter", nil)
 C.__vars = {
@@ -609,6 +619,39 @@ test_stage_fragments :: proc(t: ^testing.T) {
 	quest(&f, "Stop")
 	testing.expect(t, stages_were(&f, "stop, running true;"), "the shut-down stage runs before the stop")
 	testing.expect(t, !worldstate.quest_running(&f.ws, &f.db, QUEST), "then the quest stops")
+}
+
+// A topic info's begin fragment runs at the tick after its line starts, on its own script, with
+// the speaker; it reaches its quest through GetOwningQuest. The end fragment follows the line.
+@(test)
+test_info_fragments :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_tif", {{"tif_test.lua", TIF_LUA}, {"qf_test.lua", STAGES_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST, TOPIC, INFO, SPEAKER :: script.Form_ID(0x900), script.Form_ID(0x910), script.Form_ID(0x911), script.Form_ID(0x920)
+	f.db.topics = make(map[gamedb.Form_ID]gamedb.Topic)
+	f.db.infos = make(map[gamedb.Form_ID]gamedb.Info)
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts)
+	defer {delete(f.db.topics);delete(f.db.infos);delete(f.db.quest_baseline);delete(f.db.form_scripts)}
+	f.db.topics[TOPIC] = {quest = QUEST}
+	f.db.infos[INFO] = {topic = TOPIC}
+	stages := make(map[u16]gamedb.Quest_Stage)
+	defer delete(stages)
+	stages[10] = {}
+	f.db.quest_baseline[QUEST] = {start_game_enabled = true, stages = stages}
+	f.db.form_scripts[INFO] = {
+		scripts   = []esm.Script_Attach{{name = "TIF_Test"}},
+		frag_file = "TIF_Test",
+		fragments = []esm.Script_Fragment{{index = 0, function = "Fragment_0"}, {index = 1, function = "Fragment_1"}},
+	}
+
+	append(&f.ws.info_runs, worldstate.Info_Run{info = INFO, speaker = SPEAKER})
+	append(&f.ws.info_runs, worldstate.Info_Run{info = INFO, speaker = SPEAKER, end = true})
+	slua.tick_info_fragments(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__said == "[ObjectReference 0x00000920] done", __said)`), "begin, then end, with the speaker")
+	testing.expect(t, worldstate.quest_is_stage_done(&f.ws, QUEST, 10), "GetOwningQuest reaches the topic's quest")
 }
 
 // A starting quest fills its Forced alias, then its External one from it; the alias's scripts get
