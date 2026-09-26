@@ -41,10 +41,12 @@ Level_Up :: struct {
 
 LEVEL_CHOICE_VARS := []string{"level"}
 
-// actor_level is an actor's level: what leveling made it, else its records' level.
+// actor_level is an actor's level: what leveling made it, else its records' level, which for a PC
+// Level Mult NPC_ follows the player's.
 actor_level :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> i32 {
 	if s, ok := ws.levels[actor]; ok && s.level > 0 {return s.level}
-	return gamedb.record_level(db, record_of(ws, actor), actor_pick(ws, db, actor))
+	player := 1 if actor == formid.PLAYER else int(player_level(ws, db))
+	return gamedb.record_level(db, record_of(ws, actor), actor_pick(ws, db, actor), player)
 }
 
 // advance_skill gives a skill `xp` points of use; the skill rises while its XP covers the next

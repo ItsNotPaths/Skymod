@@ -3,6 +3,7 @@ package unit_tests
 import "core:os"
 import "core:testing"
 import "../../src/formats/esm"
+import "../../src/formid"
 import "../../src/gamedb"
 import "../../src/worldstate"
 
@@ -192,4 +193,20 @@ test_read_book :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.read_book(&ws, &db, A, TOME), "a new spell uses the tome up")
 	testing.expect(t, worldstate.has_spell(&ws, &db, A, SPELL), "spell learned")
 	testing.expect(t, !worldstate.read_book(&ws, &db, A, TOME), "a known spell leaves the tome")
+}
+
+// A PC Level Mult NPC_ follows the player's live level, not the player's record level.
+@(test)
+test_pc_level_mult_follows_player :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0x600)
+	db: gamedb.DB
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[NPC] = {flags = esm.ACBS_PC_LEVEL_MULT, level = 2000, calc_min = 1}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	testing.expect_value(t, worldstate.actor_level(&ws, &db, NPC), 2)
+	ws.levels[formid.PLAYER] = {level = 5}
+	testing.expect_value(t, worldstate.actor_level(&ws, &db, NPC), 10)
 }

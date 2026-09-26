@@ -3,7 +3,6 @@ package gamedb
 import "base:runtime"
 import "core:strings"
 import "../formats/esm"
-import "../formid"
 
 // The engine's actor values. An actor value is its name here, in this case; MGEF, RACE, CLAS and
 // CTDA store an index into this table. AVIF records do not give the names: 9 EDIDs differ (21 is
@@ -119,7 +118,7 @@ av_key :: proc(name: string, buf: []u8) -> (string, bool) {
 // following ref → base and the NPC_'s templates, with `pick` standing in for a leveled template. Sources: CK wiki Class, UESP Mod File Format
 // NPC_/CLAS, tes4skyrim (disassembly). Checked against the DNAM cache of every vanilla auto-calc
 // NPC_ with a static level (ws.md, Workstream P).
-actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) -> f32 {
+actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0, player_level := 1) -> f32 {
 	if db == nil {return implicit_base(av)}
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
@@ -128,9 +127,9 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) 
 	stats := template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick)
 	race, _ := race_of(db, template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick).race)
 	switch av {
-	case "Health":        return race.info.health + f32(stats.health_off) + f32(attribute_gain(db, stats, 0))
-	case "Magicka":       return race.info.magicka + f32(stats.magicka_off) + f32(attribute_gain(db, stats, 1))
-	case "Stamina":       return race.info.stamina + f32(stats.stamina_off) + f32(attribute_gain(db, stats, 2))
+	case "Health":        return race.info.health + f32(stats.health_off) + f32(attribute_gain(db, stats, 0, player_level))
+	case "Magicka":       return race.info.magicka + f32(stats.magicka_off) + f32(attribute_gain(db, stats, 1, player_level))
+	case "Stamina":       return race.info.stamina + f32(stats.stamina_off) + f32(attribute_gain(db, stats, 2, player_level))
 	case "SpeedMult":     return f32(stats.speed_mult)
 	case "CarryWeight":   return race.info.carry_weight
 	case "Mass":          return race.info.mass
@@ -143,7 +142,7 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0) 
 		if name == av {return f32(template_part(db, base, esm.ACBS_TEMPLATE_AI_DATA, pick).ai[i])}
 	}
 	for name, i in AV_NAMES[6:24] {
-		if name == av {return f32(skill_base(db, stats, race, i))}
+		if name == av {return f32(skill_base(db, stats, race, i, player_level))}
 	}
 	return implicit_base(av)
 }
@@ -213,21 +212,22 @@ leveled_template :: proc(db: ^DB, base: Form_ID) -> Form_ID {
 }
 
 // record_level is the level an actor's records give it: its NPC_'s, through the stats template
-// (`pick` standing in for a leveled one).
-record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> i32 {
+// (`pick` standing in for a leveled one), at the player's current level.
+record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0, player_level := 1) -> i32 {
+	if db == nil {return 1}
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
 	npc, ok := db.actors[base]
 	if !ok {return 1}
-	return i32(actor_level(db, template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick)))
+	return i32(actor_level(template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick), player_level))
 }
 
-// (hole pc-level-mult :tags (player records) :sev gap) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and this reads the player's record level, not worldstate.actor_level. Settle by disassembly (TESActorBaseData::GetLevel, RELOCATION_ID 14262 SE / 14384 AE).
+// (hole pc-level-mult :tags (player records) :sev polish) a PC Level Mult NPC_'s level is mult x player level clamped to its calc band; no source gives the rounding (601 vanilla NPC_, multipliers like x1.1) or Calc Min below 1. Settle by disassembly (TESActorBaseData::GetLevel, RELOCATION_ID 14262 SE / 14384 AE).
 // actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's, within its calc
 // band (a calc max of 0 is no cap).
-actor_level :: proc(db: ^DB, stats: Actor_Base) -> int {
+actor_level :: proc(stats: Actor_Base, player_level: int) -> int {
 	if stats.flags & esm.ACBS_PC_LEVEL_MULT == 0 {return max(int(stats.level), 1)}
-	player := max(int(db.actors[formid.PLAYER_BASE].level), 1)
+	player := max(player_level, 1)
 	lvl := max(int(f32(stats.level) / 1000 * f32(player)), int(stats.calc_min))
 	if stats.calc_max > 0 {lvl = min(lvl, int(stats.calc_max))}
 	return max(lvl, 1)
@@ -236,9 +236,9 @@ actor_level :: proc(db: ^DB, stats: Actor_Base) -> int {
 // attribute_gain is what auto-calc adds to health (0), magicka (1) or stamina (2): the class share of
 // iAVDhmsLevelUp points per level above 1, and fNPCHealthLevelBonus per level on health.
 @(private)
-attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int) -> int {
+attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int, player_level: int) -> int {
 	if stats.flags & esm.ACBS_AUTO_CALC_STATS == 0 {return 0}
-	levels := actor_level(db, stats) - 1
+	levels := actor_level(stats, player_level) - 1
 	class, _ := class_of(db, stats.class)
 	weights := [3]u8{class.info.health_weight, class.info.magicka_weight, class.info.stamina_weight}
 	gain: [3]int
@@ -252,7 +252,7 @@ attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int) -> int {
 // the rest; without it, the DNAM value plus its offset.
 // (hole skill-cap-share :tags (records player) :sev polish) past the 100 cap the game drops part of the excess; sharing all of it matches 11 of the 24 vanilla NPC_ that reach the cap (check: build/out/wsP/autocalc/rr.py).
 @(private)
-skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int) -> int {
+skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int, player_level: int) -> int {
 	if stats.flags & esm.ACBS_AUTO_CALC_STATS == 0 {return int(stats.skills[i]) + int(stats.skill_offsets[i])}
 	class, _ := class_of(db, stats.class)
 	skills: [esm.NPC_SKILLS]int
@@ -262,7 +262,7 @@ skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int) -> int {
 		if b.skill >= 6 && b.skill < 24 {skills[b.skill - 6] += int(b.bonus)}
 	}
 	weights := class.info.skill_weights
-	left := int(setting_int(db, "iAVDSkillsLevelUp", 8)) * (actor_level(db, stats) - 1)
+	left := int(setting_int(db, "iAVDSkillsLevelUp", 8)) * (actor_level(stats, player_level) - 1)
 	for left > 0 {
 		add: [esm.NPC_SKILLS]int
 		share(left, weights[:], add[:])
