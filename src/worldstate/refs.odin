@@ -201,6 +201,12 @@ set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 	d.dead = dead
 }
 
+// is_dead reads the Dead delta. No baseline "starts dead" is surfaced yet.
+is_dead :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	d, ok := get(ws, form_id)
+	return ok && .Dead in d.live && d.dead
+}
+
 // set_deleted marks an ESM ref destroyed: the cell-build suppresses it entirely (never instantiated).
 // No data beyond the flag — the ref is gone. (Distinct from Disabled, which can be re-enabled.)
 set_deleted :: proc(ws: ^World_State, form_id, cell: Form_ID) {

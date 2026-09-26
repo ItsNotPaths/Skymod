@@ -48,10 +48,7 @@ n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {
-	if d, ok := worldstate.get(c.ws, c.self); ok && .Dead in d.live {
-		return d.dead
-	}
-	return false // no baseline "starts dead" surfaced yet
+	return worldstate.is_dead(c.ws, c.self)
 }
 
 // ── PlaceAtMe ──────────────────────────────────────────────────────────────────

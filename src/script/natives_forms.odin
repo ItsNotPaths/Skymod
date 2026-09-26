@@ -62,11 +62,7 @@ n_list_get_at :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_list_has_form :: proc(c: ^Call, args: []Value) -> Value {
-	form := arg_form(args, 0)
-	authored, _ := gamedb.form_list_of(c.db, c.self)
-	for f in authored {if f == form {return true}}
-	for f in worldstate.list_added(c.ws, c.self) {if f == form {return true}}
-	return false
+	return worldstate.list_has(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 n_list_add_form :: proc(c: ^Call, args: []Value) -> Value {

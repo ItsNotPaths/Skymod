@@ -337,6 +337,14 @@ global_value :: proc(ws: ^World_State, db: ^gamedb.DB, id: Form_ID) -> f32 {
 }
 
 // add_to_list is FormList.AddForm: a form already added stays once.
+// list_has is FormList.HasForm: an authored member or one a script added.
+list_has :: proc(ws: ^World_State, db: ^gamedb.DB, list, form: Form_ID) -> bool {
+	authored, _ := gamedb.form_list_of(db, list)
+	for f in authored {if f == form {return true}}
+	for f in list_added(ws, list) {if f == form {return true}}
+	return false
+}
+
 add_to_list :: proc(ws: ^World_State, list, form: Form_ID) {
 	if list not_in ws.list_adds {ws.list_adds[list] = make([dynamic]Form_ID)}
 	adds := &ws.list_adds[list]
