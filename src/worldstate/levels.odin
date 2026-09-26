@@ -109,6 +109,12 @@ inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.
 	return rolled[:]
 }
 
+// actor_traits is the NPC_ an actor takes race, sex and voice type from.
+actor_traits :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> gamedb.Actor_Base {
+	if db == nil {return {}}
+	return gamedb.actor_traits(db, record_of(ws, actor), actor_pick(ws, db, actor))
+}
+
 // actor_pick is the NPC_ a leveled actor rolled from the LVLN its base's template chain reaches: on
 // the first ask, at its zone level times its difficulty (CK wiki, LeveledCharacter), kept until the
 // actor resets. 0 for an actor with no leveled template, or a roll that gave nothing.

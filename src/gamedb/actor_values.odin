@@ -166,6 +166,13 @@ template_part :: proc(db: ^DB, base: Form_ID, flag: u16, pick: Form_ID = 0) -> A
 	return db.actors[template_form(db, base, flag, pick)]
 }
 
+// actor_traits is the NPC_ an actor or its base takes race, sex and voice type from (Use Traits).
+actor_traits :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> Actor_Base {
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
+	return template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick)
+}
+
 // template_form is the NPC_ form template_part reads.
 template_form :: proc(db: ^DB, base: Form_ID, flag: u16, pick: Form_ID = 0) -> Form_ID {
 	form, pick := base, pick

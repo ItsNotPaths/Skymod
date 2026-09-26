@@ -11,17 +11,6 @@ package script
 import "../gamedb"
 import "../worldstate"
 
-// quest_running merges baseline ⊕ overlay for run-state: an explicit Start/Stop (running_set) wins;
-// otherwise an untouched quest defers to its baseline "Start Game Enabled" flag (so the invisible
-// controller quests that run from a new game read IsRunning=true without a script touching them).
-@(private)
-quest_running :: proc(c: ^Call) -> bool {
-	if q, ok := worldstate.quest_get(c.ws, c.self); ok && q.running_set {
-		return q.running
-	}
-	return gamedb.quest_start_game_enabled(c.db, c.self)
-}
-
 register_quest :: proc(reg: ^Registry) {
 	register(reg, "Quest", "SetCurrentStageID", n_quest_set_stage)
 	register(reg, "Quest", "GetCurrentStageID", n_quest_get_stage)
@@ -121,7 +110,7 @@ n_quest_is_obj_failed :: proc(c: ^Call, args: []Value) -> Value {
 // Start() -> bool: true if it wasn't already running (Papyrus returns whether the start took effect).
 // A starting quest fills its aliases.
 n_quest_start :: proc(c: ^Call, args: []Value) -> Value {
-	if quest_running(c) {return false}
+	if worldstate.quest_running(c.ws, c.db, c.self) {return false}
 	worldstate.quest_set_running(c.ws, c.self, true)
 	fill_aliases(c.ws, c.db, c.self)
 	return true
@@ -148,7 +137,7 @@ n_quest_set_active :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_quest_is_running :: proc(c: ^Call, args: []Value) -> Value {
-	return quest_running(c)
+	return worldstate.quest_running(c.ws, c.db, c.self)
 }
 
 n_quest_is_active :: proc(c: ^Call, args: []Value) -> Value {
@@ -158,7 +147,7 @@ n_quest_is_active :: proc(c: ^Call, args: []Value) -> Value {
 
 // IsStopped() -> bool: a quest is stopped when it isn't running (baseline ⊕ overlay).
 n_quest_is_stopped :: proc(c: ^Call, args: []Value) -> Value {
-	return !quest_running(c)
+	return !worldstate.quest_running(c.ws, c.db, c.self)
 }
 
 // IsStarting/IsStopping are the momentary latent-transition states; we start/stop instantly, so
@@ -174,17 +163,7 @@ n_quest_is_stopping :: proc(c: ^Call, args: []Value) -> Value {
 // IsCompleted() -> bool: explicitly CompleteQuest'd, OR a reached (done) stage is flagged "Complete
 // Quest" in the baseline (Papyrus derives completion from stage flags, not only the explicit call).
 n_quest_is_completed :: proc(c: ^Call, args: []Value) -> Value {
-	if q, ok := worldstate.quest_get(c.ws, c.self); ok {
-		if q.completed {
-			return true
-		}
-		for stage in q.done {
-			if gamedb.quest_stage_completes(c.db, c.self, stage) {
-				return true
-			}
-		}
-	}
-	return false
+	return worldstate.quest_completed(c.ws, c.db, c.self)
 }
 
 // ── bulk ───────────────────────────────────────────────────────────────────

@@ -115,8 +115,6 @@ call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Valu
 	return nil
 }
 
-// FAR_DISTANCE is GetDistance between refs in different cells or worldspaces, or with no position.
-FAR_DISTANCE :: f32(1e9)
 
 // native_fallbacks is what a stub answers where its type's zero would be wrong: Papyrus's
 // documented value, else the absent, quiet, done answer (docs/script-rewrite.md "Missing data").

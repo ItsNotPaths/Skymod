@@ -1,5 +1,7 @@
 package worldstate
 
+import "../gamedb"
+
 // Objective_Flag / Objective_State mirror a quest objective's three independent runtime bits
 // (an objective can be displayed AND completed, or displayed-then-failed). bit_set onto a byte so
 // the save lowers it as a u8.
@@ -146,3 +148,22 @@ quest_objective :: proc(ws: ^World_State, quest: Form_ID, obj: u16) -> Objective
 // ── inventory store (owner FormID -> item FormID -> count) ─────────────────────────────────────
 // Overlay-only: the ESM baseline container/NPC contents aren't indexed, so counts are DELTAS from the
 // baseline (a fresh game reads 0 for everything). A baseline-inventory index later makes these absolute.
+
+// quest_running merges baseline and overlay: an explicit Start/Stop wins; otherwise an untouched
+// quest defers to its "Start Game Enabled" flag, so the controller quests that run from a new game
+// read as running without a script touching them.
+quest_running :: proc(ws: ^World_State, db: ^gamedb.DB, quest: Form_ID) -> bool {
+	if q, ok := quest_get(ws, quest); ok && q.running_set {return q.running}
+	return gamedb.quest_start_game_enabled(db, quest)
+}
+
+// quest_completed: CompleteQuest was called, or a reached stage is flagged "Complete Quest".
+quest_completed :: proc(ws: ^World_State, db: ^gamedb.DB, quest: Form_ID) -> bool {
+	q, ok := quest_get(ws, quest)
+	if !ok {return false}
+	if q.completed {return true}
+	for stage in q.done {
+		if gamedb.quest_stage_completes(db, quest, stage) {return true}
+	}
+	return false
+}

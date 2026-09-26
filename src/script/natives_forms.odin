@@ -26,15 +26,12 @@ register_forms :: proc(reg: ^Registry) {
 	register(reg, "Utility", "GetCurrentGameTime", n_get_current_game_time)
 }
 
-// n_has_keyword checks the form, then a ref's base form.
 n_has_keyword :: proc(c: ^Call, args: []Value) -> Value {
-	kw := arg_form(args, 0)
-	return gamedb.has_keyword(c.db, c.self, kw) || gamedb.has_keyword(c.db, worldstate.ref_base(c.ws, c.db, c.self), kw)
+	return worldstate.has_keyword(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 n_actor_get_race :: proc(c: ^Call, args: []Value) -> Value {
-	base, _ := gamedb.actor_base(c.db, worldstate.ref_base(c.ws, c.db, c.self))
-	return form_or_none(base.race)
+	return form_or_none(worldstate.actor_traits(c.ws, c.db, c.self).race)
 }
 
 n_actor_base_get_race :: proc(c: ^Call, args: []Value) -> Value {

@@ -275,3 +275,17 @@ ref_space :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
 ref_location :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
 	return gamedb.cell_location(db, ref_grid_cell(ws, db, form))
 }
+
+// FAR_DISTANCE is the distance between refs in different cells or worldspaces, or with no position.
+FAR_DISTANCE :: f32(1e9)
+
+ref_distance :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
+	space := ref_space(ws, db, a)
+	if space == 0 || space != ref_space(ws, db, b) {return FAR_DISTANCE}
+	return smath.length3(ref_pos(ws, db, a) - ref_pos(ws, db, b))
+}
+
+// has_keyword checks the form, then a ref's base form.
+has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) -> bool {
+	return gamedb.has_keyword(db, form, keyword) || gamedb.has_keyword(db, ref_base(ws, db, form), keyword)
+}

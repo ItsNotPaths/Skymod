@@ -47,10 +47,7 @@ n_get_angle_y :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(
 n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(worldstate.ref_rot(c.ws, c.db, c.self).z)}
 
 n_get_distance :: proc(c: ^Call, args: []Value) -> Value {
-	other := arg_form(args, 0)
-	space := worldstate.ref_space(c.ws, c.db, c.self)
-	if space == 0 || space != worldstate.ref_space(c.ws, c.db, other) {return FAR_DISTANCE}
-	return smath.length3(worldstate.ref_pos(c.ws, c.db, c.self) - worldstate.ref_pos(c.ws, c.db, other))
+	return worldstate.ref_distance(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 // n_get_linked_ref follows the link on the keyword's channel; no keyword is the default link.
