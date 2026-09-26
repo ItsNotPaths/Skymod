@@ -551,7 +551,7 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 
 	QUEST :: script.Form_ID(0x900)
 	DOOR :: script.Form_ID(0x901)
-	aliases := []gamedb.Quest_Alias{{id = 0, fill = .Forced, target = DOOR}, {id = 1, fill = .External, target = QUEST, extra = 0}}
+	aliases := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = DOOR, alias = -1}, {id = 1, fill = .External, target = QUEST, alias = 0}}
 	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
 	defer delete(f.db.quest_baseline)
 	f.db.quest_baseline[QUEST] = {aliases = aliases}

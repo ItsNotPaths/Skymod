@@ -517,13 +517,18 @@ index_quest_aliases :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Qu
 	out := make([]Quest_Alias, len(raw), db.allocator)
 	for a, i in raw {
 		out[i] = Quest_Alias {
-			id       = a.id,
-			location = a.location,
-			flags    = a.flags,
-			fill     = a.fill,
-			target   = esm.remap_form(fm, a.target),
-			extra    = a.extra,
-			name     = strings.clone(a.name, db.allocator),
+			id           = a.id,
+			location     = a.location,
+			flags        = a.flags,
+			fill         = a.fill,
+			target       = esm.remap_form(fm, a.target),
+			alias        = a.alias,
+			force_into   = a.force_into,
+			event_member = i32(a.event_member),
+			create_in    = a.create_in,
+			create_level = a.create_level,
+			conditions   = index_conditions(db, a.match, fm),
+			name         = strings.clone(a.name, db.allocator),
 		}
 	}
 	return out
@@ -550,12 +555,12 @@ quest_alias :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Quest_Alias, bool) {
 	return {}, false
 }
 
-// quest_alias_forced_ref returns the reference an alias is PINNED to at authoring time (an ALFR
+// quest_alias_forced_ref returns the reference an alias is PINNED to at authoring time (a Specific
 // fill). ok=false for every other fill kind — those are filled by the quest engine when the
 // quest starts, so the runtime alias store owns them and this baseline has nothing to offer.
 quest_alias_forced_ref :: proc(db: ^DB, quest: Form_ID, id: u32) -> (Form_ID, bool) {
 	a, ok := quest_alias(db, quest, id)
-	if !ok || a.fill != .Forced || a.target == 0 {
+	if !ok || a.fill != .Specific || a.target == 0 {
 		return 0, false
 	}
 	return a.target, true
@@ -567,7 +572,7 @@ unique_actor_ref :: proc(db: ^DB, base: Form_ID) -> (Form_ID, bool) {
 	return r, ok
 }
 
-// index_alias_targets indexes each unique NPC_'s placed actor, then every ref a Forced or
+// index_alias_targets indexes each unique NPC_'s placed actor, then every ref a Specific or
 // Unique_Actor fill names. Runs once every plugin is walked.
 @(private)
 index_alias_targets :: proc(db: ^DB) {
@@ -584,8 +589,8 @@ index_alias_targets :: proc(db: ^DB) {
 	for _, qb in db.quest_baseline {
 		for a in qb.aliases {
 			#partial switch a.fill {
-			case .Forced:
-				db.alias_targets[a.target] = true
+			case .Specific:
+				if !a.location {db.alias_targets[a.target] = true}
 			case .Unique_Actor:
 				if r, ok := db.unique_refs[a.target]; ok {db.alias_targets[r] = true}
 			}
@@ -598,7 +603,7 @@ index_alias_targets :: proc(db: ^DB) {
 // index_location decodes an LCTN: its display name, the location that contains it (PNAM), its
 // keywords, and its map-marker tint. The parent link is the tree Location.IsChild walks; the
 // LCSR/LCEC/LCID ref+cell membership lists are the quest system's business and stay undecoded.
-// (hole location-ref-types :tags (records quest) :sev gap) LCTN ref types (LCSR/ACSR...) and location keyword data are undecoded, so HasRefType, GetIsEditorLocAlias, HasSameEditorLocAsRefAlias and GetKeywordDataForLocation (2,040 quest and dialogue conditions) cannot answer.
+// (hole location-ref-types :tags (records quest) :sev gap) LCTN ref types (LCSR/ACSR...) and location keyword data are undecoded, so HasRefType, GetIsEditorLocAlias, HasSameEditorLocAsRefAlias and GetKeywordDataForLocation (2,040 quest and dialogue conditions) cannot answer, and a Location_Ref alias fill (2,084) cannot find its ref.
 @(private)
 index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)

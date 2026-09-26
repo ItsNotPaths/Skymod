@@ -9,9 +9,9 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole alias-fills :tags (script quest) :sev gap) only Forced, Unique_Actor and External fills resolve: Create_Ref is not wired to worldstate.create_ref, From_List is not handled, Matching_Ref needs conditions.
-// (hole alias-event-fills :tags (script quest) :sev gap) From_Event aliases (ALFE, 2,065) never fill: nothing passes the event that started the quest.
-// (hole location-alias-fills :tags script :sev gap) location aliases never fill at quest start: ALFL is not decoded, and ALFA on a location alias is read as a ref Matching_Ref and left empty. GetInCurrentLocAlias and LocAliasIsLocation have no body until they fill.
+// (hole alias-fills :tags (script quest) :sev gap) only Specific, Unique_Actor and External fills resolve, with no Match Conditions and no Allow Dead / Disabled / Reuse / Reserved or Force Into: Find Matching (3,467 in Skyrim.esm) and Create_Ref (630) never fill.
+// (hole alias-event-fills :tags (script quest) :sev gap :needs (alias-fills)) Find Matching From Event fills (1,771 in Skyrim.esm) never fill: the started quest's event member is not read.
+// (hole location-alias-fills :tags script :sev gap) a location alias fills only a Specific or External fill: Find Matching Location (430) and the location of a ref alias (48) stay empty, so GetInCurrentLocAlias and LocAliasIsLocation have no body.
 
 register_alias :: proc(reg: ^Registry) {
 	register(reg, "Quest", "GetAlias", n_quest_get_alias)
@@ -45,12 +45,12 @@ fill_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID
 		if !ok {continue}
 		form: Form_ID
 		#partial switch a.fill {
-		case .Forced:
+		case .Specific:
 			form = a.target
 		case .Unique_Actor:
 			form, _ = gamedb.unique_actor_ref(db, a.target)
 		case .External:
-			if other, hok := formid.alias_handle(a.target, a.extra); hok {form = ws.aliases[other]}
+			if other, hok := formid.alias_handle(a.target, u32(a.alias)); hok && a.alias >= 0 {form = ws.aliases[other]}
 		case:
 			continue
 		}

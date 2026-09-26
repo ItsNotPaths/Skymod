@@ -141,8 +141,6 @@ faction_memberships :: proc(fields: []Field, allocator := context.allocator) -> 
 
 // FACT DATA flag bits. Only the ones a consumer branches on are named; the raw u32 is kept so
 // unlisted bits survive.
-ALIAS_OPTIONAL :: 0x0000_0002 // FNAM: the quest starts without this alias filled
-
 FACT_HIDDEN_FROM_PC :: 0x0000_0001
 FACT_SPECIAL_COMBAT :: 0x0000_0002
 FACT_TRACK_CRIME :: 0x0000_0040
@@ -574,138 +572,122 @@ magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) 
 
 // --- QUST aliases -----------------------------------------------------------------------
 
-// Alias_Fill names HOW a quest alias finds the reference it stands for. Only `Forced` resolves
-// statically (the CK pinned a specific ref at authoring time) — every other kind is filled by
-// the quest engine when the quest starts, so the data layer records the kind + its operands and
-// leaves the resolution to the runtime.
+// Alias_Fill is how a quest alias finds its reference or location when the quest starts (xEdit;
+// CK wiki, Quest Alias Tab). Only Specific resolves statically.
 Alias_Fill :: enum u8 {
-	None,          // no fill subrecord (an alias script fills it)
-	Forced,        // ALFR — a specific reference, known now
-	Unique_Actor,  // ALUA — a specific unique NPC_
-	Create_Ref,    // ALCO/ALCA/ALCL — create a new ref of `target` at alias `extra`
-	From_Event,    // ALFE/ALFD — filled by a story-manager event
-	External,      // ALEQ/ALEA — alias `extra` of quest `target`
-	Matching_Ref,  // ALFA (+ optional ALRT ref type) — search near alias `extra`
-	From_List,     // ALFI — index `extra` into the quest's alias list
+	None,         // nothing: a script fills it
+	Specific,     // ALFR (a ref) or ALFL (a location): `target`
+	Unique_Actor, // ALUA: the placed actor of the unique NPC_ `target`
+	External,     // ALEQ/ALEA: alias `alias` of quest `target`
+	Create_Ref,   // ALCO/ALCA/ALCL: a new ref of base `target` at (or in) ref alias `alias`
+	// Location_Ref: a ref alias (ALFA/ALRT) takes the ref of type `target` in location alias `alias`;
+	// a location alias (ALFA/KNAM) takes the location of ref alias `alias`, up to keyword `target`.
+	Location_Ref,
+	// Matching: Find Matching Reference or Location. The Match Conditions pick among the world, the
+	// loaded area (ALIAS_IN_LOADED_AREA), the refs linked from ref alias `alias` (ALNA, Near Alias),
+	// or the event member `event_member` (ALFE/ALFD, From Event).
+	Matching,
 }
 
-// Quest_Alias is one QUST alias definition: the slot a quest's scripts address by id
-// (`ReferenceAlias.GetReference`), its authored fill rule, and its editor name. `location`
-// marks a LOCATION alias (ALLS) rather than a reference alias (ALST). `target` / `extra`
-// carry the fill's operands per `fill` (see Alias_Fill); `target` is a raw/local formID for
-// the form-valued kinds and unused otherwise. `name` aliases the ALID field bytes — clone it
-// to keep it.
+// Quest alias FNAM flags (xEdit).
+ALIAS_RESERVES :: 0x0000_0001 // no other alias takes its ref, unless Allow Reserved or External
+ALIAS_OPTIONAL :: 0x0000_0002 // the quest starts without this alias filled
+ALIAS_ALLOW_REUSE :: 0x0000_0008 // may take a ref another alias of the quest took
+ALIAS_ALLOW_DEAD :: 0x0000_0010
+ALIAS_IN_LOADED_AREA :: 0x0000_0020 // a Matching fill searches the loaded cells only
+ALIAS_ALLOW_DISABLED :: 0x0000_0080
+ALIAS_ALLOW_RESERVED :: 0x0000_0200
+ALIAS_ALLOW_DESTROYED :: 0x0000_1000
+ALIAS_CLOSEST :: 0x0000_2000 // a loaded-area Matching fill takes the closest match
+ALIAS_INITIALLY_DISABLED :: 0x0000_8000 // a Create_Ref fill makes its ref disabled
+
+// Quest_Alias is one QUST alias definition: the slot a quest's scripts address by id, its fill rule
+// and its editor name. `target` is raw/local; `name` and `match` borrow the record's fields.
 Quest_Alias :: struct {
-	id:       u32,
-	location: bool,
-	flags:    u32,
-	fill:     Alias_Fill,
-	target:   u32,
-	extra:    u32,
-	name:     string,
+	id:           u32,
+	location:     bool, // a location alias (ALLS) rather than a reference alias (ALST)
+	flags:        u32,
+	fill:         Alias_Fill,
+	target:       u32, // the fill's form operand (see Alias_Fill)
+	alias:        i32, // the fill's alias operand; -1 when it has none
+	force_into:   i32, // ALFI: another alias of the quest filled with the same thing; -1 when none
+	event:        [4]u8, // ALFE: the event of a From Event fill
+	event_member: u32, // ALFD: the member it reads (R1, L1...)
+	create_in:    bool, // ALCA: create inside the container alias, not at it
+	create_level: u32, // ALCL: 0 easy, 1 medium, 2 hard, 3 very hard, 4 none
+	match:        []Field, // the Match Conditions (CTDA/CIS runs), for esm.conditions
+	name:         string,
 }
 
-// quest_aliases decodes a QUST's alias definitions. Each alias runs from an ALST (reference
-// alias id) or ALLS (location alias id) to its ALED end marker; the subrecords between belong
-// to it — ALID name, FNAM flags, and one fill group. Field ORDER carries the grouping (the same
-// FNAM tag is also an objective's flags earlier in the record), so this walks in order and only
-// reads inside an open alias. Returns a freshly-allocated slice the caller owns (nil when the
-// quest defines none). (Validated vs Skyrim.esm: KingOlafsFestivalStarter "Karita" = ALUA;
-// DA15Return = ALFR; MQGreybeardCall = ALCO/ALCA/ALCL; JailQuest = ALFA+ALRT and ALFI+ALFR;
-// BardAudienceQuest = ALEQ/ALEA and an ALLS location alias.)
+// quest_aliases decodes a QUST's alias definitions. Each alias runs from an ALST (reference alias)
+// or ALLS (location alias) to its ALED; the subrecords between belong to it. Field ORDER carries
+// the grouping (FNAM is also an objective's flags earlier in the record), so this walks in order
+// and only reads inside an open alias. Returns a slice the caller owns (nil when the quest has
+// none). (Validated vs Skyrim.esm: KingOlafsFestivalStarter "Karita" = ALUA; DA15Return = ALFR;
+// MQGreybeardCall = ALCO/ALCA/ALCL; JailQuest = ALFA+ALRT and ALFI+ALFR; BardAudienceQuest =
+// ALEQ/ALEA and an ALLS location alias.)
 quest_aliases :: proc(fields: []Field, allocator := context.allocator) -> []Quest_Alias {
-	n := 0
-	for f in fields {
-		if (f.type == "ALST" || f.type == "ALLS") && len(f.data) >= 4 {
-			n += 1
-		}
-	}
-	if n == 0 {
-		return nil
-	}
-	out := make([dynamic]Quest_Alias, 0, n, allocator)
+	out := make([dynamic]Quest_Alias, allocator)
 	cur: Quest_Alias
 	open := false
-	for f in fields {
+	near := false
+	close :: proc(out: ^[dynamic]Quest_Alias, cur: ^Quest_Alias, near: bool) {
+		if cur.fill == .None && (len(cur.match) > 0 || near || cur.event != {}) {cur.fill = .Matching}
+		append(out, cur^)
+	}
+	for f, i in fields {
 		switch f.type {
 		case "ALST", "ALLS":
-			if len(f.data) < 4 {
-				continue
-			}
-			if open {
-				append(&out, cur) // a missing ALED still closes the previous alias
-			}
-			cur = Quest_Alias{id = rd32(f.data, 0), location = f.type == "ALLS"}
-			open = true
+			if len(f.data) < 4 {continue}
+			if open {close(&out, &cur, near)} // a missing ALED still closes the previous alias
+			cur = Quest_Alias{id = rd32(f.data, 0), location = f.type == "ALLS", alias = -1, force_into = -1}
+			open, near = true, false
 		case "ALED":
-			if open {
-				append(&out, cur)
-				open = false
-			}
+			if open {close(&out, &cur, near)}
+			open = false
 		case:
-			if !open {
-				continue // the same tags appear outside aliases (objective FNAM, quest CTDA)
-			}
+			if !open {continue} // the same tags appear outside aliases (objective FNAM, quest CTDA)
+			n := len(f.data)
 			switch f.type {
 			case "ALID":
 				cur.name = cstr(f.data)
 			case "FNAM":
-				if len(f.data) >= 4 {
-					cur.flags = rd32(f.data, 0)
-				}
-			case "ALFR":
-				// A forced reference. An ALFI alias already claimed the fill (ALFI+ALFR pairs
-				// name the list index AND its default ref) — keep the more specific From_List.
-				if len(f.data) >= 4 {
-					cur.target = rd32(f.data, 0)
-					if cur.fill == .None {
-						cur.fill = .Forced
-					}
-				}
-			case "ALUA":
-				if len(f.data) >= 4 {
-					cur.fill = .Unique_Actor
-					cur.target = rd32(f.data, 0)
-				}
-			case "ALCO":
-				if len(f.data) >= 4 {
-					cur.fill = .Create_Ref
-					cur.target = rd32(f.data, 0)
-				}
-			case "ALCA":
-				if len(f.data) >= 4 && cur.fill == .Create_Ref {
-					cur.extra = rd32(f.data, 0)
-				}
-			case "ALFE":
-				cur.fill = .From_Event
-			case "ALEQ":
-				if len(f.data) >= 4 {
-					cur.fill = .External
-					cur.target = rd32(f.data, 0)
-				}
-			case "ALEA":
-				if len(f.data) >= 4 && cur.fill == .External {
-					cur.extra = rd32(f.data, 0)
-				}
-			case "ALFA":
-				if len(f.data) >= 4 {
-					cur.fill = .Matching_Ref
-					cur.extra = rd32(f.data, 0)
-				}
-			case "ALRT":
-				if len(f.data) >= 4 && cur.fill == .Matching_Ref {
-					cur.target = rd32(f.data, 0) // the ref type to match
-				}
+				if n >= 4 {cur.flags = rd32(f.data, 0)}
 			case "ALFI":
-				if len(f.data) >= 4 {
-					cur.fill = .From_List
-					cur.extra = rd32(f.data, 0)
-				}
+				if n >= 4 {cur.force_into = i32(rd32(f.data, 0))}
+			case "ALFR", "ALFL":
+				if n >= 4 {cur.fill, cur.target = .Specific, rd32(f.data, 0)}
+			case "ALUA":
+				if n >= 4 {cur.fill, cur.target = .Unique_Actor, rd32(f.data, 0)}
+			case "ALEQ":
+				if n >= 4 {cur.fill, cur.target = .External, rd32(f.data, 0)}
+			case "ALEA":
+				if n >= 4 {cur.alias = i32(rd32(f.data, 0))}
+			case "ALCO":
+				if n >= 4 {cur.fill, cur.target = .Create_Ref, rd32(f.data, 0)}
+			case "ALCA":
+				if n >= 4 {cur.alias, cur.create_in = i32(i16(rd16(f.data, 0))), rd16(f.data, 2) & 0x8000 != 0}
+			case "ALCL":
+				if n >= 4 {cur.create_level = rd32(f.data, 0)}
+			case "ALFA":
+				if n >= 4 {cur.fill, cur.alias = .Location_Ref, i32(rd32(f.data, 0))}
+			case "ALRT", "KNAM":
+				if n >= 4 && cur.fill == .Location_Ref {cur.target = rd32(f.data, 0)}
+			case "ALNA":
+				if n >= 4 {cur.alias, near = i32(rd32(f.data, 0)), true}
+			case "ALFE":
+				if n >= 4 {copy(cur.event[:], f.data[:4])}
+			case "ALFD":
+				if n >= 4 {cur.event_member = rd32(f.data, 0)}
+			case "CTDA":
+				if len(cur.match) == 0 {cur.match = condition_run(fields, i)}
 			}
 		}
 	}
-	if open {
-		append(&out, cur)
+	if open {close(&out, &cur, near)}
+	if len(out) == 0 {
+		delete(out)
+		return nil
 	}
 	return out[:]
 }

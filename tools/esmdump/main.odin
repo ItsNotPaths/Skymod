@@ -1933,7 +1933,7 @@ forms_mode :: proc(db: ^gamedb.DB, sub: string) {
 	for _, qb in db.quest_baseline {
 		aliases += len(qb.aliases)
 		for a in qb.aliases {
-			if a.fill == .Forced {forced += 1}
+			if a.fill == .Specific {forced += 1}
 		}
 	}
 	fmt.printfln("keywords:      %d KYWD records, %d tagged forms, %d tags total", len(db.keyword_edid), kw_forms, kw_tags)
@@ -2034,8 +2034,8 @@ forms_mode :: proc(db: ^gamedb.DB, sub: string) {
 		if len(qb.aliases) < 3 {continue}
 		fmt.printfln("\nexample quest 0x%08X %q aliases:", u64(form), gamedb.name_of(db, form))
 		for a in qb.aliases {
-			fmt.printfln("    [%2d] %-24q %v target=0x%08X extra=%d%s",
-				a.id, a.name, a.fill, u64(a.target), a.extra, " (location)" if a.location else "")
+			fmt.printfln("    [%2d] %-24q %v target=0x%08X alias=%d%s",
+				a.id, a.name, a.fill, u64(a.target), a.alias, " (location)" if a.location else "")
 		}
 		break
 	}
@@ -2636,4 +2636,9 @@ story_survey :: proc(path: string) {
 	}
 	fmt.printfln("quests: %d keyed to an event, %d run once; %d event conditions, %d dialogue conditions",
 		keyed, run_once, event_conds, dialogue_conds)
+	fills: [esm.Alias_Fill]int
+	for _, qb in db.quest_baseline {
+		for a in qb.aliases {fills[a.fill] += 1}
+	}
+	fmt.printfln("alias fills: %v", fills)
 }

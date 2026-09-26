@@ -401,17 +401,21 @@ Linked_Ref :: struct {
 }
 
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
-// (ReferenceAlias.GetReference). `fill` is the AUTHORED rule for finding the reference; only
-// esm.Alias_Fill.Forced resolves statically (`target` is that reference), the rest are filled by
-// the quest engine at start. `name` is the ALID editor name, owned by the DB.
+// (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
+// the quest engine fills it at start. `name` and `conditions` are owned by the DB.
 Quest_Alias :: struct {
-	id:       u32,
-	location: bool, // a location alias (ALLS) rather than a reference alias (ALST)
-	flags:    u32,
-	fill:     esm.Alias_Fill,
-	target:   Form_ID, // the fill's form operand, remapped (0 when the kind has none)
-	extra:    u32, // the fill's index operand (alias id / list index) — see esm.Alias_Fill
-	name:     string, // owned
+	id:           u32,
+	location:     bool, // a location alias (ALLS) rather than a reference alias (ALST)
+	flags:        u32, // esm.ALIAS_*
+	fill:         esm.Alias_Fill,
+	target:       Form_ID, // the fill's form operand, remapped (0 when the kind has none)
+	alias:        i32, // the fill's alias operand; -1 when it has none
+	force_into:   i32, // another alias filled with the same thing; -1 when none
+	event_member: i32, // a From Event fill's event member (R1, L1...)
+	create_in:    bool,
+	create_level: u32,
+	conditions:   []Condition, // the Match Conditions (owned)
+	name:         string, // owned
 }
 
 // LOCATION_TREE_MAX_DEPTH caps a location-parent walk. Vanilla nests ~4 deep (room → dungeon →
@@ -966,6 +970,7 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 	delete(qb.objective_text)
 	for a in qb.aliases {
 		delete(a.name, db.allocator)
+		free_conditions(db, a.conditions)
 	}
 	delete(qb.aliases, db.allocator)
 	free_conditions(db, qb.dialogue_conditions)

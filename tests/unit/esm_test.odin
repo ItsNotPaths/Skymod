@@ -2288,6 +2288,28 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 	field(&qust, "ALID", transmute([]u8)string("Hold\x00"))
 	field(&qust, "ALED", nil)
 
+	// alias 3: Find Matching From Event (no marker subrecord of its own), forced into alias 1 too.
+	ctda: [32]u8;ctda[8] = 72;put_u32(ctda[:], 12, 0x0000_0701);put_u32(ctda[:], 28, 0xFFFF_FFFF)
+	field(&qust, "ALST", u32_bytes(3))
+	field(&qust, "ALID", transmute([]u8)string("Victim\x00"))
+	field(&qust, "FNAM", u32_bytes(0x0000_0010)) // allow dead
+	field(&qust, "ALFI", u32_bytes(1))
+	field(&qust, "ALFE", transmute([]u8)string("KILL"))
+	field(&qust, "ALFD", u32_bytes(0x3152)) // R1
+	field(&qust, "CTDA", ctda[:])
+	field(&qust, "ALED", nil)
+
+	// alias 4: the ref of a location ref type in location alias 2. alias 5: create in alias 0.
+	field(&qust, "ALST", u32_bytes(4))
+	field(&qust, "ALFA", u32_bytes(2))
+	field(&qust, "ALRT", u32_bytes(0x0000_0702))
+	field(&qust, "ALED", nil)
+	field(&qust, "ALST", u32_bytes(5))
+	field(&qust, "ALCO", u32_bytes(0x0000_0703))
+	alca: [4]u8;put_u16(alca[:], 0, 0);put_u16(alca[:], 2, 0x8000);field(&qust, "ALCA", alca[:])
+	field(&qust, "ALCL", u32_bytes(2))
+	field(&qust, "ALED", nil)
+
 	qusts := make([dynamic]u8, 0, 320);defer delete(qusts)
 	record(&qusts, "QUST", 0, 0x0000_0700, qust[:])
 
@@ -2299,12 +2321,12 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 	defer gamedb.destroy(&db)
 
 	aliases := gamedb.quest_aliases_of(&db, 0x0000_0700)
-	testing.expect_value(t, len(aliases), 3)
+	testing.expect_value(t, len(aliases), 6)
 
 	player, pok := gamedb.quest_alias(&db, 0x0000_0700, 0)
 	testing.expect(t, pok, "alias 0 defined")
 	testing.expect_value(t, player.name, "Player")
-	testing.expect_value(t, player.fill, esm.Alias_Fill.Forced)
+	testing.expect_value(t, player.fill, esm.Alias_Fill.Specific)
 	testing.expect_value(t, player.target, gamedb.Form_ID(0x0000_0014))
 	testing.expect_value(t, player.flags, u32(0x0000_0002)) // its OWN FNAM, not the objective's
 	testing.expect(t, !player.location, "a reference alias")
@@ -2325,6 +2347,18 @@ test_gamedb_quest_aliases :: proc(t: ^testing.T) {
 	testing.expect(t, hold.location, "a location alias")
 	testing.expect_value(t, hold.fill, esm.Alias_Fill.None)
 	testing.expect_value(t, hold.name, "Hold")
+
+	victim, _ := gamedb.quest_alias(&db, 0x0000_0700, 3)
+	testing.expect_value(t, victim.fill, esm.Alias_Fill.Matching)
+	testing.expect_value(t, victim.event_member, i32(0x3152))
+	testing.expect_value(t, victim.force_into, i32(1))
+	testing.expect_value(t, len(victim.conditions), 1)
+	testing.expect_value(t, victim.flags, u32(esm.ALIAS_ALLOW_DEAD))
+	boss, _ := gamedb.quest_alias(&db, 0x0000_0700, 4)
+	testing.expect(t, boss.fill == .Location_Ref && boss.alias == 2 && boss.target == 0x0000_0702, "a ref of a type in location alias 2")
+	made, _ := gamedb.quest_alias(&db, 0x0000_0700, 5)
+	testing.expect(t, made.fill == .Create_Ref && made.alias == 0 && made.create_in && made.create_level == 2, "created in alias 0, hard")
+	testing.expect_value(t, player.force_into, i32(-1))
 
 	_, missing := gamedb.quest_alias(&db, 0x0000_0700, 9)
 	testing.expect(t, !missing, "undefined alias id")
