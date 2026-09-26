@@ -13,6 +13,7 @@ import "core:strconv"
 import "core:strings"
 import "core:testing"
 import "../../src/formid"
+import "../../src/formula"
 import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/script"
@@ -119,6 +120,7 @@ return C
 @(private = "file")
 GLOW_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Glow", nil)
+C.__effect = { Health = { capacity = "m * (1 - t / d)" }, Stamina = { amount = "q", pace = "1" } }
 __fx = {}
 C.__fn["oneffectstart"] = function(self, target, caster)
   __fx[#__fx] = "start:" .. tostring(target === self:GetTargetActor())
@@ -676,6 +678,11 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, len(f.ws.effects), 0)
 	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "start:true,finish,tick", got)`), "start, finish, one tick, gone")
+
+	terms := f.ws.effect_terms["glow"]
+	testing.expect_value(t, len(terms), 1) // a bad formula and an unknown knob drop their terms
+	testing.expect(t, terms[0].av == "Health" && terms[0].knob == .Capacity, "__effect read when the class loads")
+	testing.expect_value(t, formula.eval(terms[0].f, {1, 10, 2}), 5)
 }
 
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with

@@ -7,6 +7,7 @@
 local native, method, has_method, none_value = __native, __method, __has_method, __none_value
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
+local effect_terms = __effect_terms
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local sethook, gethook = debug.sethook, debug.gethook
@@ -81,8 +82,7 @@ local Class = {
   end,
 }
 
--- (hole effect-formulas :tags (magic script) :sev gap) a class's __effect table is not read: { AV = { capacity = "formula", amount = "formula" } }, each formula a string of math in t (seconds since start), m (magnitude) and d (duration), compiled once when the class loads.
--- (hole archetype-claims :tags (magic script mods) :sev gap :needs (effect-archetypes effect-formulas)) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
+-- (hole archetype-claims :tags (magic script mods) :sev gap :needs (effect-archetypes)) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
 function rt.class(name, parent)
   local cls = setmetatable({
     __name = name,
@@ -106,6 +106,8 @@ function rt.load(name)
   if cls == nil then
     cls = rt.loader(l) or false
     classes[l] = cls
+    -- __effect = { AV = { capacity = "formula", amount = "formula" } }, formulas in t, m and d
+    if cls and cls.__effect then effect_terms(l, cls.__effect) end
   end
   return cls or nil
 end

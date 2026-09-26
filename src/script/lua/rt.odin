@@ -41,6 +41,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__actor_value", rt_actor_value},
 		{"__formula", rt_formula},
 		{"__level_up_choice", rt_level_up_choice},
+		{"__effect_terms", rt_effect_terms},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -94,6 +95,37 @@ rt_level_up_choice :: proc "c" (L: ^lua.State) -> c.int {
 		}
 	}
 	worldstate.set_level_choice(vm.ctx.ws, to_string(L, 1), changes)
+	return 0
+}
+
+// __effect_terms(class, {AV = {capacity = "formula", amount = "formula"}}) hands a class's __effect
+// table to the engine when the class loads.
+@(private)
+rt_effect_terms :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	class := to_string(L, 1)
+	srcs := make([dynamic]worldstate.Effect_Src, context.temp_allocator)
+	lua.pushnil(L)
+	for lua.next(L, 2) != 0 {
+		av := strings.clone(to_string(L, -2), context.temp_allocator)
+		if lua.istable(L, -1) {
+			lua.pushnil(L)
+			for lua.next(L, -2) != 0 {
+				name := to_string(L, -2)
+				if knob, ok := reflect.enum_from_name(worldstate.Knob, strings.to_pascal_case(name, context.temp_allocator)); ok {
+					append(&srcs, worldstate.Effect_Src{av, knob, strings.clone(to_string(L, -1), context.temp_allocator)})
+				} else {
+					log.warnf("script: %s.__effect %s: no knob %q (capacity, amount)", class, av, name)
+				}
+				lua.pop(L, 1)
+			}
+		} else {
+			log.warnf("script: %s.__effect %s: not a table of knobs", class, av)
+		}
+		lua.pop(L, 1)
+	}
+	worldstate.set_effect_terms(vm.ctx.ws, class, srcs[:])
 	return 0
 }
 

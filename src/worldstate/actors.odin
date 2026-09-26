@@ -136,7 +136,7 @@ Knob :: enum {
 }
 
 // av_live is what the live effects on `actor` add to a knob of `av` now.
-// (hole av-live :tags (magic player) :sev gap :needs (effect-formulas)) no effect contributes to an actor value: the ledger (an effect handle owns its contributions, each a formula of t on a knob, gone when the effect ends; amount writes that stay go to damage) is not built.
+// (hole av-live :tags (magic player) :sev gap) no effect contributes to an actor value: the ledger (an effect handle owns its contributions, each a formula of t on a knob, gone when the effect ends; amount writes that stay go to damage) is not built. Script terms wait in ws.effect_terms.
 av_live :: proc(ws: ^World_State, actor: Form_ID, av: string, knob: Knob) -> f32 {
 	return 0
 }
