@@ -46,6 +46,9 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.ask_reset(&src, 0x0001A26F)
 	src.cleared[0x0001C0C0] = true
 	src.restocks[0x000C0DE0] = 12
+	src.quest_events[0x000C0E01] = ws.Story_Event{type = ws.STORY_SCRIPT, keyword = 0x000C0E02, ref1 = 0x14, value1 = 3}
+	src.story_starts[0x000C0E01] = 30
+	src.story_ran[{0x000C0E03, 0x000C0E01}] = true
 	ws.skip_game_time(&src, 2.5)
 	// A Dead delta (the new actor life-state field) on its own ref/cell.
 	ws.set_dead(&src, 0x000A11FE, 0x0004DEAD, true)
@@ -139,6 +142,9 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, dst.cells[0x0001A26F], src.cells[0x0001A26F])
 	testing.expect(t, dst.cleared[0x0001C0C0], "cleared location lost")
 	testing.expect_value(t, dst.restocks[0x000C0DE0], 12)
+	testing.expect_value(t, dst.quest_events[0x000C0E01], ws.Story_Event{type = ws.STORY_SCRIPT, keyword = 0x000C0E02, ref1 = 0x14, value1 = 3})
+	testing.expect_value(t, dst.story_starts[0x000C0E01], 30)
+	testing.expect(t, dst.story_ran[{0x000C0E03, 0x000C0E01}], "story round lost")
 
 	// Dead delta survives.
 	deadd, deadok := ws.get(&dst, 0x000A11FE)

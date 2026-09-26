@@ -119,6 +119,11 @@ Saved_Restock :: struct {
 	hour:  f64,
 }
 
+Saved_Quest_Event :: struct {
+	quest: Form_ID,
+	event: Story_Event,
+}
+
 Saved_Move :: struct {
 	ref:  Form_ID,
 	move: Pending_Move,
@@ -264,6 +269,9 @@ Save_Body :: struct {
 	vampires:      []Form_ID,
 	werewolves:    []Form_ID,
 	restocks:      []Saved_Restock,
+	quest_events:  []Saved_Quest_Event,
+	story_starts:  []Saved_Restock, // chest = the quest
+	story_ran:     []Saved_Alias,   // alias = the quest node, form = the quest
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -416,6 +424,12 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for form in ws.level_listeners {append(&level_listeners, form)}
 	restocks := make([dynamic]Saved_Restock, 0, len(ws.restocks), context.temp_allocator)
 	for chest, hour in ws.restocks {append(&restocks, Saved_Restock{chest, hour})}
+	quest_events := make([dynamic]Saved_Quest_Event, 0, len(ws.quest_events), context.temp_allocator)
+	for quest, e in ws.quest_events {append(&quest_events, Saved_Quest_Event{quest, e})}
+	story_starts := make([dynamic]Saved_Restock, 0, len(ws.story_starts), context.temp_allocator)
+	for quest, hour in ws.story_starts {append(&story_starts, Saved_Restock{quest, hour})}
+	story_ran := make([dynamic]Saved_Alias, 0, len(ws.story_ran), context.temp_allocator)
+	for k in ws.story_ran {append(&story_ran, Saved_Alias{k[0], k[1]})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
@@ -460,6 +474,9 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		vampires      = save_set(ws.vampires),
 		werewolves    = save_set(ws.werewolves),
 		restocks      = restocks[:],
+		quest_events  = quest_events[:],
+		story_starts  = story_starts[:],
+		story_ran     = story_ran[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -600,6 +617,24 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.werewolves, body.werewolves, remap, have_remap, rf)
 	for r in body.restocks {
 		if id, ok := rf(remap, have_remap, r.chest); ok {ws.restocks[id] = r.hour}
+	}
+	// An event keeps its quest; a member from a missing mod reads as none.
+	for q in body.quest_events {
+		quest, ok := rf(remap, have_remap, q.quest)
+		if !ok {continue}
+		e := q.event
+		for &f in ([]^Form_ID{&e.keyword, &e.location1, &e.location2, &e.ref1, &e.ref2, &e.object, &e.form, &e.quest}) {
+			f^, _ = rf(remap, have_remap, f^)
+		}
+		ws.quest_events[quest] = e
+	}
+	for r in body.story_starts {
+		if id, ok := rf(remap, have_remap, r.chest); ok {ws.story_starts[id] = r.hour}
+	}
+	for r in body.story_ran {
+		node, nok := rf(remap, have_remap, r.alias)
+		quest, qok := rf(remap, have_remap, r.form)
+		if nok && qok {ws.story_ran[{node, quest}] = true}
 	}
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
@@ -779,6 +814,13 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for v in body.vampires {add_slot(&seen, v)}
 	for w in body.werewolves {add_slot(&seen, w)}
 	for r in body.restocks {add_slot(&seen, r.chest)}
+	for q in body.quest_events {
+		add_slot(&seen, q.quest)
+		e := q.event
+		for f in ([]Form_ID{e.keyword, e.location1, e.location2, e.ref1, e.ref2, e.object, e.form, e.quest}) {add_slot(&seen, f)}
+	}
+	for r in body.story_starts {add_slot(&seen, r.chest)}
+	for r in body.story_ran {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

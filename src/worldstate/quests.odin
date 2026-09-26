@@ -69,7 +69,7 @@ quest_set_running :: proc(ws: ^World_State, quest: Form_ID, running: bool) {
 	q := quest_upsert(ws, quest)
 	q.running = running
 	q.running_set = true
-	if running {q.started = true}
+	if running {q.started = true} else {delete_key(&ws.quest_events, quest)}
 }
 
 quest_set_active :: proc(ws: ^World_State, quest: Form_ID, active: bool) {
