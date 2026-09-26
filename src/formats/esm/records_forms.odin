@@ -520,6 +520,10 @@ Magic_Effect_Info :: struct {
 	archetype:    Effect_Archetype,
 	primary_av:   i32, // the AV the effect modifies (AV_NONE = none)
 	second_av:    i32,
+	second_av_weight: f32, // a Dual Value Modifier's second AV moves by magnitude times this
+	taper_weight:     f32, // the effect goes on for taper_duration after its duration, at
+	taper_curve:      f32, // magnitude * weight * (1 - taper time / taper_duration) ^ curve
+	taper_duration:   f32,
 	projectile:   u32,
 	explosion:    u32,
 	cast_type:    Cast_Type,
@@ -527,7 +531,8 @@ Magic_Effect_Info :: struct {
 }
 
 // magic_effect_info reads an MGEF's DATA: flags u32@0, base cost f32@4, magic skill i32@12,
-// resist AV i32@16, min skill level u32@40, area u32@44, casting time f32@48, archetype u32@64,
+// resist AV i32@16, taper weight f32@28, min skill level u32@40, area u32@44, casting time f32@48,
+// taper curve f32@52, taper duration f32@56, second AV weight f32@60, archetype u32@64,
 // primary AV i32@68, projectile u32@72, explosion u32@76, cast type u32@80, delivery u32@84,
 // second AV i32@88. ok=false when absent/short. (Offsets validated by editor-id convention
 // across Skyrim.esm: every "…FFContact" reads cast type 1 / delivery 1, "…FFAimedArea" reads
@@ -546,6 +551,10 @@ magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) 
 			skill_level  = rd32(d, 40),
 			area         = rd32(d, 44),
 			casting_time = rf32(d, 48),
+			second_av_weight = rf32(d, 60),
+			taper_weight = rf32(d, 28),
+			taper_curve = rf32(d, 52),
+			taper_duration = rf32(d, 56),
 			archetype    = Effect_Archetype(rd32(d, 64)),
 			primary_av   = cast(i32)rd32(d, 68),
 			projectile   = rd32(d, 72),

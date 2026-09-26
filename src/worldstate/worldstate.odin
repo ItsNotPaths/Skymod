@@ -105,6 +105,7 @@ Runtime :: struct {
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
 	effect_terms:    map[string][dynamic]Effect_Term, // script class (lower case) -> its __effect formulas, compiled when it loads
+	archetype_terms: map[Archetype_Key][dynamic]Effect_Term, // MGEF and shape -> its engine archetype's terms, compiled on first use
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -142,6 +143,7 @@ init :: proc(ws: ^World_State) {
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
 	ws.effect_terms = make(map[string][dynamic]Effect_Term)
+	ws.archetype_terms = make(map[Archetype_Key][dynamic]Effect_Term)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -164,6 +166,8 @@ destroy :: proc(ws: ^World_State) {
 		free_effect_terms(&terms)
 	}
 	delete(ws.effect_terms)
+	for _, &terms in ws.archetype_terms {free_effect_terms(&terms)}
+	delete(ws.archetype_terms)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}

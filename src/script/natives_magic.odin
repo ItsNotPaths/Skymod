@@ -3,9 +3,9 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking effect-archetypes)) an effect carries its authored magnitude only: no perk or *Mult AV scales it. Its visuals and sounds do not run.
+// (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking)) an effect carries its authored magnitude only: no perk scales it (Mod Spell Magnitude and the rest multiply, UESP Skyrim:Alchemy_Effects), and no resistance cuts it (Resist Magic, then the element's, multiplied; the player caps at 85%, fPlayerMaxResistance; UESP Skyrim:Resist_Magic). Its visuals and sounds do not run.
 // (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
-// (hole effect-stacking :tags (magic player) :sev gap) unsourced how effect contributions combine on one actor value: plain sums, or a multiply step (perks that scale magnitudes, the *Mult AVs); research before the effect design.
+// (hole effect-stacking :tags (magic player) :sev gap) every contribution to an AV adds. Researched 2026-09-25: potions of one kind do not stack, only the strongest counts (UESP Skyrim:Alchemy_Effects); enchantments add to each other and to potions (UESP Skyrim:Enchanting_Effects); a Peak Value Modifier's second item is a keyword, and of two PVMs sharing it the lower is dispelled (CK Magic Effect, marked "?"); "Dispel Effects with these Keywords" dispels the matching spells (CK); the same spell cast again replaces itself (unsourced for Skyrim).
 
 import "core:slice"
 import "../conditions"
@@ -91,7 +91,9 @@ n_dispel_all_spells :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // Cast(akSource, akTarget): the spell hits at once, with no projectile. No target hits the source.
+// An ability does nothing: it applies only from a spell list (CK wiki, Spell).
 n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
+	if is_ability(c.db, c.self) {return nil}
 	source := arg_form(args, 0)
 	target := arg_form(args, 1)
 	start_spell(c, c.self, target if target != 0 else source, source)
@@ -100,6 +102,7 @@ n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
 
 // RemoteCast(akSource, akBlameActor, akTarget): the blamed actor is the caster.
 n_spell_remote_cast :: proc(c: ^Call, args: []Value) -> Value {
+	if is_ability(c.db, c.self) {return nil}
 	source, blame, target := arg_form(args, 0), arg_form(args, 1), arg_form(args, 2)
 	start_spell(c, c.self, target if target != 0 else source, blame if blame != 0 else source)
 	return nil
@@ -133,19 +136,18 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 	return true
 }
 
-// start_effects starts each effect of `source` that carries a script and whose conditions pass:
-// the source's for that effect, then the MGEF's. They run on the target, with the caster as the
-// condition target.
-// (hole effect-archetypes :tags magic :sev gap) only scripted MGEFs start an effect: the engine archetypes (Value Modifier, Peak Value Modifier, Dual Value Modifier, Absorb, ...) with their formulas from the MGEF's AV, magnitude and Recover flag do not exist.
+// start_effects starts each effect of `source` whose conditions pass: the source's for that effect,
+// then the MGEF's. They run on the target, with the caster as the condition target. A timed effect
+// goes on for its MGEF's taper after its duration.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
 	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
 	for e in effects {
-		if len(gamedb.form_scripts(c.db, e.effect)) == 0 {continue}
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
 		if !conditions.all(&ctx, e.conditions) || !conditions.all(&ctx, mgef.conditions) {continue}
-		worldstate.start_effect(c.ws, {effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), magnitude = e.magnitude})
+		taper := 0 if lasts else mgef.info.taper_duration
+		worldstate.start_effect(c.ws, {effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = e.magnitude})
 	}
 }
 

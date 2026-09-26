@@ -82,7 +82,7 @@ local Class = {
   end,
 }
 
--- (hole archetype-claims :tags (magic script mods) :sev gap :needs (effect-archetypes)) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
+-- (hole archetype-claims :tags (magic script mods) :sev gap ) a script cannot stand in for an engine archetype: per MGEF (the MGEF's VMAD) or for a whole archetype (rt.archetype(name, class) from OnGameLoaded; the last mod wins).
 function rt.class(name, parent)
   local cls = setmetatable({
     __name = name,

@@ -13,6 +13,7 @@ Active_Effect :: struct {
 	effect, spell, target, caster: Form_ID,
 	lasts:     bool, // an ability or constant effect: until removed
 	duration:  f32,  // real seconds
+	taper:     f32,  // seconds it goes on after its duration (the MGEF's taper)
 	magnitude: f32,  // as authored
 	elapsed:   f32,
 	applied:   bool, // its amount terms have run once
@@ -51,10 +52,10 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) {
 		if term.knob != .Amount || !ok {continue}
 		gain := term_value(term, e^, e.elapsed)
 		if e.applied {gain -= term_value(term, e^, t0)}
-		av_gain(ws, db, e.target, av, f32(gain))
+		av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
 	}
 	e.applied = true
-	if !e.lasts && e.elapsed >= e.duration {end_effect(ws, h)}
+	if !e.lasts && e.elapsed >= e.duration + e.taper {end_effect(ws, h)}
 }
 
 // av_live is what the running effects on `actor` hold on `av`'s capacity now.
@@ -65,23 +66,25 @@ av_live :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 		if e.ended {continue}
 		for term in effect_terms_of(ws, db, e) {
 			name, ok := av_name(ws, term.av)
-			if term.knob == .Capacity && ok && name == av {sum += term_value(term, e, e.elapsed)}
+			if term.knob == .Capacity && !term.on_caster && ok && name == av {sum += term_value(term, e, e.elapsed)}
 		}
 	}
 	return f32(sum)
 }
 
-// term_value is a term's formula at `t` seconds in; a timed effect's t stops at its duration.
+// term_value is a term's formula at `t` seconds in; a timed effect's t stops at its end.
 @(private)
 term_value :: proc(term: Effect_Term, e: Active_Effect, t: f32) -> f64 {
-	t := t if e.lasts else min(t, e.duration)
+	t := t if e.lasts else min(t, e.duration + e.taper)
 	return formula.eval(term.f, {f64(t), f64(e.magnitude), f64(e.duration)})
 }
 
-// effect_terms_of is the __effect terms of an effect's MGEF scripts, once their classes loaded.
+// effect_terms_of is an effect's engine archetype terms, then the __effect terms of its MGEF's
+// scripts once their classes loaded.
 @(private)
 effect_terms_of :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> []Effect_Term {
 	out := make([dynamic]Effect_Term, context.temp_allocator)
+	append(&out, ..archetype_terms(ws, db, e))
 	for s in gamedb.form_scripts(db, e.effect) {
 		if terms, ok := ws.effect_terms[strings.to_lower(s.name, context.temp_allocator)]; ok {append(&out, ..terms[:])}
 	}
@@ -116,11 +119,13 @@ index_effect :: proc(ws: ^World_State, h, target: Form_ID) {
 	append(&ws.effects_on[target], h)
 }
 
-// Effect_Term is one formula of a script class's __effect table, over EFFECT_VARS.
+// Effect_Term is one formula an effect runs, over EFFECT_VARS: from a script class's __effect
+// table, or from its engine archetype.
 Effect_Term :: struct {
-	av:   string, // owned; resolved when the effect starts
-	knob: Knob,
-	f:    formula.Formula,
+	av:        string, // owned; resolved when the effect runs
+	knob:      Knob,
+	f:         formula.Formula,
+	on_caster: bool, // Absorb's other half; amount only
 }
 
 EFFECT_VARS := []string{"t", "m", "d"} // seconds since start, magnitude, duration
@@ -142,7 +147,7 @@ set_effect_terms :: proc(ws: ^World_State, class: string, srcs: []Effect_Src) {
 			log.warnf("script: %s.__effect %s.%v = %q: %s (variables %v)", class, s.av, s.knob, s.src, err, EFFECT_VARS)
 			continue
 		}
-		append(&terms, Effect_Term{strings.clone(s.av), s.knob, f})
+		append(&terms, Effect_Term{av = strings.clone(s.av), knob = s.knob, f = f})
 	}
 	if old, ok := &ws.effect_terms[class]; ok {
 		free_effect_terms(old)
