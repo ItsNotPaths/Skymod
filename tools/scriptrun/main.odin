@@ -30,6 +30,7 @@ import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/script"
 import slua "../../src/script/lua"
+import "../../src/vfs"
 import "../../src/worldstate"
 
 TICK_HZ :: 60
@@ -267,6 +268,18 @@ load_plugins :: proc(root: string) -> (db: gamedb.DB, ok: bool) {
 		fmt.eprintfln("cannot read %s", data)
 		return {}, false
 	}
+	// Localized names and dialogue text: loose Data/Strings, else "Skyrim - Interface.bsa" (SE).
+	v: vfs.VFS
+	ifc, _ := filepath.join({data, "Skyrim - Interface.bsa"}, context.temp_allocator)
+	mounted := vfs.mount_archive(&v, ifc)
+	defer if mounted {vfs.destroy(&v)}
+	table :: proc(v: ^vfs.VFS, mounted: bool, data, stem, ext: string) -> []u8 {
+		p, _ := filepath.join({data, "Strings", fmt.tprintf("%s_English.%s", stem, ext)}, context.temp_allocator)
+		if b, rerr := os.read_entire_file(p, context.allocator); rerr == nil {return b}
+		if !mounted {return nil}
+		b, _ := vfs.read(v, fmt.tprintf("Strings/%s_English.%s", stem, ext), context.allocator)
+		return b
+	}
 	inputs := make([dynamic]gamedb.Plugin_Input)
 	for fi in infos {
 		lower := strings.to_lower(fi.name, context.temp_allocator)
@@ -276,7 +289,14 @@ load_plugins :: proc(root: string) -> (db: gamedb.DB, ok: bool) {
 		p, _ := filepath.join({data, fi.name}, context.temp_allocator)
 		bytes, rerr := os.read_entire_file(p, context.allocator)
 		if rerr != nil {continue}
-		append(&inputs, gamedb.Plugin_Input{name = fi.name, data = bytes})
+		stem := filepath.stem(fi.name)
+		append(&inputs, gamedb.Plugin_Input {
+			name = fi.name,
+			data = bytes,
+			strings_data = table(&v, mounted, data, stem, "STRINGS"),
+			dlstrings_data = table(&v, mounted, data, stem, "DLSTRINGS"),
+			ilstrings_data = table(&v, mounted, data, stem, "ILSTRINGS"),
+		})
 	}
 	if len(inputs) == 0 {
 		fmt.eprintfln("no plugins in %s", data)
