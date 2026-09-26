@@ -364,7 +364,8 @@ tick_locomotion :: proc(g: ^Game) {
 	cy, sy := math.cos(g.cam.yaw), math.sin(g.cam.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	speed := SPRINT_SPEED if g.p.input.fast else RUN_SPEED
+	if g.p.input.fast {worldstate.set_sneaking(&g.ws, formid.PLAYER, false)} // sprinting stands up
+	speed := SPRINT_SPEED if g.p.input.fast else SNEAK_SPEED if worldstate.is_sneaking(&g.ws, formid.PLAYER) else RUN_SPEED
 	hv: [2]f32
 	if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
 	physics.character_move(g.cur_phys, &g.character, hv, move.z > 0.5, TICK_DT)

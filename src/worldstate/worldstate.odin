@@ -94,6 +94,7 @@ Overlay :: struct {
 	talked_to_pc:    Form_Set,                     // actors that have spoken to the player
 	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
 	no_pc_dialogue:  Form_Set,                     // Actor.AllowPCDialogue(false): will not talk to the player
+	sneaking:        Form_Set,                     // actors in sneak mode (actors.odin)
 	courier_waits:   [dynamic]Courier_Remove,      // Courier.RemoveRef calls waiting for the courier to stop talking
 	scenes:          map[Form_ID]Scene_Run,        // scenes playing or waiting for their actors (scenes.odin)
 }
@@ -252,6 +253,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.talked_to_pc = make(Form_Set)
 	o.teammates = make(Form_Set)
 	o.no_pc_dialogue = make(Form_Set)
+	o.sneaking = make(Form_Set)
 	o.scenes = make(map[Form_ID]Scene_Run)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
@@ -331,6 +333,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.talked_to_pc)
 	delete(o.teammates)
 	delete(o.no_pc_dialogue)
+	delete(o.sneaking)
 	delete(o.courier_waits)
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)

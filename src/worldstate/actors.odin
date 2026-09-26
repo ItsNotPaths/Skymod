@@ -377,6 +377,16 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
+// (hole sneak-detection :tags (ai player) :sev gap :needs (ai-agent)) sneaking only slows an actor: nobody detects anyone, so there is no stealth meter, no Sneak XP and no sneak attack bonus.
+// set_sneaking puts an actor in or out of sneak mode.
+set_sneaking :: proc(ws: ^World_State, actor: Form_ID, on: bool) {
+	set_in_set(&ws.sneaking, actor, on)
+}
+
+is_sneaking :: proc(ws: ^World_State, actor: Form_ID) -> bool {
+	return actor in ws.sneaking
+}
+
 // actor_factions_now is every faction `actor` is a member of now: its NPC_'s and a script's.
 actor_factions_now :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
 	out := make([dynamic]Form_ID, context.temp_allocator)

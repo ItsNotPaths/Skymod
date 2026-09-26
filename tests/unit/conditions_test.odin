@@ -835,6 +835,8 @@ test_condition_tail :: proc(t: ^testing.T) {
 	testing.expect(t, conditions.all(&ctx, cond(449, OTHER, 1)), "GetFactionRelation: enemies")
 	testing.expect(t, conditions.all(&ctx, cond(503)), "GetAllowWorldInteractions rests at 1")
 	testing.expect(t, conditions.all(&ctx, cond(125)), "IsGuard: in IsGuardFaction")
+	worldstate.set_sneaking(&ws, GUARD, true)
+	testing.expect(t, conditions.all(&ctx, cond(286)), "IsSneaking")
 	testing.expect(t, conditions.all(&ctx, cond(62, 0, 0)), "IsRaining rests at 0")
 
 	ctx.subject = RING

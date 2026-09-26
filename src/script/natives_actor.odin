@@ -36,6 +36,8 @@ register_actor :: proc(reg: ^Registry) {
 
 	// Relationship rank.
 	register(reg, "Actor", "GetRelationshipRank", n_get_rel_rank)
+	register(reg, "Actor", "IsSneaking", n_is_sneaking)
+	register(reg, "Actor", "StartSneaking", n_start_sneaking)
 	register(reg, "Actor", "SetRelationshipRank", n_set_rel_rank)
 }
 
@@ -171,6 +173,15 @@ n_remove_from_all_factions :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // ── relationship rank ──────────────────────────────────────────────────────────
+
+n_is_sneaking :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.is_sneaking(c.ws, c.self)
+}
+
+n_start_sneaking :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_sneaking(c.ws, c.self, true)
+	return nil
+}
 
 n_get_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.rel_rank(c.ws, c.db, c.self, arg_form(args, 0))

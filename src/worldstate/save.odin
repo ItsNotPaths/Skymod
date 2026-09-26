@@ -291,6 +291,7 @@ Save_Body :: struct {
 	talked_to_pc:  []Form_ID,
 	teammates:     []Form_ID,
 	no_pc_dialogue: []Form_ID,
+	sneaking:      []Form_ID,
 	courier_waits: []Courier_Remove,
 	scenes:        []Saved_Scene,
 	pending_moves: []Saved_Move,
@@ -515,6 +516,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		talked_to_pc  = save_set(ws.talked_to_pc),
 		teammates     = save_set(ws.teammates),
 		no_pc_dialogue = save_set(ws.no_pc_dialogue),
+		sneaking      = save_set(ws.sneaking),
 		courier_waits = ws.courier_waits[:],
 		scenes        = scenes[:],
 		pending_moves = moves[:],
@@ -699,6 +701,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
 	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
+	load_set(&ws.sneaking, body.sneaking, remap, have_remap, rf)
 	for w in body.courier_waits {
 		w := w
 		ok := true
@@ -914,6 +917,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.talked_to_pc {add_slot(&seen, a)}
 	for a in body.teammates {add_slot(&seen, a)}
 	for a in body.no_pc_dialogue {add_slot(&seen, a)}
+	for a in body.sneaking {add_slot(&seen, a)}
 	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)

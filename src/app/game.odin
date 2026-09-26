@@ -54,6 +54,7 @@ PLAYER_HALF_H :: f32(36) // cylinder half-height
 EYE_HEIGHT :: f32(116)
 RUN_SPEED :: f32(370)
 SPRINT_SPEED :: f32(600)
+SNEAK_SPEED :: f32(222) // MOVT NPC_Sneaking_MT forward run
 
 // Which subsystems game_setup brought up. game_teardown destroys exactly these, in the
 // documented order — a partial setup (early Quit, failed init) tears down only what exists.

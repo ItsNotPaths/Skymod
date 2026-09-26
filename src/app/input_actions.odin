@@ -28,6 +28,7 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"Activate",      "gameplay", .Button, "e"},
 	{"CastLeft",      "gameplay", .Button, "mouse1"},
 	{"CastRight",     "gameplay", .Button, "mouse2"},
+	{"Sneak",         "gameplay", .Button, "lctrl"},
 	{"ToggleOverlay", "global",   .Button, "grave"},
 	{"NoClip",        "gameplay", .Button, "v"},
 	{"QuickSave",     "gameplay", .Button, "f5"},

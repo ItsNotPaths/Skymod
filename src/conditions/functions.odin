@@ -74,7 +74,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	266 = fn_resting_true,
 	274 = fn_resting,
 	277 = fn_get_base_actor_value,
-	286 = fn_resting,
+	286 = fn_is_sneaking,
 	288 = fn_resting,
 	289 = fn_resting,
 	300 = fn_is_in_interior,
@@ -293,7 +293,6 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // (hole flight :tags (ai combat) :sev gap :needs (ai-agent)) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
 // (hole map-markers :tags (ui quest) :sev gap) GetMapMarkerVisible reads 0: there is no map, so no marker is ever found.
-// (hole player-sneak :tags player :sev gap) IsSneaking reads 0: there is no sneak key or sneak state.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
 // (hole favor-commands :tags (dialogue ai) :sev gap :needs (teammate-behavior)) IsInFavorState reads 0: no follower takes commands.
 @(private = "file")
@@ -557,6 +556,11 @@ fn_get_location_cleared :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID)
 @(private = "file")
 fn_is_guard :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(worldstate.in_faction(ctx.ws, ctx.db, on, formid.IS_GUARD_FACTION))
+}
+
+@(private = "file")
+fn_is_sneaking :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.is_sneaking(ctx.ws, on))
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

@@ -119,9 +119,11 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
-// frame_cast casts the spell in a hand when its button fires, at what the crosshair is on.
+// frame_cast casts the spell in a hand when its button fires, at what the crosshair is on, and
+// the Sneak key puts the player in or out of sneak mode.
 frame_cast :: proc(g: ^Game) {
 	if g.menu != .None {return}
+	if input.fired(&g.imgr, "Sneak") {worldstate.set_sneaking(&g.ws, formid.PLAYER, !worldstate.is_sneaking(&g.ws, formid.PLAYER))}
 	c := script.Call{ws = &g.ws, db = &g.db}
 	target := g.fr.act.form if g.fr.act.present else 0
 	if input.fired(&g.imgr, "CastLeft") {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
