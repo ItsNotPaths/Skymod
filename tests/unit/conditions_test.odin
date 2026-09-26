@@ -394,6 +394,11 @@ test_conditions_quest_and_faction_reads :: proc(t: ^testing.T) {
 	worldstate.quest_set_stage(&ws, QUEST, 20)
 	testing.expect(t, conditions.all(&ctx, stage) && conditions.all(&ctx, done), "stage 20, 10 done")
 
+	LOC :: gamedb.Form_ID(0x0000_0B01)
+	data := []gamedb.Condition{{function = 606, op = .Equal, value = 2, param1 = u64(LOC), param2 = u64(FACTION)}}
+	testing.expect(t, !conditions.all(&ctx, data), "unset keyword data reads 0")
+	ws.keyword_data[{LOC, FACTION}] = 2
+	testing.expect(t, conditions.all(&ctx, data), "GetKeywordDataForLocation")
 	glob := []gamedb.Condition{{function = 74, op = .Equal, value = 3, param1 = u64(GLOB)}}
 	worldstate.set_global(&ws, GLOB, 3)
 	testing.expect(t, conditions.all(&ctx, glob), "GetGlobalValue")

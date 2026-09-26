@@ -50,7 +50,9 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	562 = fn_location_has_keyword,
 	566 = fn_get_is_alias_ref,
 	579 = fn_get_equipped_shout,
+	606 = fn_get_keyword_data_for_location,
 	629 = fn_get_vm_quest_variable,
+	651 = fn_get_keyword_data_for_current_location,
 	650 = fn_is_linked_to,
 }
 
@@ -258,6 +260,17 @@ fn_get_in_current_loc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 @(private = "file")
 fn_location_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(gamedb.has_keyword(ctx.db, worldstate.ref_location(ctx.ws, ctx.db, on), p1(c)))
+}
+
+// GetKeywordDataForLocation(location, keyword): the value Location.SetKeywordData stored; 0 unset.
+@(private = "file")
+fn_get_keyword_data_for_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return ctx.ws.keyword_data[{p1(c), gamedb.condition_param2_form(c)}], true
+}
+
+@(private = "file")
+fn_get_keyword_data_for_current_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return ctx.ws.keyword_data[{worldstate.ref_location(ctx.ws, ctx.db, on), p1(c)}], true
 }
 
 @(private = "file")
