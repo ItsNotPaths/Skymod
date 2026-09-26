@@ -71,7 +71,7 @@ advance_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: s
 skill_level_cost :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: string) -> (cost: f32, open: bool) {
 	rates := gamedb.skill_xp_of(db, skill) or_return
 	level := av_base(ws, db, actor, skill)
-	if level >= av_max(ws, db, actor, skill) {return}
+	if level >= av_train_cap(ws, db, actor, skill) {return}
 	curve := f64(gamedb.setting_float(db, "fSkillUseCurve", 1.95))
 	return f32(calc(ws, .SkillXPToNext, f64(level), f64(rates.improve_mult), f64(rates.improve_offset), curve)), true
 }
@@ -83,7 +83,7 @@ raise_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: str
 	rose: i32
 	for ; rose < points; rose += 1 {
 		level := av_base(ws, db, actor, skill)
-		if level >= av_max(ws, db, actor, skill) {break}
+		if level >= av_train_cap(ws, db, actor, skill) {break}
 		av_set_base(ws, actor, skill, level + 1)
 		level_state(ws, actor).xp += f32(calc(ws, .PlayerXPFromSkill, f64(level + 1), per_rank))
 	}

@@ -132,7 +132,7 @@ skills_menu :: proc(g: ^Game) {
 	imgui.Separator()
 	for skill in gamedb.AV_NAMES[6:24] {
 		level := worldstate.av_current(ws, db, formid.PLAYER, skill)
-		cap := worldstate.av_max(ws, db, formid.PLAYER, skill)
+		cap := worldstate.av_train_cap(ws, db, formid.PLAYER, skill)
 		advance, _ := gamedb.skill_advance_av(skill)
 		xp := worldstate.av_current(ws, db, formid.PLAYER, advance)
 		next, open := worldstate.skill_level_cost(ws, db, formid.PLAYER, skill)

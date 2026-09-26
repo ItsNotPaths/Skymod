@@ -127,15 +127,13 @@ count_down :: proc(vm: ^VM, timers: ^map[script.Form_ID]worldstate.Update_Timers
 	for form in stopped {delete_key(timers, form)}
 }
 
-// tick_effects runs effect durations down. An ended effect whose OnEffectFinish went out, and whose
-// instance's state no longer ticks, leaves (docs/script-api.md section 3).
+// tick_effects runs the effects' clocks (worldstate.advance_effect). An ended effect whose
+// OnEffectFinish went out, and whose instance's state no longer ticks, leaves (docs/script-api.md
+// section 3).
 tick_effects :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 	gone := make([dynamic]script.Form_ID, context.temp_allocator)
-	for h, &e in ws.effects {
-		if !e.ended && !e.lasts {
-			e.elapsed += dt
-			if e.elapsed >= e.duration {worldstate.end_effect(ws, h)}
-		}
+	for h, e in ws.effects {
+		worldstate.advance_effect(ws, vm.ctx.db, h, dt)
 		if e.finished && !ticking(vm, h) {append(&gone, h)}
 	}
 	for h in gone {

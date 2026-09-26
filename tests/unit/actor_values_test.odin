@@ -77,8 +77,9 @@ test_actor_value_regen :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 100) // never past max
 }
 
-// A pool (a skill) is its own stock under a soft cap: GetActorValueMax reads the cap, and a raised
-// cap does not raise the skill. A latched value rides with its capacity; only pools take a cap.
+// A skill is latched: its capacity is its level, and training stops at a separate soft cap. A pool
+// is its own stock under its capacity, the cap, so a raised cap does not raise it. A static value
+// takes no cap.
 @(test)
 test_actor_value_kinds :: proc(t: ^testing.T) {
 	ws: worldstate.World_State
@@ -87,16 +88,20 @@ test_actor_value_kinds :: proc(t: ^testing.T) {
 	A :: gamedb.Form_ID(0xA1)
 
 	worldstate.av_set_base(&ws, A, "OneHanded", 30)
-	testing.expect_value(t, worldstate.av_max(&ws, nil, A, "OneHanded"), 100)
 	worldstate.av_mod(&ws, A, "OneHanded", 20)
 	testing.expect(t, worldstate.av_set_cap(&ws, A, "OneHanded", 150), "a skill takes a cap")
-	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "OneHanded"), 50)
-	testing.expect_value(t, worldstate.av_max(&ws, nil, A, "OneHanded"), 150)
+	testing.expect_value(t, worldstate.av_max(&ws, nil, A, "OneHanded"), 50)
+	testing.expect_value(t, worldstate.av_train_cap(&ws, nil, A, "OneHanded"), 150)
+
+	worldstate.av_create(&ws, "Mana", 10, .Pool)
+	mana, _ := worldstate.av_name(&ws, "Mana")
+	testing.expect_value(t, worldstate.av_max(&ws, nil, A, mana), 100)
+	worldstate.av_set_cap(&ws, A, mana, 150)
+	testing.expect(t, worldstate.av_max(&ws, nil, A, mana) == 150 && worldstate.av_current(&ws, nil, A, mana) == 10, "a raised cap leaves the stock")
 
 	worldstate.av_set_base(&ws, A, "Health", 100)
 	worldstate.av_damage(&ws, nil, A, "Health", 20)
 	worldstate.av_mod(&ws, A, "Health", 50)
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 130)
-	testing.expect(t, !worldstate.av_set_cap(&ws, A, "Health", 500), "a latched value has no cap")
-	testing.expect_value(t, worldstate.av_kind(&ws, "SpeedMult"), gamedb.AV_Kind.Static)
+	testing.expect(t, !worldstate.av_set_cap(&ws, A, "SpeedMult", 500), "a static value has no cap")
 }

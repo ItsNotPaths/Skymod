@@ -58,15 +58,15 @@ free_av_names :: proc "contextless" () {
 
 // AV_Kind is how an actor value holds its amount against its capacity. Static: the value is its
 // capacity, and effects move it. Latched: the amount is damage below the capacity, so it rides with it
-// (Health at 80/100 fortified +50 reads 130/150). Pool: the amount is its own stock under the
-// capacity, a soft cap only training checks (the skills).
+// (Health at 80/100 fortified +50 reads 130/150; a skill fortified +20 reads 20 over its level).
+// Pool: the amount is its own stock under the capacity, a soft cap only training checks (a mod's).
 AV_Kind :: enum u8 {
 	Static,
 	Latched,
 	Pool,
 }
 
-// SKILL_CAP is a pool's capacity until something raises it.
+// SKILL_CAP is the cap training stops at (a pool's capacity) until something raises it.
 SKILL_CAP :: f32(100)
 
 // av_kind is an engine actor value's kind (a canonical name).
@@ -75,7 +75,7 @@ av_kind :: proc(av: string) -> AV_Kind {
 	case "Health", "Magicka", "Stamina": return .Latched
 	}
 	for name in AV_NAMES[6:24] {
-		if name == av {return .Pool}
+		if name == av {return .Latched} // the skills
 	}
 	return .Static
 }

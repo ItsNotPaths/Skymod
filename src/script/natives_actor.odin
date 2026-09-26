@@ -98,12 +98,12 @@ n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// SetActorValueCap(asValueName, afCap) is ours: a pool's (a skill's) capacity, the soft cap training
-// stops at. GetActorValueMax reads it.
+// SetActorValueCap(asValueName, afCap) is ours: the soft cap training stops at, a skill's or a pool's
+// (whose capacity it is).
 n_set_av_cap :: proc(c: ^Call, args: []Value) -> Value {
 	av, ok := av_arg(c, args)
 	if ok && !worldstate.av_set_cap(c.ws, c.self, av, arg_f32(args, 1, gamedb.SKILL_CAP)) {
-		log.warnf("script: SetActorValueCap(%q): only a pool (a skill) has a cap", av)
+		log.warnf("script: SetActorValueCap(%q): a static actor value has no cap", av)
 	}
 	return nil
 }

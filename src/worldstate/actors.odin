@@ -96,16 +96,21 @@ av_base :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 // av_max is an AV's capacity: a pool's cap, else base + permanent (GetActorValueMax).
 av_max :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	p := av_parts(ws, actor, av)
-	if av_kind(ws, av) == .Pool {return (p.cap.? or_else gamedb.SKILL_CAP) + av_live(ws, actor, av, .Capacity)}
-	return av_base(ws, db, actor, av) + p.permanent + av_live(ws, actor, av, .Capacity)
+	if av_kind(ws, av) == .Pool {return (p.cap.? or_else gamedb.SKILL_CAP) + av_live(ws, db, actor, av)}
+	return av_base(ws, db, actor, av) + p.permanent + av_live(ws, db, actor, av)
+}
+
+// av_train_cap is the level training stops at: a pool's capacity, else the cap SetActorValueCap set.
+av_train_cap :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	if av_kind(ws, av) == .Pool {return av_max(ws, db, actor, av)}
+	return av_parts(ws, actor, av).cap.? or_else gamedb.SKILL_CAP
 }
 
 // av_current is an AV's value: a pool's own stock, else its capacity plus damage.
 av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	p := av_parts(ws, actor, av)
-	amount := p.damage + av_live(ws, actor, av, .Amount)
-	if av_kind(ws, av) == .Pool {return av_base(ws, db, actor, av) + p.permanent + amount}
-	return av_max(ws, db, actor, av) + amount
+	if av_kind(ws, av) == .Pool {return av_base(ws, db, actor, av) + p.permanent + p.damage}
+	return av_max(ws, db, actor, av) + p.damage
 }
 
 // av_kind is an actor value's kind: the engine's, or what the mod that created it said.
@@ -114,23 +119,28 @@ av_kind :: proc(ws: ^World_State, av: string) -> gamedb.AV_Kind {
 	return gamedb.av_kind(av)
 }
 
-// av_set_cap sets a pool's capacity, the soft cap training stops at; false for any other kind.
+// av_set_cap sets the soft cap training stops at (a pool's capacity); false for a static AV.
 av_set_cap :: proc(ws: ^World_State, actor: Form_ID, av: string, cap: f32) -> bool {
-	if av_kind(ws, av) != .Pool {return false}
+	if av_kind(ws, av) == .Static {return false}
 	av_upsert(ws, actor, av).cap = cap
 	return true
 }
 
-// Knob is what an effect turns: an AV's capacity (its max) or its amount (the value under it).
+// Knob is what an effect term turns. Capacity: held while the effect runs, gone when it ends.
+// Amount: a running total whose gains stay (av_gain).
 Knob :: enum {
 	Capacity,
 	Amount,
 }
 
-// av_live is what the live effects on `actor` add to a knob of `av` now.
-// (hole av-live :tags (magic player) :sev gap) no effect contributes to an actor value: the ledger (an effect handle owns its contributions, each a formula of t on a knob, gone when the effect ends; amount writes that stay go to damage) is not built. Script terms wait in ws.effect_terms.
-av_live :: proc(ws: ^World_State, actor: Form_ID, av: string, knob: Knob) -> f32 {
-	return 0
+// av_gain adds an effect's amount gain: to a latched AV's damage (a loss pauses regen), else to
+// its permanent modifier.
+av_gain :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, gain: f32) {
+	switch {
+	case av_kind(ws, av) != .Latched: av_mod(ws, actor, av, gain)
+	case gain < 0:                    av_damage(ws, db, actor, av, gain)
+	case:                             av_restore(ws, actor, av, gain)
+	}
 }
 
 // av_set_base is SetActorValue: the base changes, the modifiers stay.

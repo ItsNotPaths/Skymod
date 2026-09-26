@@ -3,7 +3,7 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking effect-archetypes)) effects have no magnitude and change no actor value; their visuals, sounds and conditions (CTDA) do not run.
+// (hole effect-magnitudes :tags (magic player) :sev gap :needs (effect-stacking effect-archetypes)) an effect carries its authored magnitude only: no perk or *Mult AV scales it. Its visuals and sounds do not run.
 // (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
 // (hole effect-stacking :tags (magic player) :sev gap) unsourced how effect contributions combine on one actor value: plain sums, or a multiply step (perks that scale magnitudes, the *Mult AVs); research before the effect design.
 
@@ -136,7 +136,7 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // start_effects starts each effect of `source` that carries a script and whose conditions pass:
 // the source's for that effect, then the MGEF's. They run on the target, with the caster as the
 // condition target.
-// (hole effect-archetypes :tags magic :sev gap :needs (av-live)) only scripted MGEFs start an effect: the engine archetypes (Value Modifier, Peak Value Modifier, Dual Value Modifier, Absorb, ...) with their formulas from the MGEF's AV, magnitude and Recover flag do not exist.
+// (hole effect-archetypes :tags magic :sev gap) only scripted MGEFs start an effect: the engine archetypes (Value Modifier, Peak Value Modifier, Dual Value Modifier, Absorb, ...) with their formulas from the MGEF's AV, magnitude and Recover flag do not exist.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
@@ -145,7 +145,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		if len(gamedb.form_scripts(c.db, e.effect)) == 0 {continue}
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
 		if !conditions.all(&ctx, e.conditions) || !conditions.all(&ctx, mgef.conditions) {continue}
-		worldstate.start_effect(c.ws, {effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration)})
+		worldstate.start_effect(c.ws, {effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), magnitude = e.magnitude})
 	}
 }
 
