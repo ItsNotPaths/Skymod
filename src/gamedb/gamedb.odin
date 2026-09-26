@@ -242,6 +242,7 @@ DB :: struct {
 	topics:        map[Form_ID]Topic,  // DIAL form -> its topic
 	branches:      map[Form_ID]Branch, // DLBR form -> its dialogue branch
 	infos:         map[Form_ID]Info,   // INFO form -> its response
+	scenes:        map[Form_ID]Scene,  // SCEN form -> its phases, actors and actions
 	story_roots:   []Form_ID, // the top nodes (event nodes), in sibling order; owned
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
 	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
@@ -770,6 +771,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		topics        = make(map[Form_ID]Topic, 16384, allocator),
 		branches      = make(map[Form_ID]Branch, 4096, allocator),
 		infos         = make(map[Form_ID]Info, 32768, allocator),
+		scenes        = make(map[Form_ID]Scene, 2048, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
 		load_tips      = make([dynamic]string, allocator),
@@ -996,6 +998,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.quest_baseline)
 	free_story_nodes(db)
 	free_dialogue(db)
+	free_scenes(db)
 	delete(db.unique_refs)
 	delete(db.alias_targets)
 	delete(db.persistent_refs, db.allocator)
@@ -1419,6 +1422,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_branch(db, rec, ctx.fm)
 	case s == "INFO":
 		index_info(db, rec, ctx.topic_form_id, ctx.fm)
+	case s == "SCEN":
+		index_scene(db, rec, ctx.fm)
 	case s == "CONT":
 		index_base(db, rec, ctx.fm) // container mesh + name (CONT is a base type)
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory

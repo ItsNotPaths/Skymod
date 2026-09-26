@@ -12,7 +12,6 @@ package esm
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
-// (hole scene-records :tags (records quest) :sev blocker) SCEN is never decoded — no scripted scene can run.
 // (hole relationship-records :tags records :sev gap) RELA is never decoded — relationship rank has no source, so disposition checks read a default.
 // (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
 

@@ -126,6 +126,10 @@ main :: proc() {
 		dialogue_survey(path, len(os.args) >= 4 ? os.args[3] : "")
 		return
 	}
+	if len(os.args) >= 3 && os.args[2] == "--scenes" {
+		scene_survey(path)
+		return
+	}
 	if len(os.args) >= 3 && os.args[2] == "--story" {
 		story_survey(path)
 		return
@@ -2652,6 +2656,44 @@ story_survey :: proc(path: string) {
 // dialogue_survey prints the dialogue records' shape: topics, branches and INFOs, how many INFOs
 // found their topic, and how much response and prompt text resolved. With a topic form id, it
 // prints that topic's INFOs in order.
+// scene_survey prints the scenes' shape: phases, actions by kind, and whether every action's
+// phases, topic and alias and every phase fragment land inside their scene.
+scene_survey :: proc(path: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	phases, actors, begin_on_start, repeat, bad_phase, bad_topic, bad_alias, looping := 0, 0, 0, 0, 0, 0, 0, 0
+	kinds: [gamedb.Scene_Action_Kind]int
+	frag_start, frag_done, bad_frag, zero_topic := 0, 0, 0, 0
+	for form, s in db.scenes {
+		phases += len(s.phases)
+		actors += len(s.actors)
+		if s.flags & gamedb.SCENE_BEGIN_ON_QUEST_START != 0 {begin_on_start += 1}
+		if s.flags & gamedb.SCENE_REPEAT_WHILE_TRUE != 0 {repeat += 1}
+		for a in s.actions {
+			kinds[a.kind] += 1
+			if int(a.start) >= len(s.phases) || int(a.end) >= len(s.phases) || a.end < a.start {bad_phase += 1}
+			if a.kind == .Dialogue && a.topic not_in db.topics {bad_topic += 1; if a.topic == 0 {zero_topic += 1}}
+			if a.flags & gamedb.SCENE_ACTION_LOOPING != 0 {looping += 1}
+			if _, ok := gamedb.quest_alias(&db, s.quest, u32(a.alias)); !ok {bad_alias += 1}
+		}
+		_, frags := gamedb.form_fragments(&db, form)
+		for fr in frags {
+			switch fr.item {
+			case esm.PHASE_ON_START: frag_start += 1
+			case esm.PHASE_ON_COMPLETION: frag_done += 1
+			case: continue
+			}
+			if int(fr.index) >= len(s.phases) {bad_frag += 1}
+		}
+	}
+	fmt.printfln("scenes %d (%d begin on quest start, %d repeat), phases %d, actors %d", len(db.scenes), begin_on_start, repeat, phases, actors)
+	fmt.printfln("actions: dialogue %d (%d looping), package %d, timer %d", kinds[.Dialogue], looping, kinds[.Package], kinds[.Timer])
+	fmt.printfln("phase fragments: %d on start, %d on completion, %d past their scene's phases", frag_start, frag_done, bad_frag)
+	fmt.printfln("actions with phases out of range %d, dialogue with no topic %d (%d with none named), alias not in the quest %d", bad_phase, bad_topic, zero_topic, bad_alias)
+}
+
 dialogue_survey :: proc(path, topic_edid: string) {
 	db, owned := build_localized(path)
 	defer gamedb.destroy(&db)

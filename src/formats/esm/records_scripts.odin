@@ -102,7 +102,11 @@ Script_Attach :: struct {
 //
 // `index` is the quest STAGE (QUST), the scene PHASE (SCEN), the perk ENTRY (PERK), or the
 // fragment's bit slot in the flags byte (INFO/PACK, where slot 0 is begin and 1 is end). `item` is
-// the stage's log entry (QUST only).
+// the stage's log entry (QUST), or for a scene PHASE fragment which end of the phase it runs at
+// (PHASE_ON_START / PHASE_ON_COMPLETION; 0 on the scene's begin and end fragments).
+PHASE_ON_START :: 1
+PHASE_ON_COMPLETION :: 2
+
 Script_Fragment :: struct {
 	index:    u16,
 	item:     u16,
@@ -511,10 +515,11 @@ vm_fragments :: proc(
 			if c.bad {
 				break
 			}
-			vm_u8(c) // phase-block version
-			index := vm_u16(c)
-			vm_u16(c) // unknown, always 0 in the corpus
-			append(&list, vm_fragment(c, index, allocator))
+			flag := vm_u8(c) // PHASE_ON_START or PHASE_ON_COMPLETION
+			index := vm_u32(c)
+			fr := vm_fragment(c, u16(index), allocator)
+			fr.item = u16(flag)
+			append(&list, fr)
 		}
 		out.fragments = list[:]
 	case "PERK":
