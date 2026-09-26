@@ -15,7 +15,9 @@ Active_Effect :: struct {
 	lasts:     bool, // an ability or constant effect: until removed
 	duration:  f32,  // real seconds
 	taper:     f32,  // seconds it goes on after its duration (the MGEF's taper)
-	magnitude: f32,  // as authored
+	magnitude: f32,  // as authored, then resisted
+	item:      int,  // its entry in the source's effect list (gamedb.effect_items_of)
+	inactive:  bool, // its entry's conditions fail now: it runs on, changing nothing
 	elapsed:   f32,
 	applied:   bool, // its amount terms have run once
 	ended:     bool, // OnEffectFinish is due or sent
@@ -50,7 +52,7 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) {
 	e.elapsed += dt
 	for term in effect_terms_of(ws, db, e^) {
 		av, ok := term_av(ws, db, e^, term)
-		if term.knob != .Amount || !ok {continue}
+		if term.knob != .Amount || !ok || e.inactive {continue}
 		gain := term_value(db, term, e^, e.elapsed)
 		if e.applied {gain -= term_value(db, term, e^, t0)}
 		av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
@@ -64,7 +66,7 @@ av_live :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 	sum: f64
 	for h in effects_on(ws, actor) {
 		e := ws.effects[h]
-		if e.ended {continue}
+		if e.ended || e.inactive {continue}
 		for term in effect_terms_of(ws, db, e) {
 			name, ok := term_av(ws, db, e, term)
 			if term.knob == .Capacity && !term.on_caster && ok && name == av {sum += term_value(db, term, e, e.elapsed)}

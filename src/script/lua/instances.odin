@@ -124,14 +124,14 @@ attach_cell :: proc(vm: ^VM, db: ^gamedb.DB, cell: script.Form_ID) -> int {
 }
 
 // sync_actor catches an actor's abilities up with its spell list, which OnGameLoaded and mod
-// updates change (script.sync_abilities).
+// updates change (script.sync_constant_effects).
 @(private)
 sync_actor :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) {
 	c := vm.ctx
 	base := worldstate.record_of(c.ws, id)
 	if r, ok := db.ref_by_id[base]; ok {base = r.base}
 	if base not_in db.actors || worldstate.is_deleted(c.ws, id) {return}
-	script.sync_abilities(&c, id)
+	script.sync_constant_effects(&c, id)
 }
 
 @(private)

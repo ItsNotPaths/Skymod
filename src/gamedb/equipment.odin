@@ -79,6 +79,7 @@ Equip_Slot :: struct {
 	biped:       u32,     // biped mask, bit 0 = slot 30; 0 = not armor
 	etyp:        Form_ID, // the EQUP it equips as; 0 = none authored
 	weapon_type: u8,      // WEAP DNAM animation type: 0 hand to hand, 1 sword ... 8 staff, 9 crossbow
+	enchantment: Form_ID, // EITM: the ENCH it carries; 0 = none
 }
 
 Equip_Kind :: enum u8 {
@@ -134,6 +135,7 @@ index_equip :: proc(db: ^DB, rec: esm.Record, kind: Equip_Kind, fm: ^esm.Form_Ma
 	slot.biped, _ = esm.biped_slots(fl)
 	if e, has := esm.subrecord_formid(fl, "ETYP"); has {slot.etyp = esm.remap_form(fm, e)}
 	if f, has := esm.find_field(fl, "DNAM"); has && kind == .Weapon && len(f.data) >= 1 {slot.weapon_type = f.data[0]}
+	if e, has := esm.subrecord_formid(fl, "EITM"); has {slot.enchantment = esm.remap_form(fm, e)}
 	db.equip_slots[rec.form_id] = slot
 }
 

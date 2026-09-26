@@ -3,11 +3,12 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap ) an effect carries its authored magnitude only: no perk scales it (Mod Spell Magnitude and the rest multiply, UESP Skyrim:Alchemy_Effects), and no resistance cuts it (Resist Magic, then the element's, multiplied; the player caps at 85%, fPlayerMaxResistance; UESP Skyrim:Resist_Magic). Its visuals and sounds do not run.
-// (hole effect-condition-recheck :tags (magic script) :sev gap :needs (effect-magnitudes)) an effect's conditions (CTDA) will be checked once, when it starts; Skyrim re-checks them while it runs (about once a second, unsourced). Research with the conditions workstream.
+// (hole effect-magnitudes :tags (magic player) :sev gap :needs (perk-entries)) no perk scales an effect's magnitude: Mod Spell Magnitude, Mod Incoming Spell Magnitude and the potion/enchantment perks multiply it at cast or brew (UESP Skyrim:Alchemy_Effects).
+// (hole effect-fx :tags (magic vfx audio) :sev gap :needs (particles audio-output)) an effect's art, shaders, light and sounds (its MGEF's hit art, casting art, sounds) do not play.
 
 import "core:slice"
 import "../conditions"
+import "../formid"
 import "../gamedb"
 import "../worldstate"
 
@@ -18,6 +19,12 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "HasSpell", n_has_spell)
 	register(reg, "Actor", "AddShout", n_add_shout)
 	register(reg, "Actor", "RemoveShout", n_remove_shout)
+	register(reg, "Game", "TeachWord", n_teach_word)
+	register(reg, "Game", "UnlockWord", n_unlock_word)
+	register(reg, "Game", "IsWordUnlocked", n_is_word_unlocked)
+	register(reg, "Game", "SetBeastForm", n_set_beast_form)
+	register(reg, "Actor", "SendVampirismStateChanged", n_vampirism_changed)
+	register(reg, "Actor", "SendLycanthropyStateChanged", n_lycanthropy_changed)
 	register(reg, "Actor", "DispelAllSpells", n_dispel_all_spells)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
@@ -62,16 +69,41 @@ n_has_spell :: proc(c: ^Call, args: []Value) -> Value {return worldstate.has_spe
 n_add_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.give_spell(c.ws, c.db, c.self, arg_form(args, 0))}
 n_remove_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.remove_spell(c.ws, c.db, c.self, arg_form(args, 0))}
 
-// sync_abilities starts the abilities in `actor`'s spell list that have no effects on it and ends
-// the ability effects whose spell the list no longer holds: after a mod update, on load or attach.
-sync_abilities :: proc(c: ^Call, actor: Form_ID) {
-	known := worldstate.spell_list(c.ws, c.db, actor)
+// The player's words of power: taught is not unlocked (Game.TeachWord / UnlockWord).
+n_teach_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.teach_word(c.ws, formid.PLAYER, arg_form(args, 0)); return nil}
+n_unlock_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.unlock_word(c.ws, formid.PLAYER, arg_form(args, 0)); return nil}
+n_is_word_unlocked :: proc(c: ^Call, args: []Value) -> Value {return worldstate.word_unlocked(c.ws, formid.PLAYER, arg_form(args, 0))}
+
+n_set_beast_form :: proc(c: ^Call, args: []Value) -> Value {c.ws.beast_form = arg_bool(args, 0, false); return nil}
+n_vampirism_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in_set(&c.ws.vampires, c.self, arg_bool(args, 0, false)); return nil}
+n_lycanthropy_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in_set(&c.ws.werewolves, c.self, arg_bool(args, 0, false)); return nil}
+
+// sync_constant_effects starts `actor`'s constant effects that are not running and ends the ones
+// whose source it no longer has: the abilities in its spell list and the constant-effect
+// enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
+// (hole weapon-enchantments :tags (magic combat) :sev gap :needs (combat-damage)) a weapon's enchantment (a Contact effect on hit) never applies; only constant-effect enchantments on worn gear do.
+// (hole twin-enchantments :tags magic :sev polish) two worn items carrying the same ENCH form run it once; Skyrim adds enchantments.
+sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
+	sources := make([dynamic]Form_ID, context.temp_allocator)
+	for s in worldstate.spell_list(c.ws, c.db, actor) {
+		if is_ability(c.db, s) {append(&sources, s)}
+	}
+	for w in worldstate.equipment(c.ws, c.db, actor).worn {
+		slot, _ := gamedb.equip_slot_of(c.db, w.item)
+		if is_constant_enchantment(c.db, slot.enchantment) {append(&sources, slot.enchantment)}
+	}
 	for h in worldstate.effects_on(c.ws, actor) {
 		e := c.ws.effects[h]
-		if !e.ended && is_ability(c.db, e.spell) && !slice.contains(known, e.spell) {worldstate.end_effect(c.ws, h)}
+		constant := is_ability(c.db, e.spell) || is_constant_enchantment(c.db, e.spell)
+		if !e.ended && constant && !slice.contains(sources[:], e.spell) {worldstate.end_effect(c.ws, h)}
 	}
-	for s in known {
-		if is_ability(c.db, s) && len(spell_effects(c.ws, actor, s)) == 0 {start_spell(c, s, actor, actor)}
+	for s in sources {
+		if len(spell_effects(c.ws, actor, s)) > 0 {continue}
+		if ench, ok := gamedb.enchantment_of(c.db, s); ok {
+			start_effects(c, s, ench.effects, true, actor, actor)
+		} else {
+			start_spell(c, s, actor, actor)
+		}
 	}
 }
 
@@ -81,12 +113,27 @@ is_ability :: proc(db: ^gamedb.DB, spell: Form_ID) -> bool {
 	return ok && sp.info.type == .Ability
 }
 
+@(private)
+is_constant_enchantment :: proc(db: ^gamedb.DB, form: Form_ID) -> bool {
+	e, ok := gamedb.enchantment_of(db, form)
+	return ok && e.info.cast_type == .Constant_Effect
+}
+
 // DispelAllSpells ends every effect with a duration; abilities stay.
 n_dispel_all_spells :: proc(c: ^Call, args: []Value) -> Value {
 	for h in worldstate.effects_on(c.ws, c.self) {
 		if !c.ws.effects[h].lasts {worldstate.end_effect(c.ws, h)}
 	}
 	return nil
+}
+
+// recheck_effect re-tests a running effect's own conditions (tick_effects, each second).
+recheck_effect :: proc(c: ^Call, h: Form_ID) {
+	e := &c.ws.effects[h]
+	items := gamedb.effect_items_of(c.db, e.spell)
+	if e.ended || e.item >= len(items) {return}
+	ctx := conditions.Context{db = c.db, ws = c.ws, subject = e.target, target = e.caster}
+	e.inactive = !conditions.all(&ctx, items[e.item].conditions)
 }
 
 // Cast(akSource, akTarget): the spell hits at once, with no projectile. No target hits the source.
@@ -135,19 +182,24 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 	return true
 }
 
-// start_effects starts each effect of `source` whose conditions pass: the source's for that effect,
-// then the MGEF's. They run on the target, with the caster as the condition target, and stack by
-// worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
+// start_effects starts each effect of `source` whose MGEF's conditions pass. The source's own
+// conditions for that effect decide whether it is active, now and at each second's recheck (CK
+// wiki, Magic Effect: Target Conditions). They run on the target, with the caster as the condition
+// target. Effects are resisted (worldstate.resisted) and stacked (worldstate.stack_effect). A timed
+// effect goes on for its MGEF's taper after its duration.
+// (hole concentration-conditions :tags magic :sev polish) a concentration spell inverts the checks (its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies); nothing casts one yet, so both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
 	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
-	for e in effects {
+	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
-		if !conditions.all(&ctx, e.conditions) || !conditions.all(&ctx, mgef.conditions) {continue}
+		if !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
-		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = e.magnitude}
+		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, e.magnitude)
+		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = f32(e.duration), taper = taper, magnitude = m, item = i}
+		eff.inactive = !conditions.all(&ctx, e.conditions)
 		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
 	}
 	for eff in starting {worldstate.start_effect(c.ws, eff)}

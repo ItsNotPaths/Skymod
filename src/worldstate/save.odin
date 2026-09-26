@@ -18,7 +18,6 @@ package worldstate
 // for now (the framing is compression-ready: just wrap each section's bytes before the CRC).
 
 // (hole save-compression :tags save :sev gap) CBOR is stored raw — Odin core ships no zstd, so a save is several times larger than it needs to be. The framing is already compression-ready.
-// (hole save-slots :tags save :sev gap) one flat quicksave slot and no per-character folders, so a second character overwrites the first.
 
 import "core:encoding/cbor"
 import "core:hash"
@@ -259,6 +258,10 @@ Save_Body :: struct {
 	keyword_data:  []Saved_Keyword_Data,
 	cells:         []Saved_Cell,
 	cleared:       []Form_ID,
+	words:         []Saved_Inv,   // actor -> word, WORD_* bits
+	beast_form:    bool,
+	vampires:      []Form_ID,
+	werewolves:    []Form_ID,
 	restocks:      []Saved_Restock,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -385,8 +388,6 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for key, value in ws.keyword_data {append(&keyword_data, Saved_Keyword_Data{key, value})}
 	cells := make([dynamic]Saved_Cell, 0, len(ws.cells), context.temp_allocator)
 	for cell, s in ws.cells {append(&cells, Saved_Cell{cell, s})}
-	cleared := make([dynamic]Form_ID, 0, len(ws.cleared), context.temp_allocator)
-	for loc in ws.cleared {append(&cleared, loc)}
 	rolled := make([dynamic]Saved_Inv, 0, len(ws.rolled), context.temp_allocator)
 	for owner, list in ws.rolled {
 		for e in list {append(&rolled, Saved_Inv{owner, e.item, e.count})}
@@ -448,7 +449,11 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		list_adds     = list_adds[:],
 		keyword_data  = keyword_data[:],
 		cells         = cells[:],
-		cleared       = cleared[:],
+		cleared       = save_set(ws.cleared),
+		words         = save_deltas(ws.words),
+		beast_form    = ws.beast_form,
+		vampires      = save_set(ws.vampires),
+		werewolves    = save_set(ws.werewolves),
 		restocks      = restocks[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -582,9 +587,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for c in body.cells {
 		if id, ok := rf(remap, have_remap, c.cell); ok {ws.cells[id] = c.state}
 	}
-	for l in body.cleared {
-		if id, ok := rf(remap, have_remap, l); ok {ws.cleared[id] = true}
-	}
+	load_set(&ws.cleared, body.cleared, remap, have_remap, rf)
+	load_deltas(&ws.words, body.words, remap, have_remap, rf)
+	ws.beast_form = body.beast_form
+	load_set(&ws.vampires, body.vampires, remap, have_remap, rf)
+	load_set(&ws.werewolves, body.werewolves, remap, have_remap, rf)
 	for r in body.restocks {
 		if id, ok := rf(remap, have_remap, r.chest); ok {ws.restocks[id] = r.hour}
 	}
@@ -755,6 +762,9 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for k in body.keyword_data {add_slot(&seen, k.key.location);add_slot(&seen, k.key.keyword)}
 	for c in body.cells {add_slot(&seen, c.cell)}
 	for l in body.cleared {add_slot(&seen, l)}
+	for w in body.words {add_slot(&seen, w.owner);add_slot(&seen, w.item)}
+	for v in body.vampires {add_slot(&seen, v)}
+	for w in body.werewolves {add_slot(&seen, w)}
 	for r in body.restocks {add_slot(&seen, r.chest)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}

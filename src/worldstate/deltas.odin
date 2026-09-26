@@ -42,3 +42,21 @@ load_deltas :: proc(m: ^Deltas, saved: []Saved_Inv, remap: map[u32]u32, on: bool
 		if ook && fok {delta_upsert(m, owner)^[form] = s.count}
 	}
 }
+
+// Form_Set is a saved set of forms (cleared locations, vampires, werewolves).
+Form_Set :: map[Form_ID]bool
+
+@(private)
+save_set :: proc(m: Form_Set) -> []Form_ID {
+	out := make([dynamic]Form_ID, 0, len(m), context.temp_allocator)
+	for f in m {append(&out, f)}
+	return out[:]
+}
+
+// load_set drops a form from a missing mod.
+@(private)
+load_set :: proc(m: ^Form_Set, saved: []Form_ID, remap: map[u32]u32, on: bool, rf: proc(map[u32]u32, bool, Form_ID) -> (Form_ID, bool)) {
+	for s in saved {
+		if f, ok := rf(remap, on, s); ok {m[f] = true}
+	}
+}

@@ -74,7 +74,11 @@ Overlay :: struct {
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	clock:           Game_Clock,               // game time (clock.odin)
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
-	cleared:         map[Form_ID]bool,             // locations cleared (Location.SetCleared)
+	cleared:         Form_Set,                     // locations cleared (Location.SetCleared)
+	words:           Deltas,                       // actor -> word of power -> WORD_TAUGHT | WORD_UNLOCKED
+	beast_form:      bool,                         // Game.SetBeastForm: the player is a werewolf or vampire lord now
+	vampires:        Form_Set,                     // SendVampirismStateChanged(true)
+	werewolves:      Form_Set,                     // SendLycanthropyStateChanged(true)
 	restocks:        map[Form_ID]f64,              // vendor chest -> the game hour it last restocked
 }
 
@@ -201,7 +205,10 @@ init_overlay :: proc(o: ^Overlay) {
 	o.updates = make(map[Form_ID]Update_Timers)
 	o.game_updates = make(map[Form_ID]Update_Timers)
 	o.cells = make(map[Form_ID]Cell_State)
-	o.cleared = make(map[Form_ID]bool)
+	o.cleared = make(Form_Set)
+	o.words = make(Deltas)
+	o.vampires = make(Form_Set)
+	o.werewolves = make(Form_Set)
 	o.restocks = make(map[Form_ID]f64)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
@@ -265,6 +272,9 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.game_updates)
 	delete(o.cells)
 	delete(o.cleared)
+	free_deltas(&o.words)
+	delete(o.vampires)
+	delete(o.werewolves)
 	delete(o.restocks)
 	delete(o.item_filters)
 	delete(o.aliases)

@@ -15,8 +15,8 @@ import "../../gamedb"
 import "../../worldstate"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit or OnDeath; there is no damage and no death path to send them from.
-// (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (442 scripts define one); there are no trigger volumes.
+// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit, OnDying or OnDeath: no attack makes a hit, Health at 0 does not kill, and Actor.Kill sets Dead with no events.
+// (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (448 scripts define one or both); there are no trigger volumes.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
@@ -132,7 +132,9 @@ count_down :: proc(vm: ^VM, timers: ^map[script.Form_ID]worldstate.Update_Timers
 // section 3).
 tick_effects :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 	gone := make([dynamic]script.Form_ID, context.temp_allocator)
+	c := vm.ctx
 	for h, e in ws.effects {
+		if int(e.elapsed + dt) != int(e.elapsed) {script.recheck_effect(&c, h)} // each second
 		worldstate.advance_effect(ws, vm.ctx.db, h, dt)
 		if e.finished && !ticking(vm, h) {append(&gone, h)}
 	}
@@ -171,10 +173,19 @@ tick_items :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	clear(&ws.item_moves)
 }
 
-// tick_equips sends OnObjectUnequipped / OnObjectEquipped(akBaseObject, akReference) for each item
-// that went off or on, in order, to the actor and its aliases and effects. Inventory items have no
-// reference.
+// tick_equips starts and ends the enchantments of gear that went on or off
+// (script.sync_constant_effects), then sends OnObjectUnequipped / OnObjectEquipped(akBaseObject,
+// akReference) for each item, in order, to the actor and its aliases and effects. Inventory items
+// have no reference.
 tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	c := vm.ctx
+	synced := make([dynamic]script.Form_ID, context.temp_allocator)
+	for e in ws.equip_changes {
+		if !slice.contains(synced[:], e.actor) {
+			append(&synced, e.actor)
+			script.sync_constant_effects(&c, e.actor)
+		}
+	}
 	for e in ws.equip_changes {
 		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, script.Form_ID(0))
 	}

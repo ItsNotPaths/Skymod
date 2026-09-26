@@ -6,12 +6,11 @@ package esm
 // caller remaps them. Every byte offset below was validated against the real Skyrim.esm —
 // the validating record is named in each comment.
 
-// Records the base game ships that NOTHING here decodes. Each is verified absent: the type
-// string appears nowhere in src.
+// Records the base game ships that nothing here decodes into their content.
 //
-// (hole dialogue-records :tags records :sev blocker) DIAL and INFO are never decoded — there is no dialogue data in the engine at all.
-// (hole package-records :tags records :sev blocker) PACK is never decoded — an NPC_'s PKID package list resolves to nothing, so an actor has no behaviour to run.
-// (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO gives an armour its stats but not its per-race mesh, so nothing can be worn or seen.
+// (hole dialogue-records :tags records :sev blocker) DIAL and INFO are never indexed (only their script fragments decode): no topics, responses or conditions.
+// (hole package-records :tags records :sev blocker) PACK bodies are never decoded — an NPC_'s PKID list resolves to empty Package forms, so an actor has no behaviour to run.
+// (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
 // (hole scene-records :tags records :sev gap) SCEN is never decoded — no scripted scene can run.
@@ -306,6 +305,8 @@ Spell_Type :: enum u32 {
 
 // Spell_Info is a SPEL/SCRL's SPIT block (36 bytes): what the spell costs, how it's cast, and
 // how it reaches its target. `half_cost_perk` is raw/local until remapped.
+SPELL_IGNORE_RESISTANCE :: 0x0010_0000 // SPIT flag (UESP Mod File Format/SPEL)
+
 Spell_Info :: struct {
 	cost:           u32,
 	flags:          u32,

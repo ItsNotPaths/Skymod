@@ -8,9 +8,9 @@ package gamedb
 // Decoders live in src/formats/esm/records_actors.odin; this file owns the storage and the queries.
 //
 // NOT decoded: perk ENTRIES (the PRKE/EPFT/EPFD blocks) — the gameplay effects a perk applies, and
-// the entry-level CTDA conditions that gate them (the take-level ones ARE decoded). An entry drives the combat and magic systems, which do not
-// exist yet, so decoding it would produce another dangling link. The menu needs none of it: it
-// draws the tree from AVIF and reads names off the PERK header.
+// the entry-level CTDA conditions that gate them (the take-level ones ARE decoded). The menu needs
+// none of it: it draws the tree from AVIF and reads names off the PERK header.
+// (hole perk-entries :tags (combat magic player records) :sev gap) perk entries (PRKE/EPFT/EPFD: entry points like Mod Spell Magnitude, Mod Attack Damage, Ability, with functions and priorities) are not decoded; a perk acts only through HasPerk conditions.
 
 import "core:strings"
 import "../formats/esm"

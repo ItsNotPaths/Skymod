@@ -7,6 +7,7 @@ package unit_tests
 // reads through baseline⊕overlay + case-insensitive dispatch.
 
 import "core:log"
+import "core:os"
 import "core:math"
 import "core:testing"
 import "../../src/formats/esm"
@@ -745,4 +746,37 @@ test_registry_get_form_from_file :: proc(t: ^testing.T) {
 	got := script.call(&reg, "Game", "GetFormFromFile", &c, {i32(0x016691), "Dawnguard.esm"})
 	testing.expect_value(t, got.(script.Form_ID), script.Form_ID(0x2_0001_6691))
 	testing.expect_value(t, script.call(&reg, "Game", "GetFormFromFile", &c, {i32(0x016691), "Nope.esp"}), nil)
+}
+
+// Words of power: taught is not unlocked. Beast form and the vampire and werewolf states are kept,
+// and all of it saves.
+@(test)
+test_registry_magic_state :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	WORD, NPC :: script.Form_ID(0x602), script.Form_ID(0x700)
+	c := script.Call{ws = &ws, db = &db}
+
+	script.call(&reg, "Game", "TeachWord", &c, {WORD})
+	testing.expect(t, worldstate.word_taught(&ws, formid.PLAYER, WORD), "taught")
+	testing.expect_value(t, script.call(&reg, "Game", "IsWordUnlocked", &c, {WORD}).(bool), false)
+	script.call(&reg, "Game", "UnlockWord", &c, {WORD})
+	script.call(&reg, "Game", "SetBeastForm", &c, {true})
+	c.self = NPC
+	script.call(&reg, "Actor", "SendVampirismStateChanged", &c, {true})
+	script.call(&reg, "Actor", "SendLycanthropyStateChanged", &c, {true})
+	script.call(&reg, "Actor", "SendLycanthropyStateChanged", &c, {false})
+
+	path := "test_magic_state.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
+	_, ok := worldstate.load_from_file(&ws, path)
+	testing.expect(t, ok, "load")
+	testing.expect_value(t, script.call(&reg, "Game", "IsWordUnlocked", &c, {WORD}).(bool), true)
+	testing.expect(t, ws.beast_form && NPC in ws.vampires && NPC not_in ws.werewolves, "beast form, vampire, not a werewolf")
 }

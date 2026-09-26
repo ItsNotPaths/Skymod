@@ -700,29 +700,34 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	testing.expect_value(t, formula.eval(terms[0].f, {1, 10, 2, 0, 1, 0, 0, 0, 0}), 5)
 }
 
-// An effect whose conditions fail at start does not start; they run on the target.
+// An effect whose MGEF's conditions fail does not start. One whose spell-side conditions fail starts
+// inactive, and the recheck each second turns it on once they pass. They run on the target.
 @(test)
 test_effect_start_conditions :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture_init(t, &f, "skymod_instances_effect_ctda", {{"glow.lua", GLOW_LUA}})
 	defer fixture_destroy(&f)
 
-	SPELL, MGEF, PERK :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901), gamedb.Form_ID(0x902)
-	PERKED :: gamedb.Form_ID(0x701)
+	SPELL, MGEF, GATED, PERK :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901), gamedb.Form_ID(0x903), gamedb.Form_ID(0x902)
+	TARGET :: gamedb.Form_ID(0x700)
 	has_perk := []gamedb.Condition{{function = 448, op = .Equal, value = 1, param1 = u64(PERK)}}
 	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
-	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 2, conditions = has_perk}, {effect = MGEF, duration = 2}}}
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 5, conditions = has_perk}, {effect = GATED, duration = 5}}}
+	f.db.magic_effects = make(map[gamedb.Form_ID]gamedb.Magic_Effect, context.temp_allocator)
+	f.db.magic_effects[GATED] = {conditions = has_perk}
 	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
 	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
-
 	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
 	f.db.form_kinds[SPELL] = .Spell
+
 	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x700))`), "Cast")
 	testing.expect_value(t, len(f.ws.effects), 1)
-	f.ws.perks[PERKED] = make(map[gamedb.Form_ID]bool)
-	(&f.ws.perks[PERKED])[PERK] = true
-	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x900), "Cast", ref(0x701))`), "Cast on the perked")
-	testing.expect_value(t, len(f.ws.effects), 3)
+	h := script.spell_effects(&f.ws, TARGET, SPELL)[0]
+	testing.expect(t, f.ws.effects[h].inactive, "spell-side conditions fail: inactive")
+	f.ws.perks[TARGET] = make(map[gamedb.Form_ID]bool)
+	(&f.ws.perks[TARGET])[PERK] = true
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect(t, !f.ws.effects[h].inactive, "the recheck turns it on")
 }
 
 // EquipItem on a potion drinks one: it leaves the pack, OnObjectEquipped is queued and its effects
@@ -752,7 +757,7 @@ test_potion_equip :: proc(t: ^testing.T) {
 }
 
 // AddSpell teaches; only an ability starts. DispelSpell ends effects and keeps the spell; RemoveSpell
-// forgets it. sync_abilities catches an actor up when a mod update changes its records' list.
+// forgets it. sync_constant_effects catches an actor up when a mod update changes its records' list.
 @(test)
 test_spell_natives :: proc(t: ^testing.T) {
 	f: Fixture
@@ -781,10 +786,10 @@ assert(rt.call(a, "RemoveSpell", ref(0x900)) and not rt.call(a, "HasSpell", ref(
 
 	c := script.Call{ws = &f.ws, db = &f.db}
 	f.db.actors[ACTOR] = {spells = {RACIAL}} // a mod update
-	script.sync_abilities(&c, ACTOR)
+	script.sync_constant_effects(&c, ACTOR)
 	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, RACIAL)), 1)
 	f.db.actors[ACTOR] = {}
-	script.sync_abilities(&c, ACTOR)
+	script.sync_constant_effects(&c, ACTOR)
 	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, RACIAL)), 0)
 }
 
@@ -924,6 +929,31 @@ return C
 	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, CASTER, "Magicka"), 100) // Fortify's Health terms replace the archetype
 	start(&f, {effect = BOTH, target = CASTER, caster = CASTER, lasts = true, magnitude = 10})
 	testing.expect(t, worldstate.av_max(&f.ws, &f.db, CASTER, "Magicka") == 110 && worldstate.av_max(&f.ws, &f.db, CASTER, "Health") == 120, "both run")
+}
+
+// Worn gear's constant-effect enchantment runs while it is worn.
+@(test)
+test_worn_enchantment :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_worn", {{"fortify.lua", FORTIFY_LUA}})
+	defer fixture_destroy(&f)
+
+	ACTOR, ARMOR, ENCH, MGEF :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x910), gamedb.Form_ID(0x920), gamedb.Form_ID(0x901)
+	f.db.equip_slots = make(map[gamedb.Form_ID]gamedb.Equip_Slot, context.temp_allocator)
+	f.db.equip_slots[ARMOR] = {kind = .Armor, biped = 0x04, enchantment = ENCH}
+	f.db.enchantments = make(map[gamedb.Form_ID]gamedb.Enchantment, context.temp_allocator)
+	f.db.enchantments[ENCH] = {info = {cast_type = .Constant_Effect}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, magnitude = 20}}}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Fortify"}}}
+	worldstate.av_set_base(&f.ws, ACTOR, "Health", 100)
+
+	worldstate.equip(&f.ws, &f.db, ACTOR, ARMOR)
+	slua.tick_equips(&f.vm, &f.ws)
+	slua.sync_refs(&f.vm)
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, ACTOR, "Health"), 120)
+	worldstate.unequip(&f.ws, &f.db, ACTOR, ARMOR)
+	slua.tick_equips(&f.vm, &f.ws)
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, ACTOR, "Health"), 100)
 }
 
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with

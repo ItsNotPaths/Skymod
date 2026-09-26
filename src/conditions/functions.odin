@@ -18,8 +18,8 @@ import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags records :sev blocker) 7 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
-// (hole perk-entry-conditions :tags combat :sev gap :needs (condition-functions)) perk ENTRY gates are 1,111 conditions over 47 functions, led by has-keyword, and none are evaluated — every perk entry applies unconditionally.
+// (hole condition-functions :tags records :sev blocker) 3 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
+// (hole perk-entry-conditions :tags combat :sev gap :needs (condition-functions perk-entries)) perk ENTRY gates (1,111 conditions over 47 functions, led by has-keyword) are not read; once perk entries decode, every entry would apply ungated.
 // Eval answers one condition. `on` is the object the run-on selected. Returns the value to compare
 // plus whether it could answer at all; answered=false is treated exactly like an unknown function,
 // so the condition passes.
@@ -104,14 +104,9 @@ fn_item_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 	return f32(worldstate.inv_count(ctx.ws, ctx.db, on, gamedb.condition_param1_form(c))), true
 }
 
-// (hole ctda-659 :tags records :sev gap :needs (crafting-screen)) EITM (a base item's enchantment) is decoded by nothing, so CTDA-FN 659 — 384 uses on COBJ, second only to has-perk — is permanently unknown and offers every tempering recipe.
-// NOT IMPLEMENTED, and the next one worth doing:
-//
-// CTDA-FN 659 — tempering target is enchanted (INFERRED). 384 uses on COBJ, second only to
-// has-perk. param1 is unused, the operator is != and the comparison is 1. It needs two things that
-// do not exist: a crafting menu to say WHICH item is selected, and the item's enchantment — base
-// items carry it in an EITM subrecord that nothing decodes, and player-enchanted instances need
-// runtime item data. Until then it is unknown and the row is offered, which is what happens today.
+// (hole ctda-659 :tags records :sev gap :needs (crafting-screen)) CTDA-FN 659 (384 uses on COBJ, second only to has-perk) is not implemented: no crafting screen says which item is selected, and player-made enchantments have no instance data, so every tempering recipe is offered.
+// CTDA-FN 659 — tempering target is enchanted (INFERRED): param1 is unused, the operator is != and
+// the comparison is 1. A base item's enchantment is gamedb.Equip_Slot.enchantment.
 //
 // The perk ENTRY gates (1,111 conditions over 47 functions, led by CTDA-FN 560 has-keyword) belong
 // with the combat system. Dialogue's 55,641 belong with the dialogue project.

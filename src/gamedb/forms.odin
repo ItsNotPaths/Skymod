@@ -459,6 +459,14 @@ enchantment_of :: proc(db: ^DB, ench: Form_ID) -> (Enchantment, bool) {
 	return e, ok
 }
 
+// effect_items_of is the effect list of a spell, scroll, enchantment or potion (nil for any other form).
+effect_items_of :: proc(db: ^DB, source: Form_ID) -> []Magic_Effect_Ref {
+	if sp, ok := spell_of(db, source); ok {return sp.effects}
+	if e, ok := enchantment_of(db, source); ok {return e.effects}
+	if p, ok := potion_of(db, source); ok {return p.effects}
+	return nil
+}
+
 // magic_effect_of returns an MGEF's baseline (ok=false when the form isn't an indexed effect).
 magic_effect_of :: proc(db: ^DB, effect: Form_ID) -> (Magic_Effect, bool) {
 	if db == nil {
