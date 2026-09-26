@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest) :sev gap) no body for IsGuard (no source says what makes a guard), GetLineOfSight (needs spatial queries), IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 157 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
+// (hole condition-functions :tags (records quest) :sev gap) no body for GetLineOfSight (needs spatial queries), IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 114 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;
@@ -48,6 +48,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	80  = fn_get_level,
 	84  = fn_get_dead_count,
 	101 = fn_resting,
+	125 = fn_is_guard,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
 	132 = fn_get_pc_in_faction,
@@ -550,6 +551,12 @@ actor_flags :: proc(ctx: ^Context, on: Form_ID) -> u32 {
 @(private = "file")
 fn_get_location_cleared :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(ctx.ws.cleared[p1(c)])
+}
+
+// IsGuard: a member of IsGuardFaction.
+@(private = "file")
+fn_is_guard :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.in_faction(ctx.ws, ctx.db, on, formid.IS_GUARD_FACTION))
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

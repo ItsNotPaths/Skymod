@@ -5,6 +5,7 @@ package formid
 PLAYER :: Form_ID(0x14)
 PLAYER_BASE :: Form_ID(0x7) // the NPC_ the player ref places
 GOLD :: Form_ID(0xF) // Gold001
+IS_GUARD_FACTION :: Form_ID(0x86EEE) // IsGuardFaction: its members are guards (IsGuard)
 LOC_REF_BOSS :: Form_ID(0x130F7) // the Boss LocationRefType: its death clears the location
 
 // The time globals. The game clock writes them; it is their source.
