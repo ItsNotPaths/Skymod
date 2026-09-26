@@ -24,14 +24,7 @@ register_stores :: proc(reg: ^Registry) {
 // ── GlobalVariable ─────────────────────────────────────────────────────────────
 
 n_glob_get :: proc(c: ^Call, args: []Value) -> Value {
-	return global_value(c.db, c.ws, c.self)
-}
-
-// global_value is a global's value: a write, else its authored FLTV, else 0.
-global_value :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, global: Form_ID) -> f32 {
-	if v, ok := worldstate.get_global(ws, global); ok {return v}
-	v, _ := gamedb.global_value(db, global)
-	return v
+	return worldstate.global_value(c.ws, c.db, c.self)
 }
 
 n_glob_set :: proc(c: ^Call, args: []Value) -> Value {

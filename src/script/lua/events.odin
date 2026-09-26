@@ -289,19 +289,19 @@ drain :: proc(vm: ^VM) -> int {
 // clock from the globals.
 @(private = "file")
 advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32) -> f64 {
-	g := script.global_value
+	g := worldstate.global_value
 	if ws.clock.state == .Unset {
 		worldstate.start_clock(
 			ws,
-			g(db, ws, formid.GAME_YEAR),
-			g(db, ws, formid.GAME_MONTH),
-			g(db, ws, formid.GAME_DAY),
-			g(db, ws, formid.GAME_HOUR),
-			g(db, ws, formid.GAME_DAYS_PASSED),
+			g(ws, db, formid.GAME_YEAR),
+			g(ws, db, formid.GAME_MONTH),
+			g(ws, db, formid.GAME_DAY),
+			g(ws, db, formid.GAME_HOUR),
+			g(ws, db, formid.GAME_DAYS_PASSED),
 		)
 	}
 	before := ws.clock.hours
-	hours := worldstate.advance_clock(ws, dt, g(db, ws, formid.TIMESCALE))
+	hours := worldstate.advance_clock(ws, dt, g(ws, db, formid.TIMESCALE))
 	if math.floor(before) != math.floor(ws.clock.hours) {script.restock_vendors(db, ws)}
 	call_rt(vm, "advance", f64(dt), hours)
 	return hours
@@ -311,7 +311,7 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 // (a wait regenerates as if played through).
 @(private = "file")
 play_seconds :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32, hours: f64) -> f32 {
-	scale := script.global_value(db, ws, formid.TIMESCALE)
+	scale := worldstate.global_value(ws, db, formid.TIMESCALE)
 	return f32(hours * 3600 / f64(scale)) if scale > 0 else dt
 }
 

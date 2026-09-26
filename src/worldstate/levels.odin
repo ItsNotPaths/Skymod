@@ -74,9 +74,7 @@ roll :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, level, count: i32,
 @(private)
 chance_none :: proc(ws: ^World_State, db: ^gamedb.DB, ll: gamedb.Leveled_List) -> f32 {
 	if ll.chance_global == 0 {return f32(ll.chance_none)}
-	if v, ok := get_global(ws, ll.chance_global); ok {return v}
-	v, _ := gamedb.global_value(db, ll.chance_global)
-	return v
+	return global_value(ws, db, ll.chance_global)
 }
 
 @(private)

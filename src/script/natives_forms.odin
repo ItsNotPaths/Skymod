@@ -101,5 +101,5 @@ n_location_set_keyword_data :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_current_game_time :: proc(c: ^Call, args: []Value) -> Value {
-	return global_value(c.db, c.ws, formid.GAME_DAYS_PASSED)
+	return worldstate.global_value(c.ws, c.db, formid.GAME_DAYS_PASSED)
 }

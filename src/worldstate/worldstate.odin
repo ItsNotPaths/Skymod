@@ -329,6 +329,12 @@ get_global :: proc(ws: ^World_State, id: Form_ID) -> (f32, bool) {
 	return v, ok
 }
 
+// global_value is a global's value: a write, else its authored FLTV, else 0.
+global_value :: proc(ws: ^World_State, db: ^gamedb.DB, id: Form_ID) -> f32 {
+	if v, ok := ws.globals[id]; ok {return v}
+	v, _ := gamedb.global_value(db, id)
+	return v
+}
 
 // add_to_list is FormList.AddForm: a form already added stays once.
 add_to_list :: proc(ws: ^World_State, list, form: Form_ID) {
