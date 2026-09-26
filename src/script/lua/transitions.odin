@@ -87,7 +87,7 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 // were last told.
 @(private)
 sync_loaded :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, r: script.Form_ID) {
-	enabled := script.ref_enabled(ws, db, r)
+	enabled := worldstate.ref_enabled(ws, db, r)
 	if enabled == (r in t.loaded) {return}
 	if enabled {
 		t.loaded[r] = true

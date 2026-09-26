@@ -300,3 +300,13 @@ has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) ->
 	}
 	return false
 }
+
+// ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline
+// (the REFR flag, a deletion, or its enable parent).
+ref_enabled :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> bool {
+	if d, ok := get(ws, form); ok && .Disabled in d.live {
+		return !d.disabled
+	}
+	r, ok := gamedb.ref_by_formid(db, form)
+	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
+}

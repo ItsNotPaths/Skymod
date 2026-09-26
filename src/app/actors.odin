@@ -67,7 +67,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
-	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !script.ref_enabled(&g.ws, &g.db, form) {return}
+	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := worldstate.ref_pos(&g.ws, &g.db, form)
 	capsule := actor_capsule(g, form)

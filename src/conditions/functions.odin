@@ -22,8 +22,11 @@ Eval :: #type proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (value: f
 TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	1   = fn_get_distance,
 	14  = fn_get_actor_value,
+	18  = fn_get_current_time,
+	35  = fn_get_disabled,
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
+	48  = fn_get_gold,
 	56  = fn_get_quest_running,
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
@@ -35,34 +38,41 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	73  = fn_get_faction_rank,
 	74  = fn_get_global_value,
 	77  = fn_get_random_percent,
+	80  = fn_get_level,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
+	136 = fn_get_is_reference,
+	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
+	214 = fn_has_magic_effect,
+	264 = fn_has_spell,
 	277 = fn_get_base_actor_value,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
-	181 = fn_has_same_editor_loc_as_ref_alias,
 	359 = fn_get_in_current_loc,
 	360 = fn_get_in_current_loc_alias,
+	372 = fn_is_in_list,
 	426 = fn_get_is_voice_type,
 	448 = fn_has_perk,
 	543 = fn_get_quest_completed,
+	555 = fn_has_loaded_3d,
 	560 = fn_has_keyword,
 	561 = fn_has_ref_type,
-	576 = fn_get_event_data,
 	562 = fn_location_has_keyword,
-	565 = fn_get_is_editor_location,
 	563 = fn_location_has_ref_type,
+	565 = fn_get_is_editor_location,
 	566 = fn_get_is_alias_ref,
 	567 = fn_get_is_editor_loc_alias,
+	576 = fn_get_event_data,
 	579 = fn_get_equipped_shout,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
 	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
 	629 = fn_get_vm_quest_variable,
-	651 = fn_get_keyword_data_for_current_location,
+	640 = fn_get_actor_value_percent,
 	650 = fn_is_linked_to,
+	651 = fn_get_keyword_data_for_current_location,
 }
 
 @(private)
@@ -189,6 +199,73 @@ fn_get_pc_is_sex :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f3
 @(private = "file")
 fn_get_dead :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(worldstate.is_dead(ctx.ws, on))
+}
+
+// IsInList(list): the ref, or its base, is a member of the form list.
+@(private = "file")
+fn_is_in_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	base := worldstate.actor_pick(ctx.ws, ctx.db, on)
+	if base == 0 {base = worldstate.ref_base(ctx.ws, ctx.db, on)}
+	list := p1(c)
+	return yes(worldstate.list_has(ctx.ws, ctx.db, list, on) || (base != 0 && worldstate.list_has(ctx.ws, ctx.db, list, base)))
+}
+
+// GetCurrentTime: the hour of the day.
+@(private = "file")
+fn_get_current_time :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	_, _, _, hour := worldstate.game_date(ctx.ws)
+	return f32(hour), true
+}
+
+@(private = "file")
+fn_get_disabled :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(!worldstate.ref_enabled(ctx.ws, ctx.db, on))
+}
+
+@(private = "file")
+fn_get_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.inv_count(ctx.ws, ctx.db, on, formid.GOLD)), true
+}
+
+@(private = "file")
+fn_get_level :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.actor_level(ctx.ws, ctx.db, on)), true
+}
+
+@(private = "file")
+fn_get_is_reference :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	ref, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(on != 0 && on == ref)
+}
+
+@(private = "file")
+fn_has_magic_effect :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	for h in worldstate.effects_on(ctx.ws, on) {
+		if e := ctx.ws.effects[h]; e.effect == p1(c) && !e.finished {return 1, true}
+	}
+	return 0, true
+}
+
+@(private = "file")
+fn_has_spell :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.has_spell(ctx.ws, ctx.db, on, p1(c)))
+}
+
+// HasLoaded3D: an enabled ref in a cell attached to the player's scene.
+@(private = "file")
+fn_has_loaded_3d :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	cell := worldstate.ref_grid_cell(ctx.ws, ctx.db, on)
+	return yes(cell != 0 && cell in ctx.ws.attached && worldstate.ref_enabled(ctx.ws, ctx.db, on))
+}
+
+// GetActorValuePercent(index): the current value over the maximum, 0 to 1.
+@(private = "file")
+fn_get_actor_value_percent :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	if c.param1 >= esm.ACTOR_VALUE_COUNT {return 0, false}
+	name := gamedb.AV_NAMES[c.param1]
+	most := worldstate.av_max(ctx.ws, ctx.db, on, name)
+	return worldstate.av_current(ctx.ws, ctx.db, on, name) / most if most > 0 else 1, true
 }
 
 // GetActorValue(index): the current value.

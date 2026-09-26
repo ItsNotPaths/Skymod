@@ -128,7 +128,7 @@ usable :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, ref: Form_ID, us
 		return false
 	case a.flags & esm.ALIAS_ALLOW_DEAD == 0 && worldstate.is_dead(c.ws, ref):
 		return false
-	case a.flags & esm.ALIAS_ALLOW_DISABLED == 0 && !ref_enabled(c.ws, c.db, ref):
+	case a.flags & esm.ALIAS_ALLOW_DISABLED == 0 && !worldstate.ref_enabled(c.ws, c.db, ref):
 		return false
 	case a.flags & esm.ALIAS_ALLOW_REUSE == 0 && used[ref]:
 		return false

@@ -111,23 +111,13 @@ n_enable :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
-	return !ref_enabled(c.ws, c.db, c.self)
+	return !worldstate.ref_enabled(c.ws, c.db, c.self)
 }
 
 // n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
 n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
 	cell := worldstate.ref_grid_cell(c.ws, c.db, c.self)
-	return cell != 0 && cell in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
-}
-
-// ref_enabled is a ref's current enable state: a script's Enable/Disable wins, else the baseline
-// (the REFR flag, a deletion, or its enable parent).
-ref_enabled :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, form: Form_ID) -> bool {
-	if d, ok := worldstate.get(ws, form); ok && .Disabled in d.live {
-		return !d.disabled
-	}
-	r, ok := gamedb.ref_by_formid(db, form)
-	return !ok || !gamedb.ref_effective_disabled(db, r) // a ref with no baseline (created) is enabled
+	return cell != 0 && cell in c.ws.attached && worldstate.ref_enabled(c.ws, c.db, c.self)
 }
 
 n_register_single_update :: proc(c: ^Call, args: []Value) -> Value {
