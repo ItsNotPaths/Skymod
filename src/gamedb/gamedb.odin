@@ -220,6 +220,9 @@ DB :: struct {
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
 	story_nodes:   map[Form_ID]Story_Node, // SMBN/SMQN/SMEN form -> its node in the story manager tree
+	topics:        map[Form_ID]Topic,  // DIAL form -> its topic
+	branches:      map[Form_ID]Branch, // DLBR form -> its dialogue branch
+	infos:         map[Form_ID]Info,   // INFO form -> its response
 	story_roots:   []Form_ID, // the top nodes (event nodes), in sibling order; owned
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
 	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
@@ -231,6 +234,7 @@ DB :: struct {
 	actor_ref_index: map[Form_ID]Ref_Loc, // build-time only: ACHR formID -> its slot in actor_refs (override dedup); emptied after build
 	cur_strings:   map[u32]string, // build-time only: the current plugin's STRINGS table (short text: names; borrowed, freed per plugin)
 	cur_dlstrings: map[u32]string, // build-time only: the current plugin's DLSTRINGS table (long text: quest log CNAM, DESC; borrowed, freed per plugin)
+	cur_ilstrings: map[u32]string, // build-time only: the current plugin's ILSTRINGS table (dialogue response text; borrowed, freed per plugin)
 	cur_localized: bool, // build-time only: is the current plugin localized (FULL = string id vs inline)
 }
 
@@ -744,6 +748,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
 		story_nodes   = make(map[Form_ID]Story_Node, 1024, allocator),
+		topics        = make(map[Form_ID]Topic, 16384, allocator),
+		branches      = make(map[Form_ID]Branch, 4096, allocator),
+		infos         = make(map[Form_ID]Info, 32768, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
 		load_tips      = make([dynamic]string, allocator),
@@ -758,10 +765,11 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		db.cur_localized = p.localized
 		db.cur_strings = nil
 		db.cur_dlstrings = nil
+		db.cur_ilstrings = nil
 		if p.localized {
-			// Two tables: .STRINGS (short — names, objective NNAM) and .DLSTRINGS (long — quest log
-			// CNAM, book DESC). Different subrecords index different files; load both so every lstring
-			// we decode resolves. .ILSTRINGS (dialogue) is unused until dialogue lands.
+			// Three tables: .STRINGS (short — names, objective NNAM), .DLSTRINGS (long — quest log
+			// CNAM, book DESC) and .ILSTRINGS (dialogue — INFO NAM1). Different subrecords index
+			// different files; load all so every lstring we decode resolves.
 			if p.strings_data != nil {
 				if tbl, ok := strtab.parse(p.strings_data, .Plain, allocator); ok {
 					db.cur_strings = tbl
@@ -772,10 +780,18 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 					db.cur_dlstrings = tbl
 				}
 			}
+			if p.ilstrings_data != nil {
+				if tbl, ok := strtab.parse(p.ilstrings_data, .Lengthed, allocator); ok {
+					db.cur_ilstrings = tbl
+				}
+			}
 		}
 		esm.walk(p.data, visit, &db, &p.fm, progress, done_bytes) // progress = cumulative bytes (for the load bar)
 		if db.cur_strings != nil {
 			strtab.destroy(&db.cur_strings, allocator)
+		}
+		if db.cur_ilstrings != nil {
+			strtab.destroy(&db.cur_ilstrings, allocator)
 		}
 		if db.cur_dlstrings != nil {
 			strtab.destroy(&db.cur_dlstrings, allocator)
@@ -792,6 +808,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	db.actor_ref_index = nil
 	index_alias_targets(&db)
 	order_story_nodes(&db)
+	order_topic_infos(&db)
 	// No plugin holds the player ref: the engine makes it, in no cell. Its placement is its Moved delta.
 	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, count = 1, persistent = true}
 	log.infof(
@@ -959,6 +976,7 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.quest_baseline)
 	free_story_nodes(db)
+	free_dialogue(db)
 	delete(db.unique_refs)
 	delete(db.alias_targets)
 	delete(db.persistent_refs, db.allocator)
@@ -1372,6 +1390,12 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_quest(db, rec, ctx.fm)
 	case s == "SMBN", s == "SMQN", s == "SMEN":
 		index_story_node(db, rec, ctx.fm)
+	case s == "DIAL":
+		index_topic(db, rec, ctx.fm)
+	case s == "DLBR":
+		index_branch(db, rec, ctx.fm)
+	case s == "INFO":
+		index_info(db, rec, ctx.topic_form_id, ctx.fm)
 	case s == "CONT":
 		index_base(db, rec, ctx.fm) // container mesh + name (CONT is a base type)
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory

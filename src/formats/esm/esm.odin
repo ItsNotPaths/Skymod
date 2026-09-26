@@ -41,6 +41,7 @@ FLAG_LIGHT_MASTER :: 0x0000_0200
 // GRUP group types (the label field's meaning depends on this).
 GRUP_TOP :: 0 // label = record-type signature (e.g. "STAT", "CELL")
 GRUP_WORLD_CHILDREN :: 1 // label = parent WRLD formID (exterior cells live below)
+GRUP_TOPIC_CHILDREN :: 7 // label = parent DIAL formID (its INFOs)
 GRUP_CELL_CHILDREN :: 6 // label = parent CELL formID
 GRUP_CELL_PERSISTENT :: 8
 GRUP_CELL_TEMPORARY :: 9
@@ -114,6 +115,7 @@ Walk_Context :: struct {
 	cell_form_id:  Form_ID,
 	world_form_id: Form_ID,
 	temporary:     bool, // inside a cell's temporary (vs persistent) children
+	topic_form_id: Form_ID, // inside a DIAL's children: that topic
 	fm:            ^Form_Map,
 }
 
@@ -149,6 +151,8 @@ walk_range :: proc(data: []u8, start, end: int, ctx: Walk_Context, visit: Visito
 				child.world_form_id = remap_form(ctx.fm, rd32(data, pos + 8)) // label = parent WRLD formID
 			case GRUP_CELL_CHILDREN:
 				child.cell_form_id = remap_form(ctx.fm, rd32(data, pos + 8)) // label = parent CELL formID
+			case GRUP_TOPIC_CHILDREN:
+				child.topic_form_id = remap_form(ctx.fm, rd32(data, pos + 8)) // label = parent DIAL formID
 			case GRUP_CELL_PERSISTENT:
 				child.temporary = false
 			case GRUP_CELL_TEMPORARY:

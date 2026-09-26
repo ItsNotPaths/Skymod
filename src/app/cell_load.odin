@@ -136,7 +136,7 @@ load_gamedb :: proc(src: string) -> (gamedb.DB, bool) {
 	defer vfs.destroy(&v)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data);delete(inp.ilstrings_data)}
 		delete(inputs)
 	}
 	for name in names {read_plugin_into(&inputs, &v, data_dir, name)}
@@ -404,7 +404,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, v: ^vfs.VFS,
 	data_dir, _ := filepath.join({src, "Data"}, context.temp_allocator)
 	inputs := make([dynamic]gamedb.Plugin_Input, 0, 16, context.allocator)
 	defer {
-		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data)}
+		for inp in inputs {delete(inp.name);delete(inp.data);delete(inp.strings_data);delete(inp.dlstrings_data);delete(inp.ilstrings_data)}
 		delete(inputs)
 	}
 
@@ -674,6 +674,8 @@ read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, v: ^vfs.VFS, dir
 	// Long-text table (.DLSTRINGS): quest-log CNAM + book DESC.
 	dlpath := strings.concatenate({"Strings/", stem, "_English.DLSTRINGS"}, context.temp_allocator)
 	dlbytes, _ := vfs.read(v, dlpath, context.allocator) // nil on absence
+	ilpath := strings.concatenate({"Strings/", stem, "_English.ILSTRINGS"}, context.temp_allocator)
+	ilbytes, _ := vfs.read(v, ilpath, context.allocator) // dialogue text; nil on absence
 	append(
 		inputs,
 		gamedb.Plugin_Input {
@@ -681,6 +683,7 @@ read_plugin_into :: proc(inputs: ^[dynamic]gamedb.Plugin_Input, v: ^vfs.VFS, dir
 			data = bytes,
 			strings_data = sbytes,
 			dlstrings_data = dlbytes,
+			ilstrings_data = ilbytes,
 		},
 	)
 }

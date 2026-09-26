@@ -4,7 +4,6 @@ package gamedb
 // (PNAM) and the sibling before it (SNAM); the event nodes are the roots. An event walks down from
 // the root of its type, and a quest node starts its quests (script/story.odin).
 
-import "core:slice"
 import "../formats/esm"
 
 Story_Node_Kind :: enum u8 {
@@ -82,13 +81,15 @@ index_story_node :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 // (hole story-sibling-order :tags (quest records) :sev polish) SNAM is no total order: 7 of 117 vanilla parents have several chains or two nodes after one sibling (DungeonNode, the event root). Chains go by form order; the engine's tie-break is unsourced.
 @(private)
 order_story_nodes :: proc(db: ^DB) {
+	previous := make(map[Form_ID]Form_ID, len(db.story_nodes), context.temp_allocator)
 	by_parent := make(map[Form_ID][dynamic]Form_ID, 256, context.temp_allocator)
 	for form, n in db.story_nodes {
+		previous[form] = n.previous
 		if n.parent not_in by_parent {by_parent[n.parent] = make([dynamic]Form_ID, context.temp_allocator)}
 		append(&by_parent[n.parent], form)
 	}
 	for parent, &kids in by_parent {
-		ordered := sibling_order(db, kids[:])
+		ordered := chain_order(kids[:], previous, db.allocator)
 		if parent == 0 {
 			db.story_roots = ordered
 		} else if n, ok := &db.story_nodes[parent]; ok {
@@ -97,33 +98,6 @@ order_story_nodes :: proc(db: ^DB) {
 			delete(ordered, db.allocator) // a parent no plugin defines
 		}
 	}
-}
-
-@(private = "file")
-sibling_order :: proc(db: ^DB, kids: []Form_ID) -> []Form_ID {
-	slice.sort(kids)
-	after := make(map[Form_ID][dynamic]Form_ID, len(kids), context.temp_allocator)
-	for k in kids {
-		prev := db.story_nodes[k].previous
-		if !slice.contains(kids, prev) {continue}
-		if prev not_in after {after[prev] = make([dynamic]Form_ID, context.temp_allocator)}
-		append(&after[prev], k)
-	}
-	out := make([dynamic]Form_ID, 0, len(kids), db.allocator)
-	placed := make(map[Form_ID]bool, len(kids), context.temp_allocator)
-	chain :: proc(k: Form_ID, after: map[Form_ID][dynamic]Form_ID, placed: ^map[Form_ID]bool, out: ^[dynamic]Form_ID) {
-		if placed[k] {return}
-		placed[k] = true
-		append(out, k)
-		if nexts, ok := after[k]; ok {
-			for next in nexts {chain(next, after, placed, out)}
-		}
-	}
-	for k in kids {
-		if !slice.contains(kids, db.story_nodes[k].previous) {chain(k, after, &placed, &out)}
-	}
-	for k in kids {chain(k, after, &placed, &out)} // a loop of siblings
-	return out[:]
 }
 
 story_node_of :: proc(db: ^DB, form: Form_ID) -> (Story_Node, bool) {

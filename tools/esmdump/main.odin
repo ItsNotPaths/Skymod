@@ -122,6 +122,10 @@ main :: proc() {
 		vmad_survey(path)
 		return
 	}
+	if len(os.args) >= 3 && os.args[2] == "--dialogue" {
+		dialogue_survey(path, len(os.args) >= 4 ? os.args[3] : "")
+		return
+	}
 	if len(os.args) >= 3 && os.args[2] == "--story" {
 		story_survey(path)
 		return
@@ -2290,7 +2294,7 @@ loadorder_mode :: proc(dir: string) {
 // for any record whose text is an lstring id: without them a GMST string or a MESG body decodes to
 // noise. Mirrors what the app does — loose Data/Strings first, then the archive that carries them.
 // The caller destroys the returned DB and frees `owned`.
-build_localized :: proc(path: string) -> (db: gamedb.DB, owned: [3][]u8) {
+build_localized :: proc(path: string) -> (db: gamedb.DB, owned: [4][]u8) {
 	bytes, rerr := os.read_entire_file(path, context.allocator)
 	if rerr != nil {
 		fmt.eprintfln("failed to read: %s", path)
@@ -2320,14 +2324,16 @@ build_localized :: proc(path: string) -> (db: gamedb.DB, owned: [3][]u8) {
 	dlpath := strings.concatenate({"Strings/", stem, "_English.DLSTRINGS"}, context.temp_allocator)
 	sbytes, _ := vfs.read(&v, spath, context.allocator)
 	dlbytes, _ := vfs.read(&v, dlpath, context.allocator)
-	fmt.printfln("string tables: STRINGS %d bytes, DLSTRINGS %d bytes", len(sbytes), len(dlbytes))
+	ilpath := strings.concatenate({"Strings/", stem, "_English.ILSTRINGS"}, context.temp_allocator)
+	ilbytes, _ := vfs.read(&v, ilpath, context.allocator)
+	fmt.printfln("string tables: STRINGS %d bytes, DLSTRINGS %d bytes, ILSTRINGS %d bytes", len(sbytes), len(dlbytes), len(ilbytes))
 
 	inputs := []gamedb.Plugin_Input {
-		{name = filepath.base(path), data = bytes, strings_data = sbytes, dlstrings_data = dlbytes},
+		{name = filepath.base(path), data = bytes, strings_data = sbytes, dlstrings_data = dlbytes, ilstrings_data = ilbytes},
 	}
 	order := gamedb.resolve_load_order(inputs, context.allocator)
 	defer delete(order, context.allocator)
-	return gamedb.build_plugins(order), {bytes, sbytes, dlbytes}
+	return gamedb.build_plugins(order), {bytes, sbytes, dlbytes, ilbytes}
 }
 
 gmst_survey :: proc(path: string, filter: string) {
@@ -2641,4 +2647,40 @@ story_survey :: proc(path: string) {
 		for a in qb.aliases {fills[a.fill] += 1}
 	}
 	fmt.printfln("alias fills: %v", fills)
+}
+
+// dialogue_survey prints the dialogue records' shape: topics, branches and INFOs, how many INFOs
+// found their topic, and how much response and prompt text resolved. With a topic form id, it
+// prints that topic's INFOs in order.
+dialogue_survey :: proc(path, topic_edid: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	placed := 0
+	for _, t in db.topics {placed += len(t.infos)}
+	responses, texts, prompts, prompt_texts, conds := 0, 0, 0, 0, 0
+	for _, info in db.infos {
+		conds += len(info.conditions)
+		for r in info.responses {
+			responses += 1
+			if r.text != "" {texts += 1}
+		}
+		if info.prompt != "" {prompt_texts += 1}
+	}
+	fmt.printfln("topics %d, branches %d, infos %d (%d in a topic's order), %d conditions",
+		len(db.topics), len(db.branches), len(db.infos), placed, conds)
+	fmt.printfln("responses %d, %d with text; %d prompts with text", responses, texts, prompt_texts)
+	_ = prompts
+	if topic_edid == "" {return}
+	want, _ := strconv.parse_u64_of_base(strings.trim_prefix(topic_edid, "0x"), 16)
+	for form, &t in db.topics {
+		if u64(form) != want {continue}
+		fmt.printfln("\n0x%08X %q category %d subtype %s priority %v", u64(form), gamedb.name_of(&db, form), t.category, string(t.subtype_name[:]), t.priority)
+		for i in t.infos {
+			info := db.infos[i]
+			fmt.printfln("  0x%08X flags 0x%04X conds %d prompt %q", u64(i), info.flags, len(info.conditions), info.prompt)
+			for r in info.responses {fmt.printfln("      %d: %q", r.number, r.text)}
+		}
+	}
 }

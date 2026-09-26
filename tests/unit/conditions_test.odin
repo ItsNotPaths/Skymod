@@ -24,6 +24,11 @@ put_u32 :: proc(b: []u8, off: int, v: u32) {
 }
 
 @(private = "file")
+put_u16 :: proc(b: []u8, off: int, v: u16) {
+	b[off] = u8(v);b[off + 1] = u8(v >> 8)
+}
+
+@(private = "file")
 put_f32 :: proc(b: []u8, off: int, v: f32) {
 	put_u32(b, off, transmute(u32)v)
 }
@@ -719,4 +724,71 @@ test_location_special_refs :: proc(t: ^testing.T) {
 	testing.expect(t, len(bosses) == 2 && bosses[0] == 0xA01 && bosses[1] == 0xA03, "master and added")
 	testing.expect_value(t, len(gamedb.location_special_refs(&db, 0x0000_0B01, 0x0000_0D03)), 0)
 	testing.expect(t, gamedb.has_ref_type(&db, 0xA03, 0xD02) && !gamedb.has_ref_type(&db, 0xA02, 0xD03), "ref types, minus the removed")
+}
+
+// Dialogue records: a topic's INFOs sit in its child group (type 7) and keep their PNAM order; an
+// INFO carries its flags, reset hours, responses, conditions and links; a branch names its topic.
+@(test)
+test_dialogue_records :: proc(t: ^testing.T) {
+	u32b :: proc(v: u32) -> [4]u8 {b: [4]u8; put_u32(b[:], 0, v); return b}
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0900)
+	field(&tes4, "HEDR", hedr[:])
+
+	TOPIC, FIRST, SECOND, BRANCH :: u32(0x0901), u32(0x0902), u32(0x0903), u32(0x0904)
+	dial := make([dynamic]u8, 0, 64);defer delete(dial)
+	field(&dial, "FULL", transmute([]u8)string("Tell me about the war.\x00"))
+	q := u32b(0x0C01);field(&dial, "QNAM", q[:])
+	field(&dial, "DATA", []u8{0, 0, 0, 0})
+	field(&dial, "SNAM", transmute([]u8)string("CUST"))
+
+	second := make([dynamic]u8, 0, 128);defer delete(second) // authored first, but it follows FIRST
+	p := u32b(FIRST);field(&second, "PNAM", p[:])
+	enam: [4]u8;enam[0] = u8(gamedb.INFO_GOODBYE);put_u16(enam[:], 2, 5461) // 2 hours
+	field(&second, "ENAM", enam[:])
+	trdt: [24]u8;trdt[12] = 1
+	field(&second, "TRDT", trdt[:])
+	field(&second, "NAM1", transmute([]u8)string("Ask someone else.\x00"))
+	ctda(&second, 72, 0, 0, 1, 0x0000_0D01, 0)
+	first := make([dynamic]u8, 0, 64);defer delete(first)
+	link := u32b(TOPIC);field(&first, "TCLT", link[:])
+	infos := make([dynamic]u8, 0, 256);defer delete(infos)
+	record(&infos, "INFO", 0, SECOND, second[:])
+	record(&infos, "INFO", 0, FIRST, first[:])
+
+	br := make([dynamic]u8, 0, 64);defer delete(br)
+	field(&br, "QNAM", q[:])
+	d := u32b(gamedb.BRANCH_TOP_LEVEL);field(&br, "DNAM", d[:])
+	st := u32b(TOPIC);field(&br, "SNAM", st[:])
+
+	dials := make([dynamic]u8, 0, 512);defer delete(dials)
+	record(&dials, "DIAL", 0, TOPIC, dial[:])
+	label := u32b(TOPIC)
+	group(&dials, label[:], 7, infos[:])
+	branches := make([dynamic]u8, 0, 128);defer delete(branches)
+	record(&branches, "DLBR", 0, BRANCH, br[:])
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("DIAL"), 0, dials[:])
+	group(&out, transmute([]u8)string("DLBR"), 0, branches[:])
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	topic, tok := gamedb.topic_of(&db, gamedb.Form_ID(TOPIC))
+	testing.expect(t, tok && topic.quest == 0x0C01 && string(topic.subtype_name[:]) == "CUST", "the topic")
+	testing.expect_value(t, gamedb.name_of(&db, gamedb.Form_ID(TOPIC)), "Tell me about the war.")
+	if testing.expect_value(t, len(topic.infos), 2) {
+		testing.expect(t, topic.infos[0] == gamedb.Form_ID(FIRST) && topic.infos[1] == gamedb.Form_ID(SECOND), "PNAM order")
+	}
+	info, _ := gamedb.info_of(&db, gamedb.Form_ID(SECOND))
+	testing.expect(t, info.topic == gamedb.Form_ID(TOPIC) && info.flags & gamedb.INFO_GOODBYE != 0, "topic and flags")
+	testing.expect(t, abs(info.reset_hours - 2) < 0.01, "reset hours")
+	if testing.expect_value(t, len(info.responses), 1) {
+		testing.expect(t, info.responses[0].number == 1 && info.responses[0].text == "Ask someone else.", "the response")
+	}
+	testing.expect_value(t, len(info.conditions), 1)
+	f, _ := gamedb.info_of(&db, gamedb.Form_ID(FIRST))
+	testing.expect(t, len(f.links) == 1 && f.links[0] == gamedb.Form_ID(TOPIC), "TCLT links")
+	b, _ := gamedb.branch_of(&db, gamedb.Form_ID(BRANCH))
+	testing.expect(t, b.start == gamedb.Form_ID(TOPIC) && b.flags == gamedb.BRANCH_TOP_LEVEL, "the branch")
 }

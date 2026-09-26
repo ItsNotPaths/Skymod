@@ -19,6 +19,7 @@ Plugin_Input :: struct {
 	data:           []u8,
 	strings_data:   []u8, // loose <Plugin>_<Lang>.STRINGS bytes for a localized plugin (nil = none/inline); borrowed
 	dlstrings_data: []u8, // loose <Plugin>_<Lang>.DLSTRINGS bytes (long text: quest log CNAM, book DESC); borrowed
+	ilstrings_data: []u8, // loose <Plugin>_<Lang>.ILSTRINGS bytes (dialogue: INFO response text); borrowed
 }
 
 // Loaded_Plugin is a Plugin_Input resolved into the global load order: its global index
@@ -29,6 +30,7 @@ Loaded_Plugin :: struct {
 	data:           []u8,
 	strings_data:   []u8, // carried from Plugin_Input (localized names table bytes; nil = none)
 	dlstrings_data: []u8, // carried from Plugin_Input (long-text table bytes; nil = none)
+	ilstrings_data: []u8, // carried from Plugin_Input (dialogue table bytes; nil = none)
 	localized:      bool, // TES4 flag 0x80 — resolved from the header at build time
 	index:          int,
 	self_slot:      u32, // the global slot of the plugin's own forms
@@ -77,6 +79,7 @@ resolve_load_order :: proc(inputs: []Plugin_Input, allocator := context.allocato
 			data           = inputs[p].data,
 			strings_data   = inputs[p].strings_data,
 			dlstrings_data = inputs[p].dlstrings_data,
+			ilstrings_data = inputs[p].ilstrings_data,
 			localized      = localized[p],
 			index          = gi,
 		}
