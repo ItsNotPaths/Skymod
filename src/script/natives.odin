@@ -80,6 +80,7 @@ register_builtins :: proc(reg: ^Registry) {
 
 	register_math(reg) // Math.* — pure callstatic leaves
 	register_quest(reg) // Quest.* — the quest-state store
+	register_story(reg) // Keyword.SendStoryEvent — the story manager
 	register_alias(reg) // quest aliases
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
 	register_inventory(reg) // ObjectReference/Actor inventory store

@@ -18,7 +18,7 @@ import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags records :sev blocker) 3 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
+// (hole condition-functions :tags (records quest) :sev blocker) 3 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
 // Eval answers one condition. `on` is the object the run-on selected. Returns the value to compare
 // plus whether it could answer at all; answered=false is treated exactly like an unknown function,
 // so the condition passes.
