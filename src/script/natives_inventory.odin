@@ -62,9 +62,8 @@ courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
 	}
 }
 
-// (hole addref-source :tags script :sev gap) a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.
-// AddItem(akItemToAdd, aiCount=1, abSilent=false).
-// AddItem(akItemToAdd, aiCount=1, …). A leveled list adds what it rolls at the container's zone level.
+// AddItem(akItemToAdd, aiCount=1, …). A ref comes whole, out of the container or the world it was
+// in. A leveled list adds what it rolls at the container's zone level.
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(args, 0))
 	count := max(1, arg_i32(args, 1, 1))
@@ -75,8 +74,21 @@ n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 		for e in rolled {move_items(c, {base = e.item, to = c.self, count = e.count})}
 		return nil
 	}
-	move_items(c, {base = base, ref = ref, to = c.self, count = count})
+	if ref == 0 {
+		move_items(c, {base = base, to = c.self, count = count})
+	} else if holder, carried := c.ws.carried[ref]; carried {
+		move_items(c, {base = base, ref = ref, from = holder, to = c.self, count = worldstate.stack_count(c.ws, c.db, ref)})
+	} else if gamedb.is_item(c.db, base) {
+		take(c, ref, base, c.self)
+	}
 	return nil
+}
+
+// take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
+take :: proc(c: ^Call, form, base, by: Form_ID) {
+	move_items(c, {base = base, ref = form, to = by, count = worldstate.stack_count(c.ws, c.db, form), via = .World})
+	worldstate.set_disabled(c.ws, form, worldstate.ref_cell(c.ws, c.db, form), true)
+	worldstate.mark_scene_dirty(c.ws, form)
 }
 
 // RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). With no other
@@ -136,8 +148,30 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 		worldstate.move_items(c.ws, {base = m.base, ref = ref, from = m.from, to = m.to, count = n, via = m.via})
 		rest.count -= n
 	}
-	if rest.count > 0 {worldstate.move_items(c.ws, rest)}
+	if rest.count > 0 {
+		if m.ref == 0 && m.to != 0 {rest.ref = stack_into(c, m.to, m.base, rest.count)}
+		worldstate.move_items(c.ws, rest)
+	}
 	queue_item_event(c, m)
+}
+
+// stack_into puts `count` of a scripted item arriving by count into the container's stack of it,
+// a carried ref that holds the count and runs the item's scripts (Papyrus gives an inventory item its
+// own instance). The first stack is new and returned; later ones join it and return 0. An item
+// without scripts gets no ref.
+@(private = "file")
+stack_into :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
+	if len(gamedb.base_scripts(c.db, base)) == 0 {return 0}
+	for ref in worldstate.carried_refs(c.ws, c.db, container, base) {
+		if cr, ok := &c.ws.created[ref]; ok {
+			cr.count = max(cr.count, 1) + count
+			return 0
+		}
+	}
+	ref := worldstate.create_ref(c.ws, base, 0, {}, {}, 1)
+	(&c.ws.created[ref]).count = count
+	c.ws.carried[ref] = container
+	return ref
 }
 
 // (hole item-event-owner :tags (quest player) :sev polish :needs (container-screen)) the player's AIPL and REMP story events name no owner and never say Steal, Buy or Pickpocket: nothing owns items and nothing trades or pickpockets.
@@ -171,6 +205,10 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 	if ref == 0 || c.ws.carried[ref] != owner {
 		refs := worldstate.carried_refs(c.ws, c.db, owner, base)
 		ref = refs[0] if len(refs) > 0 else 0
+		if ref != 0 && ref in c.ws.created && worldstate.stack_count(c.ws, c.db, ref) > count {
+			(&c.ws.created[ref]).count -= count // part of a stack drops: the stack keeps the rest
+			ref = 0
+		}
 	}
 	count := worldstate.stack_count(c.ws, c.db, ref) if ref != 0 else count
 	count = min(count, worldstate.inv_count(c.ws, c.db, owner, base))

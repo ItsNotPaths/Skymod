@@ -31,7 +31,7 @@ import smath "../math"
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
 // (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).
 // (hole ui-reads :tags ui :sev gap) no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
-// (hole ini-reads :tags script :sev gap) no read for the four SetINI*.
+// (hole ini-reads :tags script :sev polish) no read for the four SetINI*; no vanilla or CC script calls them, so only mods notice.
 
 import "../worldstate"
 import "../formid"
@@ -226,9 +226,7 @@ n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
 	return n_delete(c, args)
 }
 
-// MoveTo(akTarget, afXOffset, afYOffset, afZOffset, abMatchRotation). First slice:
-// teleport self to the target ref's (overlay⊕baseline) position + offsets; self
-// lands in the target's cell. Rotation-match is deferred (identity orientation).
+// MoveTo(akTarget, afXOffset, afYOffset, afZOffset, abMatchRotation).
 n_move_to :: proc(c: ^Call, args: []Value) -> Value {
 	move_to(c, c.self, arg_form(args, 0), move_offset(args), arg_bool(args, 4, true))
 	return nil
@@ -239,8 +237,12 @@ n_move_to :: proc(c: ^Call, args: []Value) -> Value {
 move_to :: proc(c: ^Call, form, target: Form_ID, offset: smath.Vec3, match_rotation := true) {
 	dst := worldstate.ref_pos(c.ws, c.db, target) + offset
 	rot := worldstate.ref_rot(c.ws, c.db, target if match_rotation else form)
-	worldstate.set_moved(c.ws, form, worldstate.ref_cell(c.ws, c.db, target), smath.trs(dst, rot, 1), dst)
-	worldstate.mark_scene_dirty(c.ws, form)
+	place(c, form, dst, rot, worldstate.ref_cell(c.ws, c.db, target))
+}
+
+// place moves `form` to `pos` facing `rot`, in `cell` (0 keeps its own).
+place :: proc(c: ^Call, form: Form_ID, pos, rot: smath.Vec3, cell: Form_ID = 0) {
+	worldstate.relocate(c.ws, form, cell if cell != 0 else worldstate.ref_cell(c.ws, c.db, form), pos, rot)
 }
 
 move_offset :: proc(args: []Value) -> smath.Vec3 {

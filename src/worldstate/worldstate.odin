@@ -120,7 +120,11 @@ Runtime :: struct {
 	// (OnInit inside the native that made them) and drops the scripts of the gone ones.
 	new_refs:        [dynamic]Form_ID,
 	gone_refs:       [dynamic]Form_ID,
+	// Refs whose attached cell may have changed since the last tick: moved, or taken by an alias.
+	refiles:         [dynamic]Refile,
 	// Refs a reset put back to baseline: the VM restarts their scripts and sends OnReset.
+	// Quests likewise: the VM restarts their and their aliases' scripts, OnInit included.
+	reset_quests:    [dynamic]Form_ID,
 	reset_refs:      [dynamic]Form_ID,
 	// Cells a reset changed: the app rebuilds their resident chunks from baseline and overlay.
 	rebuild_cells:   [dynamic]Form_ID,
@@ -166,7 +170,9 @@ init :: proc(ws: ^World_State) {
 	ws.item_moves = make([dynamic]Item_Move)
 	ws.new_refs = make([dynamic]Form_ID)
 	ws.gone_refs = make([dynamic]Form_ID)
+	ws.refiles = make([dynamic]Refile)
 	ws.reset_refs = make([dynamic]Form_ID)
+	ws.reset_quests = make([dynamic]Form_ID)
 	ws.rebuild_cells = make([dynamic]Form_ID)
 	ws.new_effects = make([dynamic]Form_ID)
 	ws.ended_effects = make([dynamic]Form_ID)
@@ -189,7 +195,9 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.item_moves)
 	delete(ws.new_refs)
 	delete(ws.gone_refs)
+	delete(ws.refiles)
 	delete(ws.reset_refs)
+	delete(ws.reset_quests)
 	delete(ws.rebuild_cells)
 	delete(ws.new_effects)
 	delete(ws.ended_effects)

@@ -182,8 +182,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 // move_through_door puts an actor other than the player at a load door's far side.
 @(private = "file")
 move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
-	worldstate.set_moved(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), smath.trs(tp.pos, tp.rot, 1), tp.pos)
-	worldstate.mark_scene_dirty(&g.ws, actor)
+	worldstate.relocate(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), tp.pos, tp.rot)
 }
 
 // tick_activations runs the activations scripts requested since the last tick.
@@ -223,13 +222,11 @@ grab_update :: proc(g: ^Game) {
 // OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world, carried.
 take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.ws, db = &g.db}
-	script.move_items(&c, {base = base, ref = form, to = by, count = worldstate.stack_count(&g.ws, &g.db, form), via = .World})
-	worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true)
-	worldstate.mark_scene_dirty(&g.ws, form)
+	script.take(&c, form, base, by)
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
 }
 
-// (hole item-base-scripts :tags script :sev gap) an item that is in a pack but was never a ref has no script instance, so its base form's scripts hear nothing: reading such a book sends no OnRead.
+// (hole item-base-scripts :tags script :sev gap) a scripted item in a container's starting contents has no instance until it moves (script.stack_into), so reading or equipping it there sends it nothing, and no item hears its own OnEquipped / OnUnequipped (the DLC2 acolyte masks, Miraak's robes).
 // read_book is the player reading a book: OnRead to its ref (for a book in the pack, a carried
 // ref of it), then what reading teaches. True when the book is used up.
 read_book :: proc(g: ^Game, ref, base: Form_ID) -> bool {

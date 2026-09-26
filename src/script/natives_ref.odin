@@ -15,6 +15,7 @@ register_ref_reads :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "GetPositionY", n_get_position_y)
 	register(reg, "ObjectReference", "GetPositionZ", n_get_position_z)
 	register(reg, "ObjectReference", "SetPosition", n_set_position)
+	register(reg, "ObjectReference", "SetAngle", n_set_angle)
 	register(reg, "ObjectReference", "GetAngleX", n_get_angle_x)
 	register(reg, "ObjectReference", "GetAngleY", n_get_angle_y)
 	register(reg, "ObjectReference", "GetAngleZ", n_get_angle_z)
@@ -38,13 +39,17 @@ n_get_position_y :: proc(c: ^Call, args: []Value) -> Value {return worldstate.re
 n_get_position_z :: proc(c: ^Call, args: []Value) -> Value {return worldstate.ref_pos(c.ws, c.db, c.self).z}
 
 n_set_position :: proc(c: ^Call, args: []Value) -> Value {
-	pos := smath.Vec3{arg_f32(args, 0, 0), arg_f32(args, 1, 0), arg_f32(args, 2, 0)}
-	worldstate.set_moved(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), smath.translate(pos), pos)
-	worldstate.mark_scene_dirty(c.ws, c.self)
+	place(c, c.self, {arg_f32(args, 0, 0), arg_f32(args, 1, 0), arg_f32(args, 2, 0)}, worldstate.ref_rot(c.ws, c.db, c.self))
 	return nil
 }
 
-// (hole set-angle :tags script :sev gap) SetAngle is a stub, and GetAngle* reads only the placement's angles, never a move's: the player's read 0, and a MoveTo with rotation match reads the old ones.
+// SetAngle(afXAngle, afYAngle, afZAngle), degrees.
+n_set_angle :: proc(c: ^Call, args: []Value) -> Value {
+	rot := [3]f32{arg_f32(args, 0, 0), arg_f32(args, 1, 0), arg_f32(args, 2, 0)} * math.RAD_PER_DEG
+	place(c, c.self, worldstate.ref_pos(c.ws, c.db, c.self), rot)
+	return nil
+}
+
 n_get_angle_x :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(worldstate.ref_rot(c.ws, c.db, c.self).x)}
 n_get_angle_y :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(worldstate.ref_rot(c.ws, c.db, c.self).y)}
 n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(worldstate.ref_rot(c.ws, c.db, c.self).z)}

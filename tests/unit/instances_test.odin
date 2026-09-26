@@ -103,7 +103,7 @@ return C
 WATCH_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Watch", nil)
 __log = {}
-for _, e in ipairs({ "OnCellAttach", "OnLoad", "OnCellLoad", "OnUnload", "OnCellDetach" }) do
+for _, e in ipairs({ "OnCellAttach", "OnLoad", "OnCellLoad", "OnUnload", "OnCellDetach", "OnAttachedToCell", "OnDetachedFromCell" }) do
   C.__fn[string.lower(e)] = function(self)
     __log[#__log] = (self.form === ref(0x201) and "a:" or "b:") .. e
   end
@@ -173,6 +173,15 @@ return C
 `
 
 @(private = "file")
+TOME_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Tome", nil)
+local function log(s) __log = (__log or "") .. s .. ";" end
+C.__fn["oninit"] = function(self) log("init") end
+C.__fn["oncontainerchanged"] = function(self, new, old) log("moved") end
+return C
+`
+
+@(private = "file")
 GUARD_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Guard", nil)
 local get = rt.native("ReferenceAlias", "GetReference", false)
@@ -195,6 +204,19 @@ end
 C.__fn["fragment_2"] = function(self) __stages = (__stages or "") .. "10b;" end
 C.__fn["fragment_3"] = function(self) __stages = (__stages or "") .. "20;" end
 C.__fn["fragment_4"] = function(self) __stages = (__stages or "") .. "stop, running " .. tostring(running(self)) .. ";" end
+return C
+`
+
+@(private = "file")
+RESET_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("QReset", nil)
+C.__vars = { ["::count_var"] = { type = "Int", default = nil } }
+C.__fn["oninit"] = function(self)
+  __inits = (__inits or 0) + 1
+  __count_at_init = self.vars["::count_var"]
+end
+C.__fn["bump"] = function(self) self.vars["::count_var"] = self.vars["::count_var"] + 1 end
+C.__fn["count"] = function(self) return self.vars["::count_var"] end
 return C
 `
 
@@ -440,6 +462,57 @@ test_transitions_follow_attached_cells :: proc(t: ^testing.T) {
 	testing.expect(t, !loaded(&f, 0x201), "Is3DLoaded: no once detached")
 }
 
+// A scripted ref moved out of the attached cells unloads and detaches; moved back it attaches and
+// loads; moved between attached cells it hears nothing. A cell that attaches lists the refs moved
+// into it. An alias that takes a ref where it stands hears its later events, starting loaded.
+@(test)
+test_transitions_follow_moves_and_aliases :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_moves", {{"watch.lua", WATCH_LUA}})
+	defer fixture_destroy(&f)
+	trans: slua.Transitions
+	defer slua.transitions_destroy(&trans)
+
+	CELL :: gamedb.Form_ID(0x100)
+	OTHER :: gamedb.Form_ID(0x101)
+	SCRIPTED :: gamedb.Form_ID(0xB)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[SCRIPTED] = {scripts = []esm.Script_Attach{{name = "Watch"}}}
+	refs := []gamedb.Ref{{form_id = 0x201, cell_form_id = CELL, base = SCRIPTED}, {form_id = 0x204, cell_form_id = CELL, base = 0xC}}
+	f.db.cell_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.cell_refs[CELL] = make([dynamic]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	for r in refs {
+		append(&f.db.cell_refs[CELL], r)
+		f.db.ref_by_id[r.form_id] = r
+	}
+	slua.attach_cell(&f.vm, &f.db, CELL)
+	alias, _ := formid.alias_handle(0x900, 0)
+	slua.attach(&f.vm, alias, []esm.Script_Attach{{name = "Watch"}}, false)
+
+	step :: proc(t: ^testing.T, f: ^Fixture, trans: ^slua.Transitions, now: []script.Form_ID, want: string, loc := #caller_location) {
+		slua.tick_transitions(&f.vm, &f.db, &f.ws, trans, now)
+		slua.drain(&f.vm)
+		check := strings.concatenate({`local got = table.concat(__log, ","); __log = {}; assert(got == "`, want, `", got)`}, context.temp_allocator)
+		testing.expect(t, slua.do_string(&f.vm, check), "events", loc = loc)
+	}
+	move :: proc(f: ^Fixture, cell: gamedb.Form_ID) {worldstate.relocate(&f.ws, 0x201, cell, {}, {})}
+
+	step(t, &f, &trans, {CELL}, "a:OnCellAttach,a:OnLoad,a:OnCellLoad")
+	move(&f, OTHER)
+	step(t, &f, &trans, {CELL}, "a:OnUnload,a:OnDetachedFromCell")
+	move(&f, CELL)
+	step(t, &f, &trans, {CELL}, "a:OnAttachedToCell,a:OnLoad")
+	move(&f, OTHER)
+	step(t, &f, &trans, {CELL, OTHER}, "a:OnCellAttach,a:OnCellLoad")
+	move(&f, CELL)
+	step(t, &f, &trans, {CELL, OTHER}, "")
+
+	worldstate.fill_alias(&f.ws, alias, 0x204)
+	step(t, &f, &trans, {CELL}, "")
+	step(t, &f, &trans, {}, "a:OnUnload,a:OnCellDetach,b:OnUnload,b:OnCellDetach")
+}
+
 // OnUpdate timers (the scheduler): a registration belongs to the form, so both scripts on it get
 // OnUpdate; registering again replaces the pending one; a repeating one keeps firing until
 // UnregisterForUpdate; a due timer on a form with no scripts yet waits for them.
@@ -550,6 +623,8 @@ test_item_events :: proc(t: ^testing.T) {
 	ARROW :: script.Form_ID(0x10)
 	bag := []esm.Script_Attach{{name = "Bag"}}
 	ring := worldstate.create_ref(&f.ws, 0x20, 0, {}, {}, 1)
+	f.db.base_value = make(map[gamedb.Form_ID]i32, context.temp_allocator)
+	f.db.base_value[0x20] = 50
 	for form in ([]script.Form_ID{CHEST, OTHER, ring}) {slua.attach(&f.vm, form, bag, false)}
 	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
 		c := script.Call{self = form, ws = &f.ws, db = &f.db}
@@ -587,6 +662,11 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
 	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 1)
+	native(&f, CHEST, "AddItem", ring)
+	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "AddItem of a carried ref takes it from its container (the chest filters for gold)")
+	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 0)
+	native(&f, OTHER, "AddItem", ring)
+	testing.expect(t, logged(&f, "add1+src;moved+new+old;"), "and back")
 	c := script.Call{ws = &f.ws, db = &f.db}
 	script.move_items(&c, {base = 0x20, from = OTHER, to = formid.PLAYER, count = 1, via = .Dead_Body}) // the container menu's Take
 	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "a carried ref taken by base hears OnContainerChanged")
@@ -594,6 +674,55 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")
 	testing.expect(t, logged(&f, "rem1;rem11;"), "RemoveAllItems: one event per item type")
+}
+
+// A scripted item arriving by count gets one carried ref for the stack, holding the count; more of
+// it joins that stack. Part of a stack leaving splits it: the stack keeps the rest, the part that
+// goes becomes the destination's stack. A partial drop splits the same way.
+@(test)
+test_scripted_item_stacks :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_stacks", {{"tome.lua", TOME_LUA}})
+	defer fixture_destroy(&f)
+
+	CHEST, OTHER, TOME :: script.Form_ID(0x800), script.Form_ID(0x801), script.Form_ID(0x30)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[TOME] = {scripts = []esm.Script_Attach{{name = "Tome"}}}
+	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
+		c := script.Call{self = form, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "ObjectReference", fn, &c, args)
+		slua.sync_refs(&f.vm)
+	}
+	logged :: proc(f: ^Fixture, want: string) -> bool {
+		slua.tick_items(&f.vm, &f.db, &f.ws)
+		slua.drain(&f.vm)
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__log or "") == "`, want, `", __log); __log = nil`}, context.temp_allocator))
+	}
+	stacks :: proc(f: ^Fixture, holder: script.Form_ID) -> (n: int, units: i32) {
+		for r in worldstate.carried_refs(&f.ws, &f.db, holder, TOME) {
+			n += 1
+			units += worldstate.stack_count(&f.ws, &f.db, r)
+		}
+		return
+	}
+
+	native(&f, CHEST, "AddItem", TOME, i32(1500))
+	testing.expect(t, logged(&f, "init;moved;"), "one instance for the whole stack")
+	n, units := stacks(&f, CHEST)
+	testing.expect(t, n == 1 && units == 1500, "one stack of 1500")
+	native(&f, CHEST, "AddItem", TOME, i32(5))
+	n, units = stacks(&f, CHEST)
+	testing.expect(t, logged(&f, "") && n == 1 && units == 1505, "more joins the stack")
+
+	native(&f, CHEST, "RemoveItem", TOME, i32(5), false, OTHER)
+	n, units = stacks(&f, CHEST)
+	testing.expect(t, n == 1 && units == 1500, "the stack keeps the rest")
+	n, units = stacks(&f, OTHER)
+	testing.expect(t, logged(&f, "init;moved;") && n == 1 && units == 5, "the part that went is a new stack")
+
+	native(&f, CHEST, "DropObject", TOME, i32(500))
+	n, units = stacks(&f, CHEST)
+	testing.expect(t, n == 1 && units == 1000 && worldstate.inv_count(&f.ws, &f.db, CHEST, TOME) == 1000, "a partial drop leaves the stack the rest")
 }
 
 // A stage runs the fragment of each item whose conditions pass, inside SetStage: a fragment that sets
@@ -647,6 +776,40 @@ test_stage_fragments :: proc(t: ^testing.T) {
 	quest(&f, "Stop")
 	testing.expect(t, stages_were(&f, "stop, running true;"), "the shut-down stage runs before the stop")
 	testing.expect(t, !worldstate.quest_running(&f.ws, &f.db, QUEST), "then the quest stops")
+}
+
+// A quest that starts resets: its scripts start from their start values and run OnInit again, and
+// its done stages can run again. A Run Once quest keeps its state.
+@(test)
+test_quest_resets_on_start :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_quest_reset", {{"qreset.lua", RESET_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST, ONCE :: script.Form_ID(0x900), script.Form_ID(0x901)
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	defer delete(f.db.quest_baseline)
+	f.db.quest_baseline[QUEST] = {}
+	f.db.quest_baseline[ONCE] = {run_once = true}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts)
+	defer delete(f.db.form_scripts)
+	for q in ([]script.Form_ID{QUEST, ONCE}) {f.db.form_scripts[q] = {scripts = []esm.Script_Attach{{name = "QReset"}}}}
+	slua.start_game(&f.vm, &f.db)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 2); __inits = 0`), "OnInit at game start")
+
+	quest :: proc(f: ^Fixture, q: script.Form_ID, fn: string) {
+		c := script.Call{self = q, ws = &f.ws, db = &f.db}
+		script.call(&f.reg, "Quest", fn, &c, nil)
+		slua.sync_refs(&f.vm)
+	}
+	testing.expect(t, slua.do_string(&f.vm, `local rt = require('skymod.rt'); rt.call(ref(0x900), "Bump"); rt.call(ref(0x901), "Bump")`), "bump")
+	worldstate.quest_set_stage(&f.ws, QUEST, 10)
+	quest(&f, QUEST, "Start")
+	quest(&f, ONCE, "Start")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 1 and __count_at_init == 0, tostring(__inits) .. " " .. tostring(__count_at_init))`), "only the quest that resets runs OnInit, from its start values")
+	testing.expect(t, !worldstate.quest_is_stage_done(&f.ws, QUEST, 10), "its done stages cleared")
+	testing.expect(t, worldstate.quest_running(&f.ws, &f.db, QUEST) && worldstate.quest_running(&f.ws, &f.db, ONCE), "both run")
+	testing.expect(t, slua.do_string(&f.vm, `local rt = require('skymod.rt'); assert(rt.call(ref(0x900), "Count") == 0 and rt.call(ref(0x901), "Count") == 1)`), "run once keeps its fields")
 }
 
 // A topic info's begin fragment runs at the tick after its line starts, on its own script, with

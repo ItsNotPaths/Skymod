@@ -102,6 +102,13 @@ trs :: proc(pos: Vec3, rot: Vec3, scale: f32) -> Mat4 {
 	return translate(pos) * r * scale_uniform(scale)
 }
 
+// trs_rot is the `rot` that trs was given, read back from its matrix (any uniform scale).
+trs_rot :: proc(m: Mat4) -> Vec3 {
+	s := length3({m[0, 0], m[1, 0], m[2, 0]})
+	if s == 0 {return {}}
+	return {math.atan2(m[1, 2], m[2, 2]), math.asin(clamp(-m[0, 2] / s, -1, 1)), math.atan2(m[0, 1], m[0, 0])}
+}
+
 // look_at_rh: right-handed view matrix (camera looks down -forward), Z-up world.
 // Literals are written row-major for readability; Odin stores matrices
 // column-major in memory — which is exactly what a GLSL mat4 expects on upload.

@@ -628,6 +628,11 @@ test_registry_ref_reads :: proc(t: ^testing.T) {
 	testing.expect(t, abs(call(&reg, &a, "GetAngleZ").(f32) - 90) < 1e-4, "angle in degrees")
 	call(&reg, &b, "SetPosition", f32(7), f32(8), f32(9))
 	testing.expect_value(t, call(&reg, &b, "GetPositionY").(f32), f32(8))
+	call(&reg, &a, "SetAngle", f32(10), f32(-20), f32(45))
+	call(&reg, &a, "SetPosition", f32(1), f32(2), f32(3))
+	testing.expect(t, abs(call(&reg, &a, "GetAngleY").(f32) + 20) < 1e-3 && abs(call(&reg, &a, "GetAngleZ").(f32) - 45) < 1e-3, "SetPosition keeps SetAngle's facing")
+	call(&reg, &b, "MoveTo", A, f32(0), f32(0), f32(0), true)
+	testing.expect(t, abs(call(&reg, &b, "GetAngleX").(f32) - 10) < 1e-3, "MoveTo matches the target's facing")
 
 	testing.expect(t, call(&reg, &a, "GetWorldSpace") == nil, "an interior has no worldspace")
 	testing.expect_value(t, call(&reg, &out, "GetWorldSpace").(F), WORLD)

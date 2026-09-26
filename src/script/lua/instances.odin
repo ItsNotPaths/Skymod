@@ -44,8 +44,6 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 	return int(lua.tointeger(L, -1))
 }
 
-// (hole quest-reset :tags script :sev gap) a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
-
 // new_game fills the aliases of the quests that run from a new game, then starts the game's
 // scripts, then runs those quests' start-up stages and queues their starting scenes. A loaded save keeps its own fills, so it calls
 // start_game alone.
@@ -71,12 +69,7 @@ new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	call_rt(vm, "start_begin")
 	made := 0
-	for q in sorted_quests(db) {
-		made += attach_known(vm, q, gamedb.form_scripts(db, q))
-		for a in db.form_scripts[q].aliases {
-			if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {made += attach_known(vm, h, a.scripts)}
-		}
-	}
+	for q in sorted_quests(db) {made += attach_quest(vm, db, q)}
 
 	refs := make([dynamic]gamedb.Ref, 0, 8192, context.temp_allocator)
 	for _, cell in db.cell_refs {
@@ -106,6 +99,16 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	worldstate.av_drop_pending(vm.ctx.ws)
 	for r in refs {sync_actor(vm, db, r.form_id)}
 	for id in created {sync_actor(vm, db, id)}
+	return made
+}
+
+// attach_quest gives a quest and its aliases their scripts.
+@(private)
+attach_quest :: proc(vm: ^VM, db: ^gamedb.DB, q: script.Form_ID) -> int {
+	made := attach_known(vm, q, gamedb.form_scripts(db, q))
+	for a in db.form_scripts[q].aliases {
+		if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {made += attach_known(vm, h, a.scripts)}
+	}
 	return made
 }
 
@@ -168,7 +171,8 @@ attach_created :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) -> int {
 }
 
 // sync_refs gives refs created since the last call their scripts, OnInit included, so a script's
-// PlaceAtMe returns a ref whose OnInit has run. It drops the scripts of refs deleted since: they
+// PlaceAtMe returns a ref whose OnInit has run. Quests reset since start their scripts again. It
+// drops the scripts of refs deleted since: they
 // leave the tick schedule, and their registrations and saved members go. Effects started or ended
 // since get their instance and OnEffectStart, or OnEffectFinish. Stages set since run their
 // fragments last.
@@ -204,6 +208,15 @@ sync_refs :: proc(vm: ^VM) {
 		}
 		sync_actor(vm, vm.ctx.db, id)
 		send_own(vm, id, "OnReset")
+	}
+	quests := slice.clone(ws.reset_quests[:], context.temp_allocator)
+	clear(&ws.reset_quests)
+	for q in quests {
+		detach(vm, q)
+		for a in vm.ctx.db.form_scripts[q].aliases {
+			if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {detach(vm, h)}
+		}
+		attach_quest(vm, vm.ctx.db, q)
 	}
 	for len(ws.new_refs) > 0 || len(ws.gone_refs) > 0 {
 		gone := slice.clone(ws.gone_refs[:], context.temp_allocator)

@@ -111,12 +111,33 @@ upsert :: proc(ws: ^World_State, form_id, cell: Form_ID) -> ^Ref_Delta {
 	return d
 }
 
-// set_moved records (or updates) a Moved delta. Re-settling the same ref overwrites its transform.
+// set_moved records (or updates) a Moved delta. Re-settling the same ref overwrites its transform. A
+// created ref moved to another cell spawns there.
 set_moved :: proc(ws: ^World_State, form_id, cell: Form_ID, world: smath.Mat4, pos: smath.Vec3) {
+	if cr, ok := &ws.created[form_id]; ok && cr.cell != cell {
+		if list, lok := &ws.created_by_cell[cr.cell]; lok {remove_id(list, form_id)}
+		cr.cell = cell
+		if cell not_in ws.created_by_cell {ws.created_by_cell[cell] = make([dynamic]Form_ID)}
+		append(&ws.created_by_cell[cell], form_id)
+	}
 	d := upsert(ws, form_id, cell)
 	d.live += {.Moved}
 	d.world = world
 	d.pos = pos
+}
+
+// Refile is a ref the transitions tick must file again among the attached cells. `moved` is false
+// when an alias took it where it stands.
+Refile :: struct {
+	ref:   Form_ID,
+	moved: bool,
+}
+
+// relocate puts a ref at a new placement for a script or the engine, and queues it for refiling.
+relocate :: proc(ws: ^World_State, form, cell: Form_ID, pos, rot: smath.Vec3) {
+	set_moved(ws, form, cell, smath.trs(pos, rot, 1), pos)
+	mark_scene_dirty(ws, form)
+	append(&ws.refiles, Refile{form, true})
 }
 
 // set_scale records a Scaled delta (uniform scale override).
@@ -311,8 +332,9 @@ ref_pos :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> smath.Vec3 {
 	return {}
 }
 
-// ref_rot is a placed or created ref's rotation, XYZ euler radians.
+// ref_rot resolves a ref's CURRENT rotation, XYZ euler radians, in the same order as ref_cell.
 ref_rot :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> [3]f32 {
+	if d, ok := get(ws, form); ok && .Moved in d.live {return smath.trs_rot(d.world)}
 	if r, ok := gamedb.ref_by_formid(db, form); ok {return r.rot}
 	if cr, ok := get_created(ws, form); ok {return cr.rot}
 	return {}

@@ -8,9 +8,7 @@ import script ".."
 import "../../gamedb"
 import "../../worldstate"
 import "../../formid"
-
-// (hole cell-change-events :tags script :sev gap) OnAttachedToCell and OnDetachedFromCell never fire, and a scripted ref that MoveTo puts in another cell gets no load or cell events there.
-// (hole alias-ref-events :tags script :sev gap) a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
+import "core:slice"
 
 // Transitions is what the tick remembers between ticks, besides ws.attached: the scripted refs
 // whose OnLoad fired without an OnUnload yet, the exterior persistent refs by the grid cell they
@@ -68,6 +66,9 @@ tick_transitions :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t
 		worldstate.leave_cell(ws, cell)
 	}
 
+	for f in ws.refiles {refile(vm, db, ws, t, still, f)}
+	clear(&ws.refiles)
+
 	for _, refs in ws.attached {
 		for r in refs {sync_loaded(vm, db, ws, t, r)}
 	}
@@ -100,21 +101,81 @@ sync_loaded :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tr
 	}
 }
 
-// scripted_refs lists the refs that attach with `cell` and carry scripts: its refs and actors,
-// the exterior persistent refs over it, and the created refs in it. The caller owns the list.
+// refile moves a ref between the attached cells' lists after it moved or an alias took it. A move
+// from a detached cell to an attached one sends OnAttachedToCell (OnLoad follows in sync_loaded),
+// the reverse OnUnload and OnDetachedFromCell. A ref an alias takes where it stands counts as loaded
+// already. A cell attaching this tick (in `still`, not yet in ws.attached) lists the ref itself. The
+// player sends neither (CK wiki).
+@(private)
+refile :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, still: map[script.Form_ID]bool, f: worldstate.Refile) {
+	r := f.ref
+	if r == formid.PLAYER {return}
+	was := listed_cell(ws, r)
+	now := worldstate.ref_grid_cell(ws, db, r)
+	if now not_in still {now = 0}
+	if was == now {return}
+	if was != 0 {
+		refs := &ws.attached[was]
+		if i, found := slice.linear_search(refs[:], r); found {ordered_remove(refs, i)}
+	}
+	if now != 0 && now not_in ws.attached {return}
+	if now != 0 && tracked(db, ws, r) {
+		append(&ws.attached[now], r)
+		if !f.moved && worldstate.ref_enabled(ws, db, r) {t.loaded[r] = true}
+		if f.moved && was == 0 {send(vm, r, "OnAttachedToCell")}
+	} else if now == 0 && was != 0 {
+		if r in t.loaded {send(vm, r, "OnUnload")}
+		delete_key(&t.loaded, r)
+		send(vm, r, "OnDetachedFromCell")
+	}
+}
+
+@(private)
+listed_cell :: proc(ws: ^worldstate.World_State, r: script.Form_ID) -> script.Form_ID {
+	for cell, refs in ws.attached {
+		if slice.contains(refs[:], r) {return cell}
+	}
+	return 0
+}
+
+// scripted_refs lists the refs in `cell` whose events reach a script: its refs and actors and the
+// exterior persistent refs over it, less those moved away, then the refs moved in, created in it or
+// held by an alias. A ref is listed once. The caller owns the list.
 @(private)
 scripted_refs :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, cell: script.Form_ID) -> [dynamic]script.Form_ID {
 	out := make([dynamic]script.Form_ID)
+	seen := make(map[script.Form_ID]bool, context.temp_allocator)
+	add :: proc(out: ^[dynamic]script.Form_ID, seen: ^map[script.Form_ID]bool, ws: ^worldstate.World_State, db: ^gamedb.DB, cell, r: script.Form_ID) {
+		if r in seen^ || worldstate.ref_grid_cell(ws, db, r) != cell {return}
+		seen[r] = true
+		append(out, r)
+	}
 	for list in ([2][]gamedb.Ref{gamedb.refs_of(db, cell), gamedb.actors_of(db, cell)}) {
 		for r in list {
-			if has_scripts(db, r) {append(&out, r.form_id)}
+			if has_scripts(db, r) {add(&out, &seen, ws, db, cell, r.form_id)}
 		}
 	}
-	append(&out, ..t.persistent[cell][:])
+	persistent, _ := t.persistent[cell]
+	for r in persistent {add(&out, &seen, ws, db, cell, r)}
+	placed := len(out)
+	defer slice.sort(out[placed:]) // the rest come from maps; form order keeps a run reproducible
+	for id, d in ws.ref_deltas {
+		if .Moved in d.live && id != formid.PLAYER && tracked(db, ws, id) {add(&out, &seen, ws, db, cell, id)}
+	}
 	for id, cr in ws.created {
-		if len(gamedb.form_scripts(db, cr.base)) > 0 && worldstate.ref_grid_cell(ws, db, id) == cell {append(&out, id)}
+		if len(gamedb.base_scripts(db, cr.base)) > 0 {add(&out, &seen, ws, db, cell, id)}
+	}
+	for id in ws.alias_holders {
+		if id != formid.PLAYER {add(&out, &seen, ws, db, cell, id)}
 	}
 	return out
+}
+
+// tracked reports whether a ref's events reach a script now: its own or its base's, or an alias's.
+@(private)
+tracked :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, id: script.Form_ID) -> bool {
+	if id in ws.alias_holders || id in db.alias_targets || len(gamedb.form_scripts(db, id)) > 0 {return true}
+	return len(gamedb.base_scripts(db, worldstate.ref_base(ws, db, id))) > 0
 }
 
 // index_persistent buckets every worldspace's persistent scripted refs and actors by the grid cell
@@ -141,5 +202,5 @@ index_persistent :: proc(db: ^gamedb.DB, t: ^Transitions) {
 @(private)
 has_scripts :: proc(db: ^gamedb.DB, r: gamedb.Ref) -> bool {
 	if r.deleted {return false}
-	return len(gamedb.form_scripts(db, r.form_id)) > 0 || len(gamedb.form_scripts(db, r.base)) > 0 || r.form_id in db.alias_targets
+	return len(gamedb.form_scripts(db, r.form_id)) > 0 || len(gamedb.base_scripts(db, r.base)) > 0 || r.form_id in db.alias_targets
 }

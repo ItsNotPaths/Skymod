@@ -104,9 +104,9 @@ may_start :: proc(c: ^Call, q: gamedb.Story_Quest, e: ^Story_Event) -> bool {
 }
 
 // start_quest starts a quest the way Quest.Start and the story manager both do: its aliases fill in
-// order, and a required alias that cannot fill fails the start. `event` is the story event that
-// started it; the quest keeps it for its handlers, aliases and conditions. False when the quest runs
-// already or cannot start.
+// order, and a required alias that cannot fill fails the start; then it resets, unless Run Once.
+// `event` is the story event that started it; the quest keeps it for its handlers, aliases and
+// conditions. False when the quest runs already or cannot start.
 start_quest :: proc(c: ^Call, quest: Form_ID, event: ^Story_Event = nil) -> bool {
 	if worldstate.quest_running(c.ws, c.db, quest) {return false}
 	if event != nil {c.ws.quest_events[quest] = event^}
@@ -117,6 +117,7 @@ start_quest :: proc(c: ^Call, quest: Form_ID, event: ^Story_Event = nil) -> bool
 		return false
 	}
 	if event != nil {append(&c.ws.story_quests, quest)}
+	if reset_quest(c, quest) {worldstate.quest_set_running(c.ws, quest, true)}
 	queue_stages(c, quest, gamedb.STAGE_START_UP)
 	start_quest_scenes(c, quest)
 	return true

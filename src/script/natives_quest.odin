@@ -9,6 +9,7 @@ package script
 // resident 3D scene changes when a stage advances; quest-driven ref enable/disable rides its own verb).
 
 import "core:slice"
+import "../formid"
 import "../gamedb"
 import "../worldstate"
 
@@ -158,9 +159,23 @@ queue_stages :: proc(c: ^Call, quest: Form_ID, flag: u8) {
 }
 
 n_quest_reset :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.quest_reset(c.ws, c.self)
-	clear_aliases(c.ws, c.db, c.self)
+	if reset_quest(c, c.self) {clear_aliases(c.ws, c.db, c.self)}
 	return nil
+}
+
+// reset_quest puts a quest back to its start: stopped, no stages done, and its and its aliases'
+// scripts at their start values, to run OnInit again. A Run Once quest never resets (CK wiki,
+// Quest Data Tab). Reports whether it reset.
+reset_quest :: proc(c: ^Call, quest: Form_ID) -> bool {
+	qb, _ := gamedb.quest_baseline_of(c.db, quest)
+	if qb.run_once {return false}
+	worldstate.quest_reset(c.ws, quest)
+	worldstate.forget_scripts(c.ws, quest)
+	for a in c.db.form_scripts[quest].aliases {
+		if h, ok := formid.alias_handle(quest, u32(a.owner.alias)); ok {worldstate.forget_scripts(c.ws, h)}
+	}
+	append(&c.ws.reset_quests, quest)
+	return true
 }
 
 n_quest_set_active :: proc(c: ^Call, args: []Value) -> Value {

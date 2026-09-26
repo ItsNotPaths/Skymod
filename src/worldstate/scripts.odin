@@ -257,6 +257,7 @@ fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
 	ws.aliases[alias] = form
 	if form not_in ws.alias_holders {ws.alias_holders[form] = make([dynamic]Form_ID)}
 	append(&ws.alias_holders[form], alias)
+	append(&ws.refiles, Refile{form, false})
 }
 
 // clear_alias empties `alias`.
