@@ -40,8 +40,9 @@ stack_count :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> i32 {
 
 // carry records where an item move leaves its refs (after the counts moved). A named ref goes with
 // the move, or is gone when the move has no destination. A move by base takes the source's carried
-// refs of that base along while they hold more than the source has left.
-carry :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) {
+// refs of that base along while they hold more than the source has left, and returns them
+// (temp-allocated).
+carry :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) -> (taken: []Form_ID) {
 	if m.ref != 0 {
 		if m.to != 0 {ws.carried[m.ref] = m.to} else {delete_key(&ws.carried, m.ref)}
 		return
@@ -51,10 +52,13 @@ carry :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) {
 	total: i32
 	for r in refs {total += stack_count(ws, db, r)}
 	left := inv_count(ws, db, m.from, m.base)
-	for i := len(refs) - 1; i >= 0 && total > left; i -= 1 {
+	i := len(refs)
+	for i > 0 && total > left {
+		i -= 1
 		total -= stack_count(ws, db, refs[i])
 		if m.to != 0 {ws.carried[refs[i]] = m.to} else {delete_key(&ws.carried, refs[i])}
 	}
+	return refs[i:]
 }
 
 // carried_refs lists the refs of `base` that `holder` carries, in form order.

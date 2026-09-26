@@ -117,7 +117,8 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // move_items moves the counts and queues the move's inventory events for the next tick. A source
-// gives at most what it holds. The container menu moves items through it too.
+// gives at most what it holds. A carried ref that a move by base takes along is its own move, so
+// it hears OnContainerChanged. The container menu moves items through it too.
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	m := m
 	if m.from != 0 {
@@ -129,8 +130,13 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 		}
 	}
 	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
-	worldstate.carry(c.ws, c.db, m)
-	worldstate.move_items(c.ws, m)
+	rest := m
+	for ref in worldstate.carry(c.ws, c.db, m) {
+		n := worldstate.stack_count(c.ws, c.db, ref)
+		worldstate.move_items(c.ws, {base = m.base, ref = ref, from = m.from, to = m.to, count = n, via = m.via})
+		rest.count -= n
+	}
+	if rest.count > 0 {worldstate.move_items(c.ws, rest)}
 	queue_item_event(c, m)
 }
 
