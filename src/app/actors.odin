@@ -28,7 +28,7 @@ Capsule :: struct {
 	radius, half_h: f32,
 }
 
-// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the OBND box (radius = mean half-width, height = box height); whether Skyrim sizes its controller from OBND is unsourced, and a long body (horse, mammoth) is one upright cylinder.
+// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the OBND box (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
 // actor_capsule fits an upright capsule to an actor's bounds at its scale.
 actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 	c := script.Call{ws = &g.ws, db = &g.db}

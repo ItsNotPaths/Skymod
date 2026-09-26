@@ -188,7 +188,7 @@ actor_name :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> string {
 // HUMAN_BOUNDS is the player's OBND, for an actor whose NPC_ and race carry none.
 HUMAN_BOUNDS :: [2][3]f32{{-22, -14, 0}, {22, 14, 128}}
 
-// (hole actor-bounds-missing :tags (player records) :sev gap) 15 vanilla races have no NPC_ with a nonzero OBND (hare, chicken, bear, troll, chaurus, frost atronach, the vampire races...), so they get human bounds; their skeleton or body mesh bounds would give the real size (build/out/wsP/bodies/obnd_se.txt).
+// (hole actor-bounds-missing :tags (player records) :sev gap) 15 vanilla races have no NPC_ with a nonzero OBND (hare, chicken, bear, troll, chaurus, frost atronach, the vampire races...), so they get human bounds; their skeletons carry no controller capsule either, so the real size needs the engine's runtime rule (build/out/wsP/bodies/obnd_se.txt, research/findings.md section 8).
 // actor_bounds is an actor's OBND box at scale 1: its NPC_'s (through the traits template, `pick`
 // standing in for a leveled one), else the first nonzero one of its race, else HUMAN_BOUNDS.
 actor_bounds :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2][3]f32 {
