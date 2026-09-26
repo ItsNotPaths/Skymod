@@ -15,7 +15,7 @@ Ranked_Entry :: struct {
 	order: int,
 }
 
-// (hole perk-entry-ties :tags (player records) :sev polish) entries of equal priority run in perk-list order; Skyrim's tie order is fixed but unexplained (build/out/wsP/research/findings.md section 7).
+// (hole perk-entry-ties :tags (player records) :sev polish) entries of equal priority run in perk-list order; Skyrim's tie order is fixed but unexplained: the engine walks an actor's AIPerkData array in order (NoahBoddie perk-entry-point-extender), and how entries are inserted is only in the binary (searched 2026-09-26; findings.md section 7).
 // perk_value runs `value` through `owner`'s entries on `point`, highest priority first, so the
 // lowest runs last and wins a Set (CK wiki Perk; findings.md section 7). An entry applies when
 // every condition tab passes: tab 0 runs on the owner, tab i on args[i-1].

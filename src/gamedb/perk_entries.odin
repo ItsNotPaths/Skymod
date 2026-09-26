@@ -63,7 +63,7 @@ Perk_Tab :: struct {
 	conditions: []Condition, // owned
 }
 
-// (hole perk-template :tags (player records) :sev polish) a templated NPC_'s perks follow its spell-list template (Use Spell List); which template flag carries PRKR is unsourced.
+// (hole perk-template :tags (player records) :sev polish) a templated NPC_'s perks follow its spell-list template (Use Spell List); which template flag carries PRKR is unsourced: no page says, and the CK keeps stale PRKR under either flag, so the data cannot tell (measured 2026-09-26: 484 of 723 Use Spell List NPC_ with a template still carry PRKR).
 // record_perks is an NPC_'s PRKR perks, through its spell-list template.
 record_perks :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> []Form_ID {
 	if db == nil {return nil}
