@@ -294,6 +294,7 @@ Actor_Base :: struct {
 	template_flags: u16,    // ACBS (esm.ACBS_TEMPLATE_*)
 	ai:            [6]u8,   // AIDT: the AI actor values 0..5 (Aggression .. Assistance)
 	spells:        []Form_ID, // SPLO (owned)
+	perks:         []Form_ID, // PRKR (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
 	factions:      []Faction_Membership, // SNAM baseline faction ranks (owned; the overlay diverges from these)
@@ -2322,6 +2323,7 @@ load_tips :: proc(db: ^DB) -> []string {
 @(private)
 free_actor_base :: proc(db: ^DB, a: Actor_Base) {
 	delete(a.spells, db.allocator)
+	delete(a.perks, db.allocator)
 	delete(a.packages, db.allocator)
 	delete(a.inventory, db.allocator)
 	delete(a.factions, db.allocator)
@@ -2376,6 +2378,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 
 	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.
 	a.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
+	a.perks = remap_formid_list(db, esm.formid_list(fl, "PRKR", context.allocator), fm)
 	a.packages = remap_formid_list(db, esm.formid_list(fl, "PKID", context.allocator), fm)
 
 	// CNTO starting inventory — same shape as a container's (base item + count), remapped.

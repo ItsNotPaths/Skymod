@@ -225,10 +225,6 @@ Saved_Rel :: struct {
 	rank: i32,
 }
 
-Saved_Perk :: struct {
-	actor, perk: Form_ID,
-}
-
 // Save_Body is the overlay's serialised sections (§4.2). New sections become new fields here; CBOR's
 // tagged encoding loads old saves into the extended struct unharmed (a save without a field decodes it
 // as zero — handled in load_from_file).
@@ -253,7 +249,7 @@ Save_Body :: struct {
 	actor_values:  []Saved_AV,
 	factions:      []Saved_Faction,
 	relationships: []Saved_Rel,
-	perks:         []Saved_Perk,
+	perks:         []Saved_Inv,   // actor -> perk, GIVEN / REMOVED
 	updates:       []Saved_Update,
 	item_filters:  []Saved_Filter,
 	aliases:       []Saved_Alias,
@@ -360,10 +356,6 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			append(&facs, Saved_Faction{actor = actor, faction = faction, rank = rank})
 		}
 	}
-	perks := make([dynamic]Saved_Perk, 0, len(ws.perks), context.temp_allocator)
-	for actor, taken in ws.perks {
-		for perk in taken {append(&perks, Saved_Perk{actor, perk})}
-	}
 	rels := make([dynamic]Saved_Rel, 0, len(ws.relationships), context.temp_allocator)
 	for a, others in ws.relationships {
 		for b, rank in others {
@@ -452,7 +444,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		actor_values  = avs[:],
 		factions      = facs[:],
 		relationships = rels[:],
-		perks         = perks[:],
+		perks         = save_deltas(ws.perks),
 		updates       = updates[:],
 		item_filters  = filters[:],
 		aliases       = aliases[:],
@@ -746,11 +738,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		faction, _ := rf(remap, have_remap, f.faction)
 		faction_upsert(ws, actor)^[faction] = f.rank
 	}
-	for p in body.perks {
-		actor, aok := rf(remap, have_remap, p.actor)
-		perk, pok := rf(remap, have_remap, p.perk)
-		if aok && pok {perk_add(ws, actor, perk)}
-	}
+	load_deltas(&ws.perks, body.perks, remap, have_remap, rf)
 	for r in body.relationships {
 		a, kok := rf(remap, have_remap, r.a)
 		if !kok {continue}
@@ -775,7 +763,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
 	for r in body.relationships {add_slot(&seen, r.a);add_slot(&seen, r.b)}
-	for p in body.perks {add_slot(&seen, p.actor);add_slot(&seen, p.perk)}
+	for r in body.perks {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for u in body.updates {add_slot(&seen, u.form)}
 	for f in body.item_filters {add_slot(&seen, f.container);add_slot(&seen, f.filter)}
 	for a in body.aliases {add_slot(&seen, a.alias);add_slot(&seen, a.form)}

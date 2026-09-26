@@ -724,8 +724,7 @@ test_effect_start_conditions :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.effects), 1)
 	h := script.spell_effects(&f.ws, TARGET, SPELL)[0]
 	testing.expect(t, f.ws.effects[h].inactive, "spell-side conditions fail: inactive")
-	f.ws.perks[TARGET] = make(map[gamedb.Form_ID]bool)
-	(&f.ws.perks[TARGET])[PERK] = true
+	worldstate.perk_add(&f.ws, TARGET, PERK)
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect(t, !f.ws.effects[h].inactive, "the recheck turns it on")
 }

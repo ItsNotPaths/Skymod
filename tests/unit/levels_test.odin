@@ -164,6 +164,6 @@ test_make_legendary :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_base(&ws, &db, A, "OneHanded"), 15)
 	testing.expect_value(t, ws.levels[A].perk_points, 2)
 	testing.expect_value(t, ws.levels[A].legendary[0], 1)
-	testing.expect(t, !worldstate.perk_has(&ws, A, RANK2), "both ranks refunded")
-	testing.expect(t, worldstate.perk_has(&ws, A, OTHER), "other trees keep their perks")
+	testing.expect(t, !worldstate.perk_has(&ws, &db, A, RANK2), "both ranks refunded")
+	testing.expect(t, worldstate.perk_has(&ws, &db, A, OTHER), "other trees keep their perks")
 }

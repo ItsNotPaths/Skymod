@@ -368,38 +368,35 @@ faction_remove_all :: proc(ws: ^World_State, actor: Form_ID) {
 	}
 }
 
-// ── perk store (actor FormID -> the perks it has taken) ────────────────────────────────────────
-// Overlay-only, and the whole truth: a perk is never baseline data. An NPC_ gets its perks from its
-// PERK entries at load and the player takes them at the stats menu, so presence in this set IS
-// having the perk. Backs Actor.AddPerk / HasPerk / RemovePerk and CTDA function 448.
+// ── perks ─────────────────────────────────────────────────────────────────────────────────────
+// An actor's perks are its NPC_'s PRKR list with a delta per perk, like its spells. A rank is its
+// own PERK form (NNAM chain), so taking a perk twice is a no-op. Backs Actor.AddPerk / HasPerk /
+// RemovePerk and CTDA function 448.
 
-@(private)
-perk_upsert :: proc(ws: ^World_State, actor: Form_ID) -> ^map[Form_ID]bool {
-	if _, ok := ws.perks[actor]; !ok {
-		ws.perks[actor] = make(map[Form_ID]bool)
-	}
-	return &ws.perks[actor]
-}
-
-// perk_add gives actor a perk. Taking a perk twice is a no-op, not a second rank — Skyrim models
-// ranks as separate PERK records linked by NNAM, so rank 2 is its own form.
 perk_add :: proc(ws: ^World_State, actor, perk: Form_ID) {
-	inner := perk_upsert(ws, actor)
-	inner^[perk] = true
-}
-
-// perk_has reports whether actor has taken perk.
-perk_has :: proc(ws: ^World_State, actor, perk: Form_ID) -> bool {
-	if inner, ok := ws.perks[actor]; ok {
-		return inner[perk]
-	}
-	return false
+	delta_upsert(&ws.perks, actor)[perk] = GIVEN
 }
 
 perk_remove :: proc(ws: ^World_State, actor, perk: Form_ID) {
-	if inner, ok := &ws.perks[actor]; ok {
-		delete_key(inner, perk)
+	delta_upsert(&ws.perks, actor)[perk] = REMOVED
+}
+
+perk_has :: proc(ws: ^World_State, db: ^gamedb.DB, actor, perk: Form_ID) -> bool {
+	if delta, ok := ws.perks[actor]; ok {
+		switch delta[perk] {
+		case GIVEN:
+			return true
+		case REMOVED:
+			return false
+		}
 	}
+	return slice.contains(gamedb.record_perks(db, record_of(ws, actor), actor_pick(ws, db, actor)), perk)
+}
+
+// perk_list is every perk `actor` has: its records' then the ones it was given.
+perk_list :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
+	delta, _ := ws.perks[actor]
+	return with_delta(gamedb.record_perks(db, record_of(ws, actor), actor_pick(ws, db, actor)), delta)
 }
 
 @(private)

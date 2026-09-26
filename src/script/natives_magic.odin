@@ -3,7 +3,7 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole effect-magnitudes :tags (magic player) :sev gap :needs (perk-entries)) no perk scales an effect's magnitude: Mod Spell Magnitude, Mod Incoming Spell Magnitude and the potion/enchantment perks multiply it at cast or brew (UESP Skyrim:Alchemy_Effects).
+// (hole effect-magnitudes :tags (magic player) :sev gap) no perk scales an effect's magnitude (script.perk_value answers): Mod Spell Magnitude, Mod Incoming Spell Magnitude and the potion/enchantment perks multiply it at cast or brew (UESP Skyrim:Alchemy_Effects).
 // (hole effect-fx :tags (magic vfx audio) :sev gap :needs (particles audio-output)) an effect's art, shaders, light and sounds (its MGEF's hit art, casting art, sounds) do not play.
 
 import "core:slice"
@@ -79,14 +79,20 @@ n_vampirism_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in
 n_lycanthropy_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in_set(&c.ws.werewolves, c.self, arg_bool(args, 0, false)); return nil}
 
 // sync_constant_effects starts `actor`'s constant effects that are not running and ends the ones
-// whose source it no longer has: the abilities in its spell list and the constant-effect
-// enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
+// whose source it no longer has: the abilities in its spell list and its perks' ability entries,
+// and the constant-effect enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
 // (hole weapon-enchantments :tags (magic combat) :sev gap :needs (combat-damage)) a weapon's enchantment (a Contact effect on hit) never applies; only constant-effect enchantments on worn gear do.
 // (hole twin-enchantments :tags magic :sev polish) two worn items carrying the same ENCH form run it once; Skyrim adds enchantments.
 sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
 	sources := make([dynamic]Form_ID, context.temp_allocator)
 	for s in worldstate.spell_list(c.ws, c.db, actor) {
 		if is_ability(c.db, s) {append(&sources, s)}
+	}
+	for perk in worldstate.perk_list(c.ws, c.db, actor) {
+		p, _ := gamedb.perk_of(c.db, perk)
+		for e in p.entries {
+			if e.kind == .Ability && is_ability(c.db, e.form) {append(&sources, e.form)}
+		}
 	}
 	for w in worldstate.equipment(c.ws, c.db, actor).worn {
 		slot, _ := gamedb.equip_slot_of(c.db, w.item)

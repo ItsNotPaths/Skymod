@@ -7,10 +7,7 @@ package gamedb
 //
 // Decoders live in src/formats/esm/records_actors.odin; this file owns the storage and the queries.
 //
-// NOT decoded: perk ENTRIES (the PRKE/EPFT/EPFD blocks) — the gameplay effects a perk applies, and
-// the entry-level CTDA conditions that gate them (the take-level ones ARE decoded). The menu needs
-// none of it: it draws the tree from AVIF and reads names off the PERK header.
-// (hole perk-entries :tags (combat magic player records) :sev gap) perk entries (PRKE/EPFT/EPFD: entry points like Mod Spell Magnitude, Mod Attack Damage, Ability, with functions and priorities) are not decoded; a perk acts only through HasPerk conditions.
+// Its entries (what the perk does) are in perk_entries.odin.
 
 import "core:strings"
 import "../formats/esm"
@@ -30,6 +27,7 @@ Perk :: struct {
 	// entry gate whether that entry's effect applies, which is a combat question. Owned.
 	// 520 of the base game's 1,631 PERK conditions land here, over just 6 functions.
 	take_conditions: []Condition,
+	entries:         []Perk_Entry, // owned
 }
 
 // Perk_Node is one star in a skill's constellation — a perk plus where it sits and what it links to.
@@ -47,6 +45,7 @@ free_perk :: proc(db: ^DB, p: Perk) {
 	delete(p.name, db.allocator)
 	delete(p.description, db.allocator)
 	delete(p.take_conditions, db.allocator)
+	free_perk_entries(db, p.entries)
 }
 
 // free_perk_tree releases a tree's nodes and their connection lists.
@@ -94,6 +93,7 @@ index_perk :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		p.next_rank = esm.remap_form(fm, n)
 	}
 	p.take_conditions = index_conditions(db, fl, fm, "PRKE") // stop before the entries
+	p.entries = index_perk_entries(db, fl, fm)
 	db.perks[rec.form_id] = p
 }
 

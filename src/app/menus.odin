@@ -143,7 +143,10 @@ skills_menu :: proc(g: ^Game) {
 		} else {
 			imgui.TextUnformatted(fmt.ctprintf("%-12s %3.0f / %3.0f", skill, level, cap))
 			imgui.SameLine()
-			if imgui.SmallButton(fmt.ctprintf("Legendary##%s", skill)) {worldstate.make_legendary(ws, db, formid.PLAYER, skill)}
+			if imgui.SmallButton(fmt.ctprintf("Legendary##%s", skill)) {
+				c := script.Call{ws = ws, db = db}
+				if worldstate.make_legendary(ws, db, formid.PLAYER, skill) {script.sync_constant_effects(&c, formid.PLAYER)}
+			}
 		}
 		if s.legendary[i] > 0 {
 			imgui.SameLine()

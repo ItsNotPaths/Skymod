@@ -19,7 +19,6 @@ import "../gamedb"
 import "../worldstate"
 
 // (hole condition-functions :tags records :sev blocker) 3 of the 244 condition functions Skyrim.esm uses are implemented, and an unanswerable condition PASSES — so 83,759 authored gates are mostly open doors, not gates.
-// (hole perk-entry-conditions :tags combat :sev gap :needs (condition-functions perk-entries)) perk ENTRY gates (1,111 conditions over 47 functions, led by has-keyword) are not read; once perk entries decode, every entry would apply ungated.
 // Eval answers one condition. `on` is the object the run-on selected. Returns the value to compare
 // plus whether it could answer at all; answered=false is treated exactly like an unknown function,
 // so the condition passes.
@@ -70,7 +69,7 @@ fn_has_perk :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bo
 	if ctx.ws == nil {
 		return 0, false
 	}
-	return worldstate.perk_has(ctx.ws, on, gamedb.condition_param1_form(c)) ? 1 : 0, true
+	return worldstate.perk_has(ctx.ws, ctx.db, on, gamedb.condition_param1_form(c)) ? 1 : 0, true
 }
 
 // CTDA-FN 277 — GetBaseActorValue (UESP Function Indices; 14 is GetActorValue, 640 GetActorValuePercent).

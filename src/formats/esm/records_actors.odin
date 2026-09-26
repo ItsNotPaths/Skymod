@@ -201,6 +201,90 @@ perk_header :: proc(fields: []Field) -> (h: Perk_Header, ok: bool) {
 	return {}, false
 }
 
+// Perk_Entry_Kind is a PRKE's type byte.
+Perk_Entry_Kind :: enum u8 {
+	Quest,       // DATA: quest + stage, set when the perk is taken
+	Ability,     // DATA: a spell the perk holder always has
+	Entry_Point, // DATA: entry point + function + tab count; a value the engine asks for
+}
+
+// Raw_Perk_Entry is one PRKE .. PRKF run of a PERK. Forms are raw (local); `tabs` and the text
+// fields are views into the record's fields, valid while those are.
+Raw_Perk_Entry :: struct {
+	kind:           Perk_Entry_Kind,
+	rank, priority: u8,
+	form:           u32, // Quest: the quest. Ability: the spell. Entry point: EPFD form (EPFT 3, 4, 5)
+	stage:          u8,
+	point:          u8, // entry point id (gamedb.Entry_Point)
+	function:       u8, // gamedb.Perk_Function
+	param_type:     u8, // EPFT: 1 float, 2 AV + factor, 3 LVLI, 4 activate choice, 5 SPEL, 6 GMST editor id, 7 lstring
+	values:         [2]f32,
+	text:           Field, // EPFD text (EPFT 6 zstring, 7 lstring) or the activate label (EPF2)
+	has_text:       bool,
+	tabs:           [dynamic]Perk_Tab,
+}
+
+// Perk_Tab is one PRKC condition tab: which object `tab` runs on, and its CTDA fields.
+Perk_Tab :: struct {
+	tab:    u8,
+	fields: []Field,
+}
+
+// perk_entries splits a PERK's fields into its entries. VERIFIED against Skyrim.esm: 484 entries
+// (6 quest, 29 ability, 449 entry point), each closed by PRKF; entry DATA is 8, 4 and 3 bytes by kind
+// (build/out/wsP/perks/entries.py). Layout from UESP Mod File Format/PERK.
+perk_entries :: proc(fields: []Field, allocator := context.allocator) -> [dynamic]Raw_Perk_Entry {
+	out := make([dynamic]Raw_Perk_Entry, allocator)
+	e: ^Raw_Perk_Entry
+	tab_start := -1
+	close_tab :: proc(e: ^Raw_Perk_Entry, fields: []Field, start, end: int) {
+		if e != nil && start >= 0 {append(&e.tabs, Perk_Tab{fields[start].data[0], fields[start + 1:end]})}
+	}
+	for f, i in fields {
+		switch f.type {
+		case "PRKE":
+			if len(f.data) < 3 {continue}
+			append(&out, Raw_Perk_Entry{kind = Perk_Entry_Kind(f.data[0]), rank = f.data[1], priority = f.data[2]})
+			e = &out[len(out) - 1]
+			e.tabs = make([dynamic]Perk_Tab, allocator)
+		case "DATA":
+			if e == nil {continue}
+			switch e.kind {
+			case .Quest:
+				if len(f.data) >= 5 {e.form, e.stage = rd32(f.data, 0), f.data[4]}
+			case .Ability:
+				if len(f.data) >= 4 {e.form = rd32(f.data, 0)}
+			case .Entry_Point:
+				if len(f.data) >= 2 {e.point, e.function = f.data[0], f.data[1]}
+			}
+		case "PRKC":
+			close_tab(e, fields, tab_start, i)
+			tab_start = i if len(f.data) >= 1 else -1
+		case "EPFT", "PRKF":
+			close_tab(e, fields, tab_start, i)
+			tab_start = -1
+			if e == nil {continue}
+			if f.type == "EPFT" && len(f.data) >= 1 {e.param_type = f.data[0]}
+			if f.type == "PRKF" {e = nil}
+		case "EPF2":
+			if e != nil {e.text, e.has_text = f, true}
+		case "EPFD":
+			if e == nil {continue}
+			switch e.param_type {
+			case 1:
+				if len(f.data) >= 4 {e.values[0] = rf32(f.data, 0)}
+			case 2:
+				if len(f.data) >= 8 {e.values = {rf32(f.data, 0), rf32(f.data, 4)}}
+			case 3, 4, 5:
+				if len(f.data) >= 4 {e.form = rd32(f.data, 0)}
+			case 6, 7:
+				e.text, e.has_text = f, true
+			}
+		}
+	}
+	return out
+}
+
 // --- AVIF (actor value information) ------------------------------------------------------
 
 // ACTOR_VALUE_COUNT is the size of Skyrim's ActorValue index space (0 Aggression … 163 Reflect

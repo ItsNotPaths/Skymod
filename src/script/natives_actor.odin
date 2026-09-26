@@ -185,16 +185,24 @@ n_set_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── perks ───────────────────────────────────────────────────────────────────
 
+// AddPerk: the perk's abilities start and its quest entries set their stages.
 n_add_perk :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.perk_add(c.ws, c.self, arg_form(args, 0))
+	perk := arg_form(args, 0)
+	worldstate.perk_add(c.ws, c.self, perk)
+	p, _ := gamedb.perk_of(c.db, perk)
+	for e in p.entries {
+		if e.kind == .Quest {n_quest_set_stage(&Call{self = e.form, ws = c.ws, db = c.db, reg = c.reg}, {i32(e.stage)})}
+	}
+	sync_constant_effects(c, c.self)
 	return nil
 }
 
 n_remove_perk :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.perk_remove(c.ws, c.self, arg_form(args, 0))
+	sync_constant_effects(c, c.self)
 	return nil
 }
 
 n_has_perk :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.perk_has(c.ws, c.self, arg_form(args, 0))
+	return worldstate.perk_has(c.ws, c.db, c.self, arg_form(args, 0))
 }

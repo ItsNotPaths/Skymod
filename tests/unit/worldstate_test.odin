@@ -169,7 +169,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, fok && fr == 4, "faction rank lost")
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000AC701, 0x000F00D5), i32(3))
 	testing.expect_value(t, ws.rel_rank(&dst, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
-	testing.expect(t, ws.perk_has(&dst, 0x000AC701, 0x000BABE0), "perk lost")
+	testing.expect(t, ws.perk_has(&dst, nil, 0x000AC701, 0x000BABE0), "perk lost")
 }
 
 @(test)

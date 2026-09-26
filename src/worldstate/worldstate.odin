@@ -60,7 +60,7 @@ Overlay :: struct {
 	pending_avs:     [dynamic]Saved_AV,            // loaded values of names no mod has created yet (not saved)
 	factions:        map[Form_ID]map[Form_ID]i32,  // actor FormID -> (faction FormID -> rank); presence = membership
 	relationships:   map[Form_ID]map[Form_ID]i32,  // actor FormID -> (other actor FormID -> relationship rank)
-	perks:           map[Form_ID]map[Form_ID]bool, // actor FormID -> the perks it has taken (presence = taken)
+	perks:           Deltas,                       // actor -> (perk -> GIVEN / REMOVED against its records' PRKR)
 	updates:         map[Form_ID]Update_Timers,    // form -> its OnUpdate registrations (the scheduler's timers)
 	game_updates:    map[Form_ID]Update_Timers,    // form -> its OnUpdateGameTime registrations, in game hours
 	item_filters:    map[Form_ID][dynamic]Form_ID, // container -> AddInventoryEventFilter forms; absent = every item passes
@@ -205,7 +205,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.pending_avs = make([dynamic]Saved_AV)
 	o.factions = make(map[Form_ID]map[Form_ID]i32)
 	o.relationships = make(map[Form_ID]map[Form_ID]i32)
-	o.perks = make(map[Form_ID]map[Form_ID]bool)
+	o.perks = make(Deltas)
 	o.updates = make(map[Form_ID]Update_Timers)
 	o.game_updates = make(map[Form_ID]Update_Timers)
 	o.cells = make(map[Form_ID]Cell_State)
@@ -237,7 +237,6 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for a in o.pending_avs {delete(a.name)}
 	for _, &inner in o.factions {delete(inner)}
 	for _, &inner in o.relationships {delete(inner)}
-	for _, &inner in o.perks {delete(inner)}
 	for _, &list in o.item_filters {delete(list)}
 	for _, &list in o.alias_holders {delete(list)}
 	for _, vars in o.script_state {free_script_vars(vars)}
@@ -273,7 +272,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.pending_avs)
 	delete(o.factions)
 	delete(o.relationships)
-	delete(o.perks)
+	free_deltas(&o.perks)
 	delete(o.updates)
 	delete(o.game_updates)
 	delete(o.cells)

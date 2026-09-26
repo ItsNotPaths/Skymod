@@ -111,7 +111,7 @@ refund_perks :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: st
 	for node in gamedb.perk_tree_of(db, db.actor_value_by_index[i32(i + 6)]) {
 		perk := node.perk
 		for _ in 0 ..< gamedb.perk_ranks(db, node.perk) {
-			if perk_has(ws, actor, perk) {
+			if perk_has(ws, db, actor, perk) {
 				perk_remove(ws, actor, perk)
 				n += 1
 			}

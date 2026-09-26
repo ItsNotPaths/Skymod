@@ -3,6 +3,7 @@ package unit_tests
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/script"
 import "../../src/worldstate"
 
 // An auto-calc NPC_'s base values: the race's start, its ACBS offset and the class share of the
@@ -129,4 +130,32 @@ test_actor_bounds :: proc(t: ^testing.T) {
 	testing.expect_value(t, gamedb.actor_bounds(&db, TEMPLATED), box)
 	testing.expect_value(t, gamedb.actor_bounds(&db, BARE), race_box)
 	testing.expect_value(t, gamedb.actor_bounds(&db, OTHER), gamedb.HUMAN_BOUNDS)
+}
+
+// A record perk's entry points run in priority order, and a failing condition tab skips its entry.
+@(test)
+test_perk_value :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0x20)
+	PERK :: gamedb.Form_ID(0x30)
+	OTHER :: gamedb.Form_ID(0x31)
+	HAS_PERK :: 448
+	db: gamedb.DB
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[NPC] = {perks = {PERK}}
+	gate := []gamedb.Condition{{function = HAS_PERK, op = .Equal, value = 1, param1 = u64(OTHER)}}
+	db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
+	db.perks[PERK] = {entries = {
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, priority = 1, values = {1.5, 0}},
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, priority = 0, values = {10, 0}},
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, values = {1000, 0}, tabs = {{0, gate}}},
+		{kind = .Entry_Point, point = .Mod_Spell_Cost, function = .Set_Value, values = {0, 0}},
+	}}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	c := script.Call{ws = &ws, db = &db}
+
+	testing.expect_value(t, script.perk_value(&c, .Mod_Spell_Magnitude, NPC, 10), 30)
+	worldstate.perk_remove(&ws, NPC, PERK)
+	testing.expect_value(t, script.perk_value(&c, .Mod_Spell_Magnitude, NPC, 10), 10)
 }
