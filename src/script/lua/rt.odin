@@ -3,8 +3,6 @@ package script_lua
 // The engine half of `skymod.rt`, the runtime every converted script requires. rt.lua is the
 // language half; these are the few things it cannot do without the registry or gamedb.
 
-// (hole utility-wait :tags script :sev gap) Utility.Wait returns at once, so a Papyrus poll loop that no S5 patch rewrote spins until rt.lua's instruction budget ends the handler.
-
 import "core:c"
 import "core:log"
 import "core:reflect"

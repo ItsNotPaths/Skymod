@@ -677,7 +677,26 @@ local function params_of(cls, lname)
   end
 end
 
+-- Waits return at once: the splitter and the rewrites own every vanilla wait, so a call that gets
+-- here is a function neither covers. It is named once, by where it is defined.
+local waits = { ["utility.wait"] = true, ["utility.waitgametime"] = true }
+local rt_source = debug.getinfo(1, "S").source
+
+local function wait_returns(fn)
+  return function()
+    local level = 2
+    local at = debug.getinfo(level, "S")
+    while at and at.source == rt_source do
+      level = level + 1
+      at = debug.getinfo(level, "S")
+    end
+    local where = at and (at.short_src .. ":" .. at.linedefined) or "?"
+    warn_once("wait:" .. where, fn .. " returns at once in the function at " .. where .. ": split or rewrite it")
+  end
+end
+
 function rt.native(class, fn, global)
+  if waits[low(class .. "." .. fn)] then return wait_returns(fn) end
   local p = native_params[low(class .. "." .. fn)]
   if global then
     if p then return function(...) return native(class, fn, nil, args_out(with_defaults(p, ...))) end end
