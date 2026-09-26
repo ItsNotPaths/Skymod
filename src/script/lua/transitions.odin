@@ -7,17 +7,19 @@ package script_lua
 import script ".."
 import "../../gamedb"
 import "../../worldstate"
+import "../../formid"
 
 // (hole cell-change-events :tags script :sev gap) OnAttachedToCell and OnDetachedFromCell never fire, and a scripted ref that MoveTo puts in another cell gets no load or cell events there.
 // (hole alias-ref-events :tags script :sev gap) a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
 
 // Transitions is what the tick remembers between ticks, besides ws.attached: the scripted refs
-// whose OnLoad fired without an OnUnload yet, and the exterior persistent refs by the grid cell
-// they attach with (indexed once).
+// whose OnLoad fired without an OnUnload yet, the exterior persistent refs by the grid cell they
+// attach with (indexed once), and the player's location (none after a load: no event for it).
 Transitions :: struct {
 	loaded:     map[script.Form_ID]bool,
 	persistent: map[script.Form_ID][dynamic]script.Form_ID,
 	indexed:    bool,
+	location:   Maybe(script.Form_ID),
 }
 
 transitions_destroy :: proc(t: ^Transitions) {
@@ -28,7 +30,16 @@ transitions_destroy :: proc(t: ^Transitions) {
 	delete(t.persistent)
 }
 
-// (hole story-change-location :tags (quest world) :sev blocker) the player moving to another location queues no CLOC story event (135 SMQN, the radiant quests).
+// (hole npc-change-location :tags (quest ai) :sev polish :needs (ai-agent)) only the player sends CLOC; 7 vanilla CLOC conditions run on actor 1, so an NPC's move may be meant to send it too (unsourced).
+// tick_location queues a Change Location story event when the player's location differs from the
+// last tick's: actor 1 the player, location 1 the old, location 2 the new.
+tick_location :: proc(ws: ^worldstate.World_State, t: ^Transitions, now: script.Form_ID) {
+	if old, known := t.location.?; known && old != now {
+		worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = formid.PLAYER, location1 = old, location2 = now})
+	}
+	t.location = now
+}
+
 // tick_transitions compares `now`, the cells attached this tick, with ws.attached and queues the
 // events. A cell that detaches: OnUnload for its loaded refs, then OnCellDetach. A cell that stays:
 // OnLoad / OnUnload for refs a script enabled or disabled. A cell that attaches: OnCellAttach for

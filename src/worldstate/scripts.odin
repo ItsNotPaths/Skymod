@@ -145,6 +145,7 @@ Story_Event :: struct {
 Story_Type :: [4]u8
 
 STORY_SCRIPT :: Story_Type{'S', 'C', 'P', 'T'}
+STORY_CHANGE_LOCATION :: Story_Type{'C', 'L', 'O', 'C'}
 
 // queue_story_event keeps an engine event for the next tick's story manager.
 queue_story_event :: proc(ws: ^World_State, e: Story_Event) {

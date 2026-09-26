@@ -1065,3 +1065,29 @@ test_condition_reads_quest_member :: proc(t: ^testing.T) {
 	testing.expect(t, is(&ctx, "::untouched", 4), "a declared default")
 	testing.expect(t, is(&ctx, "::missing_var", 6), "no such member passes")
 }
+
+// The player's location change queues a CLOC story event; the first tick after a load only records
+// where the player is.
+@(test)
+test_change_location_event :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	trans: slua.Transitions
+	defer slua.transitions_destroy(&trans)
+	A, B :: script.Form_ID(0xA01), script.Form_ID(0xA02)
+
+	slua.tick_location(&ws, &trans, A)
+	testing.expect_value(t, len(ws.story_events), 0)
+	slua.tick_location(&ws, &trans, A)
+	testing.expect_value(t, len(ws.story_events), 0)
+	slua.tick_location(&ws, &trans, B)
+	if testing.expect_value(t, len(ws.story_events), 1) {
+		e := ws.story_events[0]
+		testing.expect(t, e.type == worldstate.STORY_CHANGE_LOCATION && e.ref1 == formid.PLAYER, "CLOC by the player")
+		testing.expect(t, e.location1 == A && e.location2 == B, "old then new")
+	}
+	trans.location = nil // a load
+	slua.tick_location(&ws, &trans, A)
+	testing.expect_value(t, len(ws.story_events), 1)
+}

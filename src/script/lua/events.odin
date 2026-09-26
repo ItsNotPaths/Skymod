@@ -218,6 +218,8 @@ tick_story_events :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 		switch e.type {
 		case worldstate.STORY_SCRIPT:
 			send(vm, quest, "OnStoryScript", e.keyword, e.location1, e.ref1, e.ref2, e.value1, e.value2)
+		case worldstate.STORY_CHANGE_LOCATION:
+			send(vm, quest, "OnStoryChangeLocation", e.ref1, e.location1, e.location2)
 		}
 	}
 	clear(&ws.story_quests)
@@ -272,6 +274,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_effects(vm, ws, dt)
 	for cell in loaded {attach_cell(vm, db, cell)}
 	tick_transitions(vm, db, ws, t, attached)
+	tick_location(ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
 	tick_zone_levels(vm, ws)

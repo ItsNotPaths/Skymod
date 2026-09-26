@@ -448,6 +448,7 @@ frame_persistence :: proc(g: ^Game) {
 		if m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); ok {
 			log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
 			if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
+			g.trans.location = nil
 			// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
 			// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
 			// The rebuild flags object collision for re-cook; run it behind the dedicated load
