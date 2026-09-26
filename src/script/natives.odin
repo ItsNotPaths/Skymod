@@ -99,13 +99,13 @@ register_builtins :: proc(reg: ^Registry) {
 // ── ObjectReference verbs (write through the overlay) ────────────────────────
 
 n_disable :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_disabled(c.ws, c.self, ref_cell(c, c.self), true)
+	worldstate.set_disabled(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 
 n_enable :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_disabled(c.ws, c.self, ref_cell(c, c.self), false)
+	worldstate.set_disabled(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), false)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
@@ -116,7 +116,7 @@ n_is_disabled :: proc(c: ^Call, args: []Value) -> Value {
 
 // n_is_3d_loaded: an enabled ref whose cell is attached to the player's scene.
 n_is_3d_loaded :: proc(c: ^Call, args: []Value) -> Value {
-	cell := ref_grid_cell(c, c.self)
+	cell := worldstate.ref_grid_cell(c.ws, c.db, c.self)
 	return cell != 0 && cell in c.ws.attached && ref_enabled(c.ws, c.db, c.self)
 }
 
@@ -180,7 +180,7 @@ n_activate :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_block_activation :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_activation_blocked(c.ws, c.self, ref_cell(c, c.self), arg_bool(args, 0, true))
+	worldstate.set_activation_blocked(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_bool(args, 0, true))
 	return nil
 }
 
@@ -189,7 +189,7 @@ n_is_activation_blocked :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_set_scale :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_scale(c.ws, c.self, ref_cell(c, c.self), arg_f32(args, 0, 1))
+	worldstate.set_scale(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_f32(args, 0, 1))
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
@@ -213,7 +213,7 @@ ref_scale :: proc(c: ^Call, form: Form_ID) -> f32 {
 }
 
 n_delete :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_deleted(c.ws, c.self, ref_cell(c, c.self))
+	worldstate.set_deleted(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self))
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
@@ -221,7 +221,7 @@ n_delete :: proc(c: ^Call, args: []Value) -> Value {
 // DeleteWhenAble: at once when the ref's cell is not attached, else when it detaches (the converted
 // ObjectReference.psc loop is replaced by objectreference.patch.lua, script-api.md section 5).
 n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
-	cell := ref_cell(c, c.self)
+	cell := worldstate.ref_cell(c.ws, c.db, c.self)
 	if cell in c.ws.attached {
 		worldstate.set_delete_when_detached(c.ws, c.self, cell)
 		return nil
@@ -240,9 +240,9 @@ n_move_to :: proc(c: ^Call, args: []Value) -> Value {
 // move_to puts `form` at `target` plus `offset`, facing the way the target faces (abMatchRotation)
 // or keeping its own facing.
 move_to :: proc(c: ^Call, form, target: Form_ID, offset: smath.Vec3, match_rotation := true) {
-	dst := ref_pos(c, target) + offset
-	rot := ref_rot(c, target if match_rotation else form)
-	worldstate.set_moved(c.ws, form, ref_cell(c, target), smath.trs(dst, rot, 1), dst)
+	dst := worldstate.ref_pos(c.ws, c.db, target) + offset
+	rot := worldstate.ref_rot(c.ws, c.db, target if match_rotation else form)
+	worldstate.set_moved(c.ws, form, worldstate.ref_cell(c.ws, c.db, target), smath.trs(dst, rot, 1), dst)
 	worldstate.mark_scene_dirty(c.ws, form)
 }
 
@@ -276,11 +276,11 @@ settle_moves :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {
 }
 
 both_unloaded :: proc(c: ^Call, a, b: Form_ID) -> bool {
-	return !location_loaded(c, ref_location(c, a)) && !location_loaded(c, ref_location(c, b))
+	return !location_loaded(c, worldstate.ref_location(c.ws, c.db, a)) && !location_loaded(c, worldstate.ref_location(c.ws, c.db, b))
 }
 
 n_lock :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_locked(c.ws, c.self, ref_cell(c, c.self), arg_bool(args, 0, true))
+	worldstate.set_locked(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_bool(args, 0, true))
 	return nil
 }
 
@@ -292,7 +292,7 @@ n_is_locked :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_set_open :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_open(c.ws, c.self, ref_cell(c, c.self), arg_bool(args, 0, true))
+	worldstate.set_open(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_bool(args, 0, true))
 	return nil
 }
 
@@ -361,34 +361,7 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────
 
-// ref_cell resolves a ref's CURRENT owning cell: the overlay (if it moved), the baseline, or a
-// created ref's cell. 0 when the ref has none. The setters need it for the per-cell patch index.
-ref_cell :: proc(c: ^Call, form: Form_ID) -> Form_ID {
-	if d, ok := worldstate.get(c.ws, form); ok && d.cell != 0 {
-		return d.cell
-	}
-	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
-		return r.cell_form_id
-	}
-	if cr, ok := worldstate.get_created(c.ws, form); ok {
-		return cr.cell
-	}
-	return 0
-}
 
-// ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
-ref_pos :: proc(c: ^Call, form: Form_ID) -> smath.Vec3 {
-	if d, ok := worldstate.get(c.ws, form); ok && .Moved in d.live {
-		return d.pos
-	}
-	if r, ok := gamedb.ref_by_formid(c.db, form); ok {
-		return r.pos
-	}
-	if cr, ok := worldstate.get_created(c.ws, form); ok {
-		return cr.pos
-	}
-	return {}
-}
 
 // ── arg coercion (Value union → concrete, with defaults) ─────────────────────
 

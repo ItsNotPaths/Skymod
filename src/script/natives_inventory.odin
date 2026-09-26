@@ -134,11 +134,11 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 	count := worldstate.stack_count(c.ws, c.db, ref) if ref != 0 else count
 	count = min(count, worldstate.inv_count(c.ws, c.db, owner, base))
 	if count <= 0 {return 0}
-	cell := ref_cell(c, owner)
+	cell := worldstate.ref_cell(c.ws, c.db, owner)
 	// Each drop lands at the next angle on a ring round the dropper, so items do not pile up.
 	angle := f32(c.ws.drops) * DROP_STEP
 	c.ws.drops += 1
-	pos := ref_pos(c, owner) + {DROP_RADIUS * math.cos(angle), DROP_RADIUS * math.sin(angle), DROP_HEIGHT}
+	pos := worldstate.ref_pos(c.ws, c.db, owner) + {DROP_RADIUS * math.cos(angle), DROP_RADIUS * math.sin(angle), DROP_HEIGHT}
 	if ref != 0 {
 		worldstate.set_moved(c.ws, ref, cell, smath.trs(pos, {}, 1), pos)
 		worldstate.set_disabled(c.ws, ref, cell, false)

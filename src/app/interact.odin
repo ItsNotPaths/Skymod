@@ -157,9 +157,8 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Item:
 		take_item(g, form, base, by)
 	case .Book:
-		c := script.Call{ws = &g.ws, db = &g.db}
 		if by == formid.PLAYER && worldstate.read_book(&g.ws, &g.db, by, base) {
-			worldstate.set_disabled(&g.ws, form, script.ref_cell(&c, form), true) // a learned tome is used up
+			worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true) // a learned tome is used up
 			worldstate.mark_scene_dirty(&g.ws, form)
 			log.infof("read: %q", interact_subject(g, form))
 		} else {
@@ -177,8 +176,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 // move_through_door puts an actor other than the player at a load door's far side.
 @(private = "file")
 move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
-	c := script.Call{ws = &g.ws, db = &g.db}
-	worldstate.set_moved(&g.ws, actor, script.ref_cell(&c, tp.door), smath.trs(tp.pos, tp.rot, 1), tp.pos)
+	worldstate.set_moved(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), smath.trs(tp.pos, tp.rot, 1), tp.pos)
 	worldstate.mark_scene_dirty(&g.ws, actor)
 }
 
@@ -220,7 +218,7 @@ grab_update :: proc(g: ^Game) {
 take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.ws, db = &g.db}
 	script.move_items(&c, {base = base, ref = form, to = by, count = worldstate.stack_count(&g.ws, &g.db, form)})
-	worldstate.set_disabled(&g.ws, form, script.ref_cell(&c, form), true)
+	worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true)
 	worldstate.mark_scene_dirty(&g.ws, form)
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
 }
@@ -233,7 +231,7 @@ harvest :: proc(g: ^Game, form, base, by: Form_ID) {
 	rolled := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
 	worldstate.roll(&g.ws, &g.db, produce, worldstate.zone_level(&g.ws, &g.db, gamedb.zone_of(&g.db, form)), 1, &rolled)
 	for e in rolled {script.move_items(&c, {base = e.item, to = by, count = e.count})}
-	worldstate.set_harvested(&g.ws, form, script.ref_cell(&c, form))
+	worldstate.set_harvested(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form))
 	if by == formid.PLAYER {log.infof("harvest: %q", interact_subject(g, form))}
 }
 

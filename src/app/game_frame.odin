@@ -685,13 +685,12 @@ frame_inspect :: proc(g: ^Game) {
 // select_actor makes an actor the Inspector's selection and the console's `sel`.
 @(private = "file")
 select_actor :: proc(g: ^Game, actor: Form_ID) {
-	c := script.Call{ws = &g.ws, db = &g.db}
 	g.fr.active_scene.has_sel = false
 	g.insp.has_sel = true
 	tools.inspector_set_model_strings(&g.insp, "", "")
 	g.insp.sel_display = worldstate.display_name(&g.ws, &g.db, actor)
 	g.insp.sel_base = worldstate.ref_base(&g.ws, &g.db, actor)
-	g.insp.sel_pos = script.ref_pos(&c, actor)
+	g.insp.sel_pos = worldstate.ref_pos(&g.ws, &g.db, actor)
 	g.insp.sel_rot = {}
 	g.insp.sel_has_door = false
 	g.insp.sel_door_cell = ""

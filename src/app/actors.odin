@@ -43,15 +43,14 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 tick_actor_bodies :: proc(g: ^Game) {
 	phys := g.fr.active_scene.phys
 	if phys == nil {return}
-	c := script.Call{ws = &g.ws, db = &g.db}
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
 		for form in chunk.actors {
-			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, &c, phys, form, &seen)}
+			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen)}
 		}
-		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, &c, phys, form, &seen)}
+		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen)}
 		for form in worldstate.refs_in(&g.ws, cell) {
-			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, &c, phys, form, &seen)} // moved in by a script
+			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen)} // moved in by a script
 		}
 	}
 	gone := make([dynamic]Form_ID, context.temp_allocator)
@@ -67,10 +66,10 @@ tick_actor_bodies :: proc(g: ^Game) {
 }
 
 @(private = "file")
-actor_body_keep :: proc(g: ^Game, c: ^script.Call, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
+actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !script.ref_enabled(&g.ws, &g.db, form) {return}
 	seen[form] = true
-	pos := script.ref_pos(c, form)
+	pos := worldstate.ref_pos(&g.ws, &g.db, form)
 	capsule := actor_capsule(g, form)
 	if b, ok := &g.actor_bodies[form]; ok && b.capsule == capsule {
 		if b.placed != pos {

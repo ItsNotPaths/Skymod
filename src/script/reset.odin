@@ -99,11 +99,11 @@ n_cell_reset :: proc(c: ^Call, args: []Value) -> Value {
 // no OnReset: vanilla calls Reset from inside OnReset (dunRaldbtharPuzzleGearBlockerScript).
 n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
 	if c.self == formid.PLAYER {return nil}
-	was := ref_cell(c, c.self)
+	was := worldstate.ref_cell(c.ws, c.db, c.self)
 	worldstate.reset_ref_state(c.ws, c.self, true)
 	if target := arg_form(args, 0); target != 0 {move_to(c, c.self, target, {})}
 	append(&c.ws.rebuild_cells, was)
-	if now := ref_cell(c, c.self); now != was {append(&c.ws.rebuild_cells, now)}
+	if now := worldstate.ref_cell(c.ws, c.db, c.self); now != was {append(&c.ws.rebuild_cells, now)}
 	return nil
 }
 

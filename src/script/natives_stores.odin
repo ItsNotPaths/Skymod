@@ -42,7 +42,7 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 // Kill(akKiller) -> None. First slice: flip the Dead flag (ragdoll/loot behaviours are Phase-7
 // actor work). The killer arg is recorded by no store yet — ignored.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_dead(c.ws, c.self, ref_cell(c, c.self), true)
+	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
@@ -67,8 +67,8 @@ n_place_at_me :: proc(c: ^Call, args: []Value) -> Value {
 	count := max(1, int(arg_i32(args, 1, 1)))
 	disabled := arg_bool(args, 3, false)
 
-	cell := ref_cell(c, c.self)
-	pos := ref_pos(c, c.self)
+	cell := worldstate.ref_cell(c.ws, c.db, c.self)
+	pos := worldstate.ref_pos(c.ws, c.db, c.self)
 	rot: [3]f32
 	if r, ok := gamedb.ref_by_formid(c.db, c.self); ok {
 		rot = r.rot

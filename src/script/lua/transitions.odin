@@ -98,9 +98,8 @@ scripted_refs :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitio
 		}
 	}
 	append(&out, ..t.persistent[cell][:])
-	c := script.Call{ws = ws, db = db}
 	for id, cr in ws.created {
-		if len(gamedb.form_scripts(db, cr.base)) > 0 && script.ref_grid_cell(&c, id) == cell {append(&out, id)}
+		if len(gamedb.form_scripts(db, cr.base)) > 0 && worldstate.ref_grid_cell(ws, db, id) == cell {append(&out, id)}
 	}
 	return out
 }

@@ -152,8 +152,7 @@ attach_created :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) -> int {
 	scripts := gamedb.effective_scripts(db, id, cr.base, context.temp_allocator)
 	if len(scripts) == 0 {return 0}
 	made := attach_known(vm, id, scripts)
-	c := script.Call{ws = ws, db = db}
-	if refs, attached := &ws.attached[script.ref_grid_cell(&c, id)]; attached && !slice.contains(refs[:], id) {
+	if refs, attached := &ws.attached[worldstate.ref_grid_cell(ws, db, id)]; attached && !slice.contains(refs[:], id) {
 		append(refs, id)
 	}
 	return made

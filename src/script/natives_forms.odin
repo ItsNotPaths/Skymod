@@ -29,11 +29,11 @@ register_forms :: proc(reg: ^Registry) {
 // n_has_keyword checks the form, then a ref's base form.
 n_has_keyword :: proc(c: ^Call, args: []Value) -> Value {
 	kw := arg_form(args, 0)
-	return gamedb.has_keyword(c.db, c.self, kw) || gamedb.has_keyword(c.db, ref_base(c, c.self), kw)
+	return gamedb.has_keyword(c.db, c.self, kw) || gamedb.has_keyword(c.db, worldstate.ref_base(c.ws, c.db, c.self), kw)
 }
 
 n_actor_get_race :: proc(c: ^Call, args: []Value) -> Value {
-	base, _ := gamedb.actor_base(c.db, ref_base(c, c.self))
+	base, _ := gamedb.actor_base(c.db, worldstate.ref_base(c.ws, c.db, c.self))
 	return form_or_none(base.race)
 }
 

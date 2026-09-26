@@ -1,6 +1,7 @@
 package worldstate
 
 import smath "../math"
+import "../gamedb"
 
 // Ref_Field mirrors Skyrim's ChangeForm `changeFlags`: which fields of a ref diverge from the
 // ESM. Every field has a set_* writer below; Inventory is tracked by the `inventories` store
@@ -232,4 +233,45 @@ refs_in :: proc(ws: ^World_State, cell: Form_ID) -> []Form_ID {
 // count reports how many refs currently diverge from the baseline (overlay-size probe / overlay UI).
 count :: proc(ws: ^World_State) -> int {
 	return len(ws.ref_deltas)
+}
+
+// ref_cell resolves a ref's CURRENT owning cell: the overlay (if it moved), the baseline, or a
+// created ref's cell. 0 when the ref has none.
+ref_cell :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
+	if d, ok := get(ws, form); ok && d.cell != 0 {return d.cell}
+	if r, ok := gamedb.ref_by_formid(db, form); ok {return r.cell_form_id}
+	if cr, ok := get_created(ws, form); ok {return cr.cell}
+	return 0
+}
+
+// ref_pos resolves a ref's CURRENT position, in the same order as ref_cell.
+ref_pos :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> smath.Vec3 {
+	if d, ok := get(ws, form); ok && .Moved in d.live {return d.pos}
+	if r, ok := gamedb.ref_by_formid(db, form); ok {return r.pos}
+	if cr, ok := get_created(ws, form); ok {return cr.pos}
+	return {}
+}
+
+// ref_rot is a placed or created ref's rotation, XYZ euler radians.
+ref_rot :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> [3]f32 {
+	if r, ok := gamedb.ref_by_formid(db, form); ok {return r.rot}
+	if cr, ok := get_created(ws, form); ok {return cr.rot}
+	return {}
+}
+
+// ref_grid_cell is the cell under a ref, with a worldspace-persistent ref resolved to its grid cell.
+ref_grid_cell :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
+	return gamedb.grid_cell(db, ref_cell(ws, db, form), ref_pos(ws, db, form))
+}
+
+// ref_space is the interior cell or the worldspace a ref is in; 0 when it has no cell.
+ref_space :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
+	cell, ok := gamedb.cell_by_formid(db, ref_cell(ws, db, form))
+	if !ok {return 0}
+	return cell.form_id if cell.interior else cell.world_form_id
+}
+
+// ref_location is the location of the cell under a ref, else its worldspace's.
+ref_location :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
+	return gamedb.cell_location(db, ref_grid_cell(ws, db, form))
 }
