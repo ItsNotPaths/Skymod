@@ -508,6 +508,7 @@ ACBS_UNIQUE :: 0x0000_0020
 ACBS_PC_LEVEL_MULT :: 0x0000_0080 // `level` field is a ×1000 multiplier of the player's level, not absolute
 ACBS_PROTECTED :: 0x0000_0800
 ACBS_SUMMONABLE :: 0x0000_4000
+ACBS_GHOST :: 0x2000_0000
 
 // ACBS template flags: which parts of an NPC_ come from its TPLT.
 ACBS_TEMPLATE_TRAITS :: 0x0001 // race and more

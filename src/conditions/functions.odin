@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest) :sev gap) no body for GetAllowWorldInteractions, GetDeadCount, GetIsObjectType, SpellHasKeyword, GetVMScriptVariable and the rest of the tail, about 1,400 quest and dialogue conditions: they pass.
+// (hole condition-functions :tags (records quest) :sev gap) no body for IsGuard (no source says what makes a guard), GetLineOfSight (needs spatial queries), IsInFriendStateWithPlayer, GetQuestVariable, HasParentRelationship, IsMoving, IsAllowedToFly and 12 rarer ones: 157 of 68,007 quest and dialogue conditions (build/out/wsQ/measure14.py), and they pass.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;
@@ -34,6 +34,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
 	61  = fn_resting,
+	62  = fn_resting,
 	66  = fn_resting,
 	67  = fn_get_in_cell,
 	69  = fn_get_is_race,
@@ -42,8 +43,10 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	72  = fn_get_is_id,
 	73  = fn_get_faction_rank,
 	74  = fn_get_global_value,
+	75  = fn_resting,
 	77  = fn_get_random_percent,
 	80  = fn_get_level,
+	84  = fn_get_dead_count,
 	101 = fn_resting,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
@@ -51,18 +54,24 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	136 = fn_get_is_reference,
 	144 = fn_resting,
 	145 = fn_resting,
+	149 = fn_resting,
 	159 = fn_resting,
 	161 = fn_resting,
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
 	214 = fn_has_magic_effect,
+	223 = fn_is_spell_target,
+	237 = fn_get_is_ghost,
 	248 = fn_is_scene_playing,
 	249 = fn_is_in_dialogue_with_player,
+	250 = fn_get_location_cleared,
 	255 = fn_get_offers_services_now,
 	258 = fn_has_association_type,
 	259 = fn_has_family_relationship,
 	263 = fn_resting,
 	264 = fn_has_spell,
+	266 = fn_resting_true,
+	274 = fn_resting,
 	277 = fn_get_base_actor_value,
 	286 = fn_resting,
 	288 = fn_resting,
@@ -71,6 +80,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	310 = fn_get_in_worldspace,
 	314 = fn_resting,
 	353 = fn_is_actor,
+	354 = fn_is_essential,
 	359 = fn_get_in_current_loc,
 	360 = fn_get_in_current_loc_alias,
 	365 = fn_is_child,
@@ -79,13 +89,20 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	376 = fn_resting,
 	402 = fn_resting,
 	403 = fn_get_relationship_rank,
+	415 = fn_resting,
 	426 = fn_get_is_voice_type,
 	430 = fn_get_health_percentage,
+	432 = fn_get_is_object_type,
+	444 = fn_get_in_current_loc_form_list,
 	448 = fn_has_perk,
+	449 = fn_get_faction_relation,
 	453 = fn_get_player_teammate,
 	459 = fn_resting,
+	476 = fn_is_protected,
+	491 = fn_resting,
 	497 = fn_resting,
 	499 = fn_resting,
+	503 = fn_resting_true,
 	513 = fn_resting,
 	543 = fn_get_quest_completed,
 	550 = fn_is_scene_action_complete,
@@ -101,22 +118,31 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	579 = fn_get_equipped_shout,
 	580 = fn_resting,
 	590 = fn_is_in_scene,
+	592 = fn_get_ref_type_alive_count,
 	594 = fn_resting,
+	596 = fn_spell_has_keyword,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
 	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
+	610 = fn_loc_alias_has_keyword,
+	624 = fn_get_in_container,
 	629 = fn_get_vm_quest_variable,
+	630 = fn_get_vm_script_variable,
 	632 = fn_resting,
 	633 = fn_resting,
+	635 = fn_resting,
 	640 = fn_get_actor_value_percent,
 	641 = fn_is_unique,
 	650 = fn_is_linked_to,
 	651 = fn_get_keyword_data_for_current_location,
+	652 = fn_resting,
 	654 = fn_resting,
 	655 = fn_resting,
 	656 = fn_resting,
 	657 = fn_resting,
+	682 = fn_worn_has_keyword,
+	699 = fn_has_magic_effect_keyword,
 	700 = fn_resting,
 	707 = fn_resting,
 }
@@ -259,16 +285,24 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
-// (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
+// (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting and GetDetected read 0: no actor runs a package, uses furniture or looks for anyone.
+// (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting, GetDetected, IsSmallBump and GetGroupMemberCount read 0 and GetAllowWorldInteractions 1: no actor runs a package, uses furniture, bumps or looks for anyone.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (ai combat) :sev gap :needs (ai-agent)) GetIsFlying and GetFlyingState read 0: no dragon flies.
+// (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
+// (hole map-markers :tags (ui quest) :sev gap) GetMapMarkerVisible reads 0: there is no map, so no marker is ever found.
 // (hole player-sneak :tags player :sev gap) IsSneaking reads 0: there is no sneak key or sneak state.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
+// (hole favor-commands :tags (dialogue ai) :sev gap :needs (teammate-behavior)) IsInFavorState reads 0: no follower takes commands.
 @(private = "file")
 fn_resting :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return 0, true
+}
+
+@(private = "file")
+fn_resting_true :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return 1, true
 }
 
 @(private = "file")
@@ -278,8 +312,7 @@ fn_get_player_teammate :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) 
 
 @(private = "file")
 fn_is_unique :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	base := gamedb.template_part(ctx.db, worldstate.ref_base(ctx.ws, ctx.db, on), esm.ACBS_TEMPLATE_BASE_DATA, worldstate.actor_pick(ctx.ws, ctx.db, on))
-	return yes(base.flags & esm.ACBS_UNIQUE != 0)
+	return yes(actor_flags(ctx, on) & esm.ACBS_UNIQUE != 0)
 }
 
 // IsChild: the actor's race has the Child flag (RACE DATA 0x4).
@@ -368,6 +401,155 @@ fn_get_offers_services_now :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 		if open && all(&sub, v.conditions) {return 1, true}
 	}
 	return 0, true
+}
+
+// GetDeadCount(actor base): how many of its placed actors are dead.
+@(private = "file")
+fn_get_dead_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	n := 0
+	for ref, d in ctx.ws.ref_deltas {
+		if .Dead in d.live && d.dead && worldstate.ref_base(ctx.ws, ctx.db, ref) == p1(c) {n += 1}
+	}
+	return f32(n), true
+}
+
+// SpellHasKeyword(hand, keyword): the spell in that hand (0 left, 1 right) or one of its effects
+// has the keyword.
+@(private = "file")
+fn_spell_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	hand := gamedb.Slot.LeftHand if c.param1 == 0 else .RightHand
+	spell := worldstate.in_slot(ctx.ws, ctx.db, on, hand)
+	kw := gamedb.condition_param2_form(c)
+	if spell == 0 {return 0, true}
+	if gamedb.has_keyword(ctx.db, spell, kw) {return 1, true}
+	sp, _ := gamedb.spell_of(ctx.db, spell)
+	for e in sp.effects {
+		if gamedb.has_keyword(ctx.db, e.effect, kw) {return 1, true}
+	}
+	return 0, true
+}
+
+// GetIsObjectType(form type): the xEdit form type of the ref's base. Skyrim.esm asks only 1 Armor,
+// 12 Weapon and 13 Actor; other types are not answered.
+@(private = "file")
+fn_get_is_object_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	base := worldstate.ref_base(ctx.ws, ctx.db, on)
+	if base == 0 {base = on}
+	switch c.param1 {
+	case 1:  return yes(gamedb.form_kind(ctx.db, base) == .Armor)
+	case 12: return yes(gamedb.form_kind(ctx.db, base) == .Weapon)
+	case 13: return yes(on == formid.PLAYER || base in ctx.db.actors)
+	}
+	return 0, false
+}
+
+// GetInContainer(container): the item ref is carried in that container.
+@(private = "file")
+fn_get_in_container :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	container, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	holder, carried := ctx.ws.carried[on]
+	return yes(carried && holder == container)
+}
+
+// GetVMScriptVariable(ref, variable): a member of a script on the ref, as GetVMQuestVariable.
+@(private = "file")
+fn_get_vm_script_variable :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	ref, ok := param_ref(ctx, c, 0)
+	if !ok || ctx.quest_vars.read == nil {return 0, false}
+	return ctx.quest_vars.read(ctx.quest_vars.data, ref, c.text)
+}
+
+@(private = "file")
+fn_loc_alias_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	return yes(loc != 0 && gamedb.has_keyword(ctx.db, loc, gamedb.condition_param2_form(c)))
+}
+
+// GetFactionRelation(other): how one of the actor's factions stands toward one of the other's: 0
+// neutral, 1 enemy, 2 ally, 3 friend (FACT XNAM). The first relation found answers.
+@(private = "file")
+fn_get_faction_relation :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	theirs := worldstate.actor_factions_now(ctx.ws, ctx.db, other)
+	for mine in worldstate.actor_factions_now(ctx.ws, ctx.db, on) {
+		f, _ := gamedb.faction_of(ctx.db, mine)
+		for r in f.relations {
+			for t in theirs {
+				if r.faction == t {return f32(r.combat), true}
+			}
+		}
+	}
+	return 0, true
+}
+
+@(private = "file")
+fn_is_spell_target :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	for h in worldstate.effects_on(ctx.ws, on) {
+		if e := ctx.ws.effects[h]; e.spell == p1(c) && !e.finished {return 1, true}
+	}
+	return 0, true
+}
+
+@(private = "file")
+fn_has_magic_effect_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	for h in worldstate.effects_on(ctx.ws, on) {
+		if e := ctx.ws.effects[h]; !e.finished && gamedb.has_keyword(ctx.db, e.effect, p1(c)) {return 1, true}
+	}
+	return 0, true
+}
+
+@(private = "file")
+fn_get_in_current_loc_form_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc := worldstate.ref_location(ctx.ws, ctx.db, on)
+	return yes(loc != 0 && worldstate.list_has(ctx.ws, ctx.db, p1(c), loc))
+}
+
+@(private = "file")
+fn_worn_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	for w in worldstate.equipment(ctx.ws, ctx.db, on).worn {
+		if gamedb.has_keyword(ctx.db, w.item, p1(c)) {return 1, true}
+	}
+	return 0, true
+}
+
+// GetRefTypeAliveCount(location, ref type): the location's refs of that type that are alive.
+@(private = "file")
+fn_get_ref_type_alive_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	n := 0
+	for ref in gamedb.location_special_refs(ctx.db, p1(c), gamedb.condition_param2_form(c)) {
+		if !worldstate.is_dead(ctx.ws, ref) {n += 1}
+	}
+	return f32(n), true
+}
+
+// GetIsGhost, IsEssential, IsProtected and IsUnique: the NPC_'s ACBS flags.
+@(private = "file")
+fn_get_is_ghost :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(actor_flags(ctx, on) & esm.ACBS_GHOST != 0)
+}
+
+@(private = "file")
+fn_is_essential :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(actor_flags(ctx, on) & esm.ACBS_ESSENTIAL != 0)
+}
+
+@(private = "file")
+fn_is_protected :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(actor_flags(ctx, on) & esm.ACBS_PROTECTED != 0)
+}
+
+@(private = "file")
+actor_flags :: proc(ctx: ^Context, on: Form_ID) -> u32 {
+	base := worldstate.ref_base(ctx.ws, ctx.db, on)
+	return gamedb.template_part(ctx.db, base, esm.ACBS_TEMPLATE_BASE_DATA, worldstate.actor_pick(ctx.ws, ctx.db, on)).flags
+}
+
+@(private = "file")
+fn_get_location_cleared :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(ctx.ws.cleared[p1(c)])
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

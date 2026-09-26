@@ -799,3 +799,45 @@ test_dialogue_records :: proc(t: ^testing.T) {
 	b, _ := gamedb.branch_of(&db, gamedb.Form_ID(BRANCH))
 	testing.expect(t, b.start == gamedb.Form_ID(TOPIC) && b.flags == gamedb.BRANCH_TOP_LEVEL, "the branch")
 }
+
+// The tail functions over data we hold: dead counts, carried items, spell targets, object types,
+// faction relations, and resting stubs for systems not built yet.
+@(test)
+test_condition_tail :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	GUARD, NPC, ARMOR, RING, CHEST, SPELL, FACTION_A, FACTION_B, OTHER, OTHER_NPC :: gamedb.Form_ID(0xE01), gamedb.Form_ID(0xE02), gamedb.Form_ID(0xE03), gamedb.Form_ID(0xE04), gamedb.Form_ID(0xE05), gamedb.Form_ID(0xE06), gamedb.Form_ID(0xE07), gamedb.Form_ID(0xE08), gamedb.Form_ID(0xE09), gamedb.Form_ID(0xE0A)
+	db: gamedb.DB
+	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base)
+	db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind)
+	db.factions = make(map[gamedb.Form_ID]gamedb.Faction)
+	defer {delete(db.ref_by_id);delete(db.actors);delete(db.form_kinds);delete(db.factions)}
+	db.ref_by_id[GUARD] = {form_id = GUARD, base = NPC}
+	db.ref_by_id[RING] = {form_id = RING, base = ARMOR}
+	db.ref_by_id[OTHER] = {form_id = OTHER, base = OTHER_NPC}
+	db.actors[NPC] = {factions = []gamedb.Faction_Membership{{FACTION_A, 0}}}
+	db.actors[OTHER_NPC] = {factions = []gamedb.Faction_Membership{{FACTION_B, 0}}}
+	db.form_kinds[ARMOR] = .Armor
+	db.factions[FACTION_A] = {relations = []gamedb.Faction_Relation{{faction = FACTION_B, combat = .Enemy}}}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = GUARD}
+	cond :: proc(fn: u16, p1: gamedb.Form_ID = 0, value: f32 = 1) -> []gamedb.Condition {
+		c := make([]gamedb.Condition, 1, context.temp_allocator)
+		c[0] = {function = fn, op = .Equal, value = value, param1 = u64(p1)}
+		return c
+	}
+
+	testing.expect(t, conditions.all(&ctx, cond(84, NPC, 0)), "no NPC dead yet")
+	worldstate.set_dead(&ws, GUARD, 0, true)
+	testing.expect(t, conditions.all(&ctx, cond(84, NPC, 1)), "GetDeadCount counts the base's dead")
+	testing.expect(t, conditions.all(&ctx, cond(432, 13)), "GetIsObjectType: an actor")
+	testing.expect(t, conditions.all(&ctx, cond(449, OTHER, 1)), "GetFactionRelation: enemies")
+	testing.expect(t, conditions.all(&ctx, cond(503)), "GetAllowWorldInteractions rests at 1")
+	testing.expect(t, conditions.all(&ctx, cond(62, 0, 0)), "IsRaining rests at 0")
+
+	ctx.subject = RING
+	testing.expect(t, conditions.all(&ctx, cond(432, 1)), "GetIsObjectType: armor")
+	ws.carried[RING] = CHEST
+	testing.expect(t, conditions.all(&ctx, cond(624, CHEST)), "GetInContainer")
+}
