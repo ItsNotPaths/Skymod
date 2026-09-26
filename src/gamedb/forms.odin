@@ -8,6 +8,7 @@ package gamedb
 // overriding a record replaces it wholesale (free the previous owned data first), and the walk
 // has no temp-allocator reset, so scratch slices are freed explicitly.
 
+import "base:runtime"
 import "core:slice"
 import "core:strings"
 import "../formats/esm"
@@ -669,12 +670,25 @@ index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		loc.parent = esm.remap_form(fm, p)
 	}
 	loc.marker_color, loc.has_marker_color = esm.location_marker_color(fl)
-	if raw := esm.location_special_refs(fl); raw != nil {
-		loc.special_refs = make([]Special_Ref, len(raw), db.allocator)
-		for r, i in raw {loc.special_refs[i] = {esm.remap_form(fm, r.ref_type), esm.remap_form(fm, r.ref)}}
-		delete(raw)
+	master, added, removed := esm.location_special_refs(fl)
+	defer {delete(master);delete(added);delete(removed)}
+	old, existed := db.locations[rec.form_id]
+	if existed {delete(old.special_refs, db.allocator)}
+	if len(master) > 0 || !existed {
+		if existed {delete(old.master_refs, db.allocator)}
+		loc.master_refs = remap_special_refs(fm, master, db.allocator)
+	} else {
+		loc.master_refs = old.master_refs // an override keeps the master's list
 	}
-	if old, existed := db.locations[rec.form_id]; existed {delete(old.special_refs, db.allocator)}
+	refs := make([dynamic]Special_Ref, 0, len(loc.master_refs) + len(added), db.allocator)
+	master_loop: for s in loc.master_refs {
+		for r in removed {
+			if esm.remap_form(fm, r) == s.ref {continue master_loop}
+		}
+		append(&refs, s)
+	}
+	for r in added {append(&refs, Special_Ref{esm.remap_form(fm, r.ref_type), esm.remap_form(fm, r.ref)})}
+	loc.special_refs = refs[:]
 	db.locations[rec.form_id] = loc
 }
 
@@ -726,6 +740,13 @@ cell_location :: proc(db: ^DB, cell_id: Form_ID) -> Form_ID {
 	if !ok {return 0}
 	if cell.location != 0 {return cell.location}
 	return db.world_location[cell.world_form_id]
+}
+
+@(private = "file")
+remap_special_refs :: proc(fm: ^esm.Form_Map, raw: []esm.Special_Ref, allocator: runtime.Allocator) -> []Special_Ref {
+	out := make([]Special_Ref, len(raw), allocator)
+	for r, i in raw {out[i] = {esm.remap_form(fm, r.ref_type), esm.remap_form(fm, r.ref)}}
+	return out
 }
 
 // location_special_refs is a location's refs of a location ref type (LCRT); 0 for any type.
@@ -888,7 +909,10 @@ free_form_indexes :: proc(db: ^DB) {
 		free_conditions(db, m.conditions)
 	}
 	delete(db.magic_effects)
-	for _, l in db.locations {delete(l.special_refs, db.allocator)}
+	for _, l in db.locations {
+		delete(l.special_refs, db.allocator)
+		delete(l.master_refs, db.allocator)
+	}
 	delete(db.locations) // names live in db.names
 	delete(db.weathers)
 }

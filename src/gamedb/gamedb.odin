@@ -488,7 +488,8 @@ Location :: struct {
 	parent:           Form_ID, // PNAM containing location (0 = a root location)
 	marker_color:     u32, // CNAM packed RGBA
 	has_marker_color: bool,
-	special_refs:     []Special_Ref, // the refs of a location ref type in it (owned)
+	special_refs:     []Special_Ref, // the refs of a location ref type in it: master_refs with the winning override's edits (owned)
+	master_refs:      []Special_Ref, // the master's LCSR list, which overrides edit (owned)
 }
 
 // Special_Ref is a ref of a location ref type (LCRT) in a location, remapped.

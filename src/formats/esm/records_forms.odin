@@ -727,29 +727,25 @@ Special_Ref :: struct {
 	ref_type, ref: u32,
 }
 
-// location_special_refs is an LCTN's special refs: its master list (LCSR) and the ones plugins added
-// (ACSR), minus the ones they removed (RCSR). 16-byte entries (xEdit; all 10,497 in Skyrim.esm are
-// an LCRT then a ref). The caller frees the slice; nil when the location has none.
-location_special_refs :: proc(fields: []Field, allocator := context.allocator) -> []Special_Ref {
-	removed := make(map[u32]bool, 8, allocator)
-	defer delete(removed)
+// location_special_refs splits an LCTN's special refs into the master's list (LCSR), the ones a
+// plugin adds (ACSR) and the refs it removes (RCSR). An override carries only ACSR and RCSR; they
+// apply to the master's list. 16-byte entries (xEdit; all 10,497 in Skyrim.esm are an LCRT then a
+// ref). The caller frees all three.
+location_special_refs :: proc(fields: []Field, allocator := context.allocator) -> (master, added: []Special_Ref, removed: []u32) {
+	m := make([dynamic]Special_Ref, allocator)
+	a := make([dynamic]Special_Ref, allocator)
+	r := make([dynamic]u32, allocator)
 	for f in fields {
-		if f.type != "RCSR" {continue}
-		for k := 0; k + 4 <= len(f.data); k += 4 {removed[rd32(f.data, k)] = true}
-	}
-	out := make([dynamic]Special_Ref, allocator)
-	for f in fields {
-		if f.type != "LCSR" && f.type != "ACSR" {continue}
-		for k := 0; k + 16 <= len(f.data); k += 16 {
-			r := Special_Ref{rd32(f.data, k), rd32(f.data, k + 4)}
-			if !removed[r.ref] {append(&out, r)}
+		switch f.type {
+		case "LCSR", "ACSR":
+			for k := 0; k + 16 <= len(f.data); k += 16 {
+				append(&m if f.type == "LCSR" else &a, Special_Ref{rd32(f.data, k), rd32(f.data, k + 4)})
+			}
+		case "RCSR":
+			for k := 0; k + 4 <= len(f.data); k += 4 {append(&r, rd32(f.data, k))}
 		}
 	}
-	if len(out) == 0 {
-		delete(out)
-		return nil
-	}
-	return out[:]
+	return m[:], a[:], r[:]
 }
 
 // location_parent reads an LCTN's PNAM — the location that contains this one ("Whiterun Hold"

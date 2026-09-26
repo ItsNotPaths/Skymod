@@ -700,7 +700,8 @@ test_alias_fills :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.ref_base(&ws, &db, made) == MADE && worldstate.ref_pos(&ws, &db, made) == {10, 0, 0}, "made at alias 0")
 }
 
-// LCTN special refs: the master list plus the added ones, minus the removed ones.
+// LCTN special refs: the master list plus the added ones, minus the removed ones. A later override
+// with only ACSR (Dawnguard's Bleak Falls Barrow) edits the master list; it does not replace it.
 @(test)
 test_location_special_refs :: proc(t: ^testing.T) {
 	entry :: proc(b: ^[dynamic]u8, ref_type, ref: u32) {
@@ -721,16 +722,31 @@ test_location_special_refs :: proc(t: ^testing.T) {
 	rc: [4]u8;put_u32(rc[:], 0, 0xA02);field(&loc, "RCSR", rc[:])
 	locs := make([dynamic]u8, 0, 256);defer delete(locs)
 	record(&locs, "LCTN", 0, 0x0000_0B01, loc[:])
-	out := make([dynamic]u8, 0, 512);defer delete(out)
-	record(&out, "TES4", 0, 0, tes4[:])
-	group(&out, transmute([]u8)string("LCTN"), 0, locs[:])
-	db := gamedb.build(out[:])
+	db := gamedb.build(build_locations(tes4[:], locs[:]))
 	defer gamedb.destroy(&db)
-
 	bosses := gamedb.location_special_refs(&db, 0x0000_0B01, 0x0000_0D02)
 	testing.expect(t, len(bosses) == 2 && bosses[0] == 0xA01 && bosses[1] == 0xA03, "master and added")
 	testing.expect_value(t, len(gamedb.location_special_refs(&db, 0x0000_0B01, 0x0000_0D03)), 0)
 	testing.expect(t, gamedb.has_ref_type(&db, 0xA03, 0xD02) && !gamedb.has_ref_type(&db, 0xA02, 0xD03), "ref types, minus the removed")
+
+	over := make([dynamic]u8, 0, 32);defer delete(over)
+	added := make([dynamic]u8, 0, 32);defer delete(added)
+	entry(&added, 0xD02, 0xA04)
+	field(&over, "ACSR", added[:])
+	record(&locs, "LCTN", 0, 0x0000_0B01, over[:])
+	db2 := gamedb.build(build_locations(tes4[:], locs[:]))
+	defer gamedb.destroy(&db2)
+	bosses = gamedb.location_special_refs(&db2, 0x0000_0B01, 0x0000_0D02)
+	testing.expect(t, len(bosses) == 2 && bosses[0] == 0xA01 && bosses[1] == 0xA04, "override edits the master list")
+	testing.expect_value(t, len(gamedb.location_special_refs(&db2, 0x0000_0B01, 0x0000_0D03)), 1)
+}
+
+@(private = "file")
+build_locations :: proc(tes4, locs: []u8) -> []u8 {
+	out := make([dynamic]u8, 0, 512, context.temp_allocator)
+	record(&out, "TES4", 0, 0, tes4)
+	group(&out, transmute([]u8)string("LCTN"), 0, locs)
+	return out[:]
 }
 
 // Dialogue records: a topic's INFOs sit in its child group (type 7) and keep their PNAM order; an
