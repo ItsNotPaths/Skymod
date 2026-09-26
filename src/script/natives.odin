@@ -333,7 +333,7 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 // n_message_show resolves the receiving MESG and puts it on screen. Papyrus returns the index of
 // the button the player picked, so a script branches on it.
 //
-// (hole menu-mode :tags ui :sev gap) no message box, so Show never pauses the world.
+// (hole menu-mode :tags ui :sev gap :needs (message-box-screen)) no message box, so Show never pauses the world.
 // When it lands, Show yields the handler's coroutine until the click, and ticks stop meanwhile
 // (docs/script-rewrite.md "Menus that pause the world"). The messagebox menu does not exist yet
 // (`docs/menus.md` lists `messagebox.swf` as P1), so there is nothing to pick a button WITH.

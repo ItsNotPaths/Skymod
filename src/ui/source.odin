@@ -35,6 +35,7 @@ EMBED_HUD :: #load("lua/hud.lua", string)
 // (hole dialogue-screen :tags ui :sev blocker) no dialogue screen — no topic list, no response, no exit.
 // (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why EPTemperingItemIsEnchanted (659) cannot know which item is selected.
 // (hole story-craft-event :tags (quest ui) :sev gap :needs (crafting-screen)) crafting queues no CRFT story event (the smithing and alchemy tutorials).
+// (hole message-box-screen :tags ui :sev gap) no message box: an in-world Lua screen that takes input (the HUD takes none, the main menu runs before the world) must show a MESG's text and buttons and hand back the picked index.
 // (hole console-screen :tags ui :sev gap) the console is an ImGui dev panel (tools.console_panel), not a Lua UI screen: a mod cannot restyle or replace it.
 //
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in
