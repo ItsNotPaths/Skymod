@@ -222,15 +222,15 @@ record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0, player_level := 
 	return i32(actor_level(template_part(db, base, esm.ACBS_TEMPLATE_STATS, pick), player_level))
 }
 
-// (hole pc-level-mult :tags (player records) :sev polish) a PC Level Mult NPC_'s level is mult x player level clamped to its calc band; no source gives the rounding (601 vanilla NPC_, multipliers like x1.1) or Calc Min below 1. Settle by disassembly (TESActorBaseData::GetLevel, RELOCATION_ID 14262 SE / 14384 AE).
-// actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's, within its calc
-// band (a calc max of 0 is no cap).
+// actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's rounded down and
+// held to its calc band (a calc max of 0 is no cap). Below 1 it stays: a Calc Min of 0 gives level
+// 0, and auto-calc then takes one level's health bonus off. Both match the CK's DNAM cache on all 297
+// vanilla auto-calc PC-mult NPC_ (build/out/wsP/pcmult: x1.5 and x1.75 give 1, not 2).
 actor_level :: proc(stats: Actor_Base, player_level: int) -> int {
 	if stats.flags & esm.ACBS_PC_LEVEL_MULT == 0 {return max(int(stats.level), 1)}
-	player := max(player_level, 1)
-	lvl := max(int(f32(stats.level) / 1000 * f32(player)), int(stats.calc_min))
+	lvl := max(int(f32(stats.level) / 1000 * f32(max(player_level, 1))), int(stats.calc_min))
 	if stats.calc_max > 0 {lvl = min(lvl, int(stats.calc_max))}
-	return max(lvl, 1)
+	return lvl
 }
 
 // attribute_gain is what auto-calc adds to health (0), magicka (1) or stamina (2): the class share of
