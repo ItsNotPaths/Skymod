@@ -21,7 +21,7 @@ Window :: ^sdl.Window
 // Input is the per-frame snapshot a camera/controller consumes — no SDL types.
 Input :: struct {
 	move:      [3]f32, // x=forward(+W/-S), y=right(+D/-A), z=up(+E/Space, -Q)
-	look:      [2]f32, // mouse delta px this pump, only while look is captured (hold RMB)
+	look:      [2]f32, // mouse delta px this pump, only while the pointer is locked
 	scroll:    f32,    // mouse-wheel notches this pump (+up/away, -down/toward) — telekinesis reach
 	fast:      bool,   // shift held -> speed boost
 	select:    bool,   // left mouse pressed this pump (edge) — pick the hovered model
@@ -50,7 +50,7 @@ Platform :: struct {
 	dt:             f32, // seconds elapsed during the last pump()
 	on_event:       Event_Hook, // optional; called per raw SDL event
 	last_tick:      u64,
-	mouse_captured: bool, // DESIRED pointer-lock state (right mouse held)
+	mouse_captured: bool, // DESIRED pointer-lock state (set_mouse_capture)
 	relative_on:    bool, // ACTUAL relative-mouse state (only true once SDL confirmed the lock)
 	relative_warned: bool, // logged the "relative mode failed" reason once this capture attempt
 	keep_escape:    bool, // Escape is the app's key (the game's pause menu), not a quit
@@ -116,8 +116,8 @@ base_path :: proc() -> string {
 }
 
 // pump drains the event queue, refreshes input + dt, and returns false once the
-// user asks to quit (window close or Esc). Mouse-look is captured while the right
-// button is held (relative mouse mode); WASD/QE feed the move vector.
+// user asks to quit (window close or Esc). Mouse-look runs while the pointer is locked
+// (set_mouse_capture); WASD/QE feed the move vector.
 pump :: proc(p: ^Platform) -> bool {
 	running := true
 	look: [2]f32
