@@ -88,9 +88,8 @@ add_content :: proc(out: ^[dynamic]gamedb.Content_Entry, item: Form_ID, count: i
 }
 
 // inv_start is the contents owner starts with: its own, plus its outfit's gear, which it wears. A
-// leveled entry rolls at the owner's zone level on the first read, and the result stays until the
-// owner resets.
-// (hole outfit-roll-level :tags (records player) :sev polish) an outfit's leveled entries roll at the zone level like other contents; the CK says the player's level, the engine call takes the NPC's.
+// leveled entry rolls on the first read, and the result stays until the owner resets: contents at
+// the owner's zone level, outfit gear at the player's (CK wiki Outfit: "based on the player's Level").
 inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.Content_Entry {
 	if rolled, ok := ws.rolled[owner]; ok {return rolled[:]}
 	record, pick := record_of(ws, owner), actor_pick(ws, db, owner)
@@ -105,7 +104,7 @@ inv_start :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []gamedb.
 	rolled := make([dynamic]gamedb.Content_Entry)
 	for e in start {roll(ws, db, e.item, level, e.count, &rolled)}
 	gear := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
-	for item in outfit {roll(ws, db, item, level, 1, &gear)}
+	for item in outfit {roll(ws, db, item, player_level(ws, db), 1, &gear)}
 	for e in gear {add_content(&rolled, e.item, e.count)}
 	ws.rolled[owner] = rolled
 	wear_outfit(ws, db, owner, gear[:])
