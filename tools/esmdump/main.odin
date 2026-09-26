@@ -126,6 +126,10 @@ main :: proc() {
 		dialogue_survey(path, len(os.args) >= 4 ? os.args[3] : "")
 		return
 	}
+	if len(os.args) >= 3 && os.args[2] == "--tags" {
+		tag_survey(path)
+		return
+	}
 	if len(os.args) >= 3 && os.args[2] == "--scenes" {
 		scene_survey(path)
 		return
@@ -2656,6 +2660,45 @@ story_survey :: proc(path: string) {
 // dialogue_survey prints the dialogue records' shape: topics, branches and INFOs, how many INFOs
 // found their topic, and how much response and prompt text resolved. With a topic form id, it
 // prints that topic's INFOs in order.
+// tag_survey counts the text replacement tags (<Global=RoomCost>, <Alias=Target>) in prompts,
+// responses, names, journal entries and objectives, by the part before '='.
+tag_survey :: proc(path: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	counts: map[string]int
+	defer delete(counts)
+	count :: proc(counts: ^map[string]int, text: string) {
+		rest := text
+		for {
+			i := strings.index_byte(rest, '<')
+			if i < 0 {return}
+			rest = rest[i + 1:]
+			j := strings.index_byte(rest, '>')
+			if j < 0 {return}
+			tag := rest[:j]
+			if eq := strings.index_byte(tag, '='); eq >= 0 {tag = tag[:eq]}
+			counts[strings.clone(tag, context.temp_allocator)] += 1
+			rest = rest[j + 1:]
+		}
+	}
+	for _, info in db.infos {
+		count(&counts, info.prompt)
+		for r in info.responses {count(&counts, r.text)}
+	}
+	for _, name in db.names {count(&counts, name)}
+	for _, qb in db.quest_baseline {
+		for _, t in qb.stage_log {count(&counts, t)}
+		for _, t in qb.objective_text {count(&counts, t)}
+	}
+	Row :: struct {tag: string, n: int}
+	rows := make([dynamic]Row, context.temp_allocator)
+	for tag, n in counts {append(&rows, Row{tag, n})}
+	slice.sort_by(rows[:], proc(a, b: Row) -> bool {return a.n > b.n})
+	for r in rows[:min(len(rows), 30)] {fmt.printfln("%6d  <%s>", r.n, r.tag)}
+}
+
 // scene_survey prints the scenes' shape: phases, actions by kind, and whether every action's
 // phases, topic and alias and every phase fragment land inside their scene.
 scene_survey :: proc(path: string) {
@@ -2715,7 +2758,22 @@ dialogue_survey :: proc(path, topic_edid: string) {
 	fmt.printfln("responses %d, %d with text; %d prompts with text", responses, texts, prompt_texts)
 	_ = prompts
 	if topic_edid == "" {return}
-	want, _ := strconv.parse_u64_of_base(strings.trim_prefix(topic_edid, "0x"), 16)
+	want, is_hex := strconv.parse_u64_of_base(strings.trim_prefix(topic_edid, "0x"), 16)
+	if !is_hex { // a text search: every topic whose text or an info's prompt contains it
+		needle := strings.to_lower(topic_edid, context.temp_allocator)
+		for form, &t in db.topics {
+			hit := strings.contains(strings.to_lower(gamedb.name_of(&db, form), context.temp_allocator), needle)
+			for i in t.infos {hit ||= strings.contains(strings.to_lower(db.infos[i].prompt, context.temp_allocator), needle)}
+			if !hit {continue}
+			b := db.branches[t.branch]
+			fmt.printfln("0x%08X %q category %d subtype %s branch 0x%08X flags 0x%X start %v quest 0x%08X infos %d",
+				u64(form), gamedb.name_of(&db, form), t.category, string(t.subtype_name[:]), u64(t.branch), b.flags, b.start == form, u64(t.quest), len(t.infos))
+			for i in t.infos {
+				if p := db.infos[i].prompt; p != "" {fmt.printfln("    info 0x%08X prompt %q", u64(i), p)}
+			}
+		}
+		return
+	}
 	for form, &t in db.topics {
 		if u64(form) != want {continue}
 		fmt.printfln("\n0x%08X %q category %d subtype %s priority %v", u64(form), gamedb.name_of(&db, form), t.category, string(t.subtype_name[:]), t.priority)
