@@ -240,9 +240,12 @@ apply_pending_scene_ops :: proc(s: ^Scene, db: ^gamedb.DB) {
 		clear(&s.ws.rebuild_cells)
 		resolve_created_models(s)
 	}
+	spawned := false
 	for form in worldstate.pending_scene(s.ws) {
+		spawned |= spawn_live(s, db, form) // a ref a script created (PlaceAtMe, DropObject)
 		apply_overlay_ref(s, form)
 	}
+	if spawned {resolve_created_models(s)}
 	worldstate.clear_scene_dirty(s.ws)
 }
 
@@ -458,19 +461,26 @@ create_ref :: proc(s: ^Scene, db: ^gamedb.DB, base, cell: Form_ID, pos, rot: [3]
 		return 0
 	}
 	id := worldstate.create_ref(s.ws, base, cell, pos, rot, scale)
-	if chunk, ok := &s.chunks[cell]; ok {
-		c, _ := worldstate.get_created(s.ws, id)
-		if inst, built := build_created_instance(db, id, c); built {
-			if m, mok := assetdb.get_model(&s.cache, inst.model_path); mok {
-				inst.model = m
-			}
-			assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
-			append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
-			chunk.phys_done = false         // let sync_physics build the new ref's collision
-			index_instances(s, chunk)
-		}
-	}
+	if spawn_live(s, db, id) {resolve_created_models(s)}
 	return id
+}
+
+// spawn_live adds a created ref to its cell's chunk when that chunk is resident and the ref is not
+// yet live. GPU-free: the caller resolves the model (resolve_created_models); sync_physics builds
+// its collision next tick.
+spawn_live :: proc(s: ^Scene, db: ^gamedb.DB, id: Form_ID) -> bool {
+	c, created := worldstate.get_created(s.ws, id)
+	if !created {return false}
+	chunk, resident := &s.chunks[c.cell]
+	if !resident {return false}
+	if _, _, live := find_resident(s, id); live {return false}
+	inst, built := build_created_instance(db, id, c)
+	if !built {return false}
+	assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
+	append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
+	chunk.phys_done = false         // let sync_physics build the new ref's collision
+	index_instances(s, chunk)
+	return true
 }
 
 // capture_settles writes a debounced Moved delta for every movable-clutter body that JUST came to

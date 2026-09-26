@@ -129,3 +129,34 @@ func_has :: proc(s: ^world.Scene, fid: gamedb.Form_ID) -> bool {
 	_, ok := find(s, CELL, fid)
 	return ok
 }
+
+// A ref a script creates (DropObject, PlaceAtMe) spawns live into its resident chunk, once.
+@(test)
+test_dirty_created_ref_spawns_live :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	db.base_models = make(map[gamedb.Form_ID]string)
+	db.base_models[BASE] = "clutter\\testpile.nif"
+	defer delete(db.base_models)
+
+	state: ws.World_State
+	ws.init(&state)
+	defer ws.destroy(&state)
+
+	s: world.Scene
+	s.chunks = make(map[gamedb.Form_ID]world.Chunk)
+	s.resident = make(map[gamedb.Form_ID]world.Resident_Ref)
+	s.ws = &state
+	defer {
+		for _, &c in s.chunks {delete(c.instances)}
+		delete(s.chunks)
+		delete(s.resident)
+		assetdb.cache_destroy(&s.cache)
+	}
+	s.chunks[CELL] = world.Chunk{cell_form_id = CELL, instances = make([dynamic]world.Instance)}
+
+	a := ws.create_ref(&state, BASE, CELL, {1, 2, 3}, {0, 0, 0}, 1)
+	testing.expect(t, world.spawn_live(&s, &db, a), "dropped ref not spawned")
+	testing.expect(t, func_has(&s, a), "dropped ref not in its chunk")
+	testing.expect(t, !world.spawn_live(&s, &db, a), "spawned twice")
+	testing.expect_value(t, cell_count(&s, CELL), 1)
+}
