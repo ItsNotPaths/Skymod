@@ -67,6 +67,7 @@ AV_Kind :: enum u8 {
 
 // SKILL_CAP is the cap training stops at (a pool's capacity) until something raises it.
 SKILL_CAP :: f32(100)
+AUTO_CALC_SKILL_CAP :: 125 // where auto-calc stops an NPC_'s skill (see skill_base)
 
 // av_kind is an engine actor value's kind (a canonical name).
 av_kind :: proc(av: string) -> AV_Kind {
@@ -248,9 +249,9 @@ attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int, player_level: int
 }
 
 // skill_base is skill `i` (0..17): with auto-calc, iAVDSkillStart plus the race bonus plus the class
-// share of iAVDSkillsLevelUp points per level above 1, capped at 100 with the excess shared among
-// the rest; without it, the DNAM value plus its offset.
-// (hole skill-cap-share :tags (records player) :sev polish) past the 100 cap the game drops part of the excess; sharing all of it matches 11 of the 24 vanilla NPC_ that reach the cap (check: build/out/wsP/autocalc/rr.py).
+// share of iAVDSkillsLevelUp points per level above 1, capped at AUTO_CALC_SKILL_CAP with the
+// excess shared among the rest; without it, the DNAM value plus its offset.
+// (hole skill-cap-share :tags (records player) :sev polish) the auto-calc cap of 125 is a choice (user, 2026-09-26), not Skyrim's: the CK's DNAM cache stops at 100 and loses part of the excess by a rule not yet found (best fit 11 of 24 capped NPC_, build/out/wsP/skillcap); in play some followers (J'zargo, Frea, Durak, Ingjard, Celann) go past 100.
 @(private)
 skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int, player_level: int) -> int {
 	if stats.flags & esm.ACBS_AUTO_CALC_STATS == 0 {return int(stats.skills[i]) + int(stats.skill_offsets[i])}
@@ -270,7 +271,7 @@ skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int, player_level:
 		for &s, k in skills {
 			if weights[k] == 0 {continue}
 			s += add[k]
-			if s >= 100 {left += s - 100; s = 100; weights[k] = 0}
+			if s >= AUTO_CALC_SKILL_CAP {left += s - AUTO_CALC_SKILL_CAP; s = AUTO_CALC_SKILL_CAP; weights[k] = 0}
 		}
 	}
 	return skills[i]
