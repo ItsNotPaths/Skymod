@@ -80,9 +80,15 @@ frame_menus :: proc(g: ^Game) {
 @(private = "file")
 inventory_menu :: proc(g: ^Game) {
 	ws, db := &g.ws, &g.db
+	c := script.Call{ws = ws, db = db}
 	for item in by_name(g, worldstate.inv_items(ws, db, formid.PLAYER)) {
 		worn := worldstate.is_equipped(ws, db, formid.PLAYER, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s%s  x%d", "* " if worn else "", label(g, item), worldstate.inv_count(ws, db, formid.PLAYER, item)))
+		if p, potion := gamedb.potion_of(db, item); potion && !p.poison {
+			imgui.SameLine()
+			if imgui.SmallButton(fmt.ctprintf("Use##%x", item)) {script.drink(&c, formid.PLAYER, item)}
+			continue
+		}
 		if _, equips := gamedb.equip_slot_of(db, item); !equips {continue}
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("%s##%x", "Unequip" if worn else "Equip", item)) {

@@ -10,7 +10,6 @@ import "../gamedb"
 // (hole equip-effects :tags (magic combat player) :sev gap :needs (effect-archetypes)) worn gear changes nothing: armor rating, weapon damage and enchantments (EITM) are not read.
 // (hole npc-auto-equip :tags (ai player) :sev gap) an NPC never picks better gear from its inventory or puts its outfit back on (UESP Followers); it wears its outfit until a script changes it.
 // (hole either-hand-placement :tags player :sev polish) an either-hand item goes right, else left when right is taken, else replaces right: unsourced. The player's left-hand one-handers need a hand choice from the UI.
-// (hole potion-equip :tags (magic player) :sev gap) EquipItem on a potion or food should drink it; it does nothing.
 
 Worn :: struct {
 	item:  Form_ID,

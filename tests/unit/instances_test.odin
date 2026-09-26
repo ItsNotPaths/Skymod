@@ -708,6 +708,32 @@ test_effect_start_conditions :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.effects), 3)
 }
 
+// EquipItem on a potion drinks one: it leaves the pack, OnObjectEquipped is queued and its effects
+// start on the drinker. A poison is not drunk.
+@(test)
+test_potion_equip :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_potion", {{"glow.lua", GLOW_LUA}})
+	defer fixture_destroy(&f)
+
+	POTION, POISON, MGEF :: gamedb.Form_ID(0x910), gamedb.Form_ID(0x911), gamedb.Form_ID(0x901)
+	DRINKER :: gamedb.Form_ID(0x700)
+	effects := []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 2}}
+	f.db.potions = make(map[gamedb.Form_ID]gamedb.Potion, context.temp_allocator)
+	f.db.potions[POTION] = {effects = effects}
+	f.db.potions[POISON] = {effects = effects, poison = true}
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[MGEF] = {scripts = []esm.Script_Attach{{name = "Glow"}}}
+	worldstate.inv_add(&f.ws, DRINKER, POTION, 2)
+	worldstate.inv_add(&f.ws, DRINKER, POISON, 1)
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x700), "EquipItem", ref(0x910)); rt.call(ref(0x700), "EquipItem", ref(0x911))`), "EquipItem")
+	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, DRINKER, POTION), 1)
+	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, DRINKER, POISON), 1)
+	testing.expect_value(t, len(f.ws.effects), 1)
+	testing.expect(t, len(f.ws.equip_changes) == 1 && f.ws.equip_changes[0].item == POTION, "OnObjectEquipped for the potion only")
+}
+
 // A reset restarts a ref's scripts: its instances go, new ones run OnInit, then OnReset. A ref with
 // no instances (its cell never loaded) gets none.
 @(test)

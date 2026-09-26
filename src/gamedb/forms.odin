@@ -343,6 +343,32 @@ index_enchantment :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	db.enchantments[rec.form_id] = e
 }
 
+// index_potion records an ALCH's effects (potions, poisons and food).
+@(private)
+index_potion :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {
+		return
+	}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	p := Potion{effects = index_effects(db, fl, fm), poison = esm.potion_is_poison(fl)}
+	if old, existed := db.potions[rec.form_id]; existed {
+		free_effects(db, old.effects) // override: free the previous effect list
+	}
+	db.potions[rec.form_id] = p
+}
+
+// potion_of returns an ALCH's baseline (ok=false when the form isn't an indexed potion).
+potion_of :: proc(db: ^DB, potion: Form_ID) -> (Potion, bool) {
+	if db == nil {
+		return {}, false
+	}
+	p, ok := db.potions[potion]
+	return p, ok
+}
+
 // index_magic_effect decodes an MGEF: what the effect does (archetype + actor values), its cost,
 // and its player-facing description. The DNAM description resolves in the PLAIN STRINGS table,
 // not DLSTRINGS — verified against Skyrim - Interface.bsa (0x000126B1 = "Stamina regenerates
@@ -738,6 +764,10 @@ free_form_indexes :: proc(db: ^DB) {
 		free_effects(db, e.effects)
 	}
 	delete(db.enchantments)
+	for _, p in db.potions {
+		free_effects(db, p.effects)
+	}
+	delete(db.potions)
 	for _, m in db.magic_effects {
 		delete(m.description, db.allocator)
 		delete(m.conditions, db.allocator)

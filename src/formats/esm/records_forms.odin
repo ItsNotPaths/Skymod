@@ -397,6 +397,13 @@ Effect_Item :: struct {
 	duration:  u32,
 }
 
+// potion_is_poison reads an ALCH's ENIT flags (value u32@0, flags u32@4): 0x20000 is Poison
+// (UESP Mod File Format/ALCH).
+potion_is_poison :: proc(fields: []Field) -> bool {
+	f, ok := find_field(fields, "ENIT")
+	return ok && len(f.data) >= 8 && rd32(f.data, 4) & 0x20000 != 0
+}
+
 // effect_items collects a record's EFID/EFIT effect pairs in declaration order — the shape
 // shared by SPEL, SCRL, ENCH, ALCH and INGR. An EFID with no following EFIT contributes a
 // zero-magnitude entry (the effect is still applied). The CTDAs after an EFIT are its

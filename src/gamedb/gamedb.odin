@@ -160,6 +160,7 @@ DB :: struct {
 	factions:      map[Form_ID]Faction, // FACT formID -> its baseline (owned slices/titles)
 	spells:        map[Form_ID]Spell, // SPEL/SCRL formID -> its cast parameters + effects (owned)
 	enchantments:  map[Form_ID]Enchantment, // ENCH formID -> its parameters + effects (owned)
+	potions:       map[Form_ID]Potion, // ALCH formID -> its effects (owned)
 	magic_effects: map[Form_ID]Magic_Effect, // MGEF formID -> what the effect does (owned description)
 	locations:     map[Form_ID]Location, // LCTN formID -> its place in the location tree + map marker
 	weathers:      map[Form_ID]Weather, // WTHR formID -> its authored sky look (colours/fog/imagespaces)
@@ -358,6 +359,13 @@ Enchantment :: struct {
 	base_enchantment:  Form_ID, // ENIT parent enchantment, remapped
 	worn_restrictions: Form_ID, // ENIT slot FLST, remapped
 	effects:           []Magic_Effect_Ref, // EFID/EFIT (owned)
+}
+
+// Potion is an ALCH baseline: a potion, food or poison. A poison goes on a weapon; the rest are
+// drunk or eaten.
+Potion :: struct {
+	effects: []Magic_Effect_Ref, // owned
+	poison:  bool,
 }
 
 // Magic_Effect is an MGEF baseline: what the effect does (archetype + the actor values it reads
@@ -653,6 +661,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		factions      = make(map[Form_ID]Faction, 1024, allocator),
 		spells        = make(map[Form_ID]Spell, 1024, allocator),
 		enchantments  = make(map[Form_ID]Enchantment, 1024, allocator),
+		potions       = make(map[Form_ID]Potion, 512, allocator),
 		magic_effects = make(map[Form_ID]Magic_Effect, 1024, allocator),
 		locations     = make(map[Form_ID]Location, 1024, allocator),
 		weathers      = make(map[Form_ID]Weather, 128, allocator),
@@ -1330,6 +1339,9 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "SCRL":
 		index_base(db, rec, ctx.fm) // a scroll is a carriable item (mesh + name + value/weight) …
 		index_spell(db, rec, ctx.fm, scroll = true) // … AND a spell (same SPIT block)
+	case s == "ALCH":
+		index_base(db, rec, ctx.fm) // a potion is a carriable item …
+		index_potion(db, rec, ctx.fm) // … with effects
 	case s == "ENCH":
 		index_enchantment(db, rec, ctx.fm)
 	case s == "MGEF":

@@ -2167,11 +2167,22 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	enchs := make([dynamic]u8, 0, 192);defer delete(enchs)
 	record(&enchs, "ENCH", 0, 0x0000_0620, ench[:])
 
+	// A poison carrying one effect.
+	alch := make([dynamic]u8, 0, 128);defer delete(alch)
+	alit: [20]u8
+	put_u32(alit[:], 4, 0x20000) // Poison
+	field(&alch, "ENIT", alit[:])
+	field(&alch, "EFID", u32_bytes(0x0000_0602))
+	field(&alch, "EFIT", ef2[:])
+	alchs := make([dynamic]u8, 0, 192);defer delete(alchs)
+	record(&alchs, "ALCH", 0, 0x0000_0630, alch[:])
+
 	out := make([dynamic]u8, 0, 1024);defer delete(out)
 	record(&out, "TES4", 0, 0, tes4[:])
 	group(&out, transmute([]u8)string("MGEF"), 0, mgefs[:])
 	group(&out, transmute([]u8)string("SPEL"), 0, spels[:])
 	group(&out, transmute([]u8)string("ENCH"), 0, enchs[:])
+	group(&out, transmute([]u8)string("ALCH"), 0, alchs[:])
 
 	db := gamedb.build(out[:])
 	defer gamedb.destroy(&db)
@@ -2204,6 +2215,8 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	testing.expect(t, len(sp.effects[0].conditions) == 0 && len(sp.effects[1].conditions) == 1, "a CTDA belongs to the effect before it")
 	dear_me, _ := gamedb.magic_effect_of(&db, 0x0000_0602)
 	testing.expect_value(t, len(dear_me.conditions), 1)
+	poison, pok := gamedb.potion_of(&db, 0x0000_0630)
+	testing.expect(t, pok && poison.poison && len(poison.effects) == 1, "an ALCH's effects and poison flag")
 
 	// Effect 1 costs 40 base at magnitude 20 — well past effect 0's 2 base at magnitude 50.
 	costliest, cok := gamedb.spell_costliest_effect(&db, 0x0000_0610)
