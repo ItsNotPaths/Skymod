@@ -43,6 +43,7 @@ Quest_Vars :: struct {
 	read: proc(data: rawptr, quest: Form_ID, name: string) -> (f32, bool),
 }
 
+// (hole condition-groups :tags (mods quest) :sev wish) a mod can only write a condition list the CK way (OR runs bind tighter than AND, no parentheses), so (A AND B) OR (C AND D) must be expanded into AND-ed OR blocks; a mod-authored expression with real grouping could compile to this evaluator.
 // all evaluates a condition list the way the format defines it: an AND, with runs of OR.
 //
 // A condition whose Or flag is set is joined to the FOLLOWING one as an OR, so consecutive
