@@ -105,7 +105,7 @@ run_on_form :: proc(ctx: ^Context, c: gamedb.Condition) -> (Form_ID, bool) {
 	case .QuestAlias:
 		return alias_ref(ctx, c.param3)
 	case .EventData:
-		return event_form(ctx, c.param3)
+		return event_form(ctx.event, c.param3)
 	case .LinkedRef:
 		if ctx.db == nil {return 0, false}
 		ref, _ := gamedb.linked_ref(ctx.db, subject)
@@ -143,10 +143,8 @@ EVENT_VALUE_1 :: 0x3156 // V1
 EVENT_VALUE_2 :: 0x3256 // V2
 
 // event_form is a story event's form member; ok=false with no event or for a value member.
-@(private)
-event_form :: proc(ctx: ^Context, member: i32) -> (Form_ID, bool) {
-	if ctx.event == nil {return 0, false}
-	e := ctx.event
+event_form :: proc(e: ^worldstate.Story_Event, member: i32) -> (Form_ID, bool) {
+	if e == nil {return 0, false}
 	switch member {
 	case EVENT_ACTOR_1:
 		return e.ref1, true

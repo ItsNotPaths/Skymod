@@ -8,8 +8,10 @@ package gamedb
 // overriding a record replaces it wholesale (free the previous owned data first), and the walk
 // has no temp-allocator reset, so scratch slices are freed explicitly.
 
+import "core:slice"
 import "core:strings"
 import "../formats/esm"
+import "../formid"
 
 // --- keywords ---------------------------------------------------------------------------
 
@@ -572,8 +574,9 @@ unique_actor_ref :: proc(db: ^DB, base: Form_ID) -> (Form_ID, bool) {
 	return r, ok
 }
 
-// index_alias_targets indexes each unique NPC_'s placed actor, then every ref a Specific or
-// Unique_Actor fill names. Runs once every plugin is walked.
+// index_alias_targets indexes what alias fills search: each unique NPC_'s placed actor, the
+// persistent refs, the default-link children, and every ref a Specific or Unique_Actor fill names.
+// Runs once every plugin is walked.
 @(private)
 index_alias_targets :: proc(db: ^DB) {
 	db.unique_refs = make(map[Form_ID]Form_ID, 1024, db.allocator)
@@ -584,6 +587,20 @@ index_alias_targets :: proc(db: ^DB) {
 			if !ok || a.flags & esm.ACBS_UNIQUE == 0 || r.deleted {continue}
 			if prev, seen := db.unique_refs[r.base]; seen && prev < r.form_id {continue}
 			db.unique_refs[r.base] = r.form_id
+		}
+	}
+	persistent := make([dynamic]Form_ID, db.allocator)
+	for id, r in db.ref_by_id {
+		if r.persistent && !r.deleted && id != formid.PLAYER {append(&persistent, id)}
+	}
+	slice.sort(persistent[:])
+	db.persistent_refs = persistent[:]
+	db.linked_children = make(map[Form_ID][dynamic]Form_ID, 1024, db.allocator)
+	for ref, links in db.linked_refs {
+		for l in links {
+			if l.keyword != 0 {continue}
+			if l.ref not_in db.linked_children {db.linked_children[l.ref] = make([dynamic]Form_ID, db.allocator)}
+			append(&db.linked_children[l.ref], ref)
 		}
 	}
 	for _, qb in db.quest_baseline {

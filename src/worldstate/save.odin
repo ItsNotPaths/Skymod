@@ -272,6 +272,7 @@ Save_Body :: struct {
 	quest_events:  []Saved_Quest_Event,
 	story_starts:  []Saved_Restock, // chest = the quest
 	story_ran:     []Saved_Alias,   // alias = the quest node, form = the quest
+	alias_rounds:  []Saved_Alias,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -430,6 +431,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for quest, hour in ws.story_starts {append(&story_starts, Saved_Restock{quest, hour})}
 	story_ran := make([dynamic]Saved_Alias, 0, len(ws.story_ran), context.temp_allocator)
 	for k in ws.story_ran {append(&story_ran, Saved_Alias{k[0], k[1]})}
+	alias_rounds := make([dynamic]Saved_Alias, 0, len(ws.alias_rounds), context.temp_allocator)
+	for k in ws.alias_rounds {append(&alias_rounds, Saved_Alias{k[0], k[1]})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
@@ -477,6 +480,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		quest_events  = quest_events[:],
 		story_starts  = story_starts[:],
 		story_ran     = story_ran[:],
+		alias_rounds  = alias_rounds[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -635,6 +639,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		node, nok := rf(remap, have_remap, r.alias)
 		quest, qok := rf(remap, have_remap, r.form)
 		if nok && qok {ws.story_ran[{node, quest}] = true}
+	}
+	for r in body.alias_rounds {
+		alias, aok := rf(remap, have_remap, r.alias)
+		form, fok := rf(remap, have_remap, r.form)
+		if aok && fok {ws.alias_rounds[{alias, form}] = true}
 	}
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
@@ -821,6 +830,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	}
 	for r in body.story_starts {add_slot(&seen, r.chest)}
 	for r in body.story_ran {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.alias_rounds {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

@@ -87,6 +87,7 @@ Overlay :: struct {
 	quest_events:    map[Form_ID]Story_Event,      // running quest -> the story event that started it
 	story_starts:    map[Form_ID]f64,              // quest -> the game hour the story manager last started it
 	story_ran:       map[[2]Form_ID]bool,          // {quest node, quest} started this round (do all before repeating)
+	alias_rounds:    map[[2]Form_ID]bool,          // {alias handle, ref or location} a searching fill took this round
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -229,6 +230,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.quest_events = make(map[Form_ID]Story_Event)
 	o.story_starts = make(map[Form_ID]f64)
 	o.story_ran = make(map[[2]Form_ID]bool)
+	o.alias_rounds = make(map[[2]Form_ID]bool)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -300,6 +302,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.quest_events)
 	delete(o.story_starts)
 	delete(o.story_ran)
+	delete(o.alias_rounds)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

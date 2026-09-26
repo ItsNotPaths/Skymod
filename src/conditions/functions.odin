@@ -293,7 +293,7 @@ fn_get_event_data :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f
 		return 0, false
 	}
 	want := gamedb.condition_param2_form(c)
-	form, ok := event_form(ctx, member)
+	form, ok := event_form(ctx.event, member)
 	if !ok {return 0, false}
 	switch function {
 	case 0:

@@ -574,3 +574,69 @@ test_story_manager :: proc(t: ^testing.T) {
 	testing.expect(t, !script.start_quest(&c, gamedb.Form_ID(QSTORY)), "a required alias stays empty")
 	testing.expect(t, !running(&ws, &db, QSTORY), "so the quest does not run")
 }
+
+// Alias fills: a world search with Match Conditions takes a different ref for each alias, Force Into
+// copies one, dead actors do not fit (so a required alias fails the start), a search picks in rounds,
+// From Event reads the event, and Create_Ref makes its ref at another alias.
+@(test)
+test_alias_fills :: proc(t: ^testing.T) {
+	BANDIT, OTHER, MADE :: gamedb.Form_ID(0xB01), gamedb.Form_ID(0xB02), gamedb.Form_ID(0xB03)
+	A, B, C :: gamedb.Form_ID(0xA01), gamedb.Form_ID(0xA02), gamedb.Form_ID(0xA03)
+	db: gamedb.DB
+	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref)
+	defer delete(db.ref_by_id)
+	db.ref_by_id[A] = {form_id = A, base = BANDIT, pos = {10, 0, 0}, persistent = true}
+	db.ref_by_id[B] = {form_id = B, base = BANDIT, persistent = true}
+	db.ref_by_id[C] = {form_id = C, base = OTHER, persistent = true}
+	db.persistent_refs = {A, B, C}
+	db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	defer delete(db.quest_baseline)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	c := script.Call{ws = &ws, db = &db}
+
+	bandit := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BANDIT)}}
+	search :: proc(id: u32, conds: []gamedb.Condition, flags: u32 = 0, force_into: i32 = -1) -> gamedb.Quest_Alias {
+		return {id = id, fill = .Matching, alias = -1, force_into = force_into, flags = flags, conditions = conds}
+	}
+	ref_in :: proc(ws: ^worldstate.World_State, q: gamedb.Form_ID, id: i32) -> gamedb.Form_ID {return worldstate.alias_ref(ws, q, id)}
+
+	Q1, Q2, Q3, Q4, Q5 :: gamedb.Form_ID(0xC01), gamedb.Form_ID(0xC02), gamedb.Form_ID(0xC03), gamedb.Form_ID(0xC04), gamedb.Form_ID(0xC05)
+	q1 := []gamedb.Quest_Alias{search(0, bandit, force_into = 2), search(1, bandit), {id = 2, alias = -1, force_into = -1}}
+	db.quest_baseline[Q1] = {aliases = q1}
+	testing.expect(t, script.start_quest(&c, Q1), "Q1 starts")
+	x, y := ref_in(&ws, Q1, 0), ref_in(&ws, Q1, 1)
+	testing.expect(t, x != y && (x == A || x == B) && (y == A || y == B), "two bandits, not the same one")
+	testing.expect_value(t, ref_in(&ws, Q1, 2), x)
+
+	worldstate.set_dead(&ws, A, 0, true)
+	worldstate.set_dead(&ws, B, 0, true)
+	q2 := []gamedb.Quest_Alias{search(0, bandit)}
+	db.quest_baseline[Q2] = {aliases = q2}
+	testing.expect(t, !script.start_quest(&c, Q2), "no living bandit: a required alias fails the start")
+	q2[0].flags = esm.ALIAS_ALLOW_DEAD
+	testing.expect(t, script.start_quest(&c, Q2), "Allow Dead")
+	worldstate.set_dead(&ws, A, 0, false)
+	worldstate.set_dead(&ws, B, 0, false)
+
+	q3 := []gamedb.Quest_Alias{search(0, bandit, esm.ALIAS_ALLOW_RESERVED)}
+	db.quest_baseline[Q3] = {aliases = q3}
+	testing.expect(t, script.start_quest(&c, Q3), "Q3 starts")
+	first := ref_in(&ws, Q3, 0)
+	worldstate.quest_set_running(&ws, Q3, false)
+	testing.expect(t, script.start_quest(&c, Q3), "Q3 again")
+	testing.expect(t, ref_in(&ws, Q3, 0) != first, "the round takes the other bandit")
+
+	q4 := []gamedb.Quest_Alias{{id = 0, fill = .Matching, alias = -1, force_into = -1, event_member = conditions.EVENT_ACTOR_1, conditions = bandit}}
+	db.quest_baseline[Q4] = {aliases = q4}
+	testing.expect(t, !script.start_quest(&c, Q4, &{ref1 = C}), "the event's actor is no bandit")
+	testing.expect(t, script.start_quest(&c, Q4, &{ref1 = B}), "this one is")
+	testing.expect_value(t, ref_in(&ws, Q4, 0), B)
+
+	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
+	db.quest_baseline[Q5] = {aliases = q5}
+	testing.expect(t, script.start_quest(&c, Q5), "Q5 starts")
+	made := ref_in(&ws, Q5, 1)
+	testing.expect(t, worldstate.ref_base(&ws, &db, made) == MADE && worldstate.ref_pos(&ws, &db, made) == {10, 0, 0}, "made at alias 0")
+}

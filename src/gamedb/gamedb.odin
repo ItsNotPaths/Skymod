@@ -222,7 +222,9 @@ DB :: struct {
 	story_nodes:   map[Form_ID]Story_Node, // SMBN/SMQN/SMEN form -> its node in the story manager tree
 	story_roots:   []Form_ID, // the top nodes (event nodes), in sibling order; owned
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
-	alias_targets:  map[Form_ID]bool,    // refs a Forced or Unique_Actor alias fill can hold
+	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
+	persistent_refs: []Form_ID,          // every persistent placed ref, in form order: a world alias search (owned)
+	linked_children: map[Form_ID][dynamic]Form_ID, // ref -> the refs whose default link is it (Near Alias)
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
 	actor_ref_index: map[Form_ID]Ref_Loc, // build-time only: ACHR formID -> its slot in actor_refs (override dedup); emptied after build
@@ -400,6 +402,7 @@ Linked_Ref :: struct {
 	ref:     Form_ID,
 }
 
+// (hole alias-data :tags (quest ai) :sev gap) an alias applies none of its data while filled: the Essential, Protected and Quest Object flags, its factions (ALFC), spells (ALSP), package data and override lists, display name (ALDN) and inventory (CNTO) are not decoded.
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
 // (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
 // the quest engine fills it at start. `name` and `conditions` are owned by the DB.
@@ -949,6 +952,9 @@ destroy :: proc(db: ^DB) {
 	free_story_nodes(db)
 	delete(db.unique_refs)
 	delete(db.alias_targets)
+	delete(db.persistent_refs, db.allocator)
+	for _, kids in db.linked_children {delete(kids)}
+	delete(db.linked_children)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}

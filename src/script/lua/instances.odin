@@ -50,7 +50,7 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 // scripts. A loaded save keeps its own fills, so it calls start_game alone.
 new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	for q in sorted_quests(db) {
-		if gamedb.quest_start_game_enabled(db, q) {script.fill_aliases(vm.ctx.ws, db, q)}
+		if gamedb.quest_start_game_enabled(db, q) {script.fill_aliases(&vm.ctx, q, new_game = true)}
 	}
 	return start_game(vm, db)
 }
