@@ -34,9 +34,10 @@ Conversation :: struct {
 }
 
 // open_dialogue starts a conversation with an actor the player activated. Actors without a name
-// cannot be spoken to (CK Dialogue), nor a scene actor flagged No Player Activation (CK Scenes Tab).
+// cannot be spoken to (CK Dialogue), nor one a script barred (AllowPCDialogue), nor a scene actor
+// flagged No Player Activation (CK Scenes Tab).
 open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
-	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, speaker) {return}
+	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, speaker) || speaker in g.ws.no_pc_dialogue {return}
 	if busy_in_scene(g, speaker) {
 		log.infof("%s is busy", worldstate.display_name(&g.ws, &g.db, speaker))
 		return

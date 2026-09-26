@@ -20,11 +20,10 @@ import smath "../math"
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
-// (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause.
+// (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
 // (hole crime-reads :tags combat :sev gap) no read for Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime: there is no crime system.
 // (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-reads)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): there is no crime system.
 // (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
-// (hole dialogue-reads :tags dialogue :sev gap) no read for AllowPCDialogue, AllowBleedoutDialogue, SetNoFavorAllowed.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.

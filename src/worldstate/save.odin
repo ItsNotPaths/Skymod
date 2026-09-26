@@ -290,6 +290,8 @@ Save_Body :: struct {
 	exclusive:     []Saved_Alias,   // alias = the speaker, form = the branch
 	talked_to_pc:  []Form_ID,
 	teammates:     []Form_ID,
+	no_pc_dialogue: []Form_ID,
+	courier_waits: []Courier_Remove,
 	scenes:        []Saved_Scene,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -512,6 +514,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		exclusive     = exclusive[:],
 		talked_to_pc  = save_set(ws.talked_to_pc),
 		teammates     = save_set(ws.teammates),
+		no_pc_dialogue = save_set(ws.no_pc_dialogue),
+		courier_waits = ws.courier_waits[:],
 		scenes        = scenes[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -694,6 +698,17 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	}
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
+	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
+	for w in body.courier_waits {
+		w := w
+		ok := true
+		for &f in ([]^Form_ID{&w.courier, &w.container, &w.item, &w.count}) {
+			fok: bool
+			f^, fok = rf(remap, have_remap, f^)
+			ok &&= fok || f^ == 0
+		}
+		if ok {append(&ws.courier_waits, w)}
+	}
 	// A scene from a missing mod drops; a line from one is cut short.
 	for r in body.scenes {
 		scene, ok := rf(remap, have_remap, r.scene)
@@ -898,6 +913,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.exclusive {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for a in body.talked_to_pc {add_slot(&seen, a)}
 	for a in body.teammates {add_slot(&seen, a)}
+	for a in body.no_pc_dialogue {add_slot(&seen, a)}
+	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)
 		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker)}

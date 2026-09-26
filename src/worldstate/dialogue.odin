@@ -6,6 +6,12 @@ package worldstate
 
 Speaker_Info :: [2]Form_ID // {speaker, info}
 
+// Courier_Remove is a Courier.RemoveRef that waits while its courier talks to the player.
+Courier_Remove :: struct {
+	courier, container, item, count: Form_ID,
+	to_player:                       bool,
+}
+
 // Info_Run is a topic info fragment to run on the script thread: begin when a line starts, end
 // when its last response is done.
 Info_Run :: struct {

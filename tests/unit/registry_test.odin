@@ -837,3 +837,25 @@ test_boss_death_clears_location :: proc(t: ^testing.T) {
 	e := ws.story_events[len(ws.story_events) - 1]
 	testing.expect(t, e.type == worldstate.STORY_KILL && e.ref1 == BOSS_B, "a death is a KILL story event")
 }
+
+// Courier.RemoveRef waits while the courier talks to the player, then gives the item.
+@(test)
+test_courier_waits_for_dialogue :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	COURIER, BAG, LETTER :: script.Form_ID(0xC01), script.Form_ID(0xC02), script.Form_ID(0xC03)
+	c := script.Call{ws = &ws, db = &db}
+	script.move_items(&c, {base = LETTER, to = BAG, count = 1})
+	ws.talking = COURIER
+	script.call(&reg, "Courier", "RemoveRef", &c, {COURIER, BAG, LETTER, true, script.Form_ID(0)})
+	script.tick_courier(&c)
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(0))
+	ws.talking = 0
+	script.tick_courier(&c)
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(1))
+}

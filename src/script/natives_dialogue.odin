@@ -3,6 +3,7 @@ package script
 // Dialogue reads: who is talking to the player, a topic info's quest, and who follows the player.
 
 import "../formid"
+import "../worldstate"
 
 register_dialogue :: proc(reg: ^Registry) {
 	register(reg, "TopicInfo", "GetOwningQuest", n_info_get_owning_quest)
@@ -10,6 +11,7 @@ register_dialogue :: proc(reg: ^Registry) {
 	register(reg, "Actor", "GetDialogueTarget", n_get_dialogue_target)
 	register(reg, "Actor", "SetPlayerTeammate", n_set_player_teammate)
 	register(reg, "Actor", "IsPlayerTeammate", n_is_player_teammate)
+	register(reg, "Actor", "AllowPCDialogue", n_allow_pc_dialogue)
 }
 
 n_info_get_owning_quest :: proc(c: ^Call, args: []Value) -> Value {
@@ -25,7 +27,7 @@ n_get_dialogue_target :: proc(c: ^Call, args: []Value) -> Value {
 	return formid.PLAYER if c.self != 0 && c.ws.talking == c.self else Form_ID(0)
 }
 
-// (hole teammate-behavior :tags (ai player) :sev gap :needs (ai-agent)) a teammate is only a saved flag that dialogue reads: it does not follow the player, share crimes, or use the player's commands.
+// (hole teammate-behavior :tags (ai player) :sev gap :needs (ai-agent)) a teammate is only a saved flag that dialogue reads: it does not follow the player, share crimes, or use the player's commands, and SetNoFavorAllowed has nothing to read it.
 // SetPlayerTeammate(abTeammate, abCanDoFavor).
 n_set_player_teammate :: proc(c: ^Call, args: []Value) -> Value {
 	if arg_bool(args, 0, true) {c.ws.teammates[c.self] = true} else {delete_key(&c.ws.teammates, c.self)}
@@ -34,4 +36,10 @@ n_set_player_teammate :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_player_teammate :: proc(c: ^Call, args: []Value) -> Value {
 	return c.self in c.ws.teammates
+}
+
+// AllowPCDialogue(abTalk): false and the actor will not talk to the player.
+n_allow_pc_dialogue :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_in_set(&c.ws.no_pc_dialogue, c.self, !arg_bool(args, 0, true))
+	return nil
 }

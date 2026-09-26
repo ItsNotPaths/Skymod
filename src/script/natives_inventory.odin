@@ -26,20 +26,40 @@ register_inventory :: proc(reg: ^Registry) {
 
 // Courier.RemoveRef(courier, container, item, toPlayer, countGlobal): the courier's bag gives an
 // item back or drops it, and the global that gates the courier's dialogue counts one item fewer.
-// WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13).
-// (hole courier-dialogue-wait :tags dialogue :sev gap) the courier's removal applies at once.
-// While the courier talks to the player, the removal must wait for the dialogue to end: one
-// saved entry per item, applied when it ends (ws.talking).
+// WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13). While the courier talks
+// to the player it waits, as the script's IsInDialogueWithPlayer loop did (tick_courier).
 n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
-	container, to_player, count := arg_form(args, 1), arg_bool(args, 3, false), arg_form(args, 4)
-	base, ref := item_of(c, arg_form(args, 2))
-	if worldstate.inv_count(c.ws, c.db, container, base) <= 0 {return nil}
-	move_items(c, {base = base, ref = ref, from = container, to = formid.PLAYER if to_player else 0, count = 1})
-	if count != 0 {
-		v, _ := worldstate.get_global(c.ws, count)
-		worldstate.set_global(c.ws, count, v - 1)
+	r := worldstate.Courier_Remove{arg_form(args, 0), arg_form(args, 1), arg_form(args, 2), arg_form(args, 4), arg_bool(args, 3, false)}
+	if r.courier != 0 && c.ws.talking == r.courier {
+		append(&c.ws.courier_waits, r)
+	} else {
+		courier_remove(c, r)
 	}
 	return nil
+}
+
+// tick_courier applies the removals whose courier stopped talking.
+tick_courier :: proc(c: ^Call) {
+	for i := 0; i < len(c.ws.courier_waits); {
+		r := c.ws.courier_waits[i]
+		if c.ws.talking == r.courier {
+			i += 1
+			continue
+		}
+		ordered_remove(&c.ws.courier_waits, i)
+		courier_remove(c, r)
+	}
+}
+
+@(private = "file")
+courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
+	base, ref := item_of(c, r.item)
+	if worldstate.inv_count(c.ws, c.db, r.container, base) <= 0 {return}
+	move_items(c, {base = base, ref = ref, from = r.container, to = formid.PLAYER if r.to_player else 0, count = 1})
+	if r.count != 0 {
+		v, _ := worldstate.get_global(c.ws, r.count)
+		worldstate.set_global(c.ws, r.count, v - 1)
+	}
 }
 
 // (hole addref-source :tags script :sev gap) a ref given to AddItem is not taken from the container it was in; OnItemAdded names no source container and the old one gets no OnItemRemoved.

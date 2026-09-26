@@ -330,6 +330,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_story_events(vm, ws)
 	tick_scenes(vm, dt)
 	tick_info_fragments(vm)
+	script.tick_courier(&vm.ctx)
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.
