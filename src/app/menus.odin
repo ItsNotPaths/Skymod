@@ -13,11 +13,11 @@ import "../input"
 import "../script"
 import "../worldstate"
 
-// (hole inventory-screen :tags (ui player) :sev gap :needs (ui-images)) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons; no categories, icons, item card, 3D preview, drop or use.
-// (hole magic-screen :tags (ui player) :sev gap :needs (ui-images)) the magic menu is an ImGui placeholder, not a real menu: it lists the actor base's SPLO spells only (nothing stores the spells an actor has learned) with hand buttons; no schools, effect text or favourites.
-// (hole skills-screen :tags (ui player) :sev gap :needs (ui-images)) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
+// (hole inventory-screen :tags (ui player) :sev gap) the inventory is an ImGui placeholder, not a real menu: a name list with equip buttons and Use for potions; no categories, icons, item card, 3D preview or drop.
+// (hole magic-screen :tags (ui player) :sev gap) the magic menu is an ImGui placeholder, not a real menu: a flat spell list with hand buttons; no schools, effect text or favourites, and no way to equip a power or shout.
+// (hole skills-screen :tags (ui player) :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: Resume and Quit; no save and load lists, settings or help.
-// (hole container-screen :tags ui :sev gap :needs (ui-images)) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership.
+// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership.
 
 Menu :: enum u8 {
 	None,

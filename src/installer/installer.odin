@@ -102,7 +102,7 @@ install :: proc(source, base: string) -> bool {
 	// the plugin list the gamedb will load. Textures/meshes/plugins are read live
 	// through these — `content/` stays an index, not a copy of the game.
 	//
-	// (hole load-order-files :tags mods :sev gap) load order is masters-then-plugins, each name-sorted. plugins.txt and loadorder.txt are not read, so the user's real order is ignored.
+	// (hole load-order-files :tags mods :sev gap) the installer lists plugins and orders script archives masters-then-plugins by name; plugins.txt and loadorder.txt are not read, so an existing install's order is not imported into the mod list.
 	// TODO(Milestone C): true load order from plugins.txt/loadorder.txt; for now
 	// masters (.esm) before plugins (.esp), each name-sorted. TODO(Milestone B+):
 	// run the lazy audio/HKX converters into content/ here.

@@ -28,9 +28,9 @@ import slua "../script/lua"
 import "../worldstate"
 import "../formid"
 
-// (hole activate-verbs :tags (ui player) :sev gap) books, flora and activators do nothing when activated.
-// (hole inventory-refs :tags (player script) :sev gap) a taken item's ref is disabled in the world, not carried: the pack holds only its base, so dropping it makes a new ref and a quest item loses its identity (and its XCNT stack count).
-// (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen)) activating an actor logs a line. No topic tree, no voice, no menu.
+// (hole activate-verbs :tags (ui player) :sev gap) a book is taken like any other item: nothing reads it, and it teaches no skill or spell. Flora (FLOR) and activators do nothing when activated.
+// (hole inventory-refs :tags (player script) :sev gap) a taken item's ref is disabled, not carried: the pack holds only its base (count 1, XCNT ignored), so a quest item loses its identity. Nothing drops items yet (DropObject is not registered).
+// (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen audio-output)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a
@@ -115,7 +115,7 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
-// (hole npc-activate :tags ai :sev gap :needs (ai-agent)) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate.
+// (hole npc-activate :tags ai :sev gap) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate: no XTEL move, no take.
 // (hole created-ref-activation :tags script :sev gap) a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
 
 // activate is the one activation path, for the Activate key and for a script's Activate: OnActivate

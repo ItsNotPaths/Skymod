@@ -32,14 +32,14 @@ set_font :: proc(a: ^font.Atlas) {
 	g_font = a
 }
 
-// (hole ui-images :tags ui :sev gap) .Image and .Effect both draw a flat placeholder rect — no texture wiring in the backend, so no icon, portrait or animated widget can render.
+// (hole ui-images :tags ui :sev gap) an .Effect widget draws a flat placeholder rect, so no animated widget renders; .Image and 3-slice frames draw.
 Kind :: enum {
 	Container, // layout-only box (paints `color` as a background if opaque)
 	Column,    // stacks children top→down with `gap`
 	Row,       // stacks children left→right with `gap`
 	Rect,      // filled rectangle
 	Text,      // text at the node's top-left
-	Image,     // textured quad (placeholder rect until backend v2)
+	Image,     // textured quad
 	Effect,    // renderer-animated visual (placeholder rect for now)
 	Bar,       // meter/progress FILL: shader-drawn glossy fill sized to `value` (0..1); frame/track are sibling nodes
 }

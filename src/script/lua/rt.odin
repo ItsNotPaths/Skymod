@@ -3,7 +3,7 @@ package script_lua
 // The engine half of `skymod.rt`, the runtime every converted script requires. rt.lua is the
 // language half; these are the few things it cannot do without the registry or gamedb.
 
-// (hole utility-wait :tags script :sev gap) Utility.Wait returns at once, so a poll loop in a handler (CritterSpawn's OnLoad) spins until rt.lua's instruction budget ends it — 20-125 ms per re-attaching cell ring. The S5 rewrite turns these into guards; docs/script-rewrite.md "Perf findings".
+// (hole utility-wait :tags script :sev gap) Utility.Wait returns at once, so a Papyrus poll loop that no S5 patch rewrote spins until rt.lua's instruction budget ends the handler.
 
 import "core:c"
 import "core:log"

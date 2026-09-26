@@ -288,6 +288,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	mods.profile_set_system(&g.mprofile, system_mod_names(src, base)) // locked rows: Skyrim + DLCs + UI baseline
 
 	// Quicksave path (needs only `base`) — read by the boot menu's save summary + the frame loop.
+// (hole save-slots :tags save :sev gap) one flat quicksave slot and no per-character folders, so a second character overwrites the first.
 	g.saves_dir, _ = filepath.join({base, "saves"})
 	g.quicksave_path, _ = filepath.join({g.saves_dir, "quicksave.skysave"})
 

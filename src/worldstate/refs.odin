@@ -19,7 +19,7 @@ Ref_Field :: enum u8 {
 	Delete_When_Detached, // DeleteWhenAble on an attached ref: deleted when its cell detaches. The bit is the whole state
 }
 
-// (hole combat-damage :tags combat :sev blocker) `Dead` is a flag a script sets. Nothing computes it — there is no health value anywhere in the engine, no damage application, no hostility and no death path.
+// (hole combat-damage :tags combat :sev blocker) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as

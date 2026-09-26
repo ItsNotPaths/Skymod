@@ -8,7 +8,7 @@ import script ".."
 import "../../gamedb"
 import "../../worldstate"
 
-// (hole cell-change-events :tags script :sev gap) OnAttachedToCell and OnDetachedFromCell never fire; nothing moves a ref from one cell to another yet.
+// (hole cell-change-events :tags script :sev gap) OnAttachedToCell and OnDetachedFromCell never fire, and a scripted ref that MoveTo puts in another cell gets no load or cell events there.
 // (hole alias-ref-events :tags script :sev gap) a ref ForceRefTo puts in an alias gets no load or cell events unless it has scripts or a static fill names it.
 
 // Transitions is what the tick remembers between ticks, besides ws.attached: the scripted refs

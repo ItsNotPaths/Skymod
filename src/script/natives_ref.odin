@@ -41,7 +41,7 @@ n_set_position :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// (hole set-angle :tags script :sev gap) SetAngle is a stub, so GetAngle* reads the placement's angles; the player's read 0.
+// (hole set-angle :tags script :sev gap) SetAngle is a stub, and GetAngle* reads only the placement's angles, never a move's: the player's read 0, and a MoveTo with rotation match reads the old ones.
 n_get_angle_x :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).x)}
 n_get_angle_y :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).y)}
 n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(ref_rot(c, c.self).z)}

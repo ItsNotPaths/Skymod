@@ -5,7 +5,7 @@ package worldstate
 // and different spells add. Sources: UESP Skyrim:Alchemy_Effects (one potion effect, the strongest),
 // CK Magic Effect (keyword dispel; the PVM keyword rule is marked "?" there). A spell replacing its
 // own running copy is unsourced for Skyrim.
-// (hole stacking-rules-data :tags (magic mods) :sev gap) the stacking rules are code; a mod cannot change them. Make them data (per archetype, per source kind) a mod can replace.
+// (hole stacking-rules-data :tags (magic mods) :sev wish) the stacking rules are code; a mod cannot change them. Make them data (per archetype, per source kind) a mod can replace.
 
 import "core:slice"
 import "../formats/esm"

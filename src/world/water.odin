@@ -10,9 +10,6 @@ package world
 // OPTIMIZATION: a cell whose terrain never dips below the water height shows no water, so
 // we skip its quad entirely (the FLT_MAX-default sea level prunes every inland cell this
 // way — only coasts/rivers/lakes build a plane).
-//
-// Interiors are skipped for now (no grid footprint to size the quad to); flooded-dungeon
-// water is a later pass.
 
 // (hole interior-water :tags world :sev gap) interiors get no water at all (no grid footprint to size the quad to), so every flooded dungeon is dry.
 
