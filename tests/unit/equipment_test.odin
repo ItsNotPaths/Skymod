@@ -52,7 +52,7 @@ hands :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: gamedb.Form_ID
 }
 
 // Armor sharing a slot comes off first; a shield takes the left hand and a both-hands weapon takes
-// both; an either-hand item goes right, then left, then replaces right.
+// both; an either-hand item goes to the hand asked for, else the right.
 @(test)
 test_equip_slots :: proc(t: ^testing.T) {
 	A :: gamedb.Form_ID(0xA)
@@ -77,7 +77,9 @@ test_equip_slots :: proc(t: ^testing.T) {
 	worldstate.unequip_all(&ws, &db, A)
 	worldstate.equip(&ws, &db, A, F(.Dagger))
 	worldstate.equip(&ws, &db, A, F(.Mace))
-	testing.expect(t, hands(&ws, &db, A) == {F(.Mace), F(.Dagger)}, "either-hand fills right, then left")
+	testing.expect(t, hands(&ws, &db, A) == {0, F(.Mace)}, "either-hand replaces the right")
+	worldstate.equip(&ws, &db, A, F(.Dagger), gamedb.Slot.LeftHand)
+	testing.expect(t, hands(&ws, &db, A) == {F(.Dagger), F(.Mace)}, "the left hand when asked")
 
 	worldstate.equip(&ws, &db, A, F(.Robes), keep = true)
 	testing.expect(t, worldstate.equip(&ws, &db, A, F(.Hood)), "a kept item only blocks what shares its slot")

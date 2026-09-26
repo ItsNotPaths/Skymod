@@ -99,6 +99,13 @@ inventory_menu :: proc(g: ^Game) {
 			continue
 		}
 		if _, equips := gamedb.equip_slot_of(db, item); !equips {continue}
+		if _, either := gamedb.slots_of(db, item); either && !worn {
+			for hand in ([]gamedb.Slot{.LeftHand, .RightHand}) {
+				imgui.SameLine()
+				if imgui.SmallButton(fmt.ctprintf("%v##%x", hand, item)) {worldstate.equip(ws, db, formid.PLAYER, item, hand)}
+			}
+			continue
+		}
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("%s##%x", "Unequip" if worn else "Equip", item)) {
 			if worn {worldstate.unequip(ws, db, formid.PLAYER, item)} else {worldstate.equip(ws, db, formid.PLAYER, item)}

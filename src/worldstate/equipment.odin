@@ -9,7 +9,6 @@ import "../gamedb"
 
 // (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) and weapon damage (WEAP DATA) are not read; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
 // (hole npc-auto-equip :tags ai :sev gap) an NPC never picks better gear from its inventory or puts its outfit back on (UESP Followers). Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
-// (hole either-hand-placement :tags player :sev polish) an either-hand item goes right, else left when right is taken, else replaces right: unsourced. The player's left-hand one-handers need a hand choice from the UI.
 
 Worn :: struct {
 	item:  Form_ID,
@@ -77,7 +76,7 @@ in_slot :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, slot: gamedb.S
 put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool, outfit := false) -> bool {
 	slots, either := gamedb.slots_of(db, item)
 	if slots == {} {return false}
-	if either {slots = {pick_hand(eq^, slots, hand)}}
+	if either {slots = {pick_hand(slots, hand)}}
 	for w in eq.worn {
 		if w.slots & slots != {} && w.kept && w.item != item {return false}
 	}
@@ -92,14 +91,12 @@ put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Fo
 	return true
 }
 
-// pick_hand chooses one of an either-hand item's slots: the asked hand, else the right when free,
-// else the left when free, else the right.
+// pick_hand chooses one of an either-hand item's slots: the asked hand, else the right. EquipItem has
+// no hand and "always just equips items in the right hand"; the player picks one in the menu
+// (build/out/wsP/research/findings.md section 4).
 @(private)
-pick_hand :: proc(eq: Equipment, choices: gamedb.Slots, hand: Maybe(gamedb.Slot)) -> gamedb.Slot {
+pick_hand :: proc(choices: gamedb.Slots, hand: Maybe(gamedb.Slot)) -> gamedb.Slot {
 	if h, ok := hand.?; ok && h in choices {return h}
-	taken: gamedb.Slots
-	for w in eq.worn {taken += w.slots}
-	if .RightHand in taken && .LeftHand not_in taken && .LeftHand in choices {return .LeftHand}
 	return .RightHand if .RightHand in choices else .LeftHand
 }
 
