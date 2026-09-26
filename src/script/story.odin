@@ -9,7 +9,7 @@ import "../worldstate"
 // Script events come through the natives below. Engine events queue in ws.story_events and the
 // script tick runs them; each event family is its own story-* hole at the site the event happens.
 
-// (hole story-manager :tags (quest script) :sev blocker :needs (story-records)) story_event answers false and starts nothing: no tree walk, no node conditions (run-on Event Data, GetEventData), no quest start. SCPT events reach it; CLOC is the first engine event (story-change-location). 448 SMQN, 99 SMBN and 24 SMEN in Skyrim.esm.
+// (hole story-manager :tags (quest script) :sev blocker) story_event answers false and starts nothing: no tree walk, no node conditions (run-on Event Data, GetEventData), no quest start. SCPT events reach it; CLOC is the first engine event (story-change-location). 448 SMQN, 99 SMBN and 24 SMEN in Skyrim.esm.
 
 Story_Event :: worldstate.Story_Event
 

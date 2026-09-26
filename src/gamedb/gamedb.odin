@@ -111,6 +111,10 @@ Form_Kind :: enum u8 {
 // exists (SetCurrentStageID validates against it). Objectives/aliases are later phases.
 Quest_Baseline :: struct {
 	start_game_enabled: bool,
+	run_once:           bool, // DNAM 0x100: the story manager starts it once per game
+	event:              [4]u8, // ENAM: the story manager event that starts it ("KILL"), zero when none
+	dialogue_conditions: []Condition, // gate every INFO of the quest (owned)
+	event_conditions:   []Condition, // the story manager's conditions, after NEXT (owned)
 	stages:             map[u16]bool, // stage index -> completes-the-quest; presence = valid stage
 	objectives:         map[u16]bool, // defined objective indices (QOBJ); presence = defined
 	// Display text (the journal half). Owned, English-resolved at index time. Only stages with a
@@ -215,6 +219,8 @@ DB :: struct {
 	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
 	form_scripts:  map[Form_ID]esm.Form_Scripts, // form -> the scripts its VMAD attaches (owned; see index_scripts)
 	quest_baseline: map[Form_ID]Quest_Baseline, // QUST form -> its baseline (SGE flag + defined stages)
+	story_nodes:   map[Form_ID]Story_Node, // SMBN/SMQN/SMEN form -> its node in the story manager tree
+	story_roots:   []Form_ID, // the top nodes (event nodes), in sibling order; owned
 	unique_refs:    map[Form_ID]Form_ID, // unique NPC_ -> its placed actor (lowest form id if placed twice)
 	alias_targets:  map[Form_ID]bool,    // refs a Forced or Unique_Actor alias fill can hold
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
@@ -721,6 +727,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
 		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
 		quest_baseline = make(map[Form_ID]Quest_Baseline, 512, allocator),
+		story_nodes   = make(map[Form_ID]Story_Node, 1024, allocator),
 		ref_index      = make(map[Form_ID]Ref_Loc, 4096, allocator),
 		actor_ref_index = make(map[Form_ID]Ref_Loc, 512, allocator),
 		load_tips      = make([dynamic]string, allocator),
@@ -768,6 +775,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	delete(db.actor_ref_index)
 	db.actor_ref_index = nil
 	index_alias_targets(&db)
+	order_story_nodes(&db)
 	// No plugin holds the player ref: the engine makes it, in no cell. Its placement is its Moved delta.
 	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, count = 1, persistent = true}
 	log.infof(
@@ -934,6 +942,7 @@ destroy :: proc(db: ^DB) {
 		free_quest_baseline(db, qb)
 	}
 	delete(db.quest_baseline)
+	free_story_nodes(db)
 	delete(db.unique_refs)
 	delete(db.alias_targets)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
@@ -959,6 +968,8 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 		delete(a.name, db.allocator)
 	}
 	delete(qb.aliases, db.allocator)
+	free_conditions(db, qb.dialogue_conditions)
+	free_conditions(db, qb.event_conditions)
 }
 
 // find_cell looks up an interior cell by editor id (case-insensitive).
@@ -1335,6 +1346,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_gras(db, rec)
 	case s == "QUST":
 		index_quest(db, rec, ctx.fm)
+	case s == "SMBN", s == "SMQN", s == "SMEN":
+		index_story_node(db, rec, ctx.fm)
 	case s == "CONT":
 		index_base(db, rec, ctx.fm) // container mesh + name (CONT is a base type)
 		index_container(db, rec, ctx.fm) // its CNTO baseline inventory
@@ -1448,13 +1461,25 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	have_stage := false
 	cur_obj: u16
 	have_obj := false
-	for f in fl {
+	past_next := false
+	for f, i in fl {
 		switch f.type {
 		case "DNAM":
-			// DNAM[0] bit 0x01 = Start Game Enabled (12-byte struct; only byte 0 matters here).
-			if len(f.data) >= 1 {
+			// DNAM flags u16: 0x01 Start Game Enabled, 0x100 Run Once.
+			if len(f.data) >= 2 {
 				qb.start_game_enabled = f.data[0] & 0x01 != 0
+				qb.run_once = f.data[1] & 0x01 != 0
 			}
+		case "ENAM":
+			if len(f.data) >= 4 {copy(qb.event[:], f.data[:4])}
+		case "CTDA":
+			// The run before NEXT is the dialogue conditions; every later run has its own owner.
+			if !past_next && qb.dialogue_conditions == nil {
+				qb.dialogue_conditions = index_conditions(db, esm.condition_run(fl, i), fm)
+			}
+		case "NEXT":
+			past_next = true
+			qb.event_conditions = index_conditions(db, esm.condition_run(fl, i + 1), fm)
 		case "INDX":
 			// int16 journal index (bytes 0-1) + a flags byte. Presence marks the stage as defined.
 			if len(f.data) >= 2 {

@@ -122,6 +122,10 @@ main :: proc() {
 		vmad_survey(path)
 		return
 	}
+	if len(os.args) >= 3 && os.args[2] == "--story" {
+		story_survey(path)
+		return
+	}
 	if len(os.args) >= 3 && os.args[2] == "--ctda" {
 		filter := len(os.args) >= 4 ? os.args[3] : ""
 		ctda_survey(path, filter)
@@ -2585,4 +2589,51 @@ ctda_survey :: proc(path: string, filter: string) {
 			)
 		}
 	}
+}
+
+// story_survey prints the story manager tree's shape: each event root with its node and quest
+// counts, nodes out of sibling order, and quests keyed to an event.
+story_survey :: proc(path: string) {
+	db, owned := build_localized(path)
+	defer gamedb.destroy(&db)
+	defer for b in owned {delete(b)}
+
+	kinds: [gamedb.Story_Node_Kind]int
+	conds, quests, broken := 0, 0, 0
+	for _, n in db.story_nodes {
+		kinds[n.kind] += 1
+		conds += len(n.conditions)
+		quests += len(n.quests)
+		prev := gamedb.Form_ID(0)
+		for k in n.children {
+			if db.story_nodes[k].previous != prev {broken += 1}
+			prev = k
+		}
+	}
+	fmt.printfln("nodes: %d branch, %d quest, %d event; %d conditions, %d quest slots; %d children out of sibling order",
+		kinds[.Branch], kinds[.Quest], kinds[.Event], conds, quests, broken)
+	count :: proc(db: ^gamedb.DB, form: gamedb.Form_ID) -> (nodes, quests: int) {
+		n := db.story_nodes[form]
+		nodes, quests = 1, len(n.quests)
+		for k in n.children {
+			a, b := count(db, k)
+			nodes += a
+			quests += b
+		}
+		return
+	}
+	for r in db.story_roots {
+		n := db.story_nodes[r]
+		nodes, qs := count(&db, r)
+		fmt.printfln("  root 0x%08X %v %s: %d nodes, %d quest slots", u64(r), n.kind, string(n.event[:]), nodes, qs)
+	}
+	keyed, event_conds, dialogue_conds, run_once := 0, 0, 0, 0
+	for _, qb in db.quest_baseline {
+		if qb.event != {} {keyed += 1}
+		event_conds += len(qb.event_conditions)
+		dialogue_conds += len(qb.dialogue_conditions)
+		if qb.run_once {run_once += 1}
+	}
+	fmt.printfln("quests: %d keyed to an event, %d run once; %d event conditions, %d dialogue conditions",
+		keyed, run_once, event_conds, dialogue_conds)
 }

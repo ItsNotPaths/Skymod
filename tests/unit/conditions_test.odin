@@ -396,3 +396,76 @@ test_conditions_quest_and_faction_reads :: proc(t: ^testing.T) {
 	worldstate.faction_set_rank(&ws, formid.PLAYER, FACTION, 0)
 	testing.expect(t, conditions.all(&ctx, member), "rank 0 is")
 }
+
+// The story manager tree: nodes hang under their parent in sibling order, a quest node lists its
+// quests with reset hours, and a QUST splits its conditions at NEXT.
+@(test)
+test_story_records :: proc(t: ^testing.T) {
+	u32b :: proc(v: u32) -> [4]u8 {b: [4]u8; put_u32(b[:], 0, v); return b}
+	f32b :: proc(v: f32) -> [4]u8 {b: [4]u8; put_f32(b[:], 0, v); return b}
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0900)
+	field(&tes4, "HEDR", hedr[:])
+
+	nodes := make([dynamic]u8, 0, 512);defer delete(nodes)
+	root := make([dynamic]u8, 0, 32);defer delete(root)
+	record(&nodes, "SMBN", 0, 0x0000_0801, root[:])
+	ev := make([dynamic]u8, 0, 64);defer delete(ev)
+	p := u32b(0x0801);field(&ev, "PNAM", p[:])
+	field(&ev, "ENAM", transmute([]u8)string("KILL"))
+	record(&nodes, "SMEN", 0, 0x0000_0802, ev[:])
+	// Two quest nodes under the event, the second authored first: 0x804 comes after 0x803.
+	q2 := make([dynamic]u8, 0, 64);defer delete(q2)
+	p = u32b(0x0802);field(&q2, "PNAM", p[:])
+	s := u32b(0x0803);field(&q2, "SNAM", s[:])
+	record(&nodes, "SMQN", 0, 0x0000_0804, q2[:])
+	q1 := make([dynamic]u8, 0, 128);defer delete(q1)
+	field(&q1, "PNAM", p[:])
+	ctda(&q1, 72, 0, 0, 1, 0x0000_0D01, 0)
+	fl := u32b(0x0001_0000);field(&q1, "DNAM", fl[:])
+	qa := u32b(0x0C01);field(&q1, "NNAM", qa[:])
+	r := f32b(24);field(&q1, "RNAM", r[:])
+	qb := u32b(0x0C02);field(&q1, "NNAM", qb[:])
+	record(&nodes, "SMQN", 0, 0x0000_0803, q1[:])
+
+	quests := make([dynamic]u8, 0, 256);defer delete(quests)
+	qu := make([dynamic]u8, 0, 128);defer delete(qu)
+	dnam: [12]u8;dnam[1] = 0x01 // Run Once
+	field(&qu, "DNAM", dnam[:])
+	field(&qu, "ENAM", transmute([]u8)string("KILL"))
+	ctda(&qu, 58, 0, 0, 10, 0x0000_0C01, 0) // a dialogue condition
+	field(&qu, "NEXT", {})
+	ctda(&qu, 72, 0, 0, 1, 0x0000_0D01, 7, param3 = conditions.EVENT_ACTOR_1) // the event's victim
+	ctda(&qu, 46, 0, 0, 1, 0, 7, param3 = conditions.EVENT_ACTOR_1)
+	idx: [3]u8;field(&qu, "INDX", idx[:])
+	ctda(&qu, 74, 0, 0, 1, 0x0000_0E01, 0) // a stage log condition: in neither list
+	record(&quests, "QUST", 0, 0x0000_0C01, qu[:])
+
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("SMBN"), 0, nodes[:])
+	group(&out, transmute([]u8)string("QUST"), 0, quests[:])
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	testing.expect_value(t, len(db.story_roots), 1)
+	e, eok := gamedb.story_node_of(&db, 0x0000_0802)
+	testing.expect(t, eok && e.kind == .Event && string(e.event[:]) == "KILL", "event node")
+	if testing.expect_value(t, len(e.children), 2) {
+		testing.expect_value(t, e.children[0], gamedb.Form_ID(0x0000_0803))
+		testing.expect_value(t, e.children[1], gamedb.Form_ID(0x0000_0804))
+	}
+	n, _ := gamedb.story_node_of(&db, 0x0000_0803)
+	testing.expect_value(t, n.flags, u32(gamedb.STORY_DO_ALL_BEFORE_REPEATING))
+	testing.expect_value(t, len(n.conditions), 1)
+	if testing.expect_value(t, len(n.quests), 2) {
+		testing.expect_value(t, n.quests[0], gamedb.Story_Quest{0x0000_0C01, 24})
+		testing.expect_value(t, n.quests[1], gamedb.Story_Quest{0x0000_0C02, 0})
+	}
+
+	q, _ := gamedb.quest_baseline_of(&db, 0x0000_0C01)
+	testing.expect(t, q.run_once && string(q.event[:]) == "KILL", "run once, keyed to KILL")
+	testing.expect_value(t, len(q.dialogue_conditions), 1)
+	testing.expect_value(t, len(q.event_conditions), 2)
+	if len(q.event_conditions) == 2 {testing.expect_value(t, q.event_conditions[0].run_on, esm.Condition_Run_On.EventData)}
+}

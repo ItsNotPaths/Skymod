@@ -449,6 +449,18 @@ conditions :: proc(fields: []Field, allocator := context.allocator, stop_at := "
 	return out
 }
 
+// condition_run is the CTDA/CIS1/CIS2 fields from index `from` up to the first other field: one list
+// of a record that holds several (QUST: its dialogue conditions, then after NEXT the story manager's).
+condition_run :: proc(fields: []Field, from: int) -> []Field {
+	end := from
+	for end < len(fields) {
+		t := fields[end].type
+		if t != "CTDA" && t != "CIS1" && t != "CIS2" {break}
+		end += 1
+	}
+	return fields[from:end]
+}
+
 // condition_holds applies a condition's operator to a value the function returned.
 condition_holds :: proc(c: Condition, got: f32) -> bool {
 	switch c.op {
