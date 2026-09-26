@@ -11,7 +11,7 @@ package world
 // we skip its quad entirely (the FLT_MAX-default sea level prunes every inland cell this
 // way — only coasts/rivers/lakes build a plane).
 
-// (hole interior-water :tags world :sev gap) interiors get no water at all (no grid footprint to size the quad to), so every flooded dungeon is dry.
+// (hole interior-water :tags (world unclaimed) :sev gap) interiors get no water at all (no grid footprint to size the quad to), so every flooded dungeon is dry.
 
 import "../gamedb"
 import smath "../math"

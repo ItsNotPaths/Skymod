@@ -29,7 +29,7 @@ import smath "../math"
 
 Vec3 :: smath.Vec3
 
-// (hole day-night :tags render :sev gap) a profile is ONE static look. No day/night curve, so the sun never moves and interiors and exteriors share a lighting model.
+// (hole day-night :tags (render unclaimed) :sev gap) a profile is ONE static look. No day/night curve, so the sun never moves and interiors and exteriors share a lighting model.
 // Tonemap is the post-stage operator (Phase B — stored now so the file format is stable).
 Tonemap :: enum {
 	Reinhard,

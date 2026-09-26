@@ -388,7 +388,7 @@ select_terrain_nodes :: proc(
 	select_terrain_nodes(t, insts, gx + h, gy + h, h, camx, camy)
 }
 
-// (hole terrain-culling :tags render :sev polish) terrain patches are not frustum-culled — every selected quadtree node is drawn, including the ones behind the camera.
+// (hole terrain-culling :tags (render unclaimed) :sev polish) terrain patches are not frustum-culled — every selected quadtree node is drawn, including the ones behind the camera.
 // draw_terrain_field draws the CDLOD terrain (frustum-culled per patch lands in a later phase).
 // Call BEFORE the streamed near terrain so the detailed terrain overdraws it where they overlap.
 draw_terrain_field :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, cam: smath.Vec3) {

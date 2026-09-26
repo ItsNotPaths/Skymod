@@ -17,7 +17,7 @@ import sdl "vendor:sdl3"
 WATER_VERT_SPV :: #load("shaders/water.vert.spv")
 WATER_FRAG_SPV :: #load("shaders/water.frag.spv")
 
-// (hole water-palette :tags render :sev gap) the palette is hardcoded — WATR is decoded by nothing, so every lake, river and sea shares one look, and there is no reflection pass.
+// (hole water-palette :tags (render unclaimed) :sev gap) the palette is hardcoded — WATR is decoded by nothing, so every lake, river and sea shares one look, and there is no reflection pass.
 // Water_Uniforms mirrors the water.vert (set 1) + water.frag (set 3) UBO — pushed to both
 // stages. All-vec4 so std140 layout is padding-free.
 Water_Uniforms :: struct {

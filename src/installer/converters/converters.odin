@@ -9,5 +9,5 @@ package converters
 //
 // (hole audio-output :tags audio :sev blocker) no audio output anywhere in src — no device, no mixer, no voice bus. The engine is silent.
 // (hole voice-converter :tags audio :sev gap) the xwm/fuz -> ogg + .lip converter is described here and does not exist, so voice and sound assets stay unreadable even once a mixer lands, and lip timings never reach a face.
-// (hole asset-converters :tags assets :sev gap) only the script converter exists. HKX->glTF, material translation and .tri blendshapes have no pipeline.
+// (hole asset-converters :tags (assets unclaimed) :sev gap) only the script converter exists. HKX->glTF, material translation and .tri blendshapes have no pipeline.
 // Stubbed; built in Phase 1.

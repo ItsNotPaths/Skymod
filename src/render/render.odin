@@ -17,8 +17,8 @@ import imgui "../../vendor/odin-imgui"
 import imgui_sdl3 "../../vendor/odin-imgui/imgui_impl_sdl3"
 import imgui_sdlgpu3 "../../vendor/odin-imgui/imgui_impl_sdlgpu3"
 
-// (hole sky :tags render :sev blocker) no sky — `Sky\` models are skipped as "the sky system's job" and no sky system exists. The horizon is a flat clear colour: no dome, sun disk, moons, stars, clouds or aerial perspective.
-// (hole view-model :tags render :sev gap :needs (skinned-pipeline)) no first-person or third-person view model, because there is no skinned path to draw one through.
+// (hole sky :tags (render unclaimed) :sev blocker) no sky — `Sky\` models are skipped as "the sky system's job" and no sky system exists. The horizon is a flat clear colour: no dome, sun disk, moons, stars, clouds or aerial perspective.
+// (hole view-model :tags (render unclaimed) :sev gap :needs (skinned-pipeline)) no first-person or third-person view model, because there is no skinned path to draw one through.
 // SPIR-V built by build/build_shaders.sh (run before `odin build`). Paths are
 // relative to this file; the bytes are embedded into the binary via #load.
 CUBE_VERT_SPV :: #load("shaders/cube.vert.spv")

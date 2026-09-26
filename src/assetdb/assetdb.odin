@@ -144,7 +144,7 @@ capped_mips :: proc(mips: []render.Tex_Mip) -> []render.Tex_Mip {
 // budget is shared across every Cache, but each Cache trims only its own cold list.
 MODEL_CACHE_BYTES := 0
 
-// (hole cache-eviction :tags assets :sev gap) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk.
+// (hole cache-eviction :tags (assets unclaimed) :sev gap) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk.
 // TEXTURE_CACHE_BYTES is the texture eviction budget (bytes) — the same cold-LRU scheme as
 // MODEL_CACHE_BYTES but for the texture cache (D1 slice 2: textures are ~83% of a region's footprint).
 // 0 (default) = eviction OFF. Set from settings `texture_cache_mb`. Terrain-ground textures are PINNED
