@@ -241,6 +241,13 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	testing.expect(t, !conditions.all(&ctx, mixed), "the trailing AND term still gates")
 	worldstate.perk_add(&ws, formid.PLAYER, C)
 	testing.expect(t, conditions.all(&ctx, mixed), "(A OR B) AND C passes")
+
+	// The CK flags every member of a trailing OR run, the last one too: C AND (A OR B).
+	trailing := []gamedb.Condition{has(C, false), has(A, true), has(B, true)}
+	worldstate.perk_remove(&ws, formid.PLAYER, B)
+	testing.expect(t, !conditions.all(&ctx, trailing), "a trailing OR group still gates")
+	worldstate.perk_add(&ws, formid.PLAYER, A)
+	testing.expect(t, conditions.all(&ctx, trailing), "C AND (A OR B) passes")
 }
 
 // A perk whose take-gate carries the fields quest and dialogue conditions use: a global comparison,

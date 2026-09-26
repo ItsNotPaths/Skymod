@@ -49,12 +49,13 @@ Quest_Vars :: struct {
 // A condition whose Or flag is set is joined to the FOLLOWING one as an OR, so consecutive
 // flagged conditions form a group that passes if ANY member passes, and the groups are ANDed. An
 // empty list passes. 11,460 of the base game's conditions set the flag, so a reader that treats the
-// list as a flat AND silently inverts those.
+// list as a flat AND silently inverts those. A list whose last condition sets the flag ends its
+// group there (the CK sets it on every member of a trailing OR run).
 all :: proc(ctx: ^Context, conds: []gamedb.Condition) -> bool {
 	group := false
-	for c in conds {
+	for c, i in conds {
 		group ||= test(ctx, c)
-		if .Or not_in c.flags { // the group closes here, and must have passed
+		if .Or not_in c.flags || i == len(conds) - 1 { // the group closes here, and must have passed
 			if !group {
 				return false
 			}
