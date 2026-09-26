@@ -130,6 +130,7 @@ frame_cast :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
 }
 
+// (hole lockpicking :tags (ui player) :sev gap) a locked door or container opens like any other: no key check, no lockpicking screen, no Lockpicking XP.
 // activate is the one activation path, for the Activate key and for a script's Activate, by any
 // actor: OnActivate is queued for the ref's scripts (it runs at the next tick, after the default
 // action, as in Papyrus), then the default action runs unless a script blocked it. `default_only`
