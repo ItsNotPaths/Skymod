@@ -600,6 +600,7 @@ ALIAS_ALLOW_RESERVED :: 0x0000_0200
 ALIAS_ALLOW_DESTROYED :: 0x0000_1000
 ALIAS_CLOSEST :: 0x0000_2000 // a loaded-area Matching fill takes the closest match
 ALIAS_INITIALLY_DISABLED :: 0x0000_8000 // a Create_Ref fill makes its ref disabled
+ALIAS_ALLOW_CLEARED :: 0x0001_0000 // a location alias may take a cleared location
 
 // Quest_Alias is one QUST alias definition: the slot a quest's scripts address by id, its fill rule
 // and its editor name. `target` is raw/local; `name` and `match` borrow the record's fields.

@@ -714,6 +714,24 @@ location_special_refs :: proc(db: ^DB, location, ref_type: Form_ID) -> []Form_ID
 	return out[:]
 }
 
+// location_with_keyword is the location itself or its nearest parent with the keyword; no keyword
+// is the location itself. 0 when none has it.
+location_with_keyword :: proc(db: ^DB, location, keyword: Form_ID) -> Form_ID {
+	loc := location
+	for _ in 0 ..< LOCATION_TREE_MAX_DEPTH {
+		if loc == 0 || keyword == 0 || has_keyword(db, loc, keyword) {return loc}
+		loc = db.locations[loc].parent
+	}
+	return 0
+}
+
+// editor_location is the location a placed ref was put in: its cell's, at its placed position.
+editor_location :: proc(db: ^DB, ref: Form_ID) -> Form_ID {
+	r, ok := db.ref_by_id[ref]
+	if !ok {return 0}
+	return cell_location(db, grid_cell(db, r.cell_form_id, r.pos))
+}
+
 // has_ref_type: the ref is a special ref of that location ref type in some location.
 has_ref_type :: proc(db: ^DB, ref, ref_type: Form_ID) -> bool {
 	types, ok := db.ref_types[ref]

@@ -41,7 +41,9 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	277 = fn_get_base_actor_value,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
+	181 = fn_has_same_editor_loc_as_ref_alias,
 	359 = fn_get_in_current_loc,
+	360 = fn_get_in_current_loc_alias,
 	426 = fn_get_is_voice_type,
 	448 = fn_has_perk,
 	543 = fn_get_quest_completed,
@@ -49,11 +51,14 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	561 = fn_has_ref_type,
 	576 = fn_get_event_data,
 	562 = fn_location_has_keyword,
+	565 = fn_get_is_editor_location,
 	563 = fn_location_has_ref_type,
 	566 = fn_get_is_alias_ref,
+	567 = fn_get_is_editor_loc_alias,
 	579 = fn_get_equipped_shout,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
+	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
 	629 = fn_get_vm_quest_variable,
 	651 = fn_get_keyword_data_for_current_location,
@@ -255,10 +260,60 @@ fn_is_in_interior :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f
 	return yes(ok && cell.interior)
 }
 
-// GetInCurrentLoc: the ref's location is the given one or inside it (CK wiki).
+// GetInCurrentLoc: the ref's location is the given one or inside it; run on a location, its
+// parent is (CK wiki).
 @(private = "file")
 fn_get_in_current_loc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(gamedb.location_within(ctx.db, worldstate.ref_location(ctx.ws, ctx.db, on), p1(c)))
+	return yes(in_location(ctx, on, p1(c)))
+}
+
+@(private = "file")
+in_location :: proc(ctx: ^Context, on, location: Form_ID) -> bool {
+	here := worldstate.ref_location(ctx.ws, ctx.db, on)
+	if l, ok := gamedb.location_of(ctx.db, on); ok {here = l.parent}
+	return location != 0 && gamedb.location_within(ctx.db, here, location)
+}
+
+// GetInCurrentLocAlias(location alias): GetInCurrentLoc on what the alias holds.
+@(private = "file")
+fn_get_in_current_loc_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	return yes(in_location(ctx, on, loc))
+}
+
+// LocAliasIsLocation(location alias, location).
+@(private = "file")
+fn_loc_alias_is_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	return yes(loc != 0 && loc == gamedb.condition_param2_form(c))
+}
+
+// GetIsEditorLocation(location): the ref was placed in that location.
+@(private = "file")
+fn_get_is_editor_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc := gamedb.editor_location(ctx.db, on)
+	return yes(loc != 0 && loc == p1(c))
+}
+
+// GetIsEditorLocAlias(location alias): the ref was placed in what the alias holds.
+@(private = "file")
+fn_get_is_editor_loc_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	loc, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	return yes(loc != 0 && loc == gamedb.editor_location(ctx.db, on))
+}
+
+// HasSameEditorLocAsRefAlias(ref alias, keyword): both refs were placed in the same location, each
+// taken up to its nearest parent with the keyword.
+@(private = "file")
+fn_has_same_editor_loc_as_ref_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := alias_ref(ctx, i32(c.param1))
+	if !ok {return 0, false}
+	kw := gamedb.condition_param2_form(c)
+	a := gamedb.location_with_keyword(ctx.db, gamedb.editor_location(ctx.db, on), kw)
+	return yes(a != 0 && a == gamedb.location_with_keyword(ctx.db, gamedb.editor_location(ctx.db, other), kw))
 }
 
 // location_of is where `on` is; a location is its own (CK wiki: LocationHasKeyword filling a

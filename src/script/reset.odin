@@ -107,6 +107,7 @@ n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
+// (hole location-auto-clear :tags (quest world) :sev gap) only Location.SetCleared marks a location cleared; the engine likely clears one itself (its boss dead: unsourced), and 877 of 892 vanilla location aliases skip cleared locations, so radiant quests may send the player back to a place they emptied.
 n_location_set_cleared :: proc(c: ^Call, args: []Value) -> Value {
 	if arg_bool(args, 0, true) {
 		c.ws.cleared[c.self] = true

@@ -19,13 +19,7 @@ fill_aliases :: proc(c: ^Call, quest: Form_ID, new_game := false) -> bool {
 	for a in gamedb.quest_aliases_of(c.db, quest) {
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
-		form: Form_ID
-		known: bool
-		if a.location {
-			form, known = fill_location(c, quest, a)
-		} else {
-			form, known = fill_ref(c, quest, h, a, used, new_game)
-		}
+		form, known := fill(c, quest, h, a, used, new_game)
 		if !known {continue}
 		worldstate.fill_alias(c.ws, h, form)
 		if form == 0 {
@@ -40,12 +34,12 @@ fill_aliases :: proc(c: ^Call, quest: Form_ID, new_game := false) -> bool {
 	return true
 }
 
-// fill_ref finds a reference alias's ref: 0 when nothing fits. known=false for a fill this engine
-// does not resolve yet, which leaves the alias alone and never fails the start.
+// fill finds an alias's ref or location: 0 when nothing fits. known=false for an alias with no
+// fill, which a script fills and which never fails the start.
 @(private = "file")
-fill_ref :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[Form_ID]bool, new_game: bool) -> (form: Form_ID, known: bool) {
-	fits :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, ref: Form_ID, used: map[Form_ID]bool, new_game: bool, external := false) -> bool {
-		return usable(c, quest, a, ref, used if a.fill == .Matching else nil, new_game, external) && passes(c, quest, a, ref)
+fill :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[Form_ID]bool, new_game: bool) -> (form: Form_ID, known: bool) {
+	fits :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, form: Form_ID, used: map[Form_ID]bool, new_game: bool, external := false) -> bool {
+		return usable(c, quest, a, form, used if a.fill == .Matching else nil, new_game, external) && passes(c, quest, a, form)
 	}
 	switch a.fill {
 	case .None:
@@ -54,17 +48,21 @@ fill_ref :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[F
 		return a.target if fits(c, quest, a, a.target, used, new_game) else 0, true
 	case .External:
 		other, ok := formid.alias_handle(a.target, u32(a.alias))
-		ref := c.ws.aliases[other] if ok && a.alias >= 0 else 0
-		return ref if fits(c, quest, a, ref, used, new_game, true) else 0, true
+		form = c.ws.aliases[other] if ok && a.alias >= 0 else 0
+		return form if fits(c, quest, a, form, used, new_game, true) else 0, true
 	case .Unique_Actor:
 		ref, _ := gamedb.unique_actor_ref(c.db, a.target)
 		return ref if passes(c, quest, a, formid.PLAYER) && usable(c, quest, a, ref, nil, new_game) else 0, true
 	case .Create_Ref:
 		return create_ref(c, quest, a) if passes(c, quest, a, formid.PLAYER) else 0, true
 	case .Location_Ref, .Matching:
+		if a.location && a.fill == .Location_Ref {
+			loc := ref_alias_location(c, quest, a)
+			return loc if fits(c, quest, a, loc, used, new_game) else 0, true
+		}
 		found := make([dynamic]Form_ID, context.temp_allocator)
-		for ref in candidates(c, quest, a) {
-			if fits(c, quest, a, ref, used, new_game) {append(&found, ref)}
+		for f in candidates(c, quest, a) {
+			if fits(c, quest, a, f, used, new_game) {append(&found, f)}
 		}
 		if len(found) == 0 {return 0, true}
 		if a.flags & (esm.ALIAS_IN_LOADED_AREA | esm.ALIAS_CLOSEST) == esm.ALIAS_IN_LOADED_AREA | esm.ALIAS_CLOSEST {
@@ -75,25 +73,19 @@ fill_ref :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[F
 	return 0, false
 }
 
-// fill_location finds a location alias's location; known=false for the fills location-alias-fills
-// has not built.
+// ref_alias_location is where a location alias's ref alias stands: its current location, or the
+// nearest parent of it with the keyword (CK wiki, Quest Alias Tab).
 @(private = "file")
-fill_location :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> (form: Form_ID, known: bool) {
-	#partial switch a.fill {
-	case .Specific:
-		return a.target if passes(c, quest, a, a.target) else 0, true
-	case .External:
-		other, ok := formid.alias_handle(a.target, u32(a.alias))
-		loc := c.ws.aliases[other] if ok && a.alias >= 0 else 0
-		return loc if loc != 0 && passes(c, quest, a, loc) else 0, true
-	}
-	return 0, false
+ref_alias_location :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> Form_ID {
+	ref := worldstate.alias_ref(c.ws, quest, a.alias)
+	if ref == 0 {return 0}
+	return gamedb.location_with_keyword(c.db, worldstate.ref_location(c.ws, c.db, ref), a.target)
 }
 
-// candidates are the refs a searching fill tests: a Location_Ref fill's refs of its type in its
-// location alias; for Matching the event member (From Event), the refs whose default link is
-// another alias's ref (Near Alias), the loaded cells' refs, or else every persistent ref, unique
-// actor and created ref.
+// candidates are what a searching fill tests: a Location_Ref fill's refs of its type in its
+// location alias; for Matching the event member (From Event), then for a location alias every
+// location, and for a ref alias the refs whose default link is another alias's ref (Near Alias),
+// the loaded cells' refs, or else every persistent ref, unique actor and created ref.
 @(private = "file")
 candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID {
 	if a.fill == .Location_Ref {
@@ -104,6 +96,8 @@ candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID
 	case a.event_member != 0:
 		e, ok := &c.ws.quest_events[quest]
 		if ref, rok := conditions.event_form(e if ok else nil, a.event_member); rok && ref != 0 {append(&out, ref)}
+	case a.location:
+		for loc in c.db.locations {append(&out, loc)}
 	case a.alias >= 0:
 		if kids, ok := c.db.linked_children[worldstate.alias_ref(c.ws, quest, a.alias)]; ok {append(&out, ..kids[:])}
 	case a.flags & esm.ALIAS_IN_LOADED_AREA != 0:
@@ -122,13 +116,15 @@ candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID
 	return out[:]
 }
 
-// usable applies the alias's flags: a dead actor, a disabled or deleted ref, a ref another quest's
-// Reserves alias holds, or one this quest already took (`used`; searches only: the wiki exempts
-// fixed fills such as Unique_Actor), fits only when the flag allows it.
+// usable applies the alias's flags: a dead actor, a disabled or deleted ref, a cleared location, a
+// form another quest's Reserves alias holds, or one this quest already took (`used`; searches only:
+// the wiki exempts fixed fills such as Unique_Actor), fits only when the flag allows it.
 @(private = "file")
 usable :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, ref: Form_ID, used: map[Form_ID]bool, new_game: bool, external := false) -> bool {
 	switch {
 	case ref == 0, worldstate.is_deleted(c.ws, ref):
+		return false
+	case a.location && a.flags & esm.ALIAS_ALLOW_CLEARED == 0 && ref in c.ws.cleared:
 		return false
 	case a.flags & esm.ALIAS_ALLOW_DEAD == 0 && worldstate.is_dead(c.ws, ref):
 		return false

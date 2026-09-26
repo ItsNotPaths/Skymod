@@ -10,7 +10,6 @@ import "../gamedb"
 import "../worldstate"
 
 // (hole alias-fills :tags (script quest) :sev polish) Allow Destroyed is not honored (nothing tracks a destroyed ref), and an External fill takes a ref even while it sits in a container, where the CK says it fails.
-// (hole location-alias-fills :tags script :sev gap) a location alias fills only a Specific or External fill: Find Matching Location (430) and the location of a ref alias (48) stay empty, so GetInCurrentLocAlias and LocAliasIsLocation have no body.
 
 register_alias :: proc(reg: ^Registry) {
 	register(reg, "Quest", "GetAlias", n_quest_get_alias)

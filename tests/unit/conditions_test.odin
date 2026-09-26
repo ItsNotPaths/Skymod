@@ -652,6 +652,20 @@ test_alias_fills :: proc(t: ^testing.T) {
 	testing.expect_value(t, ref_in(&ws, Q6, 1), A)
 	worldstate.set_dead(&ws, C, 0, false)
 
+	// A location From Event: a cleared location does not fit unless Allow Cleared.
+	Q7 :: gamedb.Form_ID(0xC07)
+	q7 := []gamedb.Quest_Alias{{id = 0, location = true, fill = .Matching, alias = -1, force_into = -1, event_member = conditions.EVENT_LOCATION_1}}
+	db.quest_baseline[Q7] = {aliases = q7}
+	testing.expect(t, script.start_quest(&c, Q7, &{location1 = LOC}), "Q7 takes the event's location")
+	is_loc := []gamedb.Condition{{function = 605, op = .Equal, value = 1, param1 = 0, param2 = u64(LOC)}}
+	qctx := conditions.Context{db = &db, ws = &ws, quest = Q7}
+	testing.expect(t, conditions.all(&qctx, is_loc), "LocAliasIsLocation")
+	worldstate.quest_set_running(&ws, Q7, false)
+	ws.cleared[LOC] = true
+	testing.expect(t, !script.start_quest(&c, Q7, &{location1 = LOC}), "a cleared location does not fit")
+	q7[0].flags = esm.ALIAS_ALLOW_CLEARED
+	testing.expect(t, script.start_quest(&c, Q7, &{location1 = LOC}), "Allow Cleared")
+
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
 	db.quest_baseline[Q5] = {aliases = q5}
 	testing.expect(t, script.start_quest(&c, Q5), "Q5 starts")
