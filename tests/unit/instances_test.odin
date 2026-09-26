@@ -7,6 +7,7 @@ package unit_tests
 // OnUpdate registrations fire on time.
 // Hermetic: a temp scripts dir, no game files.
 
+import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "core:strconv"
@@ -83,6 +84,18 @@ C.__fn["onactivate"] = function(self, who)
   rt.send(self.form, "Again")
 end
 C.__fn["again"] = function(self) __again = true end
+return C
+`
+
+@(private = "file")
+MORTAL_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Mortal", nil)
+local function log(s) __log = (__log or "") .. s .. ";" end
+C.__fn["onlocationchange"] = function(self, old, new) log("loc"); __old, __new = old, new end
+C.__fn["ondying"] = function(self, killer) log("dying"); __killer = killer end
+C.__fn["ondeath"] = function(self, killer) log("death"); assert(killer === __killer) end
+C.__fn["ontriggerenter"] = function(self, who) log("enter"); assert(who === ref(0x14)) end
+C.__fn["ontriggerleave"] = function(self, who) log("leave"); assert(who === ref(0x14)) end
 return C
 `
 
@@ -574,6 +587,9 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
 	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 1)
+	c := script.Call{ws = &f.ws, db = &f.db}
+	script.move_items(&c, {base = 0x20, from = OTHER, to = formid.PLAYER, count = 1, via = .Dead_Body}) // the container menu's Take
+	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "a carried ref taken by base hears OnContainerChanged")
 
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")
@@ -1252,28 +1268,79 @@ test_condition_reads_quest_member :: proc(t: ^testing.T) {
 	testing.expect(t, is(&ctx, "::missing_var", 6), "no such member passes")
 }
 
-// The player's location change queues a CLOC story event; the first tick after a load only records
-// where the player is.
+// The player's location change sends OnLocationChange and queues a CLOC story event; the first tick
+// after a load only records where the player is.
 @(test)
 test_change_location_event :: proc(t: ^testing.T) {
-	ws: worldstate.World_State
-	worldstate.init(&ws)
-	defer worldstate.destroy(&ws)
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_location", {{"mortal.lua", MORTAL_LUA}})
+	defer fixture_destroy(&f)
 	trans: slua.Transitions
 	defer slua.transitions_destroy(&trans)
 	A, B :: script.Form_ID(0xA01), script.Form_ID(0xA02)
+	slua.attach(&f.vm, formid.PLAYER, []esm.Script_Attach{{name = "Mortal"}}, false)
 
-	slua.tick_location(&ws, &trans, A)
-	testing.expect_value(t, len(ws.story_events), 0)
-	slua.tick_location(&ws, &trans, A)
-	testing.expect_value(t, len(ws.story_events), 0)
-	slua.tick_location(&ws, &trans, B)
-	if testing.expect_value(t, len(ws.story_events), 1) {
-		e := ws.story_events[0]
+	slua.tick_location(&f.vm, &f.ws, &trans, A)
+	slua.tick_location(&f.vm, &f.ws, &trans, A)
+	testing.expect_value(t, len(f.ws.story_events), 0)
+	slua.tick_location(&f.vm, &f.ws, &trans, B)
+	if testing.expect_value(t, len(f.ws.story_events), 1) {
+		e := f.ws.story_events[0]
 		testing.expect(t, e.type == worldstate.STORY_CHANGE_LOCATION && e.ref1 == formid.PLAYER, "CLOC by the player")
 		testing.expect(t, e.location1 == A && e.location2 == B, "old then new")
 	}
+	slua.drain(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "loc;" and __old === ref(0xA01) and __new === ref(0xA02), __log); __log = nil`), "OnLocationChange(old, new)")
 	trans.location = nil // a load
-	slua.tick_location(&ws, &trans, A)
-	testing.expect_value(t, len(ws.story_events), 1)
+	slua.tick_location(&f.vm, &f.ws, &trans, A)
+	testing.expect_value(t, len(f.ws.story_events), 1)
+}
+
+// Kill sends OnDying, then OnDeath, each with the killer, once: a dead actor does not die again.
+@(test)
+test_kill_events :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_kill", {{"mortal.lua", MORTAL_LUA}})
+	defer fixture_destroy(&f)
+	VICTIM :: script.Form_ID(0x600)
+	slua.attach(&f.vm, VICTIM, []esm.Script_Attach{{name = "Mortal"}}, false)
+
+	testing.expect(t, slua.do_string(&f.vm, `ref(0x600):Kill(ref(0x14)); ref(0x600):Kill(ref(0x14))`), "Kill twice")
+	slua.tick_deaths(&f.vm, &f.ws)
+	slua.drain(&f.vm)
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "dying;death;" and __killer === ref(0x14), __log)`), "OnDying then OnDeath, once")
+	testing.expect(t, worldstate.is_dead(&f.ws, VICTIM), "dead")
+}
+
+// A trigger box turned 90 degrees hears the player come in, then go out; a disabled one forgets.
+@(test)
+test_trigger_events :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_trigger", {{"mortal.lua", MORTAL_LUA}})
+	defer fixture_destroy(&f)
+	CELL, TRIG :: script.Form_ID(0x100), script.Form_ID(0x700)
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[TRIG] = {form_id = TRIG, cell_form_id = CELL, pos = {1000, 0, 0}, rot = {0, 0, math.PI / 2}, scale = 1}
+	f.db.triggers = make(map[gamedb.Form_ID]esm.Primitive, context.temp_allocator)
+	f.db.triggers[TRIG] = {half = {300, 50, 100}, kind = .Box}
+	f.ws.attached[CELL] = make([dynamic]script.Form_ID)
+	append(&f.ws.attached[CELL], TRIG)
+	slua.attach(&f.vm, TRIG, []esm.Script_Attach{{name = "Mortal"}}, false)
+
+	at :: proc(f: ^Fixture, pos: [3]f32) {
+		worldstate.set_moved(&f.ws, formid.PLAYER, 0x100, {}, pos)
+		slua.tick_triggers(&f.vm, &f.db, &f.ws)
+		slua.drain(&f.vm)
+	}
+	at(&f, {1000, 400, 0})
+	at(&f, {1000, 200, 0}) // inside only if the box is turned: its long side runs along y
+	at(&f, {1000, 250, 0})
+	testing.expect_value(t, len(f.ws.in_triggers), 1)
+	at(&f, {1000, 400, 0})
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;leave;", __log); __log = nil`), "enter once, then leave")
+	at(&f, {1000, 200, 0})
+	worldstate.set_disabled(&f.ws, TRIG, CELL, true)
+	at(&f, {1000, 400, 0})
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log)`), "a disabled trigger sends no leave")
+	testing.expect_value(t, len(f.ws.in_triggers), 0)
 }

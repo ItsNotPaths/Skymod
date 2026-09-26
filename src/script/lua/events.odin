@@ -15,8 +15,7 @@ import "../../gamedb"
 import "../../worldstate"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap :needs (combat-damage kill-events)) nothing sends OnHit (8 script classes set a stage from it) and Health at 0 does not kill: no attack makes a hit.
-// (hole trigger-events :tags physics :sev gap :needs (sensor-bodies)) nothing sends OnTriggerEnter/OnTriggerLeave (448 scripts define one or both); there are no trigger volumes.
+// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit (8 script classes set a stage from it) and Health at 0 does not kill: no attack makes a hit.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
@@ -173,6 +172,16 @@ tick_items :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	clear(&ws.item_moves)
 }
 
+// tick_deaths sends OnDying, then OnDeath, each with the killer, to each actor that died and to its
+// aliases and effects. Without death animations both go out in the same tick.
+tick_deaths :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	for d in ws.deaths {
+		send(vm, d.actor, "OnDying", d.killer)
+		send(vm, d.actor, "OnDeath", d.killer)
+	}
+	clear(&ws.deaths)
+}
+
 // tick_equips starts and ends the enchantments of gear that went on or off
 // (script.sync_constant_effects), then sends OnObjectUnequipped / OnObjectEquipped(akBaseObject,
 // akReference) for each item, in order, to the actor and its aliases and effects. Inventory items
@@ -321,9 +330,11 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_effects(vm, ws, dt)
 	for cell in loaded {attach_cell(vm, db, cell)}
 	tick_transitions(vm, db, ws, t, attached)
-	tick_location(ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
+	tick_triggers(vm, db, ws)
+	tick_location(vm, ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
+	tick_deaths(vm, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)

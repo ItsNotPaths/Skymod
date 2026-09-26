@@ -162,6 +162,8 @@ test_preprocess_ce_shapes :: proc(t: ^testing.T) {
 	// Ref-arg CE commands: bare hex args wrap in ref(); decimals pass through.
 	testing.expect_value(t, slua.preprocess("moveto 0x14", tmp), "cmd.moveto(ref(0x14))")
 	testing.expect_value(t, slua.preprocess("prid 0x1a26f", tmp), "cmd.prid(ref(0x1a26f))")
+	testing.expect_value(t, slua.preprocess("setstage MQ101 10", tmp), `cmd.setstage(ref("MQ101"), 10)`)
+	testing.expect_value(t, slua.preprocess("moveto player", tmp), "cmd.moveto(player)")
 	// Bare hex alone echoes a ref.
 	testing.expect_value(t, slua.preprocess("0x1a26f", tmp), "ref(0x1a26f)")
 	// Dotted obj.method with a hex form arg + a decimal count.

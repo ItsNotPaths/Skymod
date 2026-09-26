@@ -9,6 +9,7 @@ import smath "../math"
 import "../worldstate"
 
 register_ref_reads :: proc(reg: ^Registry) {
+	register(reg, "ObjectReference", "GetTriggerObjectCount", n_get_trigger_object_count)
 	register(reg, "ObjectReference", "GetPositionX", n_get_position_x)
 	register(reg, "ObjectReference", "GetPositionY", n_get_position_y)
 	register(reg, "ObjectReference", "GetPositionZ", n_get_position_z)
@@ -130,4 +131,10 @@ n_cell_is_attached :: proc(c: ^Call, args: []Value) -> Value {
 form_or_none :: proc(form: Form_ID) -> Value {
 	if form == 0 {return nil}
 	return form
+}
+
+// GetTriggerObjectCount() -> int: how many actors are inside this trigger volume (only the player
+// enters one, script tick_triggers).
+n_get_trigger_object_count :: proc(c: ^Call, args: []Value) -> Value {
+	return i32(1) if c.self in c.ws.in_triggers else i32(0)
 }

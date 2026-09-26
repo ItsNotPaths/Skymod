@@ -88,7 +88,8 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.setfield(L, lua.REGISTRYINDEX, NONE_VALUE_KEY) // stash the one None
 
 	// ── globals: ref(formid) constructor + None ───────────────────────────────
-	lua.pushcfunction(L, ref_ctor)
+	lua.pushlightuserdata(L, vm)
+	lua.pushcclosure(L, ref_ctor, 1)
 	lua.setglobal(L, "ref")
 	push_none(L)
 	lua.setglobal(L, "None")
@@ -241,13 +242,20 @@ papyrus_form :: proc "contextless" (L: ^lua.State, idx: c.int) -> (form: script.
 	return ref_form(L, idx)
 }
 
-// ref_ctor is the `ref(formid)` global: wrap an integer Form_ID as a ref (bare-hex
-// console input rewrites to this). A non-integer / 0 argument yields None.
+// ref_ctor is the `ref(formid)` global: wrap an integer Form_ID, or the form an editor id names
+// (gamedb.find_form), as a ref. The console rewrites bare hex and bare words to this. Anything
+// else, or a name nothing has, yields None. Upvalue 1 = ^VM.
 @(private)
 ref_ctor :: proc "c" (L: ^lua.State) -> c.int {
-	if lua.isinteger(L, 1) {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	switch {
+	case bool(lua.isinteger(L, 1)):
 		push_ref(L, script.Form_ID(lua.tointeger(L, 1)))
-	} else {
+	case lua.type(L, 1) == .STRING && vm.ctx.db != nil:
+		form, _ := gamedb.find_form(vm.ctx.db, to_string(L, 1))
+		push_ref(L, form)
+	case:
 		push_none(L)
 	}
 	return 1

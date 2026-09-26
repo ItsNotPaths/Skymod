@@ -160,7 +160,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Item:
 		take_item(g, form, base, by)
 	case .Book:
-		if by == formid.PLAYER && worldstate.read_book(&g.ws, &g.db, by, base) {
+		if by == formid.PLAYER && read_book(g, form, base) {
 			worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true) // a learned tome is used up
 			worldstate.mark_scene_dirty(&g.ws, form)
 			log.infof("read: %q", interact_subject(g, form))
@@ -171,8 +171,9 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		harvest(g, form, base, by)
 	case .Container:
 		if by == formid.PLAYER {open_container(g, form)}
-	case .Actor:
-		if by == formid.PLAYER {open_dialogue(g, form)}
+	case .Actor, .Body:
+		if by != formid.PLAYER {break}
+		if worldstate.is_dead(&g.ws, form) {open_container(g, form)} else {open_dialogue(g, form)}
 	case .None, .Activator:
 		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
@@ -226,6 +227,14 @@ take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	worldstate.set_disabled(&g.ws, form, worldstate.ref_cell(&g.ws, &g.db, form), true)
 	worldstate.mark_scene_dirty(&g.ws, form)
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
+}
+
+// (hole item-base-scripts :tags script :sev gap) an item that is in a pack but was never a ref has no script instance, so its base form's scripts hear nothing: reading such a book sends no OnRead.
+// read_book is the player reading a book: OnRead to its ref (for a book in the pack, a carried
+// ref of it), then what reading teaches. True when the book is used up.
+read_book :: proc(g: ^Game, ref, base: Form_ID) -> bool {
+	if g.repl_ok && ref != 0 {slua.send(&g.repl.vm, ref, "OnRead")}
+	return worldstate.read_book(&g.ws, &g.db, formid.PLAYER, base)
 }
 
 // harvest gives an actor a plant's produce, rolled at its zone level, once until its cell resets.

@@ -736,6 +736,28 @@ decode_refr :: proc(fields: []Field) -> Placement {
 	return p
 }
 
+// Primitive is a REFR's XPRM shape: a trigger volume, a room bound or an occlusion plane. `half`
+// is the box half extents, or the sphere radius in x (xEdit shows the stored values doubled).
+Primitive :: struct {
+	half: [3]f32,
+	kind: Primitive_Kind,
+}
+
+Primitive_Kind :: enum u32 {
+	None,
+	Box,
+	Sphere,
+	Portal_Box,
+	Line,
+}
+
+// refr_primitive reads XPRM: bounds (3 f32), colour (4 f32), type (u32).
+refr_primitive :: proc(fields: []Field) -> (Primitive, bool) {
+	f, ok := find_field(fields, "XPRM")
+	if !ok || len(f.data) < 32 {return {}, false}
+	return {{rf32(f.data, 0), rf32(f.data, 4), rf32(f.data, 8)}, Primitive_Kind(rd32(f.data, 28))}, true
+}
+
 // LAND_GRID is the side length of a cell's heightmap vertex grid (33×33 = 1089
 // vertices → 32×32 quads spanning the 4096-unit cell).
 LAND_GRID :: 33

@@ -122,11 +122,20 @@ Quest_Baseline :: struct {
 	// every QOBJ contributes to objective_text (its NNAM display line).
 	stage_log:          map[u16]string, // stage index -> journal log entry text (resolved; owned)
 	objective_text:     map[u16]string, // objective index -> display text (resolved; owned)
-	// (hole quest-targets :tags (quest records) :sev gap) QSTA objective targets are not decoded: no movetoqt in the console, no quest markers.
+	objective_targets:  map[u16][]Objective_Target, // objective index -> its QSTA targets in order (owned)
 	// Alias slots in declaration order (ALST/ALLS). The quest's scripts address these by id, so
 	// consumers index by `id`, not position — quest_alias does that lookup. Owned.
 	aliases:            []Quest_Alias,
 }
+
+// Objective_Target is one QSTA of an objective: the alias it points at, shown while its conditions pass.
+Objective_Target :: struct {
+	alias:      i32,
+	flags:      u8, // TARGET_IGNORES_LOCKS
+	conditions: []Condition, // owned
+}
+
+TARGET_IGNORES_LOCKS :: 0x1 // the compass marker ignores locked doors
 
 // Stage flags (INDX).
 STAGE_START_UP :: 0x2
@@ -206,12 +215,13 @@ DB :: struct {
 	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
+	triggers:      map[Form_ID]esm.Primitive, // REFR formID -> its XPRM box or sphere (a trigger volume)
 	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	books:         map[Form_ID]Book, // BOOK base formID -> what reading it teaches (absent = teaches nothing)
 	produce:       map[Form_ID]Form_ID, // FLOR / TREE base formID -> its PFIG harvest (an item or a leveled list)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
-	// (hole console-edids :tags (quest ui) :sev polish) only cells, keywords and globals index their editor ids: the console names a quest or an NPC by form ID, not by MQ101 or Lydia.
+	form_by_edid:  map[string]Form_ID, // lowercased editor id -> quest, NPC_ or placed ref (key owned): the console's names
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
 	actor_refs:    map[Form_ID][dynamic]Ref, // cell formID -> actor placements (ACHR; base = an NPC_)
@@ -748,11 +758,13 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
+		triggers      = make(map[Form_ID]esm.Primitive, 4096, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
 		books         = make(map[Form_ID]Book, 256, allocator),
 		produce       = make(map[Form_ID]Form_ID, 256, allocator),
 		cells         = make(map[Form_ID]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]Form_ID, 1024, allocator),
+		form_by_edid  = make(map[string]Form_ID, 65536, allocator),
 		cell_refs     = make(map[Form_ID][dynamic]Ref, 1024, allocator),
 		actor_refs    = make(map[Form_ID][dynamic]Ref, 512, allocator),
 		ref_by_id     = make(map[Form_ID]Ref, 4096, allocator),
@@ -939,6 +951,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.actors)
 	delete(db.doors)
 	delete(db.locks)
+	delete(db.triggers)
 	delete(db.trees)
 	delete(db.books)
 	delete(db.produce)
@@ -946,6 +959,8 @@ destroy :: proc(db: ^DB) {
 		delete(c.editor_id)
 	}
 	delete(db.cells)
+	for k in db.form_by_edid {delete(k, db.allocator)}
+	delete(db.form_by_edid)
 	for k, _ in db.cell_by_edid {
 		delete(k)
 	}
@@ -1048,6 +1063,11 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 		delete(s, db.allocator)
 	}
 	delete(qb.objective_text)
+	for _, ts in qb.objective_targets {
+		for t in ts {free_conditions(db, t.conditions)}
+		delete(ts, db.allocator)
+	}
+	delete(qb.objective_targets)
 	for a in qb.aliases {
 		delete(a.name, db.allocator)
 		free_conditions(db, a.conditions)
@@ -1509,6 +1529,28 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	return true
 }
 
+// index_edid names a quest, an NPC_ or a placed ref for the console.
+@(private)
+index_edid :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
+	edid := esm.editor_id(fl)
+	if edid == "" {return}
+	key := strings.to_lower(edid, context.temp_allocator)
+	if _, seen := db.form_by_edid[key]; !seen {key = strings.clone(key, db.allocator)}
+	db.form_by_edid[key] = form
+}
+
+// find_form is the form an editor id names, case-insensitive. An NPC_ base names its placed actor
+// with the lowest form id, so the console can use the base's name, not the ref id.
+find_form :: proc(db: ^DB, edid: string) -> (Form_ID, bool) {
+	form, ok := db.form_by_edid[strings.to_lower(edid, context.temp_allocator)]
+	if !ok || !is_actor(db, form) {return form, ok}
+	placed := max(Form_ID)
+	for _, refs in db.actor_refs {
+		for r in refs {if r.base == form {placed = min(placed, r.form_id)}}
+	}
+	return form if placed == max(Form_ID) else placed, true
+}
+
 // form_from_file is Game.GetFormFromFile: a plugin-local form id in global space. ok=false when the
 // plugin is not loaded. Whether the form exists is not checked.
 form_from_file :: proc(db: ^DB, local: u32, file: string) -> (Form_ID, bool) {
@@ -1534,7 +1576,7 @@ form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 
 // index_quest decodes a QUST's script-relevant baseline: the DNAM "Start Game Enabled" flag, the
 // defined stages (INDX index + the following QSDT "Complete Quest" flag), the alias slots its
-// scripts address by id (see index_quest_aliases), and the journal DISPLAY text — each stage's log entry (CNAM) and each objective's display line (QOBJ index + NNAM). Field
+// scripts address by id (see index_quest_aliases), and the journal DISPLAY text — each stage's log entry (CNAM) and each objective's display line (QOBJ index + NNAM) and targets (QSTA + its CTDA run). Field
 // order matters: a QSDT/CNAM applies to the most recent INDX, an NNAM to the most recent QOBJ (xEdit's
 // grouping) — so we walk the subrecords in order. CNAM/NNAM resolve through the plugin STRINGS table
 // (or inline for a non-localized plugin), so the stored text is the real English the journal shows.
@@ -1546,20 +1588,22 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	}
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
+	index_edid(db, rec.form_id, fl)
 
 	if old, existed := db.quest_baseline[rec.form_id]; existed {
 		free_quest_baseline(db, old) // override: free the previous clone
 	}
 	qb := Quest_Baseline {
-		stages         = make(map[u16]Quest_Stage, 16, db.allocator),
-		objectives     = make(map[u16]bool, 8, db.allocator),
-		stage_log      = make(map[u16]string, 16, db.allocator),
-		objective_text = make(map[u16]string, 8, db.allocator),
+		stages            = make(map[u16]Quest_Stage, 16, db.allocator),
+		objectives        = make(map[u16]bool, 8, db.allocator),
+		stage_log         = make(map[u16]string, 16, db.allocator),
+		objective_text    = make(map[u16]string, 8, db.allocator),
+		objective_targets = make(map[u16][]Objective_Target, 8, db.allocator),
 	}
 	cur_stage: u16
 	have_stage := false
 	items := make(map[u16][dynamic]Stage_Item, 16, context.temp_allocator)
-	item_conds := false // the current stage item already took its CTDA run
+	targets := make(map[u16][dynamic]Objective_Target, 8, context.temp_allocator)
 	cur_obj: u16
 	have_obj := false
 	past_next := false
@@ -1575,13 +1619,9 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		case "ENAM":
 			if len(f.data) >= 4 {copy(qb.event[:], f.data[:4])}
 		case "CTDA":
-			// The run before NEXT is the dialogue conditions; every later run has its own owner.
+			// The run before NEXT is the dialogue conditions; later runs are taken by the field they follow.
 			if !past_next && !have_stage && qb.dialogue_conditions == nil {
 				qb.dialogue_conditions = index_conditions(db, esm.condition_run(fl, i), fm)
-			} else if have_stage && !item_conds && len(items[cur_stage]) > 0 {
-				its := &items[cur_stage]
-				its[len(its) - 1].conditions = index_conditions(db, esm.condition_run(fl, i), fm)
-				item_conds = true
 			}
 		case "NEXT":
 			past_next = true
@@ -1597,10 +1637,10 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 				if cur_stage not_in items {items[cur_stage] = make([dynamic]Stage_Item, context.temp_allocator)}
 			}
 		case "QSDT":
-			// Starts one stage item (log entry) of the current INDX.
+			// Starts one stage item (log entry) of the current INDX; its CTDA run follows.
 			if have_stage && len(f.data) >= 1 {
-				append(&items[cur_stage], Stage_Item{flags = f.data[0]})
-				item_conds = false
+				conds := index_conditions(db, esm.condition_run(fl, i + 1), fm)
+				append(&items[cur_stage], Stage_Item{flags = f.data[0], conditions = conds})
 			}
 		case "CNAM":
 			// Journal log-entry text for the current stage. Long-text lstring → DLSTRINGS (or inline
@@ -1621,6 +1661,16 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 				have_obj = true
 				qb.objectives[cur_obj] = true
 			}
+		case "QSTA":
+			// Target alias (s32) + flags (u8); its CTDA run follows.
+			if have_obj && len(f.data) >= 5 {
+				if cur_obj not_in targets {targets[cur_obj] = make([dynamic]Objective_Target, context.temp_allocator)}
+				append(&targets[cur_obj], Objective_Target {
+					alias      = i32(u32(f.data[0]) | u32(f.data[1]) << 8 | u32(f.data[2]) << 16 | u32(f.data[3]) << 24),
+					flags      = f.data[4],
+					conditions = index_conditions(db, esm.condition_run(fl, i + 1), fm),
+				})
+			}
 		case "NNAM":
 			// Objective display text for the current QOBJ. Short-text lstring → STRINGS (or inline).
 			if have_obj {
@@ -1637,6 +1687,10 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		st := &qb.stages[stage]
 		st.items = make([]Stage_Item, len(its), db.allocator)
 		copy(st.items, its[:])
+	}
+	for obj, ts in targets {
+		qb.objective_targets[obj] = make([]Objective_Target, len(ts), db.allocator)
+		copy(qb.objective_targets[obj], ts[:])
 	}
 	qb.aliases = index_quest_aliases(db, fl, fm)
 	db.quest_baseline[rec.form_id] = qb
@@ -1894,6 +1948,11 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent) // XESP references the parent ref
 		ref.enable_opposite = ep.opposite
 	}
+	if pr, has := esm.refr_primitive(fl); has && (pr.kind == .Box || pr.kind == .Sphere) {
+		db.triggers[rec.form_id] = pr
+	} else {
+		delete_key(&db.triggers, rec.form_id)
+	}
 	if lk, has := esm.decode_xloc(fl); has {
 		lk.key = esm.remap_form(ctx.fm, u32(lk.key)) // XLOC key references a KEYM form
 		db.locks[rec.form_id] = lk // presence = this ref starts locked (the activation-prompt signal)
@@ -1918,6 +1977,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	db.ref_by_id[rec.form_id] = ref
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
+	index_edid(db, rec.form_id, fl)
 	index_linked_refs(db, rec.form_id, fl, ctx.fm) // XLKR links (GetLinkedRef's baseline)
 }
 
@@ -1965,6 +2025,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	db.ref_by_id[rec.form_id] = ref
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
+	index_edid(db, rec.form_id, fl)
 }
 
 // index_ref_levels records a placement's own encounter zone (XEZN) and leveled difficulty (XLCM); an
@@ -2509,6 +2570,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer if backing != nil {delete(backing)}
 
 	index_name(db, rec.form_id, fl) // FULL display name (NPC_ carries its own name)
+	index_edid(db, rec.form_id, fl)
 	index_keywords(db, rec.form_id, fl, fm) // KWDA tag set (ActorTypeNPC, …)
 
 	a: Actor_Base

@@ -43,8 +43,6 @@ out_allocator :: proc(repl: ^Repl) -> runtime.Allocator {
 
 // REPL_PRELUDE installs the capture-aware `print`, the `__repl_eval` driver, and the
 // `cmd` table. It runs on the gameplay VM after the ref system is up.
-// (hole quest-console :tags (quest ui) :sev gap) no quest verbs: the console can call Quest natives on a form ID (ref(0x...):SetStage(10)), but has no sqs (stages, log text, done marks), sqo, setstage, getstage, startquest, stopquest, completequest or resetquest.
-// (hole console-trigger :tags (quest physics) :sev gap) no verb sends OnTriggerEnter(player) to a trigger ref, so a quest moved by a trigger box (7 script classes set a stage from one, build/out/wsQ/stage_triggers_se.txt) moves only by setstage until trigger-events.
 @(private)
 REPL_PRELUDE :: `
 function print(...)
@@ -141,6 +139,8 @@ repl_init :: proc(repl: ^Repl, reg: ^script.Registry, ctx: script.Call, allocato
 
 	repl_register_cmd(repl, "wait", "wait <hours> — skip game time, as the Wait menu does", repl_wait, &repl.vm)
 	repl_register_cmd(repl, "time", "print the game date and hour", repl_time, &repl.vm)
+	repl_register_cmd(repl, "trigger", "trigger [ref] — send OnTriggerEnter(player) to a trigger box (default: selection)", repl_trigger, &repl.vm)
+	if !repl_register_quest_verbs(repl) {return false}
 	repl_register_cmd(repl, "levelup", "levelup \"<choice>\" — spend a ready level-up (\"Health\", \"Magicka\", \"Stamina\"), as the skills menu will", repl_level_up, &repl.vm)
 	return true
 }
@@ -169,9 +169,21 @@ repl_level_up :: proc "c" (L: ^lua.State) -> c.int {
 	} else {
 		line = fmt.tprintf("no level-up: XP %.0f of %.0f, or no choice %q", ws.levels[formid.PLAYER].xp, worldstate.level_up_cost(ws, db, formid.PLAYER), to_string(L, 1))
 	}
-	lua.getglobal(L, "print")
-	lua.pushstring(L, strings.clone_to_cstring(line, context.temp_allocator))
-	lua.pcall(L, 1, 0, 0)
+	console_print(L, line)
+	return 0
+}
+
+// repl_trigger sends OnTriggerEnter(player) to a ref, as if the player walked into its box.
+@(private = "file")
+repl_trigger :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
+	form, ok := ref_form(L, 1)
+	if !ok {
+		lua.getglobal(L, "sel")
+		form, _ = ref_form(L, -1)
+	}
+	if form != 0 {send(vm, form, "OnTriggerEnter", script.Form_ID(formid.PLAYER))}
 	return 0
 }
 
@@ -182,9 +194,7 @@ repl_time :: proc "c" (L: ^lua.State) -> c.int {
 	year, month, day, hour := worldstate.game_date(vm.ctx.ws)
 	names := MONTH_NAMES
 	line := fmt.tprintf("%d %s, 4E %d, %02d:%02d", day, names[month], year, int(hour), int(hour * 60) % 60)
-	lua.getglobal(L, "print")
-	lua.pushstring(L, strings.clone_to_cstring(line, context.temp_allocator))
-	lua.pcall(L, 1, 0, 0)
+	console_print(L, line)
 	return 0
 }
 

@@ -14,6 +14,7 @@ local VERB = {
   door      = "Open",
   container = "Open",
   actor     = "Talk",
+  body      = "Search",
   item      = "Take",
   flora     = "Harvest",
   activator = "Activate",

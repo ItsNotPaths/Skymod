@@ -16,8 +16,8 @@ package physics
 // LOCAL (small magnitude) and carry the world placement in the (double) body position; the static
 // mesh/hull builders and add_dynamic_body do exactly that.
 
-// (hole spatial-queries :tags physics :sev blocker) no spatial query surface — Jolt's BroadPhaseQuery (CastRay/CollideSphere/CollidePoint) is bound and never called, so nothing can ask what is between two points. Actor.HasLOS (64 corpus sites) has no way to answer.
-// (hole sensor-bodies :tags physics :sev blocker) no sensor bodies — Body_SetIsSensor is bound and never called, so there are no trigger volumes and proximity stays a polled distance test (104 scripts poll GetDistance on a timer).
+// (hole spatial-queries :tags (physics query) :sev blocker) no spatial query surface — Jolt's BroadPhaseQuery (CastRay/CollideSphere/CollidePoint) is bound and never called, so nothing can ask what is between two points.
+// (hole sensor-bodies :tags physics :sev blocker) no sensor bodies — Body_SetIsSensor is bound and never called, so trigger volumes are a box test polled each tick (script/lua/triggers.odin) and proximity stays a polled distance test (104 scripts poll GetDistance on a timer).
 // (hole shape-cast :tags physics :sev gap) no shape cast — a moving body can only be swept by the character controller, so projectiles, melee arcs and teleport-safety checks have no primitive.
 
 import "core:math"

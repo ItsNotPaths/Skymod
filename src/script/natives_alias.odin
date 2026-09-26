@@ -4,6 +4,7 @@ package script
 // filling it lives in worldstate.aliases. A quest fills its aliases when it starts and empties them
 // when it stops (CK "Quest Alias Tab"). `self` is the alias handle.
 
+import "../conditions"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
@@ -42,6 +43,23 @@ clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_I
 		worldstate.unregister_updates(ws, h)
 		worldstate.unregister_anim_events(ws, h)
 	}
+}
+
+// objective_targets are the refs filling an objective's target aliases whose conditions pass, in
+// QSTA order. Conditions run on the target ref. Temp-allocated.
+// (hole quest-markers :tags (ui quest) :sev gap) Nothing draws these yet: no compass or map markers, and TARGET_IGNORES_LOCKS is unread.
+objective_targets :: proc(c: ^Call, quest: Form_ID, objective: u16) -> []Form_ID {
+	qb, _ := gamedb.quest_baseline_of(c.db, quest)
+	ts, ok := qb.objective_targets[objective]
+	if !ok {return nil}
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for t in ts {
+		ref := worldstate.alias_ref(c.ws, quest, t.alias)
+		if ref == 0 {continue}
+		ctx := condition_context(c, ref, 0, quest)
+		if conditions.all(&ctx, t.conditions) {append(&out, ref)}
+	}
+	return out[:]
 }
 
 // Quest.GetAlias(aiAliasID) -> Alias.

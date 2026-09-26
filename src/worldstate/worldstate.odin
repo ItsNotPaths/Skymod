@@ -125,11 +125,13 @@ Runtime :: struct {
 	zone_level_sets: [dynamic]Form_ID, // zones that took their level since the VM last looked: OnZoneLevelSet
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
+	deaths:          [dynamic]Death,        // deaths since the VM last looked: OnDying, OnDeath
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
 	info_runs:       [dynamic]Info_Run,     // topic info fragments the dialogue asked for since the last tick
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
+	in_triggers:     Form_Set,              // trigger volumes the player is inside (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
@@ -167,6 +169,7 @@ init :: proc(ws: ^World_State) {
 	ws.zone_level_sets = make([dynamic]Form_ID)
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
+	ws.deaths = make([dynamic]Death)
 	ws.story_events = make([dynamic]Story_Event)
 	ws.story_quests = make([dynamic]Form_ID)
 	ws.quest_steps = make([dynamic]Quest_Step)
@@ -189,6 +192,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.equip_changes)
 	for l in ws.level_ups {delete(l.choice)}
 	delete(ws.level_ups)
+	delete(ws.deaths)
+	delete(ws.in_triggers)
 	delete(ws.story_events)
 	delete(ws.story_quests)
 	delete(ws.quest_steps)

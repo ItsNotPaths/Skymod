@@ -133,7 +133,6 @@ skill_index :: proc(skill: string) -> (int, bool) {
 	return 0, false
 }
 
-// (hole read-events :tags (quest script) :sev gap) reading sends no OnRead to the book: 9 script classes set a stage from it (DefaultOnReadSetQuestStage, notes and letters).
 // read_book is `actor` reading `book`: a skill book raises its skill by one the first time, a
 // spell tome teaches its spell. True when the book is used up (a tome whose spell was new).
 read_book :: proc(ws: ^World_State, db: ^gamedb.DB, actor, book: Form_ID) -> (used_up: bool) {

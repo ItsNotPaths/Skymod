@@ -9,6 +9,7 @@ package script_lua
 //   tcl / tgm / help              → cmd.noclip() / cmd.god() / cmd.help()
 //   disable | enable | delete     → cmd.disable() …            (CE "acts on the selection" — sel)
 //   setscale 2 | moveto 0x14      → cmd.scale(2) | cmd.moveto(ref(0x14))
+//   setstage MQ101 10             → cmd.setstage(ref("MQ101"), 10)   (a bare word is an editor id)
 //   prid 0x1a26f                  → cmd.prid(ref(0x1a26f))      (select a ref by id)
 //   0x0001A26F  (bare hex alone)  → ref(0x0001A26F)            (echoes the ref)
 //   player.additem 0xf 100        → player:additem(ref(0xf), 100)   (obj ∈ player|sel|0xHEX)
@@ -89,6 +90,8 @@ ce_alias :: proc(word: string) -> (target: string, ok: bool) {
 		return "cmd.time", true
 	case "levelup":
 		return "cmd.levelup", true
+	case "setstage", "getstage", "sqs", "sqo", "startquest", "stopquest", "completequest", "resetquest", "kill", "trigger":
+		return strings.concatenate({"cmd.", word}, context.temp_allocator), true
 	}
 	return "", false
 }
@@ -125,8 +128,9 @@ rewrite_dotted :: proc(head: string, args: []string, alloc: runtime.Allocator) -
 	return strings.concatenate({obj_expr, ":", method, "(", csv, ")"}, alloc), true
 }
 
-// csv_tokens joins console args with commas, wrapping any bare 0xHEX token in ref() (a hex arg in a
-// CE command is a form id; decimals/other literals pass through). Empty slice → "".
+// csv_tokens joins console args with commas. A bare 0xHEX token is a form id, ref(0x..); a bare
+// word that is not a Lua value name is an editor id, ref("MQ101"). Decimals and quoted strings
+// pass through. Empty slice → "".
 @(private)
 csv_tokens :: proc(tokens: []string, alloc := context.allocator) -> string {
 	if len(tokens) == 0 {
@@ -134,9 +138,26 @@ csv_tokens :: proc(tokens: []string, alloc := context.allocator) -> string {
 	}
 	out := make([]string, len(tokens), context.temp_allocator)
 	for t, i in tokens {
-		out[i] = strings.concatenate({"ref(", t, ")"}, context.temp_allocator) if is_bare_hex(t) else t
+		switch {
+		case is_bare_hex(t):
+			out[i] = strings.concatenate({"ref(", t, ")"}, context.temp_allocator)
+		case is_ident(t) && !is_lua_value(t):
+			out[i] = strings.concatenate({"ref(\"", t, "\")"}, context.temp_allocator)
+		case:
+			out[i] = t
+		}
 	}
 	return strings.join(out, ", ", alloc)
+}
+
+// is_lua_value is a console word that stays Lua: the ref globals and the literals.
+@(private)
+is_lua_value :: proc(s: string) -> bool {
+	switch s {
+	case "player", "sel", "true", "false", "nil", "None":
+		return true
+	}
+	return false
 }
 
 // is_bare_hex reports whether `s` is exactly a 0x-prefixed hex literal. Requiring the 0x prefix keeps

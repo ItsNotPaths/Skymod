@@ -39,9 +39,11 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── Actor life-state ───────────────────────────────────────────────────────────
 
-// Kill(akKiller) -> None: the Dead flag, cleared boss locations and the KILL story event.
-// (hole kill-events :tags (quest script) :sev gap) Kill sends no OnDying or OnDeath(akKiller) to the actor, its aliases and its effects: 340 script classes handle OnDeath and 28 set a stage from it (DefaultAliasOnDeathScript), so a quest waiting on a death never moves.
+// Kill(akKiller) -> None: the Dead flag, OnDying and OnDeath, cleared boss locations and the KILL
+// story event. A dead actor does not die again.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
+	if worldstate.is_dead(c.ws, c.self) {return nil}
+	append(&c.ws.deaths, worldstate.Death{c.self, arg_form(args, 0)})
 	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
 	worldstate.mark_scene_dirty(c.ws, c.self)
 	boss_died(c, c.self)

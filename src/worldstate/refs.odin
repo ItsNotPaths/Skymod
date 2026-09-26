@@ -201,6 +201,11 @@ set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 	d.dead = dead
 }
 
+// Death is an actor that died since the VM last looked, for OnDying and OnDeath.
+Death :: struct {
+	actor, killer: Form_ID,
+}
+
 // is_dead reads the Dead delta. No baseline "starts dead" is surfaced yet.
 is_dead :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
 	d, ok := get(ws, form_id)

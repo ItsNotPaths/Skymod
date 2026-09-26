@@ -28,6 +28,7 @@ Activate_Kind :: enum {
 	Door,
 	Container,
 	Actor,
+	Body, // a dead actor: searched like a container
 	Item,
 	Activator,
 	Flora,
@@ -41,6 +42,7 @@ activate_kind_tag := [Activate_Kind]string {
 	.Door      = "door",
 	.Container = "container",
 	.Actor     = "actor",
+	.Body      = "body",
 	.Item      = "item",
 	.Activator = "activator",
 	.Flora     = "flora",
@@ -105,7 +107,8 @@ resolve_activation :: proc(g: ^Game) -> Activation_Target {
 	inst, dist, ok := world.probe_ray(scene, ro, rd)
 	if actor, adist, aok := pick_actor(g, ro, rd); aok && adist <= ACTIVATE_RANGE && (!ok || adist < dist) {
 		name := worldstate.display_name(&g.ws, &g.db, actor)
-		return {kind = .Actor, name = name, form = actor, present = name != ""}
+		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, actor) else .Actor
+		return {kind = kind, name = name, form = actor, present = name != ""}
 	}
 	if !ok || dist > ACTIVATE_RANGE || inst.disabled {
 		return {}
