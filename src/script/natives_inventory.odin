@@ -4,6 +4,7 @@ package script
 // their base-object FormID. A count is the starting contents (gamedb) plus the overlay's delta.
 // Not scene geometry → no mark_scene_dirty, except a dropped world item.
 
+import "core:math"
 import "../gamedb"
 import smath "../math"
 import "../worldstate"
@@ -112,7 +113,7 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	worldstate.move_items(c.ws, m)
 }
 
-// DropObject(akObject, aiCount=1): the items leave `self` into the world at its feet. A ref it
+// DropObject(akObject, aiCount=1): the items leave `self` into the world beside it. A ref it
 // carries of that item drops whole, as itself; otherwise a new ref holds the count.
 n_drop_object :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(args, 0))
@@ -120,7 +121,10 @@ n_drop_object :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// (hole drop-placement :tags (physics player) :sev polish) a dropped item appears 64 units above the dropper's feet, at its centre; it should land on a 1 m (~70 unit) halo around the dropper, each drop at the next angle round it, so items do not stack in one spot.
+DROP_RADIUS :: 70 // 1 m
+DROP_HEIGHT :: 48
+DROP_STEP :: math.PI / 4
+
 drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID {
 	ref := ref
 	if ref == 0 || c.ws.carried[ref] != owner {
@@ -131,7 +135,10 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 	count = min(count, worldstate.inv_count(c.ws, c.db, owner, base))
 	if count <= 0 {return 0}
 	cell := ref_cell(c, owner)
-	pos := ref_pos(c, owner) + {0, 0, 64}
+	// Each drop lands at the next angle on a ring round the dropper, so items do not pile up.
+	angle := f32(c.ws.drops) * DROP_STEP
+	c.ws.drops += 1
+	pos := ref_pos(c, owner) + {DROP_RADIUS * math.cos(angle), DROP_RADIUS * math.sin(angle), DROP_HEIGHT}
 	if ref != 0 {
 		worldstate.set_moved(c.ws, ref, cell, smath.trs(pos, {}, 1), pos)
 		worldstate.set_disabled(c.ws, ref, cell, false)

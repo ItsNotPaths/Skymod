@@ -78,6 +78,7 @@ Overlay :: struct {
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
 	cleared:         Form_Set,                     // locations cleared (Location.SetCleared)
 	books_read:      Form_Set,                     // skill books the player has read (each teaches once)
+	drops:           u32,                          // items dropped so far, which spreads them round the dropper (not saved)
 	words:           Deltas,                       // actor -> word of power -> WORD_TAUGHT | WORD_UNLOCKED
 	beast_form:      bool,                         // Game.SetBeastForm: the player is a werewolf or vampire lord now
 	vampires:        Form_Set,                     // SendVampirismStateChanged(true)
