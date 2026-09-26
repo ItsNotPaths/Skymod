@@ -15,8 +15,10 @@ Ranked_Entry :: struct {
 	order: int,
 }
 
-// perk_value runs `value` through `owner`'s entries on `point`, lowest priority first. An entry
-// applies when every condition tab passes: tab 0 runs on the owner, tab i on args[i-1].
+// (hole perk-entry-ties :tags (player records) :sev polish) entries of equal priority run in perk-list order; Skyrim's tie order is fixed but unexplained (build/out/wsP/research/findings.md section 7).
+// perk_value runs `value` through `owner`'s entries on `point`, highest priority first, so the
+// lowest runs last and wins a Set (CK wiki Perk; findings.md section 7). An entry applies when
+// every condition tab passes: tab 0 runs on the owner, tab i on args[i-1].
 perk_value :: proc(c: ^Call, point: gamedb.Entry_Point, owner: Form_ID, value: f32, args: ..Form_ID) -> f32 {
 	entries := make([dynamic]Ranked_Entry, context.temp_allocator)
 	for perk in worldstate.perk_list(c.ws, c.db, owner) {
@@ -26,7 +28,7 @@ perk_value :: proc(c: ^Call, point: gamedb.Entry_Point, owner: Form_ID, value: f
 		}
 	}
 	slice.sort_by(entries[:], proc(a, b: Ranked_Entry) -> bool {
-		return a.entry.priority < b.entry.priority || a.entry.priority == b.entry.priority && a.order < b.order
+		return a.entry.priority > b.entry.priority || a.entry.priority == b.entry.priority && a.order < b.order
 	})
 	v := value
 	for r in entries {v = apply_entry(c, r.entry, owner, v)}

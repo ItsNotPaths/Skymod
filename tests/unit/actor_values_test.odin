@@ -132,7 +132,7 @@ test_actor_bounds :: proc(t: ^testing.T) {
 	testing.expect_value(t, gamedb.actor_bounds(&db, OTHER), gamedb.HUMAN_BOUNDS)
 }
 
-// A record perk's entry points run in priority order, and a failing condition tab skips its entry.
+// A record perk's entry points run highest priority first, and a failing condition tab skips its entry.
 @(test)
 test_perk_value :: proc(t: ^testing.T) {
 	NPC :: gamedb.Form_ID(0x20)
@@ -145,8 +145,8 @@ test_perk_value :: proc(t: ^testing.T) {
 	gate := []gamedb.Condition{{function = HAS_PERK, op = .Equal, value = 1, param1 = u64(OTHER)}}
 	db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
 	db.perks[PERK] = {entries = {
-		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, priority = 1, values = {1.5, 0}},
-		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, priority = 0, values = {10, 0}},
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, priority = 0, values = {1.5, 0}},
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, priority = 1, values = {10, 0}},
 		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, values = {1000, 0}, tabs = {{0, gate}}},
 		{kind = .Entry_Point, point = .Mod_Spell_Cost, function = .Set_Value, values = {0, 0}},
 	}}
