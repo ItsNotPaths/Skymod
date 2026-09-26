@@ -426,45 +426,49 @@ frame_debug_verbs :: proc(g: ^Game) {
 // loads apply on the next interior entry.
 @(private = "file")
 frame_persistence :: proc(g: ^Game) {
-	if input.fired(&g.imgr, "QuickSave") || input.fired(&g.imgr, "QuickLoad") {
-		script_run_pending(g) // a save lands between whole ticks
+	if input.fired(&g.imgr, "QuickSave") {quicksave(g)}
+	if input.fired(&g.imgr, "QuickLoad") {quickload(g)}
+}
+
+quicksave :: proc(g: ^Game) {
+	script_run_pending(g) // a save lands between whole ticks
+	_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
+	player_follow(g)
+	player_publish(g)
+	player, _ := worldstate.get(&g.ws, formid.PLAYER)
+	man := worldstate.Save_Manifest {
+		save_number  = g.save_no + 1,
+		created_unix = time.to_unix_nanoseconds(time.now()),
+		game_cell    = player.cell,
 	}
-	if input.fired(&g.imgr, "QuickSave") {
-		_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
-		player_follow(g)
-		player_publish(g)
-		player, _ := worldstate.get(&g.ws, formid.PLAYER)
-		man := worldstate.Save_Manifest {
-			save_number  = g.save_no + 1,
-			created_unix = time.to_unix_nanoseconds(time.now()),
-			game_cell    = player.cell,
-		}
-		if g.repl_ok {slua.save_scripts(&g.repl.vm)}
-		if worldstate.save_to_file(&g.ws, g.quicksave_path, man, &g.save_bridge) {
-			g.save_no += 1
-			log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.ws))
-		} else {
-			log.errorf("quicksave: FAILED to write %s", g.quicksave_path)
-		}
+	if g.repl_ok {slua.save_scripts(&g.repl.vm)}
+	if worldstate.save_to_file(&g.ws, g.quicksave_path, man, &g.save_bridge) {
+		g.save_no += 1
+		log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.ws))
+	} else {
+		log.errorf("quicksave: FAILED to write %s", g.quicksave_path)
 	}
-	if input.fired(&g.imgr, "QuickLoad") {
-		if m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); ok {
-			log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
-			if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
-			g.trans.location = nil
-			// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
-			// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
-			// The rebuild flags object collision for re-cook; run it behind the dedicated load
-			// screen (reused from boot) so the world is solid before gameplay resumes.
-			world.reapply_overlay_resident(&g.scene, &g.db)
-			// Back to the saved cell and position, then the load screen builds + solidifies that bubble.
-			// Saved in the interior we stand in: rebuild it so the loaded overlay applies.
-			if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.trav)}
-			load_screen_stream(g, "Loading save…", 0, 1)
-		} else {
-			log.warnf("quickload: no valid save at %s", g.quicksave_path)
-		}
+}
+
+quickload :: proc(g: ^Game) {
+	script_run_pending(g)
+	m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge)
+	if !ok {
+		log.warnf("quickload: no valid save at %s", g.quicksave_path)
+		return
 	}
+	log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
+	if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
+	g.trans.location = nil
+	// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
+	// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
+	// The rebuild flags object collision for re-cook; run it behind the dedicated load
+	// screen (reused from boot) so the world is solid before gameplay resumes.
+	world.reapply_overlay_resident(&g.scene, &g.db)
+	// Back to the saved cell and position, then the load screen builds + solidifies that bubble.
+	// Saved in the interior we stand in: rebuild it so the loaded overlay applies.
+	if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.trav)}
+	load_screen_stream(g, "Loading save…", 0, 1)
 }
 
 // frame_stream re-windows the exterior around the (now-moved) camera — unless we're inside an
