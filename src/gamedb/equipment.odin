@@ -6,7 +6,7 @@ package gamedb
 
 import "../formats/esm"
 
-// (hole equip-slot-hook :tags (mods player) :sev gap) a plugin item can only reach the slots its 32 biped bits map to; nothing lets a mod's item take a finer slot (LeftShoulder alone) or a slot of its own: a keyword such as EquipSlotCloak, or a script call.
+// (hole equip-slot-hook :tags mods :sev wish) a plugin item can only reach the slots its 32 biped bits map to; nothing lets a mod's item take a finer slot (LeftShoulder alone) or a slot of its own: a keyword such as EquipSlotCloak, or a script call. Deferred: armor stays keyed by biped bit number.
 // (hole equip-slot-labels :tags player :sev polish) slots 44-60 carry the modding community's labels (52 pelvis underwear, 57 shoulders...); no authoritative source names them.
 
 Slot :: enum u8 {

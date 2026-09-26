@@ -124,7 +124,7 @@ frame_cast :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
 }
 
-// (hole npc-activate :tags ai :sev gap) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate: no XTEL move, no take.
+// (hole npc-activate :tags (ai player) :sev gap) only the player's activations run the default action; an NPC activating a door or an item (a script's Activate) only sends OnActivate: no XTEL move, no take.
 // (hole created-ref-activation :tags script :sev gap) a ref made at runtime (PlaceAtMe) has no default activation; it only gets OnActivate.
 
 // activate is the one activation path, for the Activate key and for a script's Activate: OnActivate

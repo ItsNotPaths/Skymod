@@ -8,7 +8,7 @@ package worldstate
 import "../gamedb"
 
 // (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) and weapon damage (WEAP DATA) are not read; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
-// (hole npc-auto-equip :tags (ai player) :sev gap) an NPC never picks better gear from its inventory or puts its outfit back on (UESP Followers); it wears its outfit until a script changes it.
+// (hole npc-auto-equip :tags ai :sev gap) an NPC never picks better gear from its inventory or puts its outfit back on (UESP Followers). Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
 // (hole either-hand-placement :tags player :sev polish) an either-hand item goes right, else left when right is taken, else replaces right: unsourced. The player's left-hand one-handers need a hand choice from the UI.
 
 Worn :: struct {

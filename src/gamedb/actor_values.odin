@@ -193,7 +193,7 @@ record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> i32 {
 	return i32(actor_level(db, template_part(db, npc, esm.ACBS_TEMPLATE_STATS, pick)))
 }
 
-// (hole pc-level-mult :tags (player records) :sev gap) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and this reads the player's record level, not worldstate.actor_level.
+// (hole pc-level-mult :tags (player records) :sev gap) a PC Level Mult NPC_'s level is floor(mult x player level) clamped to its calc band, but no source gives the rounding (601 vanilla NPC_, multipliers like x1.1), and this reads the player's record level, not worldstate.actor_level. Settle by disassembly (TESActorBaseData::GetLevel, RELOCATION_ID 14262 SE / 14384 AE).
 // actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's, within its calc
 // band (a calc max of 0 is no cap).
 actor_level :: proc(db: ^DB, stats: Actor_Base) -> int {
@@ -221,7 +221,7 @@ attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int) -> int {
 // skill_base is skill `i` (0..17): with auto-calc, iAVDSkillStart plus the race bonus plus the class
 // share of iAVDSkillsLevelUp points per level above 1, capped at 100 with the excess shared among
 // the rest; without it, the DNAM value plus its offset.
-// (hole skill-cap-share :tags records :sev polish) past the 100 cap the game drops part of the excess; sharing all of it matches 11 of the 24 vanilla NPC_ that reach the cap.
+// (hole skill-cap-share :tags (records player) :sev polish) past the 100 cap the game drops part of the excess; sharing all of it matches 11 of the 24 vanilla NPC_ that reach the cap (check: build/out/wsP/autocalc/rr.py).
 @(private)
 skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int) -> int {
 	if stats.flags & esm.ACBS_AUTO_CALC_STATS == 0 {return int(stats.skills[i]) + int(stats.skill_offsets[i])}
