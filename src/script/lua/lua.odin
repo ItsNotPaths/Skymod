@@ -73,6 +73,7 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 	lua.L_openlibs(vm.L)
 	vm.reg = reg
 	vm.ctx = ctx
+	vm.ctx.quest_vars = {vm, quest_var}
 	vm.none_warned = make(map[string]bool)
 
 	// native_call(class, fn, ...) -> ret  — the one dispatch bridge. ^VM rides as

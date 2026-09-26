@@ -24,14 +24,23 @@ Form_ID :: gamedb.Form_ID
 // Context is what a condition is asked ABOUT. run_on picks which of the form fields a function
 // receives; 92% of the base game's conditions run on the subject, so the rest are usually 0.
 Context :: struct {
-	db:      ^gamedb.DB,
-	ws:      ^worldstate.World_State,
-	subject: Form_ID, // the actor or object the question is about — usually the player
-	target:  Form_ID,
-	reference: Form_ID,
+	db:         ^gamedb.DB,
+	ws:         ^worldstate.World_State,
+	subject:    Form_ID, // the actor or object the question is about — usually the player
+	target:     Form_ID,
+	quest:      Form_ID, // the quest that owns the conditions: run-on Quest Alias and alias parameters read it
+	event:      ^worldstate.Story_Event, // the story event being run: run-on Event Data reads it
+	quest_vars: Quest_Vars,
 	// warned guards the log-once for unimplemented functions, exactly as the native registry does.
 	// Optional: nil simply means do not log. The caller owns it.
-	warned: ^map[u16]bool,
+	warned:     ^map[u16]bool,
+}
+
+// Quest_Vars reads a quest script's member for GetVMQuestVariable; `read` is nil where no script
+// VM runs.
+Quest_Vars :: struct {
+	data: rawptr,
+	read: proc(data: rawptr, quest: Form_ID, name: string) -> (f32, bool),
 }
 
 // all evaluates a condition list the way the format defines it: an AND, with runs of OR.
@@ -57,44 +66,83 @@ all :: proc(ctx: ^Context, conds: []gamedb.Condition) -> bool {
 // test evaluates ONE condition: resolve which object it runs on, ask the function, compare.
 test :: proc(ctx: ^Context, c: gamedb.Condition) -> bool {
 	fn, known := lookup(c.function)
-	if !known {
+	if !known || ctx.ws == nil || ctx.db == nil {
 		warn_once(ctx, c.function)
 		return true // never hide content over a question we cannot answer
 	}
-	got, answered := fn.eval(ctx, c, run_on_form(ctx, c))
+	on, known_on := run_on_form(ctx, c)
+	if !known_on {
+		return true
+	}
+	got, answered := fn(ctx, c, on)
 	if !answered {
 		warn_once(ctx, c.function)
 		return true
 	}
 	value := c.value
 	if .Use_Global in c.flags {
-		if ctx.ws == nil || ctx.db == nil {
-			return true
-		}
 		value = worldstate.global_value(ctx.ws, ctx.db, c.global)
 	}
 	return esm.condition_holds(esm.Condition{op = c.op, value = value}, got)
 }
 
-// run_on_form resolves which object the condition asks about. An unhandled run-on falls back to the
-// subject rather than to nothing, so the question is still asked of something sensible.
+// run_on_form resolves which object the condition asks about; ok=false when the context cannot say
+// (no owning quest, no event), and the condition passes. An empty alias is a real answer: 0.
 @(private)
-run_on_form :: proc(ctx: ^Context, c: gamedb.Condition) -> Form_ID {
+run_on_form :: proc(ctx: ^Context, c: gamedb.Condition) -> (Form_ID, bool) {
 	subject, target := ctx.subject, ctx.target
 	if .Swap in c.flags {
 		subject, target = target, subject
 	}
 	switch c.run_on {
 	case .Subject:
-		return subject
+		return subject, true
 	case .Target, .CombatTarget:
-		return target
+		return target, true
 	case .Reference:
-		return c.reference
-	case .LinkedRef, .QuestAlias, .PackageData, .EventData:
-		return subject
+		return c.reference, true
+	case .QuestAlias:
+		return alias_ref(ctx, c.param3)
+	case .EventData:
+		return event_ref(ctx, c.param3)
+	case .LinkedRef:
+		if ctx.db == nil {return 0, false}
+		ref, _ := gamedb.linked_ref(ctx.db, subject)
+		return ref, true
+	case .PackageData:
 	}
-	return subject
+	return 0, false
+}
+
+// param_ref reads a Ref parameter (0 or 1): a reference, or with Use_Aliases an alias of the quest.
+@(private)
+param_ref :: proc(ctx: ^Context, c: gamedb.Condition, i: int) -> (Form_ID, bool) {
+	raw := c.param1 if i == 0 else c.param2
+	if .Use_Pack_Data in c.flags {return 0, false}
+	if .Use_Aliases in c.flags {return alias_ref(ctx, i32(raw))}
+	return Form_ID(raw), true
+}
+
+@(private)
+alias_ref :: proc(ctx: ^Context, id: i32) -> (Form_ID, bool) {
+	if ctx.quest == 0 || ctx.ws == nil {return 0, false}
+	return worldstate.alias_ref(ctx.ws, ctx.quest, id), true
+}
+
+// EVENT_* are the story event members run-on Event Data names, two characters read as an i32.
+EVENT_ACTOR_1 :: 0x3152 // R1
+EVENT_ACTOR_2 :: 0x3252 // R2
+
+@(private)
+event_ref :: proc(ctx: ^Context, member: i32) -> (Form_ID, bool) {
+	if ctx.event == nil {return 0, false}
+	switch member {
+	case EVENT_ACTOR_1:
+		return ctx.event.ref1, true
+	case EVENT_ACTOR_2:
+		return ctx.event.ref2, true
+	}
+	return 0, false
 }
 
 @(private)

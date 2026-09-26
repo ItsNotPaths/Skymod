@@ -138,7 +138,7 @@ recheck_effect :: proc(c: ^Call, h: Form_ID) {
 	e := &c.ws.effects[h]
 	items := gamedb.effect_items_of(c.db, e.spell)
 	if e.ended || e.item >= len(items) {return}
-	ctx := conditions.Context{db = c.db, ws = c.ws, subject = e.target, target = e.caster}
+	ctx := condition_context(c, e.target, e.caster)
 	e.inactive = !conditions.all(&ctx, items[e.item].conditions)
 }
 
@@ -198,7 +198,7 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
-	ctx := conditions.Context{db = c.db, ws = c.ws, subject = target, target = caster}
+	ctx := condition_context(c, target, caster)
 	_, is_spell := gamedb.spell_of(c.db, source)
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {

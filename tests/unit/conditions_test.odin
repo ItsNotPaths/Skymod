@@ -327,3 +327,72 @@ test_conditions_global_and_swap :: proc(t: ^testing.T) {
 	worldstate.perk_add(&ws, OTHER, PERK)
 	testing.expect(t, conditions.all(&ctx, swapped), "the target has it now")
 }
+
+// Run-on Quest Alias and alias parameters read the owning quest's aliases; with no quest in the
+// context they cannot answer, so they pass. Run-on Event Data reads the story event.
+@(test)
+test_conditions_aliases_and_events :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	QUEST :: gamedb.Form_ID(0x0000_0C01)
+	BASE :: gamedb.Form_ID(0x0000_0D01)
+	ref := worldstate.create_ref(&ws, BASE, 0, {}, {}, 1)
+	h, _ := formid.alias_handle(QUEST, 2)
+	worldstate.fill_alias(&ws, h, ref)
+
+	is_base := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .QuestAlias, param3 = 2}}
+	none := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	testing.expect(t, conditions.all(&none, is_base), "no owning quest: passes")
+	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER, quest = QUEST}
+	testing.expect(t, conditions.all(&ctx, is_base), "the alias holds a ref of that base")
+	empty := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .QuestAlias, param3 = 3}}
+	testing.expect(t, !conditions.all(&ctx, empty), "an empty alias is a real answer")
+
+	alias_ref := []gamedb.Condition{{function = 566, op = .Equal, value = 1, param1 = 2}}
+	testing.expect(t, !conditions.all(&ctx, alias_ref), "the player is not in alias 2")
+	ctx.subject = ref
+	testing.expect(t, conditions.all(&ctx, alias_ref), "the ref is")
+
+	e := worldstate.Story_Event{type = "KILL", ref1 = ref}
+	on_event := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .EventData, param3 = conditions.EVENT_ACTOR_1}}
+	testing.expect(t, conditions.all(&ctx, on_event), "no event: passes")
+	ctx.event = &e
+	e.ref1 = formid.PLAYER
+	testing.expect(t, !conditions.all(&ctx, on_event), "actor 1 is the player")
+	e.ref1 = ref
+	testing.expect(t, conditions.all(&ctx, on_event), "actor 1 is the ref")
+}
+
+// A few bodies over the stores: quest stages, globals, factions.
+@(test)
+test_conditions_quest_and_faction_reads :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	QUEST :: gamedb.Form_ID(0x0000_0C01)
+	FACTION :: gamedb.Form_ID(0x0000_0F01)
+	GLOB :: gamedb.Form_ID(0x0000_0E01)
+
+	stage := []gamedb.Condition{{function = 58, op = .GreaterOrEqual, value = 20, param1 = u64(QUEST)}}
+	done := []gamedb.Condition{{function = 59, op = .Equal, value = 1, param1 = u64(QUEST), param2 = 10}}
+	testing.expect(t, !conditions.all(&ctx, stage) && !conditions.all(&ctx, done), "an untouched quest")
+	worldstate.quest_set_stage(&ws, QUEST, 10)
+	worldstate.quest_set_stage(&ws, QUEST, 20)
+	testing.expect(t, conditions.all(&ctx, stage) && conditions.all(&ctx, done), "stage 20, 10 done")
+
+	glob := []gamedb.Condition{{function = 74, op = .Equal, value = 3, param1 = u64(GLOB)}}
+	worldstate.set_global(&ws, GLOB, 3)
+	testing.expect(t, conditions.all(&ctx, glob), "GetGlobalValue")
+
+	member := []gamedb.Condition{{function = 71, op = .Equal, value = 1, param1 = u64(FACTION)}}
+	rank := []gamedb.Condition{{function = 73, op = .Equal, value = -1, param1 = u64(FACTION)}}
+	testing.expect(t, !conditions.all(&ctx, member) && conditions.all(&ctx, rank), "not in the faction")
+	worldstate.faction_set_rank(&ws, formid.PLAYER, FACTION, -1)
+	testing.expect(t, !conditions.all(&ctx, member) && conditions.all(&ctx, rank), "rank -1 is not a member")
+	worldstate.faction_set_rank(&ws, formid.PLAYER, FACTION, 0)
+	testing.expect(t, conditions.all(&ctx, member), "rank 0 is")
+}

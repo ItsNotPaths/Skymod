@@ -40,7 +40,7 @@ tabs_pass :: proc(c: ^Call, e: gamedb.Perk_Entry, owner: Form_ID, args: []Form_I
 	for t in e.tabs {
 		subject := owner
 		if t.tab > 0 {subject = args[t.tab - 1] if int(t.tab) <= len(args) else 0}
-		ctx := conditions.Context{db = c.db, ws = c.ws, subject = subject, target = owner}
+		ctx := condition_context(c, subject, owner)
 		if !conditions.all(&ctx, t.conditions) {return false}
 	}
 	return true

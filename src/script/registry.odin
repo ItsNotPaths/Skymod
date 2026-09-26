@@ -19,6 +19,7 @@ package script
 import "base:runtime"
 import "core:log"
 import "core:strings"
+import "../conditions"
 import "../gamedb"
 import "../worldstate"
 
@@ -52,10 +53,16 @@ Manifest_Entry :: struct {
 Key :: distinct string
 
 Call :: struct {
-	self: Form_ID,                 // the receiver; 0 (no form) for global/static calls
-	ws:   ^worldstate.World_State, // mutation target (the overlay)
-	db:   ^gamedb.DB,              // baseline, for read-through
-	reg:  ^Registry,
+	self:       Form_ID,                 // the receiver; 0 (no form) for global/static calls
+	ws:         ^worldstate.World_State, // mutation target (the overlay)
+	db:         ^gamedb.DB,              // baseline, for read-through
+	reg:        ^Registry,
+	quest_vars: conditions.Quest_Vars,   // quest script members for conditions; set by the VM
+}
+
+// condition_context asks conditions about `subject` and `target`, with this call's stores.
+condition_context :: proc(c: ^Call, subject, target: Form_ID, quest: Form_ID = 0) -> conditions.Context {
+	return {db = c.db, ws = c.ws, subject = subject, target = target, quest = quest, quest_vars = c.quest_vars}
 }
 
 Native :: #type proc(c: ^Call, args: []Value) -> Value

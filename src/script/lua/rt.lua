@@ -1091,6 +1091,17 @@ function rt.save_vars(emit)
   end
 end
 
+-- rt.quest_var is a quest script member for a condition (GetVMQuestVariable): the first instance,
+-- in the order they were made, that has it, as a number. nil when none has an int, float or bool.
+function rt.quest_var(form, name)
+  for _, inst in ipairs(ordered[form] or {}) do
+    local v = inst.vars[name]
+    if type(v) == "boolean" then return v and 1 or 0 end
+    if type(v) == "number" then return v end
+    if v ~= nil then return nil end
+  end
+end
+
 -- rt.restore_var puts a saved member value back on a form's script instance.
 function rt.restore_var(form, script, name, value)
   local inst = instances[form] and instances[form][script]

@@ -1,6 +1,7 @@
 package worldstate
 
 import "core:strings"
+import "../formid"
 
 // Update_Timers is one form's update registrations, as time left until each fires: real seconds for
 // OnUpdate, game hours for OnUpdateGameTime. The single and the repeating one are independent, and
@@ -161,6 +162,12 @@ remove_item_filter :: proc(ws: ^World_State, container, filter: Form_ID) {
 remove_item_filters :: proc(ws: ^World_State, container: Form_ID) {
 	if list, ok := ws.item_filters[container]; ok {delete(list)}
 	delete_key(&ws.item_filters, container)
+}
+
+// alias_ref is the ref in alias `id` of `quest`; 0 when it is empty.
+alias_ref :: proc(ws: ^World_State, quest: Form_ID, id: i32) -> Form_ID {
+	h, ok := formid.alias_handle(quest, u32(id))
+	return ws.aliases[h] if ok && id >= 0 else 0
 }
 
 // fill_alias puts `form` in `alias`, replacing what it held.

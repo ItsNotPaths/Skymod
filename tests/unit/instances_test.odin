@@ -12,6 +12,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:testing"
+import "../../src/conditions"
 import "../../src/formid"
 import "../../src/formula"
 import "../../src/formats/esm"
@@ -1041,4 +1042,26 @@ test_zone_level_hooks :: proc(t: ^testing.T) {
 	slua.tick_zone_levels(&f.vm, &f.ws)
 	slua.drain(&f.vm)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__zone[0] === ref(0x901) and __zone[1] == 8)`), "OnZoneLevelSet heard")
+}
+
+// GetVMQuestVariable reads a quest script member through the VM's condition hook.
+@(test)
+test_condition_reads_quest_member :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_quest_var", {{"counter.lua", COUNTER_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST :: script.Form_ID(0xA00)
+	counter := []esm.Script_Attach{{name = "Counter", props = {{name = "Count", kind = .Int, status = 1, value = i32(5)}}}}
+	testing.expect_value(t, slua.attach_known(&f.vm, QUEST, counter), 1)
+
+	ctx := script.condition_context(&f.vm.ctx, formid.PLAYER, 0)
+	is :: proc(ctx: ^conditions.Context, name: string, v: f32) -> bool {
+		c := [1]gamedb.Condition{{function = 629, op = .Equal, value = v, param1 = u64(QUEST), text = name}}
+		return conditions.all(ctx, c[:])
+	}
+	testing.expect(t, is(&ctx, "::count_var", 5), "Count is 5")
+	testing.expect(t, !is(&ctx, "::count_var", 6), "Count is not 6")
+	testing.expect(t, is(&ctx, "::untouched", 4), "a declared default")
+	testing.expect(t, is(&ctx, "::missing_var", 6), "no such member passes")
 }
