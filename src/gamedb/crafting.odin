@@ -27,7 +27,7 @@ Recipe :: struct {
 @(private)
 free_recipe :: proc(db: ^DB, r: Recipe) {
 	delete(r.ingredients, db.allocator)
-	delete(r.conditions, db.allocator)
+	free_conditions(db, r.conditions)
 }
 
 // index_recipe decodes a COBJ. The field order is fixed across the base game — EDID, COCT, the CNTO

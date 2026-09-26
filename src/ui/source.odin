@@ -35,7 +35,7 @@ EMBED_HUD :: #load("lua/hud.lua", string)
 // (hole dialogue-screen :tags ui :sev blocker) no dialogue screen — no topic list, no response, no exit.
 // (hole journal :tags ui :sev gap) no journal — quest stages and objectives are tracked in worldstate and shown nowhere.
 // (hole map-screen :tags ui :sev gap) no map — no world map, no local map, no fast-travel target.
-// (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why CTDA-FN 659 cannot know which item is selected.
+// (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why EPTemperingItemIsEnchanted (659) cannot know which item is selected.
 // (hole story-craft-event :tags (quest ui) :sev gap :needs (story-manager crafting-screen)) crafting queues no CRFT story event (the smithing and alchemy tutorials).
 // (hole console-screen :tags ui :sev gap) the console is an ImGui dev panel (tools.console_panel), not a Lua UI screen: a mod cannot restyle or replace it.
 //

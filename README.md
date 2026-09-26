@@ -64,3 +64,9 @@ pass `--persist-logs` for an accumulating timestamped `logs/` folder instead.
 `odin test tests/unit` against **synthetic** fixtures only. Golden / visual-
 regression tests are opt-in, require a local Skyrim install, and live on the
 developer's machine only (`tests/golden`, gitignored) — never in the repo or CI.
+
+## Credits
+
+The names and parameter types of the condition (CTDA) functions come from
+[xEdit](https://github.com/TES5Edit/TES5Edit) (`wbDefinitionsTES5.pas`), by the
+xEdit team, under the Mozilla Public License 2.0.

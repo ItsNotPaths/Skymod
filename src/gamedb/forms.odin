@@ -401,7 +401,7 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 
 	if old, existed := db.magic_effects[rec.form_id]; existed {
 		delete(old.description, db.allocator) // override: free the previous clone
-		delete(old.conditions, db.allocator)
+		free_conditions(db, old.conditions)
 	}
 	db.magic_effects[rec.form_id] = me
 }
@@ -436,7 +436,7 @@ index_effects :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Magic_Ef
 
 @(private)
 free_effects :: proc(db: ^DB, effects: []Magic_Effect_Ref) {
-	for e in effects {delete(e.conditions, db.allocator)}
+	for e in effects {free_conditions(db, e.conditions)}
 	delete(effects, db.allocator)
 }
 
@@ -780,7 +780,7 @@ free_form_indexes :: proc(db: ^DB) {
 	delete(db.potions)
 	for _, m in db.magic_effects {
 		delete(m.description, db.allocator)
-		delete(m.conditions, db.allocator)
+		free_conditions(db, m.conditions)
 	}
 	delete(db.magic_effects)
 	delete(db.locations) // plain values — no owned data (names live in db.names)

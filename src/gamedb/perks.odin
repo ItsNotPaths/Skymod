@@ -44,7 +44,7 @@ Perk_Node :: struct {
 free_perk :: proc(db: ^DB, p: Perk) {
 	delete(p.name, db.allocator)
 	delete(p.description, db.allocator)
-	delete(p.take_conditions, db.allocator)
+	free_conditions(db, p.take_conditions)
 	free_perk_entries(db, p.entries)
 }
 

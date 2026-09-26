@@ -54,17 +54,21 @@ group :: proc(b: ^[dynamic]u8, label: []u8, gtype: u32, content: []u8) {
 	append(b, ..content)
 }
 
-// ctda builds one 32-byte condition block.
+// ctda builds one 32-byte condition block. `flags` is the low 5 bits of byte 0; with 0x04 (use
+// global) pass the GLOB as `global`, which takes the comparison's place.
 @(private = "file")
-ctda :: proc(b: ^[dynamic]u8, function: u16, op: u8, or_next: bool, value: f32, param1: u32, run_on: u32, reference: u32 = 0) {
+ctda :: proc(b: ^[dynamic]u8, function: u16, op: u8, flags: u8, value: f32, param1: u32, run_on: u32, reference: u32 = 0, param2: u32 = 0, param3: i32 = -1, global: u32 = 0) {
 	d: [32]u8
-	d[0] = (op << 5) | (or_next ? 0x01 : 0)
+	d[0] = (op << 5) | flags
 	put_f32(d[:], 4, value)
+	if global != 0 {put_u32(d[:], 4, global)}
 	d[8] = u8(function)
 	d[9] = u8(function >> 8)
 	put_u32(d[:], 12, param1)
+	put_u32(d[:], 16, param2)
 	put_u32(d[:], 20, run_on)
 	put_u32(d[:], 24, reference)
+	put_u32(d[:], 28, u32(param3))
 	field(b, "CTDA", d[:])
 }
 
@@ -99,12 +103,12 @@ build_perk_plugin :: proc(out: ^[dynamic]u8) {
 	field(&blade, "EDID", transmute([]u8)string("TestBladesman\x00"))
 	field(&blade, "FULL", transmute([]u8)string("Bladesman\x00"))
 	field(&blade, "DESC", transmute([]u8)string("Crit more.\x00"))
-	ctda(&blade, 448, 0, false, 1, 0x0000_0A01, 0) // has-perk Armsman == 1
-	ctda(&blade, 277, 3, false, 30, 6, 0)          // actor value index 6 >= 30
+	ctda(&blade, 448, 0, 0, 1, 0x0000_0A01, 0) // has-perk Armsman == 1
+	ctda(&blade, 277, 3, 0, 30, 6, 0)              // actor value index 6 >= 30
 	field(&blade, "DATA", []u8{0, 0, 1, 1, 0})
 	field(&blade, "PRKE", []u8{0, 1, 0})
 	field(&blade, "DATA", []u8{0, 0, 0})
-	ctda(&blade, 560, 0, false, 1, 0x0000_0B01, 0) // an ENTRY gate — must be excluded
+	ctda(&blade, 560, 0, 0, 1, 0x0000_0B01, 0) // an ENTRY gate — must be excluded
 	field(&blade, "PRKF", {})
 	record(&perk_grp, "PERK", 0, 0x0000_0A02, blade[:])
 
@@ -130,7 +134,7 @@ test_ctda_decode_and_take_gate :: proc(t: ^testing.T) {
 	testing.expect_value(t, c0.function, u16(448))
 	testing.expect_value(t, c0.op, esm.Condition_Op.Equal)
 	testing.expect_value(t, c0.value, f32(1))
-	testing.expect_value(t, c0.or_next, false)
+	testing.expect_value(t, c0.flags, esm.Condition_Flags{})
 	testing.expect_value(t, c0.run_on, esm.Condition_Run_On.Subject)
 	// 448's param1 IS a form, so it was remapped.
 	testing.expect_value(t, gamedb.condition_param1_form(c0), gamedb.Form_ID(0x0000_0A01))
@@ -203,7 +207,7 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	A :: gamedb.Form_ID(0xA1)
 	B :: gamedb.Form_ID(0xB1)
 	has :: proc(p: gamedb.Form_ID, or_next: bool) -> gamedb.Condition {
-		return gamedb.Condition{function = 448, op = .Equal, value = 1, param1 = u64(p), or_next = or_next}
+		return gamedb.Condition{function = 448, op = .Equal, value = 1, param1 = u64(p), flags = {.Or} if or_next else {}}
 	}
 
 	// AND: both required.
@@ -231,4 +235,95 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	testing.expect(t, !conditions.all(&ctx, mixed), "the trailing AND term still gates")
 	worldstate.perk_add(&ws, formid.PLAYER, C)
 	testing.expect(t, conditions.all(&ctx, mixed), "(A OR B) AND C passes")
+}
+
+// A perk whose take-gate carries the fields quest and dialogue conditions use: a global comparison,
+// a string parameter, an alias parameter, and a quest alias run-on.
+@(private = "file")
+build_quest_style_plugin :: proc(out: ^[dynamic]u8) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0800)
+	field(&tes4, "HEDR", hedr[:])
+
+	perk_grp := make([dynamic]u8, 0, 256);defer delete(perk_grp)
+	p := make([dynamic]u8, 0, 256);defer delete(p)
+	field(&p, "EDID", transmute([]u8)string("TestQuestStyle\x00"))
+	ctda(&p, 448, 0, 0x04, 0, 0x0000_0A01, 0, global = 0x0000_0E01)  // HasPerk == global
+	ctda(&p, 629, 0, 0, 1, 0x0000_0C01, 0)                           // GetVMQuestVariable
+	field(&p, "CIS2", transmute([]u8)string("::done_var\x00"))
+	ctda(&p, 650, 0, 0x02, 1, 3, 0, param2 = 0x0000_0D01)            // IsLinkedTo(alias 3, keyword)
+	ctda(&p, 72, 0, 0, 1, 0x0000_0F01, 5, param3 = 2)                // GetIsID, run on alias 2
+	field(&p, "DATA", []u8{0, 0, 1, 1, 0})
+	record(&perk_grp, "PERK", 0, 0x0000_0A02, p[:])
+
+	record(out, "TES4", 0, 0, tes4[:])
+	group(out, transmute([]u8)string("PERK"), 0, perk_grp[:])
+}
+
+@(test)
+test_ctda_decode_quest_fields :: proc(t: ^testing.T) {
+	out := make([dynamic]u8, 0, 1024);defer delete(out)
+	build_quest_style_plugin(&out)
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	p, ok := gamedb.perk_of(&db, 0x0000_0A02)
+	testing.expect(t, ok, "perk decoded")
+	if !testing.expect_value(t, len(p.take_conditions), 4) {return}
+	cs := p.take_conditions
+
+	testing.expect_value(t, cs[0].flags, esm.Condition_Flags{.Use_Global})
+	testing.expect_value(t, cs[0].global, gamedb.Form_ID(0x0000_0E01))
+	testing.expect_value(t, cs[0].value, f32(0))
+
+	testing.expect_value(t, gamedb.condition_param1_form(cs[1]), gamedb.Form_ID(0x0000_0C01))
+	testing.expect_value(t, cs[1].text, "::done_var")
+	testing.expect_value(t, cs[1].param3, i32(-1))
+
+	testing.expect_value(t, cs[2].flags, esm.Condition_Flags{.Use_Aliases})
+	testing.expect_value(t, cs[2].param1, u64(3))
+	testing.expect_value(t, gamedb.condition_param2_form(cs[2]), gamedb.Form_ID(0x0000_0D01))
+	testing.expect_value(t, cs[2].text, "")
+
+	testing.expect_value(t, cs[3].run_on, esm.Condition_Run_On.QuestAlias)
+	testing.expect_value(t, cs[3].param3, i32(2))
+}
+
+// Which parameters are forms: the table's kind, and a Ref only without the alias or packdata flag.
+@(test)
+test_ctda_param_kinds :: proc(t: ^testing.T) {
+	testing.expect_value(t, esm.condition_function(72).name, "GetIsID")
+	testing.expect_value(t, esm.condition_function(9999).name, "")
+	testing.expect(t, esm.condition_param_is_form({function = 448}, 0), "HasPerk takes a perk")
+	testing.expect(t, !esm.condition_param_is_form({function = 277}, 0), "GetBaseActorValue takes an index")
+	testing.expect(t, esm.condition_param_is_form({function = 650}, 0), "IsLinkedTo takes a ref")
+	testing.expect(t, !esm.condition_param_is_form({function = 650, flags = {.Use_Aliases}}, 0), "or an alias")
+	testing.expect(t, !esm.condition_param_is_form({function = 650, flags = {.Use_Pack_Data}}, 0), "or package data")
+	testing.expect(t, esm.condition_param_is_form({function = 650}, 1), "and a keyword")
+	testing.expect(t, !esm.condition_param_is_form({function = 629}, 1), "a string is not a form")
+}
+
+// A global comparison reads the global's live value; Swap asks the target instead of the subject.
+@(test)
+test_conditions_global_and_swap :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	OTHER :: gamedb.Form_ID(0x0000_0B0B)
+	PERK :: gamedb.Form_ID(0xA1)
+	GLOB :: gamedb.Form_ID(0xE1)
+	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER, target = OTHER}
+	worldstate.perk_add(&ws, formid.PLAYER, PERK)
+
+	global := []gamedb.Condition{{function = 448, op = .Equal, flags = {.Use_Global}, global = GLOB, param1 = u64(PERK)}}
+	worldstate.set_global(&ws, GLOB, 1)
+	testing.expect(t, conditions.all(&ctx, global), "has the perk == global 1")
+	worldstate.set_global(&ws, GLOB, 0)
+	testing.expect(t, !conditions.all(&ctx, global), "has the perk != global 0")
+
+	swapped := []gamedb.Condition{{function = 448, op = .Equal, value = 1, flags = {.Swap}, param1 = u64(PERK)}}
+	testing.expect(t, !conditions.all(&ctx, swapped), "swap asks the target, which lacks the perk")
+	worldstate.perk_add(&ws, OTHER, PERK)
+	testing.expect(t, conditions.all(&ctx, swapped), "the target has it now")
 }

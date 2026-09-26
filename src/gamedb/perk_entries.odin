@@ -104,7 +104,7 @@ index_perk_entries :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Per
 free_perk_entries :: proc(db: ^DB, entries: []Perk_Entry) {
 	for e in entries {
 		delete(e.text, db.allocator)
-		for t in e.tabs {delete(t.conditions, db.allocator)}
+		for t in e.tabs {free_conditions(db, t.conditions)}
 		delete(e.tabs, db.allocator)
 	}
 	delete(entries, db.allocator)

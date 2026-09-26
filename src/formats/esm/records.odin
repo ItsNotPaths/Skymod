@@ -325,44 +325,81 @@ Condition_Op :: enum u8 {
 }
 
 // Condition_Run_On names WHICH object the function is asked about. Subject is 92% of the base game.
-// Only Reference reads the condition's reference form — verified: byte 24 is nonzero for 2,671 of
-// the 2,682 Reference conditions and for none of the other 81,077.
 Condition_Run_On :: enum u32 {
 	Subject      = 0,
 	Target       = 1,
-	Reference    = 2,
+	Reference    = 2, // the condition's reference form (offset 24)
 	CombatTarget = 3,
 	LinkedRef    = 4,
-	QuestAlias   = 5,
+	QuestAlias   = 5, // the alias in param3
 	PackageData  = 6,
-	Unknown7     = 7,
+	EventData    = 7, // the story event member in param3 (R1, L1, V1...)
 }
 
-// Condition is one decoded CTDA. Fixed size, no owned data.
-//
-// `or_next` is flag bit 0x01, and it joins this condition to the NEXT one as an OR. A list is an
-// AND by default; 11,460 conditions in the base game set this bit, so a reader that ignores it
-// silently inverts those lists.
-//
-// param1/param2 are RAW (plugin-local) unless the caller remaps them, because whether a parameter
-// is even a formID depends on the function — function 448's is a PERK, while function 277's is an
-// actor value index. See gamedb.condition_param1_is_form.
+// Condition_Flag is the low 5 bits of byte 0.
+Condition_Flag :: enum u8 {
+	Or,            // joins this condition to the NEXT one as an OR; a list is otherwise an AND
+	Use_Aliases,   // a Ref parameter is an alias ID
+	Use_Global,    // the comparison value is a GLOB form ID
+	Use_Pack_Data, // a Ref parameter is a package data index
+	Swap,          // swap subject and target
+}
+
+Condition_Flags :: bit_set[Condition_Flag;u8]
+
+// Condition_Param is the kind of a function's parameter, from xEdit's table.
+Condition_Param :: enum u8 {
+	None,
+	Number, // an integer, an enum, an actor value index, an alias ID...
+	Form,
+	Ref,    // a reference form, unless Use_Aliases or Use_Pack_Data says otherwise
+	String, // the CIS1 or CIS2 that follows the CTDA
+}
+
+Condition_Function :: struct {
+	name:   string,
+	params: [2]Condition_Param,
+}
+
+// Condition is one decoded CTDA. param1/param2 and global are RAW (plugin-local) unless the caller
+// remaps them; condition_param_is_form says which parameters are forms.
 Condition :: struct {
 	function:  u16,
 	op:        Condition_Op,
-	or_next:   bool,
-	value:     f32,
+	flags:     Condition_Flags,
+	value:     f32, // 0 when Use_Global
+	global:    u32, // the GLOB the comparison reads, when Use_Global
 	param1:    u32,
 	param2:    u32,
 	run_on:    Condition_Run_On,
 	reference: u32, // set only when run_on == .Reference
+	param3:    i32, // the alias (QuestAlias) or event member (EventData); -1 otherwise
+	text:      string, // a String parameter, borrowed from the record's CIS1/CIS2
 }
 
-// conditions collects a record's CTDA blocks in order. Order matters: the OR runs are positional.
-// `stop_at`, when given, ends the scan at the first field with that tag — PERK needs it, because
-// the conditions before its first PRKE gate whether the perk can be TAKEN while the ones after
-// gate whether an entry's effect APPLIES. Returns a freshly allocated slice the caller frees; nil
-// when the record carries none.
+// condition_function is a function's name and parameter kinds; an unknown index has no name.
+condition_function :: proc(function: u16) -> Condition_Function {
+	return CONDITION_FUNCTIONS[function] if int(function) < CONDITION_FUNCTION_COUNT else {}
+}
+
+// condition_param_is_form reports whether parameter `i` (0 or 1) of `c` holds a form ID.
+condition_param_is_form :: proc(c: Condition, i: int) -> bool {
+	switch condition_function(c.function).params[i] {
+	case .Form:
+		return true
+	case .Ref:
+		return c.flags & {.Use_Aliases, .Use_Pack_Data} == {}
+	case .None, .Number, .String:
+	}
+	return false
+}
+
+// conditions collects a record's CTDA blocks in order, each with the CIS1/CIS2 string after it.
+// Order matters: the OR runs are positional. `stop_at`, when given, ends the scan at the first field
+// with that tag — PERK needs it, because the conditions before its first PRKE gate whether the perk
+// can be TAKEN while the ones after gate whether an entry's effect APPLIES. A record with several
+// condition lists (QUST) passes each list's slice of fields. Returns a freshly allocated slice the
+// caller frees; nil when the record carries none.
 conditions :: proc(fields: []Field, allocator := context.allocator, stop_at := "") -> []Condition {
 	n := 0
 	for f in fields {
@@ -382,21 +419,28 @@ conditions :: proc(fields: []Field, allocator := context.allocator, stop_at := "
 		if stop_at != "" && f.type == stop_at {
 			break
 		}
+		if (f.type == "CIS1" || f.type == "CIS2") && i > 0 {
+			out[i - 1].text = cstr(f.data)
+			continue
+		}
 		if f.type != "CTDA" || len(f.data) < 32 {
 			continue
 		}
 		b := f.data
-		run_on := Condition_Run_On(rd32(b, 20))
 		c := Condition {
 			op       = Condition_Op(b[0] >> 5),
-			or_next  = b[0] & 0x01 != 0,
+			flags    = transmute(Condition_Flags)(b[0] & 0x1F),
 			value    = rf32(b, 4),
 			function = rd16(b, 8),
 			param1   = rd32(b, 12),
 			param2   = rd32(b, 16),
-			run_on   = run_on,
+			run_on   = Condition_Run_On(rd32(b, 20)),
+			param3   = i32(rd32(b, 28)),
 		}
-		if run_on == .Reference {
+		if .Use_Global in c.flags {
+			c.global, c.value = rd32(b, 4), 0
+		}
+		if c.run_on == .Reference {
 			c.reference = rd32(b, 24)
 		}
 		out[i] = c

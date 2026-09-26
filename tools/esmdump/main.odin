@@ -2541,8 +2541,8 @@ ctda_survey :: proc(path: string, filter: string) {
 		for c in conds {
 			all[c.function] += 1
 			tot^ += 1
-			if c.or_next {ors^ += 1}
-			if conditions.name_of(c.function) != "" {impl^ += 1}
+			if .Or in c.flags {ors^ += 1}
+			if conditions.implemented(c.function) {impl^ += 1}
 		}
 	}
 	pfn := make(map[u16]int, 32, context.temp_allocator)
@@ -2563,9 +2563,8 @@ ctda_survey :: proc(path: string, filter: string) {
 		slice.sort_by(ps[:], proc(a, b: Pair3) -> bool {return a.n > b.n})
 		for p, i in ps {
 			if i >= 6 {break}
-			nm := conditions.name_of(p.f)
-			if nm == "" {nm = "(not implemented)"}
-			fmt.printfln("    fn %d %s — %d", p.f, nm, p.n)
+			impl := "" if conditions.implemented(p.f) else " (not implemented)"
+			fmt.printfln("    fn %d %s%s — %d", p.f, esm.condition_function(p.f).name, impl, p.n)
 		}
 	}
 	report("PERK take-gate", pfn, ptot, pimpl, pors)
@@ -2580,11 +2579,9 @@ ctda_survey :: proc(path: string, filter: string) {
 		if len(p.take_conditions) == 0 {continue}
 		fmt.printfln("\n0x%08X %s — %d take-conditions", form, p.name, len(p.take_conditions))
 		for c in p.take_conditions {
-			nm := conditions.name_of(c.function)
-			if nm == "" {nm = "?"}
 			fmt.printfln(
-				"  fn %d %s  param1=0x%X  op=%v  value=%v  or_next=%v  run_on=%v",
-				c.function, nm, c.param1, c.op, c.value, c.or_next, c.run_on,
+				"  fn %d %s  param1=0x%X  op=%v  value=%v  flags=%v  run_on=%v",
+				c.function, esm.condition_function(c.function).name, c.param1, c.op, c.value, c.flags, c.run_on,
 			)
 		}
 	}
