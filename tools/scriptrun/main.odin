@@ -28,6 +28,7 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 import "../../src/formats/esm"
+import "../../src/dialogue"
 import "../../src/gamedb"
 import "../../src/script"
 import slua "../../src/script/lua"
@@ -122,6 +123,25 @@ main :: proc() {
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
 	fmt.printfln("updates: %d OnUpdate, OnUpdateGameTime and item events over %d s of ticks, %.1f game hours skipped (registered forms left: %d real, %d game time), run in %v", updates, args.seconds, args.skip, len(ws.updates), len(ws.game_updates), update_took)
 	fmt.printfln("effects: %d live, the last handle %d", len(ws.effects), ws.next_effect)
+	playing := 0
+	for _, run in ws.scenes {if run.begun {playing += 1}}
+	fmt.printfln("scenes: %d playing, %d waiting for their actors", playing, len(ws.scenes) - playing)
+	for scene, run in ws.scenes {
+		fmt.printfln("  scene 0x%08X quest 0x%08X phase %d of %d", u32(scene), u32(db.scenes[scene].quest), run.phase, len(db.scenes[scene].phases))
+		sc := db.scenes[scene]
+		if run.phase >= 0 && int(run.phase) < len(sc.phases) {
+			fmt.printfln("    completion conditions %d", len(sc.phases[run.phase].completion))
+			for c in sc.phases[run.phase].completion {fmt.printfln("      %s p1 0x%X p2 %d run_on %v", esm.CONDITION_FUNCTIONS[c.function].name, c.param1, c.param2, c.run_on)}
+		}
+		for a in run.actions {
+			for sa in sc.actions {
+				if sa.index == a.index {fmt.printfln("    action %d %v phases %d-%d done %v speaker 0x%08X", a.index, sa.kind, sa.start, sa.end, a.done, u32(a.speaker))}
+			}
+			if a.info == 0 {continue}
+			lines := dialogue.responses(&db, a.info)
+			if int(a.response) < len(lines) {fmt.printfln("    %s: %s", worldstate.display_name(&ws, &db, a.speaker), lines[a.response].text)}
+		}
+	}
 	fmt.printfln("errors %d, distinct warnings %d, stubbed or unknown natives hit %d", tally.errors, len(tally.by_msg), len(reg.warned))
 	Row :: struct {msg: string, n: int}
 	rows := make([dynamic]Row)

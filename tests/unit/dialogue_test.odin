@@ -102,7 +102,6 @@ test_dialogue_greeting_and_topics :: proc(t: ^testing.T) {
 	dialogue.said(&tk.c, A, 0x201)
 	g, ok = dialogue.greeting(&tk.c, A)
 	testing.expect(t, ok && g.info == 0, "Say Once: no second Hello")
-	testing.expect(t, worldstate.talked_to_pc(&tk.ws, A), "the speaker talked to the player")
 
 	topics := dialogue.topics(&tk.c, A)
 	if testing.expect_value(t, len(topics), 2) {

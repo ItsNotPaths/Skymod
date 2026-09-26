@@ -47,7 +47,7 @@ attach :: proc(vm: ^VM, form: script.Form_ID, scripts: []esm.Script_Attach, init
 // (hole quest-reset :tags script :sev gap) a quest that starts is not reset, so its scripts' and its alias scripts' OnInit do not run a second time as Papyrus runs them.
 
 // new_game fills the aliases of the quests that run from a new game, then starts the game's
-// scripts, then runs those quests' start-up stages. A loaded save keeps its own fills, so it calls
+// scripts, then runs those quests' start-up stages and queues their starting scenes. A loaded save keeps its own fills, so it calls
 // start_game alone.
 new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	quests := sorted_quests(db)
@@ -56,7 +56,9 @@ new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	}
 	made := start_game(vm, db)
 	for q in quests {
-		if gamedb.quest_start_game_enabled(db, q) {script.queue_stages(&vm.ctx, q, gamedb.STAGE_START_UP)}
+		if !gamedb.quest_start_game_enabled(db, q) {continue}
+		script.queue_stages(&vm.ctx, q, gamedb.STAGE_START_UP)
+		script.start_quest_scenes(&vm.ctx, q)
 	}
 	sync_refs(vm)
 	return made

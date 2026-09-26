@@ -79,6 +79,7 @@ game_frame :: proc(g: ^Game) {
 	frame_look(g)
 	frame_debug_verbs(g)
 	frame_menus(g)
+	frame_subtitles(g)
 
 	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
 	// hand the loop a backlog it would spend the next several frames grinding through. A menu that

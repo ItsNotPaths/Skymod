@@ -57,7 +57,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
 	214 = fn_has_magic_effect,
-	248 = fn_resting,
+	248 = fn_is_scene_playing,
 	249 = fn_is_in_dialogue_with_player,
 	263 = fn_resting,
 	264 = fn_has_spell,
@@ -85,6 +85,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	499 = fn_resting,
 	513 = fn_resting,
 	543 = fn_get_quest_completed,
+	550 = fn_is_scene_action_complete,
 	555 = fn_has_loaded_3d,
 	560 = fn_has_keyword,
 	561 = fn_has_ref_type,
@@ -96,7 +97,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	576 = fn_get_event_data,
 	579 = fn_get_equipped_shout,
 	580 = fn_resting,
-	590 = fn_resting,
+	590 = fn_is_in_scene,
 	594 = fn_resting,
 	600 = fn_get_loc_alias_ref_type_dead_count,
 	601 = fn_get_loc_alias_ref_type_alive_count,
@@ -257,7 +258,6 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole scene-conditions :tags (quest dialogue) :sev gap :needs (scene-system)) IsInScene and IsScenePlaying read 0: no scene plays.
 // (hole package-conditions :tags ai :sev gap :needs (ai-agent)) GetIsCurrentPackage, GetSleeping, GetSitting and GetDetected read 0: no actor runs a package, uses furniture or looks for anyone.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (ai combat) :sev gap :needs (ai-agent)) GetIsFlying and GetFlyingState read 0: no dragon flies.
@@ -309,6 +309,22 @@ fn_get_pc_in_faction :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) ->
 fn_get_health_percentage :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	most := worldstate.av_max(ctx.ws, ctx.db, on, "Health")
 	return worldstate.av_current(ctx.ws, ctx.db, on, "Health") / most if most > 0 else 1, true
+}
+
+@(private = "file")
+fn_is_in_scene :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.scene_of_actor(ctx.ws, ctx.db, on) != 0)
+}
+
+@(private = "file")
+fn_is_scene_playing :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.scene_playing(ctx.ws, p1(c)))
+}
+
+// IsSceneActionComplete(scene, action index).
+@(private = "file")
+fn_is_scene_action_complete :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.scene_action_done(ctx.ws, p1(c), u32(c.param2)))
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

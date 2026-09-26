@@ -281,6 +281,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)
 	tick_story_events(vm, ws)
+	tick_scenes(vm, dt)
 	tick_info_fragments(vm)
 }
 

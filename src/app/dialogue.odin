@@ -5,6 +5,7 @@ package main
 // world keeps running while it is open, as in Skyrim.
 
 import "core:fmt"
+import "core:log"
 import imgui "../../vendor/odin-imgui"
 import "../dialogue"
 import "../gamedb"
@@ -13,10 +14,6 @@ import "../worldstate"
 
 // (hole dialogue-barks :tags (dialogue ai) :sev gap :needs (ai-agent)) NPCs say nothing unless the player starts a conversation: no Hello as the player passes, no idle chatter, no combat or detection lines (HELO, IDLE, combat and detection topics).
 // (hole force-greet :tags (dialogue ai quest) :sev gap :needs (ai-agent)) no ForceGreet package walks an NPC to the player to start a conversation, so a quest that waits for one stalls until the player talks to that NPC.
-
-// A line with no voice stays up for its length in characters, at least LINE_MIN_S.
-LINE_MIN_S :: f32(2)
-LINE_S_PER_CHAR :: f32(0.06)
 
 // The topic list takes milliseconds to build, so it is rebuilt this often, not every frame: often
 // enough to show what an end fragment's stage opened.
@@ -37,9 +34,13 @@ Conversation :: struct {
 }
 
 // open_dialogue starts a conversation with an actor the player activated. Actors without a name
-// cannot be spoken to (CK Dialogue).
+// cannot be spoken to (CK Dialogue), nor a scene actor flagged No Player Activation (CK Scenes Tab).
 open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
 	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, speaker) {return}
+	if busy_in_scene(g, speaker) {
+		log.infof("%s is busy", worldstate.display_name(&g.ws, &g.db, speaker))
+		return
+	}
 	g.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)
 	greet, ok := dialogue.greeting(&c, speaker)
@@ -105,6 +106,7 @@ say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 	t := &g.talk
 	c := dialogue_call(g)
 	dialogue.said(&c, t.speaker, info)
+	worldstate.set_talked_to_pc(&g.ws, t.speaker)
 	clear(&t.choices)
 	t.info, t.response, t.greeting, t.last = info, -1, greeting, last
 	t.walk_away, t.top_level = 0, false
@@ -128,7 +130,7 @@ next_response :: proc(g: ^Game) {
 	t.response += 1
 	lines := dialogue.responses(&g.db, t.info)
 	if t.response < len(lines) {
-		t.left_s = max(LINE_MIN_S, f32(len(lines[t.response].text)) * LINE_S_PER_CHAR)
+		t.left_s = dialogue.line_seconds(lines[t.response].text)
 		return
 	}
 	line_done(g)
@@ -162,6 +164,38 @@ line_done :: proc(g: ^Game) {
 		if ch, ok := dialogue.choice(&c, t.speaker, g.db.branches[t.blocking].start); ok {append(&t.choices, ch)}
 	}
 	if len(t.choices) == 0 {list_topics(g)}
+}
+
+// (hole scene-subtitles :tags (ui dialogue) :sev gap) scene lines show in an ImGui box for every speaker in an attached cell, however far away; Skyrim shows them near the player unless the line forces its subtitle, and the real screen is dialogue-screen.
+// frame_subtitles shows the lines scenes are saying now.
+frame_subtitles :: proc(g: ^Game) {
+	lines := make([dynamic]cstring, context.temp_allocator)
+	for _, run in g.ws.scenes {
+		for a in run.actions {
+			if a.info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, a.speaker) not_in g.ws.attached {continue}
+			responses := dialogue.responses(&g.db, a.info)
+			if int(a.response) >= len(responses) {continue}
+			append(&lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, a.speaker), responses[a.response].text))
+		}
+	}
+	if len(lines) == 0 {return}
+	w, h := ui_screen_size()
+	imgui.SetNextWindowPos({w * 0.5, h - 40}, .Always, {0.5, 1})
+	if imgui.Begin("Subtitles (placeholder)", nil, {.NoTitleBar, .NoResize, .NoMove, .AlwaysAutoResize, .NoMouseInputs, .NoNavInputs, .NoFocusOnAppearing}) {
+		for l in lines {imgui.TextUnformatted(l)}
+	}
+	imgui.End()
+}
+
+@(private = "file")
+busy_in_scene :: proc(g: ^Game, actor: Form_ID) -> bool {
+	scene := worldstate.scene_of_actor(&g.ws, &g.db, actor)
+	if scene == 0 {return false}
+	s := g.db.scenes[scene]
+	for a in s.actors {
+		if worldstate.alias_ref(&g.ws, s.quest, a.alias) == actor {return a.flags & gamedb.SCENE_ACTOR_NO_PLAYER_ACTIVATION != 0}
+	}
+	return false
 }
 
 // dialogue_call is a script call with the VM's quest variables, which GetVMQuestVariable reads.

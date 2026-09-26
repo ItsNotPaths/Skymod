@@ -196,6 +196,18 @@ return C
 `
 
 @(private = "file")
+SCENE_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("SF_Test", nil)
+local done = rt.native("Scene", "IsActionComplete", false)
+local function log(s) __scene = (__scene or "") .. s .. ";" end
+C.__fn["fragment_0"] = function(self) log("begin") end
+C.__fn["fragment_1"] = function(self) log("end") end
+C.__fn["fragment_2"] = function(self) log("phase 0") end
+C.__fn["fragment_3"] = function(self) log("phase 2 done, line done " .. tostring(done(self, 1))) end
+return C
+`
+
+@(private = "file")
 COUNTER_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Counter", nil)
 C.__vars = {
@@ -652,6 +664,66 @@ test_info_fragments :: proc(t: ^testing.T) {
 	slua.tick_info_fragments(&f.vm)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__said == "[ObjectReference 0x00000920] done", __said)`), "begin, then end, with the speaker")
 	testing.expect(t, worldstate.quest_is_stage_done(&f.ws, QUEST, 10), "GetOwningQuest reaches the topic's quest")
+}
+
+// A scene waits for nothing here, runs Begin, then phase 0 with its line (a line lasts its text
+// length, at least two seconds), skips phase 1 whose start conditions fail, runs phase 2's timer,
+// then its completion fragment, End, and stops its quest.
+@(test)
+test_scene_phases :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_scene", {{"sf_test.lua", SCENE_LUA}})
+	defer fixture_destroy(&f)
+
+	QUEST, SCENE, TOPIC, INFO, ACTOR :: script.Form_ID(0x900), script.Form_ID(0x930), script.Form_ID(0x910), script.Form_ID(0x911), script.Form_ID(0x920)
+	never := []gamedb.Condition{{function = 74, op = .Equal, value = 1, param1 = 0xDEAD}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
+	f.db.topics = make(map[gamedb.Form_ID]gamedb.Topic)
+	f.db.infos = make(map[gamedb.Form_ID]gamedb.Info)
+	f.db.scenes = make(map[gamedb.Form_ID]gamedb.Scene)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts)
+	defer {delete(f.db.quest_baseline);delete(f.db.topics);delete(f.db.infos);delete(f.db.scenes);delete(f.db.form_scripts)}
+	f.db.quest_baseline[QUEST] = {start_game_enabled = true}
+	infos := []gamedb.Form_ID{INFO}
+	f.db.topics[TOPIC] = {quest = QUEST, infos = infos}
+	f.db.infos[INFO] = {topic = TOPIC, responses = []gamedb.Response{{text = "Hi."}}}
+	f.db.scenes[SCENE] = {
+		quest   = QUEST,
+		flags   = gamedb.SCENE_STOP_QUEST_ON_END,
+		phases  = []gamedb.Scene_Phase{{}, {start = never}, {}},
+		actors  = []gamedb.Scene_Actor{{alias = 0}},
+		actions = []gamedb.Scene_Action{{kind = .Dialogue, index = 1, topic = TOPIC}, {kind = .Timer, index = 2, start = 2, end = 2, seconds = 0.5}},
+	}
+	f.db.form_scripts[SCENE] = {
+		scripts   = []esm.Script_Attach{{name = "SF_Test"}},
+		frag_file = "SF_Test",
+		fragments = []esm.Script_Fragment {
+			{index = 0, function = "Fragment_0"},
+			{index = 1, function = "Fragment_1"},
+			{index = 0, item = esm.PHASE_ON_START, function = "Fragment_2"},
+			{index = 2, item = esm.PHASE_ON_COMPLETION, function = "Fragment_3"},
+		},
+	}
+	alias, _ := formid.alias_handle(QUEST, 0)
+	f.ws.aliases[alias] = ACTOR
+
+	c := script.Call{self = SCENE, ws = &f.ws, db = &f.db}
+	script.call(&f.reg, "Scene", "Start", &c, nil)
+	scene_was :: proc(f: ^Fixture, want: string) -> bool {
+		return slua.do_string(&f.vm, strings.concatenate({`assert((__scene or "") == "`, want, `", __scene); __scene = nil`}, context.temp_allocator))
+	}
+	slua.tick_scenes(&f.vm, 0.1)
+	testing.expect(t, scene_was(&f, "begin;phase 0;"), "Begin, then phase 0's start fragment")
+	testing.expect(t, worldstate.scene_playing(&f.ws, SCENE) && worldstate.scene_of_actor(&f.ws, &f.db, ACTOR) == SCENE, "playing, with its actor")
+	testing.expect(t, len(f.ws.info_runs) == 1 && f.ws.info_runs[0].speaker == ACTOR, "the line's begin fragment is queued")
+	for _ in 0 ..< 19 {slua.tick_scenes(&f.vm, 0.1)}
+	testing.expect_value(t, f.ws.scenes[SCENE].phase, 0) // the line lasts two seconds
+	slua.tick_scenes(&f.vm, 0.2)
+	testing.expect_value(t, f.ws.scenes[SCENE].phase, 2) // phase 1 skipped
+	for _ in 0 ..< 6 {slua.tick_scenes(&f.vm, 0.1)}
+	testing.expect(t, scene_was(&f, "phase 2 done, line done true;end;"), "completion, then End")
+	testing.expect(t, SCENE not_in f.ws.scenes, "the scene ended")
+	testing.expect(t, len(f.ws.quest_steps) > 0 && f.ws.quest_steps[len(f.ws.quest_steps) - 1].stop, "Stop Quest on End")
 }
 
 // A starting quest fills its Forced alias, then its External one from it; the alias's scripts get

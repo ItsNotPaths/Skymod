@@ -93,6 +93,7 @@ Overlay :: struct {
 	exclusive:       map[Form_ID]Form_ID,          // speaker -> the Exclusive branch it is in
 	talked_to_pc:    Form_Set,                     // actors that have spoken to the player
 	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
+	scenes:          map[Form_ID]Scene_Run,        // scenes playing or waiting for their actors (scenes.odin)
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -248,6 +249,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.exclusive = make(map[Form_ID]Form_ID)
 	o.talked_to_pc = make(Form_Set)
 	o.teammates = make(Form_Set)
+	o.scenes = make(map[Form_ID]Scene_Run)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -325,6 +327,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.exclusive)
 	delete(o.talked_to_pc)
 	delete(o.teammates)
+	free_scene_runs(&o.scenes)
+	delete(o.scenes)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

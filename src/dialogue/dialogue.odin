@@ -15,6 +15,14 @@ import "../worldstate"
 
 Form_ID :: gamedb.Form_ID
 
+// A line with no voice stays up for its length in characters, at least LINE_MIN_S.
+LINE_MIN_S :: f32(2)
+LINE_S_PER_CHAR :: f32(0.06)
+
+line_seconds :: proc(text: string) -> f32 {
+	return max(LINE_MIN_S, f32(len(text)) * LINE_S_PER_CHAR)
+}
+
 // Choice is a topic the player can pick, with the info it plays now.
 Choice :: struct {
 	topic, info: Form_ID,

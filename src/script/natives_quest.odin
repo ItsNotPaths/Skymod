@@ -122,12 +122,21 @@ story_only :: proc(c: ^Call, quest: Form_ID) -> bool {
 	return qb.event != {}
 }
 
-// Stop runs the shut-down stages first, while the aliases are still filled; stop_quest follows
-// them (the VM runs both once the native returns).
 n_quest_stop :: proc(c: ^Call, args: []Value) -> Value {
-	queue_stages(c, c.self, gamedb.STAGE_SHUT_DOWN)
-	append(&c.ws.quest_steps, worldstate.Quest_Step{quest = c.self, stop = true})
+	request_stop(c, c.self)
 	return nil
+}
+
+// request_stop runs the shut-down stages first, while the aliases are still filled; stop_quest
+// follows them (the VM runs both once the native returns). A quest that is stopped, or stopping
+// already, ignores it: shut-down stages often call Stop themselves.
+request_stop :: proc(c: ^Call, quest: Form_ID) {
+	if !worldstate.quest_running(c.ws, c.db, quest) {return}
+	for step in c.ws.quest_steps {
+		if step.quest == quest && step.stop {return}
+	}
+	queue_stages(c, quest, gamedb.STAGE_SHUT_DOWN)
+	append(&c.ws.quest_steps, worldstate.Quest_Step{quest = quest, stop = true})
 }
 
 // stop_quest empties a quest's aliases and ends its update and animation registrations.

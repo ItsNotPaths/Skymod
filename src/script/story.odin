@@ -118,6 +118,7 @@ start_quest :: proc(c: ^Call, quest: Form_ID, event: ^Story_Event = nil) -> bool
 	}
 	if event != nil {append(&c.ws.story_quests, quest)}
 	queue_stages(c, quest, gamedb.STAGE_START_UP)
+	start_quest_scenes(c, quest)
 	return true
 }
 

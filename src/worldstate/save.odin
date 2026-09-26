@@ -119,6 +119,13 @@ Saved_Restock :: struct {
 	hour:  f64,
 }
 
+Saved_Scene :: struct {
+	scene:                   Form_ID,
+	phase:                   i32,
+	begun, force, stopping:  bool,
+	actions:                 []Action_Run,
+}
+
 Saved_Said :: struct {
 	speaker, info: Form_ID,
 	hour:          f64,
@@ -283,6 +290,7 @@ Save_Body :: struct {
 	exclusive:     []Saved_Alias,   // alias = the speaker, form = the branch
 	talked_to_pc:  []Form_ID,
 	teammates:     []Form_ID,
+	scenes:        []Saved_Scene,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	effects:       []Saved_Effect,
@@ -449,6 +457,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k in ws.random_said {append(&random_said, Saved_Alias{k[0], k[1]})}
 	exclusive := make([dynamic]Saved_Alias, 0, len(ws.exclusive), context.temp_allocator)
 	for speaker, branch in ws.exclusive {append(&exclusive, Saved_Alias{speaker, branch})}
+	scenes := make([dynamic]Saved_Scene, 0, len(ws.scenes), context.temp_allocator)
+	for scene, r in ws.scenes {append(&scenes, Saved_Scene{scene, r.phase, r.begun, r.force, r.stopping, r.actions[:]})}
 	moves := make([dynamic]Saved_Move, 0, len(ws.pending_moves), context.temp_allocator)
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
@@ -502,6 +512,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		exclusive     = exclusive[:],
 		talked_to_pc  = save_set(ws.talked_to_pc),
 		teammates     = save_set(ws.teammates),
+		scenes        = scenes[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		effects       = effects[:],
@@ -683,6 +694,19 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	}
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
+	// A scene from a missing mod drops; a line from one is cut short.
+	for r in body.scenes {
+		scene, ok := rf(remap, have_remap, r.scene)
+		if !ok {continue}
+		run := Scene_Run{phase = r.phase, begun = r.begun, force = r.force, stopping = r.stopping, actions = make([dynamic]Action_Run, 0, len(r.actions))}
+		for a in r.actions {
+			a := a
+			a.info, _ = rf(remap, have_remap, a.info)
+			a.speaker, _ = rf(remap, have_remap, a.speaker)
+			append(&run.actions, a)
+		}
+		ws.scenes[scene] = run
+	}
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -874,6 +898,10 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.exclusive {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for a in body.talked_to_pc {add_slot(&seen, a)}
 	for a in body.teammates {add_slot(&seen, a)}
+	for r in body.scenes {
+		add_slot(&seen, r.scene)
+		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker)}
+	}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

@@ -13,9 +13,12 @@ Info_Run :: struct {
 	end:           bool,
 }
 
-// info_said records that `speaker` said `info` now, and that it spoke to the player.
+// info_said records that `speaker` said `info` now.
 info_said :: proc(ws: ^World_State, speaker, info: Form_ID) {
 	ws.infos_said[{speaker, info}] = ws.clock.hours
+}
+
+set_talked_to_pc :: proc(ws: ^World_State, speaker: Form_ID) {
 	ws.talked_to_pc[speaker] = true
 }
 
