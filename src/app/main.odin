@@ -159,7 +159,7 @@ main :: proc() {
 		relaunch()
 	}
 
-	run_game(&logging, &cfg, loader_alloc, base)
+	if run_game(&logging, &cfg, loader_alloc, base) == .Main_Menu {relaunch()}
 }
 
 // run_installer shows the first-boot installer window: a small ImGui screen that
@@ -279,23 +279,25 @@ source_logged: bool
 // (game_frame), tear it down in the one documented order (game_teardown — see game.odin).
 // Reached once content/ is installed. Logging is already up; cfg is borrowed for the
 // session; loader_alloc is the thread-safe heap for cross-thread loader allocations.
-run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator, base: string) {
+// Returns where the pause menu's Quit asked to go.
+run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator, base: string) -> Quit_To {
 	g: Game
 	defer game_teardown(&g) // also after a failed/quit setup — tears down exactly what came up
 	if !game_setup(&g, logging, cfg, loader_alloc, base) {
-		return
+		return .Desktop
 	}
 	for {
 		// The overlay's persist toggle swaps a new sink into the logger and DESTROYS the old
 		// multi-logger — re-read it each iteration so pump + the frame log through the live one.
 		context.logger = g.logging.logger
-		if !platform.pump(&g.p) || g.quit {
+		if !platform.pump(&g.p) || g.quit != .Stay {
 			break
 		}
 		game_frame(&g)
 	}
 	context.logger = g.logging.logger // and once in THIS scope, for the line below + the deferred teardown
 	log.info("SkyMod shutting down")
+	return g.quit
 }
 
 when ODIN_DEBUG {

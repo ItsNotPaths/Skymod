@@ -195,8 +195,9 @@ Game :: struct {
 	published: Placement, // the player's cell and feet as player_publish last wrote them
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
+	menu_pick:   [Pane]int, // the selected row of each list pane (menus.odin)
 	talk:        Conversation, // the conversation the dialogue menu shows (dialogue.odin)
-	quit:        bool,    // the pause menu's Quit: the main loop ends
+	quit:        Quit_To, // the pause menu's Quit: the main loop ends
 	// Debug (open-interiors): when `entered`, we've loaded fully INTO the active portal's
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
 	// through the portal.

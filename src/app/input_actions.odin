@@ -35,6 +35,7 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"QuickLoad",     "gameplay", .Button, "f9"},
 	// placeholder menus (menus.odin)
 	{"Pause",         "menu",     .Button, "esc"},
+	{"Tween",         "menu",     .Button, "tab"},
 	{"Inventory",     "menu",     .Button, "i"},
 	{"Magic",         "menu",     .Button, "p"},
 	{"Skills",        "menu",     .Button, "l"},
