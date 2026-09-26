@@ -199,6 +199,18 @@ object_bounds :: proc(fields: []Field) -> (radius: f32, ok: bool) {
 	return 0.5 * math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z), true
 }
 
+// BOOK DATA flags (UESP; build/out/wsP/perks/books.py: 90 skill books, 94 spell tomes in Skyrim.esm).
+BOOK_TEACHES_SKILL :: 0x01
+BOOK_TEACHES_SPELL :: 0x04
+
+// book_teaches reads a BOOK's DATA flags and the u32 they point at: a skill's actor value index
+// or a spell (raw form).
+book_teaches :: proc(fields: []Field) -> (flags: u8, teaches: u32, ok: bool) {
+	f := find_field(fields, "DATA") or_return
+	if len(f.data) < 8 {return}
+	return f.data[0], rd32(f.data, 4), true
+}
+
 // item_value_weight decodes a base item's gold value + weight. The byte layout is per record
 // type (each offset validated against the real Skyrim.esm): the common carriable items store an
 // {value:u32, weight:f32} pair at DATA[0..8] (SCRL included — validated vs MGR21ScrollMagicka,

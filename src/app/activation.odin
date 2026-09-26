@@ -73,8 +73,10 @@ classify_base :: proc(db: ^gamedb.DB, base: gamedb.Form_ID) -> Activate_Kind {
 		return .Container
 	case gamedb.is_actor(db, base):
 		return .Actor
-	case gamedb.is_tree(db, base):
+	case gamedb.is_tree(db, base), base in db.produce:
 		return .Flora
+	case base in db.books:
+		return .Book
 	case gamedb.is_item(db, base):
 		return .Item
 	}

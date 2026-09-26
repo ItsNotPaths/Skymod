@@ -29,7 +29,9 @@ import slua "../script/lua"
 import "../worldstate"
 import "../formid"
 
-// (hole activate-verbs :tags (ui player) :sev gap) a book is taken like any other item: nothing reads it, and it teaches no skill or spell. Flora (FLOR) and activators do nothing when activated.
+// (hole book-screen :tags ui :sev gap) activating a book reads it at once and takes it: there is no reading screen with its text and a Take button.
+// (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
+// (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
 // (hole dialogue-system :tags dialogue :sev blocker :needs (dialogue-records dialogue-screen audio-output)) activating an actor logs a line. No topic tree, no voice, no menu.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
@@ -152,9 +154,20 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		}
 	case .Item:
 		take_item(g, form, base, by)
+	case .Book:
+		c := script.Call{ws = &g.ws, db = &g.db}
+		if by == formid.PLAYER && worldstate.read_book(&g.ws, &g.db, by, base) {
+			worldstate.set_disabled(&g.ws, form, script.ref_cell(&c, form), true) // a learned tome is used up
+			worldstate.mark_scene_dirty(&g.ws, form)
+			log.infof("read: %q", interact_subject(g, form))
+		} else {
+			take_item(g, form, base, by)
+		}
+	case .Flora:
+		harvest(g, form, base, by)
 	case .Container:
 		if by == formid.PLAYER {open_container(g, form)}
-	case .None, .Actor, .Activator, .Flora, .Book:
+	case .None, .Actor, .Activator:
 		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
 }
@@ -208,6 +221,18 @@ take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	worldstate.set_disabled(&g.ws, form, script.ref_cell(&c, form), true)
 	worldstate.mark_scene_dirty(&g.ws, form)
 	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
+}
+
+// harvest gives an actor a plant's produce, rolled at its zone level, once until its cell resets.
+harvest :: proc(g: ^Game, form, base, by: Form_ID) {
+	produce, ok := g.db.produce[base]
+	if !ok || worldstate.harvested(&g.ws, form) {return}
+	c := script.Call{ws = &g.ws, db = &g.db}
+	rolled := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+	worldstate.roll(&g.ws, &g.db, produce, worldstate.zone_level(&g.ws, &g.db, gamedb.zone_of(&g.db, form)), 1, &rolled)
+	for e in rolled {script.move_items(&c, {base = e.item, to = by, count = e.count})}
+	worldstate.set_harvested(&g.ws, form, script.ref_cell(&c, form))
+	if by == formid.PLAYER {log.infof("harvest: %q", interact_subject(g, form))}
 }
 
 // interact_subject is a ref's display name for a log line, or a placeholder when it's unnamed.

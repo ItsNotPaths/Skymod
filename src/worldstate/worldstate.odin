@@ -77,6 +77,7 @@ Overlay :: struct {
 	clock:           Game_Clock,               // game time (clock.odin)
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
 	cleared:         Form_Set,                     // locations cleared (Location.SetCleared)
+	books_read:      Form_Set,                     // skill books the player has read (each teaches once)
 	words:           Deltas,                       // actor -> word of power -> WORD_TAUGHT | WORD_UNLOCKED
 	beast_form:      bool,                         // Game.SetBeastForm: the player is a werewolf or vampire lord now
 	vampires:        Form_Set,                     // SendVampirismStateChanged(true)
@@ -210,6 +211,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.game_updates = make(map[Form_ID]Update_Timers)
 	o.cells = make(map[Form_ID]Cell_State)
 	o.cleared = make(Form_Set)
+	o.books_read = make(Form_Set)
 	o.words = make(Deltas)
 	o.vampires = make(Form_Set)
 	o.werewolves = make(Form_Set)
@@ -277,6 +279,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.game_updates)
 	delete(o.cells)
 	delete(o.cleared)
+	delete(o.books_read)
 	free_deltas(&o.words)
 	delete(o.vampires)
 	delete(o.werewolves)

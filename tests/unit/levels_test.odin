@@ -167,3 +167,29 @@ test_make_legendary :: proc(t: ^testing.T) {
 	testing.expect(t, !worldstate.perk_has(&ws, &db, A, RANK2), "both ranks refunded")
 	testing.expect(t, worldstate.perk_has(&ws, &db, A, OTHER), "other trees keep their perks")
 }
+
+// A skill book raises its skill once; a spell tome teaches its spell and is used up only then.
+@(test)
+test_read_book :: proc(t: ^testing.T) {
+	A :: gamedb.Form_ID(0xA1)
+	SKILL_BOOK :: gamedb.Form_ID(0x500)
+	TOME :: gamedb.Form_ID(0x501)
+	SPELL :: gamedb.Form_ID(0x502)
+	db: gamedb.DB
+	db.books = make(map[gamedb.Form_ID]gamedb.Book, context.temp_allocator)
+	db.books[SKILL_BOOK] = {skill = 9} // Block
+	db.books[TOME] = {skill = -1, spell = SPELL}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.av_set_base(&ws, A, "Block", 20)
+	testing.expect(t, !worldstate.read_book(&ws, &db, A, SKILL_BOOK), "a skill book stays")
+	testing.expect_value(t, worldstate.av_base(&ws, &db, A, "Block"), 21)
+	worldstate.read_book(&ws, &db, A, SKILL_BOOK)
+	testing.expect_value(t, worldstate.av_base(&ws, &db, A, "Block"), 21)
+
+	testing.expect(t, worldstate.read_book(&ws, &db, A, TOME), "a new spell uses the tome up")
+	testing.expect(t, worldstate.has_spell(&ws, &db, A, SPELL), "spell learned")
+	testing.expect(t, !worldstate.read_book(&ws, &db, A, TOME), "a known spell leaves the tome")
+}

@@ -17,6 +17,7 @@ Ref_Field :: enum u8 {
 	Deleted,   // ESM ref destroyed (streaming must suppress the baseline)
 	Activation_Blocked, // BlockActivation: no default action on Activate. The bit is the whole state (a baseline ref is never blocked)
 	Delete_When_Detached, // DeleteWhenAble on an attached ref: deleted when its cell detaches. The bit is the whole state
+	Harvested, // flora picked; a cell reset grows it back. The bit is the whole state
 }
 
 // (hole combat-damage :tags combat :sev blocker :needs (spatial-queries)) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
@@ -159,6 +160,15 @@ delete_detached :: proc(ws: ^World_State, cell: Form_ID) {
 		d.live += {.Deleted}
 		append(&ws.gone_refs, id)
 	}
+}
+
+set_harvested :: proc(ws: ^World_State, form_id, cell: Form_ID) {
+	upsert(ws, form_id, cell).live += {.Harvested}
+}
+
+harvested :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	d, ok := ws.ref_deltas[form_id]
+	return ok && .Harvested in d.live
 }
 
 // activation_blocked reports whether a script blocked the ref's default activation.

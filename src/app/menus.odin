@@ -86,6 +86,13 @@ inventory_menu :: proc(g: ^Game) {
 		imgui.TextUnformatted(fmt.ctprintf("%s%s  x%d", "* " if worn else "", label(g, item), worldstate.inv_count(ws, db, formid.PLAYER, item)))
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Drop##%x", item)) {script.drop_object(&c, formid.PLAYER, item, 0, 1)}
+		if item in db.books {
+			imgui.SameLine()
+			if imgui.SmallButton(fmt.ctprintf("Read##%x", item)) && worldstate.read_book(ws, db, formid.PLAYER, item) {
+				script.move_items(&c, {base = item, from = formid.PLAYER, count = 1}) // a learned tome is used up
+			}
+			continue
+		}
 		if p, potion := gamedb.potion_of(db, item); potion && !p.poison {
 			imgui.SameLine()
 			if imgui.SmallButton(fmt.ctprintf("Use##%x", item)) {script.drink(&c, formid.PLAYER, item)}

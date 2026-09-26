@@ -183,6 +183,8 @@ DB :: struct {
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
 	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
+	books:         map[Form_ID]Book, // BOOK base formID -> what reading it teaches (absent = teaches nothing)
+	produce:       map[Form_ID]Form_ID, // FLOR / TREE base formID -> its PFIG harvest (an item or a leveled list)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
@@ -688,6 +690,8 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
+		books         = make(map[Form_ID]Book, 256, allocator),
+		produce       = make(map[Form_ID]Form_ID, 256, allocator),
 		cells         = make(map[Form_ID]Cell, 1024, allocator),
 		cell_by_edid  = make(map[string]Form_ID, 1024, allocator),
 		cell_refs     = make(map[Form_ID][dynamic]Ref, 1024, allocator),
@@ -857,6 +861,8 @@ destroy :: proc(db: ^DB) {
 	delete(db.doors)
 	delete(db.locks)
 	delete(db.trees)
+	delete(db.books)
+	delete(db.produce)
 	for _, c in db.cells {
 		delete(c.editor_id)
 	}
@@ -2489,6 +2495,22 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if rec.type == "TREE" {
 		db.trees[rec.form_id] = true // tree base → distant billboard (the _lod_flat.nif beside the mesh)
 	}
+	if rec.type == "BOOK" {
+		if flags, teaches, ok := esm.book_teaches(fl); ok && flags & esm.BOOK_TEACHES_SKILL != 0 {
+			db.books[rec.form_id] = Book{skill = i32(teaches)}
+		} else if ok && flags & esm.BOOK_TEACHES_SPELL != 0 {
+			db.books[rec.form_id] = Book{skill = -1, spell = esm.remap_form(fm, teaches)}
+		}
+	}
+	if rec.type == "FLOR" || rec.type == "TREE" {
+		if p, ok := esm.subrecord_formid(fl, "PFIG"); ok && p != 0 {db.produce[rec.form_id] = esm.remap_form(fm, p)}
+	}
+}
+
+// Book is what reading a book teaches: a skill (an actor value index), or a spell when skill < 0.
+Book :: struct {
+	skill: i32,
+	spell: Form_ID,
 }
 
 // is_tree reports whether a base formID is a TREE record. TREEs carry no MNAM, so the distant-LOD

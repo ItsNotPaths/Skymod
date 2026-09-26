@@ -130,6 +130,18 @@ skill_index :: proc(skill: string) -> (int, bool) {
 	return 0, false
 }
 
+// read_book is `actor` reading `book`: a skill book raises its skill by one the first time, a
+// spell tome teaches its spell. True when the book is used up (a tome whose spell was new).
+read_book :: proc(ws: ^World_State, db: ^gamedb.DB, actor, book: Form_ID) -> (used_up: bool) {
+	b, ok := db.books[book]
+	if !ok {return false}
+	if b.skill < 0 {return give_spell(ws, db, actor, b.spell)}
+	if book in ws.books_read || b.skill < 6 || b.skill >= 24 {return false}
+	ws.books_read[book] = true
+	raise_skill(ws, db, actor, gamedb.AV_NAMES[b.skill], 1)
+	return false
+}
+
 add_perk_points :: proc(ws: ^World_State, actor: Form_ID, n: i32) {
 	level_state(ws, actor).perk_points += n
 }
