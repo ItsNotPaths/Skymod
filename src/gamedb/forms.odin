@@ -168,6 +168,17 @@ index_faction :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		db.vendor_chests[esm.remap_form(fm, chest)] = true
 	}
 	f.crime, f.has_crime = esm.faction_crime(fl)
+	for field, i in fl {
+		switch field.type {
+		case "VENV":
+			if len(field.data) >= 4 {
+				f.vendor.start = u16(field.data[0]) | u16(field.data[1]) << 8
+				f.vendor.end = u16(field.data[2]) | u16(field.data[3]) << 8
+			}
+		case "CTDA":
+			if f.vendor.conditions == nil {f.vendor.conditions = index_conditions(db, esm.condition_run(fl, i), fm)}
+		}
+	}
 
 	if raw := esm.faction_relations(fl, context.allocator); raw != nil {
 		defer delete(raw, context.allocator)
@@ -827,6 +838,7 @@ weather_color :: proc(db: ^DB, weather: Form_ID, row, time: int) -> ([4]u8, bool
 @(private)
 free_faction :: proc(db: ^DB, f: Faction) {
 	delete(f.relations, db.allocator)
+	free_conditions(db, f.vendor.conditions)
 	for r in f.ranks {
 		delete(r.male_title, db.allocator)
 		delete(r.female_title, db.allocator)

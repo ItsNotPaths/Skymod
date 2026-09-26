@@ -377,6 +377,20 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
+// actor_factions_now is every faction `actor` is a member of now: its NPC_'s and a script's.
+actor_factions_now :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for m in gamedb.actor_factions(db, record_of(ws, actor), actor_pick(ws, db, actor)) {
+		if in_faction(ws, db, actor, m.faction) {append(&out, m.faction)}
+	}
+	if own, ok := ws.factions[actor]; ok {
+		for f in own {
+			if in_faction(ws, db, actor, f) && !slice.contains(out[:], f) {append(&out, f)}
+		}
+	}
+	return out[:]
+}
+
 faction_remove :: proc(ws: ^World_State, actor, faction: Form_ID) {
 	faction_upsert(ws, actor)^[faction] = FACTION_REMOVED
 }

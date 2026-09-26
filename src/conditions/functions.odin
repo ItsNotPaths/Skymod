@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole condition-functions :tags (records quest) :sev gap) no body for GetOffersServicesNow (vendor hours, FACT VENV), GetAllowWorldInteractions, GetDeadCount, GetIsObjectType, SpellHasKeyword, GetVMScriptVariable and the rest of the tail, about 1,400 quest and dialogue conditions: they pass.
+// (hole condition-functions :tags (records quest) :sev gap) no body for GetAllowWorldInteractions, GetDeadCount, GetIsObjectType, SpellHasKeyword, GetVMScriptVariable and the rest of the tail, about 1,400 quest and dialogue conditions: they pass.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;
@@ -58,6 +58,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	214 = fn_has_magic_effect,
 	248 = fn_is_scene_playing,
 	249 = fn_is_in_dialogue_with_player,
+	255 = fn_get_offers_services_now,
 	258 = fn_has_association_type,
 	259 = fn_has_family_relationship,
 	263 = fn_resting,
@@ -351,6 +352,22 @@ fn_has_family_relationship :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 	other, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
 	return yes(gamedb.association_is_family(ctx.db, worldstate.rel_association(ctx.ws, ctx.db, on, other)))
+}
+
+// GetOffersServicesNow: the actor is in a vendor faction that trades now, inside its hours and
+// its vendor conditions.
+@(private = "file")
+fn_get_offers_services_now :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	_, _, _, hour := worldstate.game_date(ctx.ws)
+	for id in worldstate.actor_factions_now(ctx.ws, ctx.db, on) {
+		f, _ := gamedb.faction_of(ctx.db, id)
+		v := f.vendor
+		if f.flags & esm.FACT_VENDOR == 0 {continue}
+		open := f64(v.start) <= hour && hour < f64(v.end) if v.start <= v.end else hour >= f64(v.start) || hour < f64(v.end)
+		sub := Context{db = ctx.db, ws = ctx.ws, subject = on, target = formid.PLAYER, quest_vars = ctx.quest_vars}
+		if open && all(&sub, v.conditions) {return 1, true}
+	}
+	return 0, true
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.

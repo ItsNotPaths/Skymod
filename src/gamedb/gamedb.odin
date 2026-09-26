@@ -371,6 +371,13 @@ Faction :: struct {
 	ranks:     []Faction_Rank, // RNAM + MNAM/FNAM titles (owned)
 	crime:     esm.Crime_Values, // CRVA bounty table
 	has_crime: bool, // false when the faction carries no CRVA (crime values read as zero)
+	vendor:    Vendor, // VENV and the vendor conditions, for a FACT_VENDOR faction
+}
+
+// Vendor is when a vendor faction's members trade (FACT VENV, xEdit).
+Vendor :: struct {
+	start, end: u16, // hours; an end before the start wraps past midnight
+	conditions: []Condition, // owned
 }
 
 // Magic_Effect_Ref is one effect a spell / scroll / enchantment applies: the MGEF (remapped) and
