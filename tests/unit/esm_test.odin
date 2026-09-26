@@ -2961,6 +2961,26 @@ test_effective_scripts_merge_props :: proc(t: ^testing.T) {
 	}
 }
 
+// An NPC_ with Use Script runs its template's scripts beside its own; without the flag, its own.
+@(test)
+test_scripts_follow_use_script_template :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	defer delete(db.form_scripts)
+	defer delete(db.actors)
+	DRAGON, TEMPLATED, PLAIN, REF :: gamedb.Form_ID(0x10), gamedb.Form_ID(0x11), gamedb.Form_ID(0x12), gamedb.Form_ID(0x20)
+	db.actors[DRAGON] = {}
+	db.actors[TEMPLATED] = {template = DRAGON, template_flags = esm.ACBS_TEMPLATE_SCRIPT}
+	db.actors[PLAIN] = {template = DRAGON, template_flags = esm.ACBS_TEMPLATE_TRAITS}
+	db.form_scripts[DRAGON] = {scripts = []esm.Script_Attach{{name = "dragonActorSCRIPT"}}}
+
+	got := gamedb.effective_scripts(&db, REF, TEMPLATED, context.temp_allocator)
+	testing.expect(t, len(got) == 1 && got[0].name == "dragonActorSCRIPT", "Use Script inherits the template's")
+	testing.expect_value(t, len(gamedb.effective_scripts(&db, REF, PLAIN, context.temp_allocator)), 0)
+	db.form_scripts[TEMPLATED] = {scripts = []esm.Script_Attach{{name = "MiraakScript"}}}
+	got = gamedb.effective_scripts(&db, REF, TEMPLATED, context.temp_allocator)
+	testing.expect(t, len(got) == 2 && got[0].name == "MiraakScript", "its own scripts stay")
+}
+
 // Armor slots read from BOD2 or LE's BODT; an EQUP lists its parent slots and whether it takes all.
 @(test)
 test_equip_decode :: proc(t: ^testing.T) {

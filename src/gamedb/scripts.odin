@@ -54,6 +54,22 @@ form_scripts :: proc(db: ^DB, form: Form_ID) -> []esm.Script_Attach {
 	return db.form_scripts[form].scripts
 }
 
+// (hole leveled-template-scripts :tags script :sev gap) a Use Script chain that reaches a leveled list stops there: the scripts of the NPC_ it rolls are not attached, because the roll waits for the actor's zone level.
+// base_scripts are the scripts a ref of `base` inherits: its own, and for an NPC_ with Use Script
+// its template's too; its own win a name both carry. The union is unsourced: 136 vanilla NPC_s with
+// Use Script carry scripts their template lacks (DLC2MiraakScript on Miraak), so own scripts stay.
+base_scripts :: proc(db: ^DB, base: Form_ID, allocator := context.temp_allocator) -> []esm.Script_Attach {
+	own := form_scripts(db, base)
+	from := template_form(db, base, esm.ACBS_TEMPLATE_SCRIPT)
+	if from == base {return own}
+	out := make([dynamic]esm.Script_Attach, 0, len(own), allocator)
+	append(&out, ..own)
+	for a in form_scripts(db, from) {
+		if !attach_named(own, a.name) {append(&out, a)}
+	}
+	return out[:]
+}
+
 // form_fragments returns a form's compiler-generated fragments — a quest's stage snippets, a
 // perk entry's — and the generated script file they live on. Empty for everything else.
 form_fragments :: proc(db: ^DB, form: Form_ID) -> (file: string, fragments: []esm.Script_Fragment) {
@@ -96,7 +112,7 @@ effective_scripts :: proc(
 		return nil
 	}
 	own := db.form_scripts[ref].scripts
-	inherited := db.form_scripts[base].scripts
+	inherited := base_scripts(db, base, allocator)
 	if len(own) == 0 {
 		return clone_attachments(inherited, allocator) // nothing to override or remove
 	}
