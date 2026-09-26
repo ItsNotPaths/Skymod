@@ -3,6 +3,10 @@ package main
 // Actor bodies: every loaded actor ref gets a capsule, as the player does. The only differences are
 // that nothing drives it yet and it is drawn.
 
+import "core:fmt"
+import "core:math"
+import "core:math/linalg"
+import imgui "../../vendor/odin-imgui"
 import "../formid"
 import "../gamedb"
 import smath "../math"
@@ -117,18 +121,96 @@ pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f
 	return
 }
 
-// draw_actor_bodies draws each NPC capsule as a wire box; the hovered one gets a second, larger box.
+// draw_actor_bodies draws each NPC capsule see-through in its own colour; the hovered one is near opaque.
 draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
-	render.release_mesh(&g.r, g.actor_wire)
-	g.actor_wire = {}
+	render.release_mesh(&g.r, g.actor_mesh)
+	g.actor_mesh = {}
 	if len(g.actor_bodies) == 0 {return}
-	verts := make([dynamic]render.Mesh_Vertex, 0, 8 * len(g.actor_bodies), context.temp_allocator)
-	idx := make([dynamic]u16, 0, 36 * len(g.actor_bodies), context.temp_allocator)
+	Range :: struct {
+		form:        Form_ID,
+		first, count: u32,
+	}
+	verts := make([dynamic]render.Mesh_Vertex, context.temp_allocator)
+	idx := make([dynamic]u16, context.temp_allocator)
+	ranges := make([dynamic]Range, context.temp_allocator)
 	for f, &b in g.actor_bodies {
 		if len(verts) > 60000 {break}
-		world.emit_aabb(&verts, &idx, actor_box(g, &b))
-		if f == g.hover_actor {world.emit_aabb(&verts, &idx, actor_box(g, &b, 3))}
+		first := u32(len(idx))
+		emit_capsule(&verts, &idx, physics.character_render_position(&b.char, g.tick.alpha), b.capsule)
+		append(&ranges, Range{f, first, u32(len(idx)) - first})
 	}
-	g.actor_wire = render.upload_mesh(&g.r, verts[:], idx[:])
-	render.draw_wire(&g.r, g.actor_wire, vp)
+	g.actor_mesh = render.upload_mesh(&g.r, verts[:], idx[:])
+	for rg in ranges {
+		color := actor_color(rg.form)
+		color.a = 0.9 if rg.form == g.hover_actor else 0.6
+		render.draw_tint(&g.r, g.actor_mesh, vp, color, rg.first, rg.count)
+	}
+}
+
+NAMETAG_RANGE :: f32(3000)
+
+// draw_actor_nametags floats each nearby actor's name above its capsule. Call before the frame
+// renders, while the imgui frame is open.
+draw_actor_nametags :: proc(g: ^Game) {
+	w, h := ui_screen_size()
+	vp := camera_view_proj(g.cam, render.aspect(&g.r))
+	dl := imgui.GetBackgroundDrawList(imgui.GetMainViewport()) // no current window after a load screen closes the frame
+	for f, &b in g.actor_bodies {
+		feet := physics.character_render_position(&b.char, g.tick.alpha)
+		if linalg.length(feet - g.cam.pos) > NAMETAG_RANGE {continue}
+		top := feet + {0, 0, 2 * (b.capsule.half_h + b.capsule.radius) + 12}
+		clip := vp * [4]f32{top.x, top.y, top.z, 1}
+		if clip.w <= 0 {continue}
+		name := fmt.ctprintf("%s", worldstate.display_name(&g.ws, &g.db, f))
+		size := imgui.CalcTextSize(name)
+		at := imgui.Vec2{(clip.x / clip.w * 0.5 + 0.5) * w - size.x / 2, (0.5 - clip.y / clip.w * 0.5) * h - size.y}
+		imgui.DrawList_AddText(dl, at + 1, 0xFF00_0000, name)
+		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(f)), name)
+	}
+}
+
+// actor_color is a bright colour hashed from the form ID, so an actor keeps it across frames.
+@(private = "file")
+actor_color :: proc(form: Form_ID) -> [4]f32 {
+	hue := f32((u32(form) * 2654435761) >> 8) / (1 << 24) * 6
+	x := 1 - abs(math.mod(hue, 2) - 1)
+	rgb: [3]f32
+	switch int(hue) {
+	case 0: rgb = {1, x, 0}
+	case 1: rgb = {x, 1, 0}
+	case 2: rgb = {0, 1, x}
+	case 3: rgb = {0, x, 1}
+	case 4: rgb = {x, 0, 1}
+	case:   rgb = {1, 0, x}
+	}
+	rgb = 0.25 + 0.75 * rgb
+	return {rgb.r, rgb.g, rgb.b, 1}
+}
+
+// emit_capsule appends an upright capsule standing on `feet`: two hemispheres joined by a
+// cylinder, as latitude rings wound counter-clockwise from outside.
+@(private = "file")
+emit_capsule :: proc(verts: ^[dynamic]render.Mesh_Vertex, idx: ^[dynamic]u16, feet: smath.Vec3, c: Capsule) {
+	SEGS :: 16
+	HEMI :: 6 // rings per hemisphere past the pole
+	base := u16(len(verts))
+	bottom := feet + {0, 0, c.radius}
+	top := bottom + {0, 0, 2 * c.half_h}
+	for ring in 0 ..= 2 * HEMI + 1 {
+		upper := ring > HEMI
+		lat := f32(ring - (HEMI + 1 if upper else HEMI)) * (math.PI / 2) / HEMI
+		center := top if upper else bottom
+		for seg in 0 ..< SEGS {
+			lon := f32(seg) * 2 * math.PI / SEGS
+			n := smath.Vec3{math.cos(lat) * math.cos(lon), math.cos(lat) * math.sin(lon), math.sin(lat)}
+			append(verts, render.mesh_vertex(center + c.radius * n, n, {}))
+		}
+	}
+	for ring in 0 ..< u16(2 * HEMI + 1) {
+		for seg in 0 ..< u16(SEGS) {
+			a := base + ring * SEGS + seg
+			b := base + ring * SEGS + (seg + 1) % SEGS
+			append(idx, a, b, b + SEGS, a, b + SEGS, a + SEGS)
+		}
+	}
 }
