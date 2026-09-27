@@ -22,7 +22,8 @@ Goal :: struct {
 
 Mover :: struct {
 	goal:    Goal,
-	path:    [dynamic][3]f32, // corners still ahead, the goal last
+	path:    [dynamic][3]f32, // corners still ahead
+	aimed:   [3]f32, // the goal the path was made for; it may end short of it, off the mesh
 	heading: f32, // radians about Z
 	arrived: bool,
 	stuck:   bool, // no progress for STUCK_AFTER seconds; it re-paths
@@ -56,7 +57,7 @@ mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool
 		if m.goal.active {m.door = m.goal.door}
 		return {}
 	}
-	if len(m.path) == 0 || flat_dist(m.path[len(m.path) - 1], m.goal.point) > m.goal.radius {repath(m, mesh, feet)}
+	if len(m.path) == 0 || flat_dist(m.aimed, m.goal.point) > m.goal.radius {repath(m, mesh, feet)}
 	for len(m.path) > 1 && flat_dist(feet, m.path[0]) < CORNER_REACHED {
 		ordered_remove(&m.path, 0)
 		m.closest = max(f32)
@@ -85,7 +86,7 @@ repath :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32) {
 		clear(&m.path)
 		append(&m.path, m.goal.point)
 	}
-	m.closest, m.stalled = max(f32), 0
+	m.aimed, m.closest, m.stalled = m.goal.point, max(f32), 0
 }
 
 @(private = "file")
