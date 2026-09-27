@@ -103,6 +103,7 @@ Overlay :: struct {
 	restrained:      Form_Set,                     // Actor.SetRestrained: stands
 	actor_flags:     map[Form_ID]Flag_Override,    // actor or NPC_ -> ACBS bits a script set: ghost, essential, protected, invulnerable
 	owners:          map[Form_ID]Form_ID,          // ref or cell -> the owner a script set; 0 = none (ownership.odin)
+	crime_factions:  map[Form_ID]Form_ID,          // actor -> the crime faction a script set; 0 = none (crime.odin)
 	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller
 	display_names:   map[Form_ID]string,           // ref -> the name an alias gave it (owned)
 	courier_waits:   [dynamic]Courier_Remove,      // Courier.RemoveRef calls waiting for the courier to stop talking
@@ -301,6 +302,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.restrained = make(Form_Set)
 	o.actor_flags = make(map[Form_ID]Flag_Override)
 	o.owners = make(map[Form_ID]Form_ID)
+	o.crime_factions = make(map[Form_ID]Form_ID)
 	o.killers = make(map[Form_ID]Form_ID)
 	o.display_names = make(map[Form_ID]string)
 	o.scenes = make(map[Form_ID]Scene_Run)
@@ -393,6 +395,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.restrained)
 	delete(o.actor_flags)
 	delete(o.owners)
+	delete(o.crime_factions)
 	delete(o.killers)
 	for _, n in o.display_names {delete(n)}
 	delete(o.display_names)

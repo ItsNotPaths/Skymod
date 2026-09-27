@@ -381,6 +381,7 @@ Actor_Base :: struct {
 	overrides:     Override_Packages,
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
 	factions:      []Faction_Membership, // SNAM baseline faction ranks (owned; the overlay diverges from these)
+	crime_faction: Form_ID, // CRIF
 }
 
 // Faction_Membership is one baseline faction the actor belongs to, and its rank there (SNAM,
@@ -532,6 +533,8 @@ Location :: struct {
 	has_marker_color: bool,
 	special_refs:     []Special_Ref, // the refs of a location ref type in it: master_refs with the winning override's edits (owned)
 	master_refs:      []Special_Ref, // the master's LCSR list, which overrides edit (owned)
+	// (hole location-crime-faction :tags (combat records) :sev polish) decoded and read by nothing: unsourced what the engine does with a location's "unreported crime faction".
+	crime_faction:    Form_ID, // FNAM: a hold's crime faction (9 vanilla, one per *HoldLocation)
 }
 
 // Special_Ref is a ref of a location ref type (LCRT) in a location, remapped.
@@ -2762,6 +2765,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if g, gok := esm.subrecord_formid(fl, "GNAM"); gok {a.gift_filter = esm.remap_form(fm, g)}
 	if t, tok := esm.subrecord_formid(fl, "TPLT"); tok {a.template = esm.remap_form(fm, t)}
 	if d, dok := esm.subrecord_formid(fl, "DPLT"); dok {a.default_packages = esm.remap_form(fm, d)}
+	if c, cok := esm.subrecord_formid(fl, "CRIF"); cok {a.crime_faction = esm.remap_form(fm, c)}
 	a.overrides = override_packages(fl, fm)
 
 	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.

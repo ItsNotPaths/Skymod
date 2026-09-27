@@ -296,6 +296,14 @@ actor_factions :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> []Faction_M
 	return template_part(db, base, esm.ACBS_TEMPLATE_FACTIONS, pick).factions
 }
 
+// actor_crime_faction is an NPC_'s CRIF, through its factions template. A placed actor reads its base's.
+actor_crime_faction :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> Form_ID {
+	if db == nil {return 0}
+	base := form
+	if r, ok := db.ref_by_id[form]; ok {base = r.base}
+	return template_part(db, base, esm.ACBS_TEMPLATE_FACTIONS, pick).crime_faction
+}
+
 // actor_faction_rank returns an NPC_'s BASELINE rank in `faction`; ok=false when it has no row.
 actor_faction_rank :: proc(db: ^DB, base: Form_ID, faction: Form_ID, pick: Form_ID = 0) -> (i8, bool) {
 	for m in actor_factions(db, base, pick) {
@@ -674,6 +682,7 @@ index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		loc.parent = esm.remap_form(fm, p)
 	}
 	loc.marker_color, loc.has_marker_color = esm.location_marker_color(fl)
+	if c, has := esm.subrecord_formid(fl, "FNAM"); has {loc.crime_faction = esm.remap_form(fm, c)}
 	master, added, removed := esm.location_special_refs(fl)
 	defer {delete(master);delete(added);delete(removed)}
 	old, existed := db.locations[rec.form_id]

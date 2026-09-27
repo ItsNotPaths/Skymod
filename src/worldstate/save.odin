@@ -314,6 +314,7 @@ Save_Body :: struct {
 	restrained:    []Form_ID,
 	actor_flags:   []Saved_Flags,
 	owners:        []Saved_Alias,   // alias = the ref or cell, form = its owner
+	crime_factions: []Saved_Alias,  // alias = the actor, form = its crime faction
 	killers:       []Saved_Alias,   // alias = the dead actor, form = its killer
 	display_names: []Saved_Name,
 	courier_waits: []Courier_Remove,
@@ -562,6 +563,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		restrained    = save_set(ws.restrained),
 		actor_flags   = actor_flags[:],
 		owners        = save_pairs(ws.owners),
+		crime_factions = save_pairs(ws.crime_factions),
 		killers       = save_pairs(ws.killers),
 		display_names = display_names[:],
 		courier_waits = ws.courier_waits[:],
@@ -761,6 +763,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		if form, ok := rf(remap, have_remap, f.form); ok {ws.actor_flags[form] = f.flags}
 	}
 	load_pairs(&ws.owners, body.owners, remap, have_remap, rf)
+	load_pairs(&ws.crime_factions, body.crime_factions, remap, have_remap, rf)
 	load_pairs(&ws.killers, body.killers, remap, have_remap, rf)
 	for n in body.display_names {
 		if form, ok := rf(remap, have_remap, n.form); ok {set_display_name(ws, form, n.name)}
@@ -1017,6 +1020,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.restrained {add_slot(&seen, a)}
 	for f in body.actor_flags {add_slot(&seen, f.form)}
 	for r in body.owners {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.crime_factions {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for n in body.display_names {add_slot(&seen, n.form)}
 	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}

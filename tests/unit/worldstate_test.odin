@@ -73,6 +73,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.faction_set_rank(&src, 0x000AC701, 0x000FAC70, 4)
 	ws.rel_set(&src, nil, 0x000AC701, 0x000F00D5, 3)
 	ws.perk_add(&src, 0x000AC701, 0x000BABE0)
+	ws.set_crime_faction(&src, 0x000AC701, 0x000267EA)
 
 	path := "test_quicksave.skysave"
 	defer os.remove(path)
@@ -182,6 +183,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.rel_rank(&dst, nil, 0x000AC701, 0x000F00D5), i32(3))
 	testing.expect_value(t, ws.rel_rank(&dst, nil, 0x000F00D5, 0x000AC701), i32(3)) // symmetric mirror
 	testing.expect(t, ws.perk_has(&dst, nil, 0x000AC701, 0x000BABE0), "perk lost")
+	testing.expect_value(t, ws.crime_faction(&dst, nil, 0x000AC701), ws.Form_ID(0x000267EA))
 }
 
 @(test)

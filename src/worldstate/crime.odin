@@ -33,15 +33,20 @@ bounty :: proc(ws: ^World_State, knower, offender: Form_ID) -> Bounty {
 	return {}
 }
 
-// crime_faction is the faction an actor reports crimes to and guards for.
-// (hole actor-crime-faction :tags (records script save combat) :sev gap) NPC_ CRIF is not decoded (1429 of 6362 NPC_ set one; all 477 guards; follow the factions template) and SetCrimeFaction has no store; a hold's LCTN FNAM (9, the "unreported crime faction") is unread, so GetCrimeFactionForHold has nothing.
+// crime_faction is the faction an actor reports crimes to and guards for: a script's, else its CRIF.
 crime_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> Form_ID {
-	return 0
+	if f, ok := ws.crime_factions[actor]; ok {return f}
+	return gamedb.actor_crime_faction(db, record_of(ws, actor), actor_pick(ws, db, actor))
+}
+
+// set_crime_faction is SetCrimeFaction; 0 leaves the actor with none.
+set_crime_faction :: proc(ws: ^World_State, actor, faction: Form_ID) {
+	ws.crime_factions[actor] = faction
 }
 
 // report_crime is an offence by `offender` against `victim` (an actor, or an owner for Steal and
 // Trespass), worth `value` gold for a theft.
-// (hole crime-report :tags (combat ai) :sev gap :needs (crime-store actor-crime-faction hostility)) an offence reaches nobody: wanted each member of a crime faction that has detected the offender to know the CRVA bounty (assault 40, murder 1000, theft value x0.5, pickpocket 25, trespass 5, escape 100, werewolf 1000; horse theft iCrimeGoldStealHorse 100) unless the faction ignores that crime, and the ASSU event. SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing. A hit or kill between hostile actors is no crime.
+// (hole crime-report :tags (combat ai) :sev gap :needs (crime-store hostility)) an offence reaches nobody: wanted each member of a crime faction that has detected the offender to know the CRVA bounty (assault 40, murder 1000, theft value x0.5, pickpocket 25, trespass 5, escape 100, werewolf 1000; horse theft iCrimeGoldStealHorse 100) unless the faction ignores that crime, and the ASSU event. SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing. A hit or kill between hostile actors is no crime.
 report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) {
 }
 

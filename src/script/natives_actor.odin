@@ -35,6 +35,8 @@ register_actor :: proc(reg: ^Registry) {
 	register(reg, "Actor", "GetFactionRank", n_get_faction_rank)
 	register(reg, "Actor", "RemoveFromFaction", n_remove_from_faction)
 	register(reg, "Actor", "RemoveFromAllFactions", n_remove_from_all_factions)
+	register(reg, "Actor", "GetCrimeFaction", n_get_crime_faction)
+	register(reg, "Actor", "SetCrimeFaction", n_set_crime_faction)
 
 	// Relationship rank.
 	register(reg, "Actor", "GetRelationshipRank", n_get_rel_rank)
@@ -194,6 +196,16 @@ n_remove_from_faction :: proc(c: ^Call, args: []Value) -> Value {
 
 n_remove_from_all_factions :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.faction_remove_all(c.ws, c.db, c.self)
+	return nil
+}
+
+n_get_crime_faction :: proc(c: ^Call, args: []Value) -> Value {
+	f := worldstate.crime_faction(c.ws, c.db, c.self)
+	return f if f != 0 else nil
+}
+
+n_set_crime_faction :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_crime_faction(c.ws, c.self, arg_form(args, 0))
 	return nil
 }
 
