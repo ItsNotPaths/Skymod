@@ -230,6 +230,7 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 				settings.set(cfg, "source_game", latest)
 			}
 			_ = settings.save(cfg)
+			// (hole installer-progress :tags (ui assets) :sev polish) install() runs on the window's thread: the installer freezes for the whole install (scripts, then minutes of audio) and shows no progress.
 			if installer.install(latest, base) {
 				return true
 			}
