@@ -26,7 +26,7 @@ imprison :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.
 	days := worldstate.jail_days(bounty)
 	cell := inside.cell
 	worldstate.relocate(&g.ws, o.actor, cell, inside.pos, inside.rot)
-	give_all(c, o.actor, f.player_chest)
+	give_all(c, o.actor, f.player_chest, f.stolen_chest)
 	before := g.ws.outfits[o.actor]
 	if f.jail_outfit != 0 {worldstate.set_outfit(&g.ws, &g.db, o.actor, f.jail_outfit)}
 	g.ws.jailed[o.actor] = {faction = o.faction, cell = cell, until = g.ws.clock.hours + f64(days) * 24, outfit = before}
@@ -50,14 +50,16 @@ release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.F
 	worldstate.pay_bounty(&g.ws, o.actor, o.faction)
 }
 
-// give_all moves everything `actor` carries, quest objects aside, into `chest`.
+// give_all moves everything `actor` carries, quest objects aside, into `chest`, its stolen things
+// into `stolen_chest` when the jail has one.
 @(private = "file")
-give_all :: proc(c: ^script.Call, actor, chest: Form_ID) {
+give_all :: proc(c: ^script.Call, actor, chest, stolen_chest: Form_ID) {
 	if chest == 0 {return}
 	worldstate.unequip_all(c.ws, c.db, actor)
-	for item in worldstate.inv_items(c.ws, c.db, actor) {
-		if worldstate.quest_object_kept(c.ws, c.db, actor, item, chest) {continue}
-		script.move_items(c, {base = item, from = actor, to = chest, count = worldstate.inv_count(c.ws, c.db, actor, item)})
+	for s in worldstate.inv_stacks(c.ws, c.db, actor) {
+		to := stolen_chest if s.stolen && stolen_chest != 0 else chest
+		if worldstate.quest_object_kept(c.ws, c.db, actor, s.item, to) {continue}
+		script.move_items(c, {base = s.item, from = actor, to = to, count = s.count, stolen = s.stolen})
 	}
 }
 

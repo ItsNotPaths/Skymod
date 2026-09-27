@@ -50,6 +50,7 @@ restart_scripts :: proc(ws: ^World_State, form: Form_ID) {
 // drop_inventory puts a container's contents back to its baseline; leveled entries roll again.
 drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
 	drop_deltas(&ws.inventories, form)
+	drop_deltas(&ws.stolen, form)
 	if list, ok := ws.rolled[form]; ok {delete(list)}
 	delete_key(&ws.rolled, form)
 	drop_equipment(ws, form)

@@ -41,6 +41,7 @@ Overlay :: struct {
 	globals:         map[Form_ID]f32,              // GLOB FormID -> value (script globals; NOT quest stages)
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
 	inventories:     Deltas,                       // owner FormID -> (item FormID -> count delta from baseline)
+	stolen:          Deltas,                       // holder -> (item -> how many of those it holds are stolen) (ownership.odin)
 	spells:          Deltas,                       // actor -> (spell or shout -> GIVEN / REMOVED against its records' list)
 	spell_seeds:     Deltas,                       // RACE or NPC_ -> (spell -> GIVEN / REMOVED): rt.seed_spell (not saved; OnGameLoaded rebuilds it)
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
@@ -272,6 +273,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(Deltas)
+	o.stolen = make(Deltas)
 	o.spells = make(Deltas)
 	o.spell_seeds = make(Deltas)
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
@@ -369,6 +371,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.globals)
 	delete(o.quests)
 	free_deltas(&o.inventories)
+	free_deltas(&o.stolen)
 	free_deltas(&o.spells)
 	free_deltas(&o.spell_seeds)
 	delete(o.rolled)

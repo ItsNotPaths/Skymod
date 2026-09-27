@@ -18,7 +18,7 @@ import "../worldstate"
 // (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: school tabs, a spell list and a card with cost and effects; no favourites and no shouts.
 // (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: journal, stats and system tabs, each a sidebar and a panel.
-// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, and an owned item does not say Steal. Barter must refuse a Quest Object (worldstate.quest_object_kept).
+// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, and an owned item does not say Steal. Barter must refuse a Quest Object (worldstate.quest_object_kept) and a stolen stack unless the vendor fences (BypassVendorStolenCheck).
 
 Menu :: enum u8 {
 	None,
@@ -169,19 +169,25 @@ end_split :: proc() {
 // browse is the items and magic layout: category tabs, a name list and the card of the picked form.
 // tab_of is the category of a form, 0 = All only, -1 = hidden.
 @(private = "file")
-browse :: proc(g: ^Game, tabs: []cstring, forms: []Form_ID, tab_of: proc(g: ^Game, form: Form_ID) -> int, card: proc(g: ^Game, form: Form_ID)) {
+browse :: proc(g: ^Game, tabs: []cstring, rows: []$T, tab_of: proc(g: ^Game, row: T) -> int, label_of: proc(g: ^Game, row: T) -> string, card: proc(g: ^Game, row: T)) {
 	if !imgui.BeginTabBar("##tabs") {return}
+	sorted := slice.clone(rows, context.temp_allocator)
+	context.user_ptr = &Sort_By_Label(T){g, label_of}
+	slice.sort_by(sorted, proc(a, b: T) -> bool {
+		s := (^Sort_By_Label(T))(context.user_ptr)
+		return s.label_of(s.g, a) < s.label_of(s.g, b)
+	})
 	for name, tab in tabs {
 		if !imgui.BeginTabItem(name) {continue}
-		shown := make([dynamic]Form_ID, context.temp_allocator)
-		rows := make([dynamic]string, context.temp_allocator)
-		for form in by_name(g, forms) {
-			t := tab_of(g, form)
+		shown := make([dynamic]T, context.temp_allocator)
+		labels := make([dynamic]string, context.temp_allocator)
+		for row in sorted {
+			t := tab_of(g, row)
 			if t < 0 || (tab > 0 && t != tab) {continue}
-			append(&shown, form)
-			append(&rows, row_label(g, form))
+			append(&shown, row)
+			append(&labels, label_of(g, row))
 		}
-		if i, ok := begin_split(g, .List, rows[:]); ok {card(g, shown[i])}
+		if i, ok := begin_split(g, .List, labels[:]); ok {card(g, shown[i])}
 		end_split()
 		imgui.EndTabItem()
 	}
@@ -189,19 +195,31 @@ browse :: proc(g: ^Game, tabs: []cstring, forms: []Form_ID, tab_of: proc(g: ^Gam
 }
 
 @(private = "file")
-row_label :: proc(g: ^Game, form: Form_ID) -> string {
-	worn := "* " if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, form) else ""
-	if n := worldstate.inv_count(&g.ws, &g.db, formid.PLAYER, form); n > 1 {
-		return fmt.tprintf("%s%s (%d)", worn, label(g, form), n)
-	}
-	return fmt.tprintf("%s%s", worn, label(g, form))
+Sort_By_Label :: struct($T: typeid) {
+	g:        ^Game,
+	label_of: proc(g: ^Game, row: T) -> string,
+}
+
+@(private = "file")
+spell_label :: proc(g: ^Game, spell: Form_ID) -> string {
+	return fmt.tprintf("%s%s", "* " if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, spell) else "", label(g, spell))
+}
+
+// stack_label is an item row: worn, stolen, and how many.
+@(private = "file")
+stack_label :: proc(g: ^Game, s: worldstate.Item_Stack) -> string {
+	worn := "* " if !s.stolen && worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, s.item) else ""
+	stolen := " (stolen)" if s.stolen else ""
+	if s.count > 1 {return fmt.tprintf("%s%s%s (%d)", worn, label(g, s.item), stolen, s.count)}
+	return fmt.tprintf("%s%s%s", worn, label(g, s.item), stolen)
 }
 
 // (hole item-categories :tags ui :sev polish) food sits under Potions and keys under Misc: the ALCH food flag and KEYM are not classified.
 ITEM_TABS := [?]cstring{"All", "Weapons", "Apparel", "Potions", "Scrolls", "Ingredients", "Books", "Misc"}
 
 @(private = "file")
-item_tab :: proc(g: ^Game, item: Form_ID) -> int {
+item_tab :: proc(g: ^Game, s: worldstate.Item_Stack) -> int {
+	item := s.item
 	if item in g.db.books {return 6}
 	#partial switch gamedb.form_kind(&g.db, item) {
 	case .Weapon:     return 1
@@ -215,16 +233,16 @@ item_tab :: proc(g: ^Game, item: Form_ID) -> int {
 
 @(private = "file")
 inventory_menu :: proc(g: ^Game) {
-	browse(g, ITEM_TABS[:], worldstate.inv_items(&g.ws, &g.db, formid.PLAYER), item_tab, item_card)
+	browse(g, ITEM_TABS[:], worldstate.inv_stacks(&g.ws, &g.db, formid.PLAYER), item_tab, stack_label, item_card)
 }
 
 // (hole item-card-stats :tags ui :sev gap) the item card shows no damage or armor rating: WEAP DATA and ARMO DNAM are not decoded.
 @(private = "file")
-item_card :: proc(g: ^Game, item: Form_ID) {
-	ws, db := &g.ws, &g.db
+item_card :: proc(g: ^Game, s: worldstate.Item_Stack) {
+	ws, db, item := &g.ws, &g.db, s.item
 	c := script.Call{ws = ws, db = db}
-	imgui.SeparatorText(fmt.ctprintf("%s", label(g, item)))
-	imgui.TextUnformatted(fmt.ctprintf("Count  %d", worldstate.inv_count(ws, db, formid.PLAYER, item)))
+	imgui.SeparatorText(fmt.ctprintf("%s%s", label(g, item), " (stolen)" if s.stolen else ""))
+	imgui.TextUnformatted(fmt.ctprintf("Count  %d", s.count))
 	if v, ok := gamedb.value_of(db, item); ok {imgui.TextUnformatted(fmt.ctprintf("Value  %d", v))}
 	if w, ok := gamedb.weight_of(db, item); ok {imgui.TextUnformatted(fmt.ctprintf("Weight %.1f", w))}
 	effect_lines(g, gamedb.effect_items_of(db, item))
@@ -244,7 +262,7 @@ item_card :: proc(g: ^Game, item: Form_ID) {
 	if worldstate.quest_object_kept(ws, db, formid.PLAYER, item) {
 		imgui.TextDisabled("Quest item")
 	} else if imgui.Button("Drop") {
-		script.drop_object(&c, formid.PLAYER, item, 0, 1)
+		script.drop_object(&c, formid.PLAYER, item, 0, 1, s.stolen)
 	}
 }
 
@@ -312,7 +330,7 @@ magic_menu :: proc(g: ^Game) {
 		imgui.SameLine(0, 24)
 	}
 	imgui.NewLine()
-	browse(g, MAGIC_TABS[:], worldstate.spell_list(ws, db, formid.PLAYER), magic_tab, spell_card)
+	browse(g, MAGIC_TABS[:], worldstate.spell_list(ws, db, formid.PLAYER), magic_tab, spell_label, spell_card)
 }
 
 // (hole spell-cost :tags (ui magic) :sev polish) the spell card shows the SPIT base cost, not the cost after skill and perks.
@@ -378,24 +396,35 @@ container_menu :: proc(g: ^Game) {
 	box := g.menu_target
 	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.ws, &g.db, box) else .Container
 	imgui.TextUnformatted(fmt.ctprintf("%s", label(g, box)))
-	for item in by_name(g, worldstate.inv_items(&g.ws, &g.db, box)) {
-		n := worldstate.inv_count(&g.ws, &g.db, box, item)
-		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
+	for s in stacks_by_name(g, worldstate.inv_stacks(&g.ws, &g.db, box)) {
+		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", stack_label(g, {s.item, s.stolen, 1}), s.count))
 		imgui.SameLine()
-		if imgui.SmallButton(fmt.ctprintf("Take##%x", item)) {
-			script.report_theft(&c, formid.PLAYER, box, item, n)
-			script.move_items(&c, {base = item, from = box, to = formid.PLAYER, count = n, via = via})
+		if imgui.SmallButton(fmt.ctprintf("Take##%x%v", s.item, s.stolen)) {
+			theft := script.report_theft(&c, formid.PLAYER, box, s.item, s.count)
+			script.move_items(&c, {base = s.item, from = box, to = formid.PLAYER, count = s.count, via = .Steal if theft else via, stolen = s.stolen})
+			if theft && !s.stolen {worldstate.mark_stolen(&g.ws, &g.db, formid.PLAYER, s.item, s.count)}
 		}
 	}
 	imgui.Separator()
 	imgui.TextUnformatted("Carried")
-	for item in by_name(g, worldstate.inv_items(&g.ws, &g.db, formid.PLAYER)) {
-		if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, item) || worldstate.quest_object_kept(&g.ws, &g.db, formid.PLAYER, item, box) {continue}
-		n := worldstate.inv_count(&g.ws, &g.db, formid.PLAYER, item)
-		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
+	for s in stacks_by_name(g, worldstate.inv_stacks(&g.ws, &g.db, formid.PLAYER)) {
+		if !s.stolen && worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, s.item) || worldstate.quest_object_kept(&g.ws, &g.db, formid.PLAYER, s.item, box) {continue}
+		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", stack_label(g, {s.item, s.stolen, 1}), s.count))
 		imgui.SameLine()
-		if imgui.SmallButton(fmt.ctprintf("Store##%x", item)) {script.move_items(&c, {base = item, from = formid.PLAYER, to = box, count = n, via = via})}
+		if imgui.SmallButton(fmt.ctprintf("Store##%x%v", s.item, s.stolen)) {script.move_items(&c, {base = s.item, from = formid.PLAYER, to = box, count = s.count, via = via, stolen = s.stolen})}
 	}
+}
+
+// stacks_by_name sorts item stacks by their items' names, a stolen stack after its clean one.
+@(private = "file")
+stacks_by_name :: proc(g: ^Game, stacks: []worldstate.Item_Stack) -> []worldstate.Item_Stack {
+	out := slice.clone(stacks, context.temp_allocator)
+	context.user_ptr = g
+	slice.stable_sort_by(out, proc(a, b: worldstate.Item_Stack) -> bool {
+		g := (^Game)(context.user_ptr)
+		return label(g, a.item) < label(g, b.item)
+	})
+	return out
 }
 
 @(private = "file")

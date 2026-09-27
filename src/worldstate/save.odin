@@ -285,6 +285,7 @@ Save_Body :: struct {
 	globals:       []Saved_Global,
 	quests:        []Saved_Quest,
 	inventory:     []Saved_Inv,
+	stolen:        []Saved_Inv,
 	spells:        []Saved_Inv,   // actor -> spell, GIVEN / REMOVED
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
@@ -546,6 +547,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		globals       = globals,
 		quests        = quests,
 		inventory     = save_deltas(ws.inventories),
+		stolen        = save_deltas(ws.stolen),
 		spells        = save_deltas(ws.spells),
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
@@ -1005,6 +1007,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// each directed entry is set on its own. Entries keyed on a missing mod drop; a secondary ref
 	// (item/faction/b) that won't resolve keeps its saved value (dangles).
 	load_deltas(&ws.inventories, body.inventory, remap, have_remap, rf)
+	load_deltas(&ws.stolen, body.stolen, remap, have_remap, rf)
 	load_deltas(&ws.spells, body.spells, remap, have_remap, rf)
 	for a in body.actor_values {
 		actor, kok := rf(remap, have_remap, a.actor)
@@ -1045,6 +1048,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for g in body.globals {add_slot(&seen, g.id)}
 	for q in body.quests {add_slot(&seen, q.form_id)}
 	for r in body.inventory {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
+	for r in body.stolen {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for r in body.spells {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}

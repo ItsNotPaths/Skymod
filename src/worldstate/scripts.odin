@@ -47,6 +47,7 @@ Item_Move :: struct {
 	base, ref, from, to: Form_ID,
 	count:               i32,
 	via:                 Item_Via,
+	stolen:              bool, // move the source's stolen ones; otherwise clean ones go first
 }
 
 // Item_Via is how the player gains or loses items, as the AIPL and REMP story events carry it:

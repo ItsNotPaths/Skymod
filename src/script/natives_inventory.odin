@@ -91,19 +91,22 @@ give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
 
 // take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
 take :: proc(c: ^Call, form, base, by: Form_ID) {
-	report_theft(c, by, form, base, worldstate.stack_count(c.ws, c.db, form))
-	move_items(c, {base = base, ref = form, to = by, count = worldstate.stack_count(c.ws, c.db, form), via = .World})
+	n := worldstate.stack_count(c.ws, c.db, form)
+	theft := report_theft(c, by, form, base, n)
+	move_items(c, {base = base, ref = form, to = by, count = n, via = .Steal if theft else .World})
+	if theft {worldstate.mark_stolen(c.ws, c.db, by, base, n)}
 	worldstate.set_disabled(c.ws, form, worldstate.ref_cell(c.ws, c.db, form), true)
 	worldstate.mark_scene_dirty(c.ws, form)
 }
 
 // report_theft reports `by` taking `count` of `base` from `from` (a loose item or a container), if
-// that robs someone.
-report_theft :: proc(c: ^Call, by, from, base: Form_ID, count: i32) {
+// that robs someone. True when it does: the caller marks what it took stolen.
+report_theft :: proc(c: ^Call, by, from, base: Form_ID, count: i32) -> bool {
 	victim := worldstate.robbed(c.ws, c.db, by, from)
-	if victim == 0 {return}
+	if victim == 0 {return false}
 	value, _ := gamedb.value_of(c.db, base)
 	worldstate.report_crime(c.ws, c.db, by, victim, .Steal, value * count)
+	return true
 }
 
 // RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). With no other
@@ -148,15 +151,21 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 // it hears OnContainerChanged. The container menu moves items through it too.
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	m := m
+	stolen: i32
 	if m.from != 0 {
-		m.count = min(m.count, worldstate.inv_count(c.ws, c.db, m.from, m.base))
+		m.count = min(m.count, worldstate.stolen_count(c.ws, c.db, m.from, m.base) if m.stolen else worldstate.inv_count(c.ws, c.db, m.from, m.base))
 		if m.count <= 0 {return}
+		stolen = worldstate.stolen_moved(c.ws, c.db, m)
+		worldstate.mark_stolen(c.ws, c.db, m.from, m.base, -stolen)
 		worldstate.inv_add(c.ws, m.from, m.base, -m.count)
 		if m.from in c.ws.equipment && worldstate.inv_count(c.ws, c.db, m.from, m.base) == 0 {
 			worldstate.unequip(c.ws, c.db, m.from, m.base) // the last one left
 		}
 	}
-	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, m.count)}
+	if m.to != 0 {
+		worldstate.inv_add(c.ws, m.to, m.base, m.count)
+		worldstate.mark_stolen(c.ws, c.db, m.to, m.base, stolen)
+	}
 	rest := m
 	for ref in worldstate.carry(c.ws, c.db, m) {
 		n := worldstate.stack_count(c.ws, c.db, ref)
@@ -204,7 +213,7 @@ new_stack :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
 	return ref
 }
 
-// (hole item-event-owner :tags (quest player) :sev polish :needs (container-screen)) the player's AIPL and REMP story events name no owner and never say Steal, Buy or Pickpocket: nothing owns items and nothing trades or pickpockets.
+// (hole item-event-owner :tags (quest player) :sev polish :needs (container-screen)) the player's AIPL and REMP story events name no owner and never say Buy or Pickpocket (a theft says Steal): nothing trades or pickpockets.
 // queue_item_event makes items the player gains or loses a story event (AIPL / REMP):
 // the container, the player's location, the item, how.
 @(private = "file")
@@ -230,7 +239,7 @@ DROP_RADIUS :: 70 // 1 m
 DROP_HEIGHT :: 48
 DROP_STEP :: math.PI / 4
 
-drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID {
+drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32, stolen := false) -> Form_ID {
 	ref := ref
 	if ref == 0 || c.ws.carried[ref] != owner {
 		refs := worldstate.carried_refs(c.ws, c.db, owner, base)
@@ -241,7 +250,7 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 		}
 	}
 	count := worldstate.stack_count(c.ws, c.db, ref) if ref != 0 else count
-	count = min(count, worldstate.inv_count(c.ws, c.db, owner, base))
+	count = min(count, worldstate.stolen_count(c.ws, c.db, owner, base) if stolen else worldstate.inv_count(c.ws, c.db, owner, base))
 	if count <= 0 {return 0}
 	cell := worldstate.ref_cell(c.ws, c.db, owner)
 	// Each drop lands at the next angle on a ring round the dropper, so items do not pile up.
@@ -256,7 +265,7 @@ drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32) -> Form_ID 
 		(&c.ws.created[ref]).count = count
 	}
 	worldstate.mark_scene_dirty(c.ws, ref)
-	move_items(c, {base = base, ref = ref, from = owner, count = count, via = .World})
+	move_items(c, {base = base, ref = ref, from = owner, count = count, via = .World, stolen = stolen})
 	return ref
 }
 

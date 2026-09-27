@@ -4,6 +4,7 @@ import "core:os"
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/script"
 import ws "../../src/worldstate"
 
 CRIME_TOWN :: ws.Form_ID(0x000267EA)
@@ -237,4 +238,35 @@ test_crime_jail :: proc(t: ^testing.T) {
 	ws.lose_skill_progress(&s, CRIME_THIEF, 7)
 	testing.expect_value(t, ws.av_base(&s, nil, CRIME_THIEF, "SneakSkillAdvance"), f32(0))
 	testing.expect_value(t, ws.av_base(&s, nil, CRIME_THIEF, "AlchemySkillAdvance"), f32(0))
+}
+
+// Stolen items stack apart: a theft marks what it took, a move of the stolen stack takes only
+// stolen ones, any other move takes clean ones first, and the marks travel with the items.
+@(test)
+test_stolen_stacks :: proc(t: ^testing.T) {
+	AXE :: gamedb.Form_ID(0x000E0001)
+	THIEF, CHEST :: gamedb.Form_ID(0x000E0002), gamedb.Form_ID(0x000E0003)
+	db: gamedb.DB
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	c := script.Call{ws = &s, db = &db}
+
+	ws.inv_add(&s, THIEF, AXE, 3)
+	ws.inv_add(&s, CHEST, AXE, 1)
+	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1})
+	ws.mark_stolen(&s, &db, THIEF, AXE, 1) // what a theft does after the move
+	stacks := ws.inv_stacks(&s, &db, THIEF)
+	testing.expect_value(t, len(stacks), 2)
+	testing.expect_value(t, stacks[0], ws.Item_Stack{AXE, false, 3})
+	testing.expect_value(t, stacks[1], ws.Item_Stack{AXE, true, 1})
+
+	script.move_items(&c, {base = AXE, from = THIEF, to = CHEST, count = 2}) // clean ones go first
+	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, AXE), 1)
+	script.move_items(&c, {base = AXE, from = THIEF, to = CHEST, count = 1, stolen = true})
+	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, AXE), 0)
+	testing.expect_value(t, ws.inv_count(&s, &db, THIEF, AXE), 1)
+	testing.expect_value(t, ws.stolen_count(&s, &db, CHEST, AXE), 1)
+	script.move_items(&c, {base = AXE, from = THIEF, count = 5, stolen = true}) // nothing stolen left to take
+	testing.expect_value(t, ws.inv_count(&s, &db, THIEF, AXE), 1)
 }

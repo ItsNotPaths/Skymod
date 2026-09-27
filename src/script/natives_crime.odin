@@ -119,13 +119,19 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.inv_count(c.ws, c.db, formid.PLAYER, formid.GOLD) >= worldstate.total(player_bounty(c))
 }
 
-// PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes and the bounty
-// clears; abGoToJail takes the player outside the faction's jail (UESP: "transport outside the
-// nearest jail").
-// (hole pay-fine-args :tags combat :sev gap :needs (stolen-marks)) abRemoveStolenItems takes nothing: no item is marked stolen.
+// PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes, the bounty
+// clears and the stolen things go to the jail's evidence chest (UESP: "all stolen items in your
+// possession will be seized"); abGoToJail takes the player outside the faction's jail (UESP:
+// "transport outside the nearest jail").
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	move_items(c, {base = formid.GOLD, from = formid.PLAYER, count = worldstate.total(player_bounty(c))})
 	worldstate.pay_bounty(c.ws, formid.PLAYER, c.self)
+	if arg_bool(args, 0, true) {
+		f, _ := worldstate.faction(c.ws, c.db, c.self)
+		for s in worldstate.inv_stacks(c.ws, c.db, formid.PLAYER) {
+			if s.stolen {move_items(c, {base = s.item, from = formid.PLAYER, to = f.stolen_chest, count = s.count, stolen = true})}
+		}
+	}
 	if _, outside, ok := worldstate.jail_spots(c.ws, c.db, c.self); ok && arg_bool(args, 1, true) {
 		worldstate.relocate(c.ws, formid.PLAYER, outside.cell, outside.pos, outside.rot)
 	}
