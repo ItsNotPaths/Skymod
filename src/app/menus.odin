@@ -18,7 +18,7 @@ import "../worldstate"
 // (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: school tabs, a spell list and a card with cost and effects; no favourites and no shouts.
 // (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: journal, stats and system tabs, each a sidebar and a panel.
-// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership. Barter must refuse a Quest Object (worldstate.quest_object_kept).
+// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, and an owned item does not say Steal. Barter must refuse a Quest Object (worldstate.quest_object_kept).
 
 Menu :: enum u8 {
 	None,
@@ -382,7 +382,10 @@ container_menu :: proc(g: ^Game) {
 		n := worldstate.inv_count(&g.ws, &g.db, box, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
 		imgui.SameLine()
-		if imgui.SmallButton(fmt.ctprintf("Take##%x", item)) {script.move_items(&c, {base = item, from = box, to = formid.PLAYER, count = n, via = via})}
+		if imgui.SmallButton(fmt.ctprintf("Take##%x", item)) {
+			script.report_theft(&c, formid.PLAYER, box, item, n)
+			script.move_items(&c, {base = item, from = box, to = formid.PLAYER, count = n, via = via})
+		}
 	}
 	imgui.Separator()
 	imgui.TextUnformatted("Carried")

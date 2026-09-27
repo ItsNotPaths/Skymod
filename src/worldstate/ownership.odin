@@ -13,8 +13,14 @@ owner :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
 	return gamedb.owner_of(db, form)
 }
 
-// stolen: `taker` taking `form` is theft.
-// (hole crime-owners :tags combat :sev gap) nothing is stolen: wanted the owner test (the taker's own base, a member of the owning faction at its XRNK rank, the ref's owner else its cell's), and the stolen mark the item keeps in the taker's inventory (vendors, STOL, GetStolenItemValue).
-stolen :: proc(ws: ^World_State, db: ^gamedb.DB, taker, form: Form_ID) -> bool {
-	return false
+// robbed is the owner `taker` robs by taking from `form` (an item or a container): the ref's owner,
+// else its cell's unless it is an actor. Its own base's things and its factions' are no theft.
+// 0 when the take is no theft.
+// (hole stolen-marks :tags (combat player) :sev gap) a stolen item keeps no mark: vendors buy it, jail and PlayerPayCrimeGold cannot take it, GetStolenItemValue reads nothing. XRNK (a required faction rank, 4 vanilla refs) is not decoded.
+robbed :: proc(ws: ^World_State, db: ^gamedb.DB, taker, form: Form_ID) -> Form_ID {
+	o := owner(ws, db, form)
+	if o == 0 && !gamedb.is_actor(db, ref_base(ws, db, form)) {o = owner(ws, db, ref_cell(ws, db, form))}
+	if o == 0 || o == ref_base(ws, db, taker) {return 0}
+	if _, is_faction := faction(ws, db, o); is_faction && in_faction(ws, db, taker, o) {return 0}
+	return o
 }

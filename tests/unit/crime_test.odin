@@ -165,3 +165,30 @@ test_crime_spread :: proc(t: ^testing.T) {
 	ws.tick_crime(&s, &db, 0.1)
 	testing.expect_value(t, ws.wanted(&s, CRIME_THIEF, CRIME_TOWN).bounty, ws.Bounty{nonviolent = 5})
 }
+
+// A take robs the ref's owner, else its cell's; the owner's own base and its faction's members
+// take freely.
+@(test)
+test_crime_robbed :: proc(t: ^testing.T) {
+	CELL :: gamedb.Form_ID(0x0004CE12)
+	SHOP :: gamedb.Form_ID(0x000FB002) // an owning faction
+	SHOPKEEP_BASE :: gamedb.Form_ID(0x000B0002)
+	CHEST, LOOSE, KEEPER :: gamedb.Form_ID(0x000D0001), gamedb.Form_ID(0x000D0002), gamedb.Form_ID(0x000D0003)
+	db: gamedb.DB
+	defer {delete(db.owners);delete(db.ref_by_id);delete(db.factions)}
+	db.factions[SHOP] = {}
+	db.ref_by_id[CHEST] = {form_id = CHEST, cell_form_id = CELL}
+	db.ref_by_id[LOOSE] = {form_id = LOOSE, cell_form_id = CELL}
+	db.ref_by_id[KEEPER] = {form_id = KEEPER, base = SHOPKEEP_BASE, cell_form_id = CELL}
+	db.owners[CHEST] = SHOPKEEP_BASE
+	db.owners[CELL] = SHOP
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+
+	testing.expect_value(t, ws.robbed(&s, &db, CRIME_THIEF, CHEST), SHOPKEEP_BASE)
+	testing.expect_value(t, ws.robbed(&s, &db, KEEPER, CHEST), gamedb.Form_ID(0))
+	testing.expect_value(t, ws.robbed(&s, &db, CRIME_THIEF, LOOSE), SHOP) // the cell's owner
+	ws.faction_set_rank(&s, CRIME_THIEF, SHOP, 0)
+	testing.expect_value(t, ws.robbed(&s, &db, CRIME_THIEF, LOOSE), gamedb.Form_ID(0))
+}

@@ -115,7 +115,7 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 
 // PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes and the bounty
 // clears.
-// (hole pay-fine-args :tags combat :sev gap :needs (crime-owners jail)) abRemoveStolenItems takes nothing (no item is marked stolen) and abGoToJail does nothing; unsourced what it does after a paid fine.
+// (hole pay-fine-args :tags combat :sev gap :needs (stolen-marks jail)) abRemoveStolenItems takes nothing (no item is marked stolen) and abGoToJail does nothing; unsourced what it does after a paid fine.
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	move_items(c, {base = formid.GOLD, from = formid.PLAYER, count = worldstate.total(player_bounty(c))})
 	worldstate.pay_bounty(c.ws, formid.PLAYER, c.self)

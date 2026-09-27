@@ -91,13 +91,19 @@ give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
 
 // take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
 take :: proc(c: ^Call, form, base, by: Form_ID) {
-	if worldstate.stolen(c.ws, c.db, by, form) {
-		value, _ := gamedb.value_of(c.db, base)
-		worldstate.report_crime(c.ws, c.db, by, worldstate.owner(c.ws, c.db, form), .Steal, value * worldstate.stack_count(c.ws, c.db, form))
-	}
+	report_theft(c, by, form, base, worldstate.stack_count(c.ws, c.db, form))
 	move_items(c, {base = base, ref = form, to = by, count = worldstate.stack_count(c.ws, c.db, form), via = .World})
 	worldstate.set_disabled(c.ws, form, worldstate.ref_cell(c.ws, c.db, form), true)
 	worldstate.mark_scene_dirty(c.ws, form)
+}
+
+// report_theft reports `by` taking `count` of `base` from `from` (a loose item or a container), if
+// that robs someone.
+report_theft :: proc(c: ^Call, by, from, base: Form_ID, count: i32) {
+	victim := worldstate.robbed(c.ws, c.db, by, from)
+	if victim == 0 {return}
+	value, _ := gamedb.value_of(c.db, base)
+	worldstate.report_crime(c.ws, c.db, by, victim, .Steal, value * count)
 }
 
 // RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). With no other
