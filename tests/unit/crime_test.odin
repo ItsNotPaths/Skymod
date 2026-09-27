@@ -65,3 +65,16 @@ test_faction_relation_delta :: proc(t: ^testing.T) {
 	r, ok := ws.relation(&s, nil, a_fac, b_fac)
 	testing.expect(t, ok && r.modifier == -10 && r.faction == b_fac, "relation delta read back")
 }
+
+// SetPlayerEnemy's flag makes every member of that crime faction hostile to the offender.
+@(test)
+test_crime_enemy_is_hostile :: proc(t: ^testing.T) {
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
+	testing.expect(t, !ws.hostile(&s, nil, CRIME_GUARD, CRIME_THIEF), "not hostile before")
+	ws.set_wanted(&s, CRIME_THIEF, CRIME_TOWN, {enemy = true})
+	testing.expect(t, ws.hostile(&s, nil, CRIME_GUARD, CRIME_THIEF), "enemy flag makes members hostile")
+	testing.expect(t, !ws.hostile(&s, nil, CRIME_CITIZEN, CRIME_THIEF), "a non-member is not")
+}

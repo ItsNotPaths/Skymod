@@ -2,7 +2,7 @@ package ai
 
 // Combat state toward the player: when an actor warns, attacks or flees, and where it moves. No
 // attacks land yet.
-// (hole combat-any-target :tags (ai combat) :sev gap :needs (hostility)) combat is only toward the player: an actor never picks another actor as its target, so a guard cannot fight a wanted NPC, a victim cannot fight back at an NPC and factions at war never meet.
+// (hole combat-any-target :tags (ai combat) :sev gap) combat is only toward the player: an actor never picks another actor as its target, so a guard cannot fight a wanted NPC, factions at war never meet, and no victim remembers who hit it.
 
 // (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage)) the brain is a stand-in: close, swing in reach, flee on low confidence. Wanted: real tactics (block, dodge, ranged, spells, groups) behind the same seam, from someone who knows combat AI.
 

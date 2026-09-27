@@ -6,6 +6,8 @@ PLAYER :: Form_ID(0x14)
 PLAYER_BASE :: Form_ID(0x7) // the NPC_ the player ref places
 GOLD :: Form_ID(0xF) // Gold001
 IS_GUARD_FACTION :: Form_ID(0x86EEE) // IsGuardFaction: its members are guards (IsGuard)
+ATTACK_ON_SIGHT_VIOLENT :: Form_ID(0xE9C) // CrimeArrestOnSightViolentThreshold (999)
+ATTACK_ON_SIGHT_NONVIOLENT :: Form_ID(0xE9D) // CrimeArrestOnSightNonViolentThreshold (1000)
 LOC_REF_BOSS :: Form_ID(0x130F7) // the Boss LocationRefType: its death clears the location
 ASSOC_PARENT_CHILD :: Form_ID(0x142C6) // the ParentChild AssociationType (HasParentRelationship)
 
