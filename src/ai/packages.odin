@@ -241,7 +241,7 @@ proc_travel :: proc(c: ^Proc_Context) -> Status {
 	return .Running
 }
 
-// (hole proc-sandbox :tags ai :sev blocker :needs furniture-markers) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
+// (hole proc-sandbox :tags ai :sev blocker) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
 	center, radius, ok := location(c)
@@ -265,7 +265,7 @@ arrived :: proc(c: ^Proc_Context, p: [3]f32) -> bool {
 	return linalg.length(c.feet.xy - p.xy) <= ARRIVED
 }
 
-// (hole proc-furniture :tags ai :sev gap :needs furniture-markers) Find, Sit, Sleep, Eat and Acquire do nothing: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
+// (hole proc-furniture :tags ai :sev gap) Find, Sit, Sleep, Eat and Acquire do nothing: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
 proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Done
 }

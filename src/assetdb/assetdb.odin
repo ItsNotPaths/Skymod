@@ -170,6 +170,7 @@ Cache :: struct {
 	models:   map[string]^Model, // "meshes\..."-relative MODL path -> model (key owned)
 	textures: map[string]Tex_Entry, // tex_key(path,srgb) -> entry (key owned); see Tex_Entry
 	failed:   map[string]bool, // model paths that decoded to nothing (missing / no shapes) — don't retry (key owned)
+	furniture: map[string][]nif.Furniture_Marker, // model path -> its furniture markers, never evicted (key + slice owned)
 	// D1 eviction (models). refs = live holders per lowercased model path (a resident chunk's
 	// instances/grass, a baked LOD draw); set BY the world layer via model_acquire/model_release,
 	// independent of residency (a ref can precede the upload). A model with refs>0 is pinned. When
@@ -199,6 +200,7 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
 		textures = make(map[string]Tex_Entry),
 		failed   = make(map[string]bool),
 		refs     = make(map[string]int),
+		furniture = make(map[string][]nif.Furniture_Marker),
 	}
 }
 
@@ -257,6 +259,11 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(key)
 	}
 	delete(c.failed)
+	for key, m in c.furniture {
+		delete(key)
+		delete(m)
+	}
+	delete(c.furniture)
 	for key, _ in c.refs {
 		delete(key)
 	}
@@ -488,6 +495,23 @@ mark_failed :: proc(c: ^Cache, modl: string) {
 model_ptr :: proc(c: ^Cache, modl: string) -> ^Model {
 	key := strings.to_lower(modl, context.temp_allocator)
 	return c.models[key] if key in c.models else nil
+}
+
+// furniture_markers is a model's furniture markers (none for a missing or bad NIF), read once. MAIN THREAD.
+furniture_markers :: proc(c: ^Cache, modl: string) -> []nif.Furniture_Marker {
+	key := strings.to_lower(modl, context.temp_allocator)
+	if m, hit := c.furniture[key]; hit {
+		return m
+	}
+	markers: []nif.Furniture_Marker
+	full := strings.concatenate({"meshes\\", modl}, context.temp_allocator)
+	if data, ok := vfs.read(c.v, full, context.temp_allocator); ok {
+		if h, hok := nif.parse_header(data, context.temp_allocator); hok {
+			markers = nif.furniture_markers(data, &h)
+		}
+	}
+	c.furniture[strings.clone(key)] = markers
+	return markers
 }
 
 // get_model loads (or returns the cached) model for a MODL path, synchronously. Used
