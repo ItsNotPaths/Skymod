@@ -186,3 +186,15 @@ test_worldstate_load_missing :: proc(t: ^testing.T) {
 	_, ok := ws.load_from_file(&dst, "does_not_exist_42.skysave")
 	testing.expect(t, !ok, "loading a missing file should fail cleanly")
 }
+
+// A ref that moves to another cell is indexed under the new cell only (an NPC walking out a door).
+@(test)
+test_worldstate_move_reindexes_cell :: proc(t: ^testing.T) {
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.set_moved(&s, 0x1A67C, 0x165B1, smath.trs({0, 0, 0}, {}, 1), {})
+	ws.set_moved(&s, 0x1A67C, 0x1A27A, smath.trs({5, 0, 0}, {}, 1), {5, 0, 0})
+	testing.expect_value(t, len(ws.refs_in(&s, 0x165B1)), 0)
+	testing.expect_value(t, len(ws.refs_in(&s, 0x1A27A)), 1)
+}

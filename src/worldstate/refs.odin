@@ -97,15 +97,15 @@ get_created :: proc(ws: ^World_State, form_id: Form_ID) -> (Created_Ref, bool) {
 @(private)
 upsert :: proc(ws: ^World_State, form_id, cell: Form_ID) -> ^Ref_Delta {
 	assert_owner(ws)
-	if _, existed := ws.ref_deltas[form_id]; !existed {
-		ws.ref_deltas[form_id] = Ref_Delta{cell = cell}
-		list, ok := &ws.by_cell[cell]
-		if !ok {
-			ws.by_cell[cell] = make([dynamic]Form_ID)
-			list = &ws.by_cell[cell]
-		}
-		append(list, form_id)
+	if d, existed := &ws.ref_deltas[form_id]; existed && d.cell != cell {
+		if list, ok := &ws.by_cell[d.cell]; ok {remove_id(list, form_id)}
+	} else if existed {
+		return d
+	} else {
+		ws.ref_deltas[form_id] = {}
 	}
+	if cell not_in ws.by_cell {ws.by_cell[cell] = make([dynamic]Form_ID)}
+	append(&ws.by_cell[cell], form_id)
 	d := &ws.ref_deltas[form_id]
 	d.cell = cell
 	return d
