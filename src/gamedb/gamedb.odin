@@ -226,6 +226,7 @@ DB :: struct {
 	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
 	actor_refs:    map[Form_ID][dynamic]Ref, // cell formID -> actor placements (ACHR; base = an NPC_)
 	ref_by_id:     map[Form_ID]Ref, // REFR formID -> its placement (for XTEL door targets)
+	enable_parents: map[Form_ID]bool, // refs some XESP names; a live toggle re-gates their chain
 	worlds:        map[Form_ID]string, // WRLD formID -> editor id (owned)
 	world_by_edid: map[string]Form_ID, // lowercased worldspace editor id -> formID (key owned)
 	world_cells:   map[Form_ID][dynamic]Form_ID, // WRLD formID -> its exterior cell formIDs
@@ -352,6 +353,7 @@ Actor_Base :: struct {
 	template:      Form_ID, // TPLT: an NPC_ or LVLN the template flags draw from
 	template_flags: u16,    // ACBS (esm.ACBS_TEMPLATE_*)
 	ai:            [6]u8,   // AIDT: the AI actor values 0..5 (Aggression .. Assistance)
+	aggro:         esm.Aggro, // AIDT aggro radius behavior
 	spells:        []Form_ID, // SPLO (owned)
 	perks:         []Form_ID, // PRKR (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
@@ -780,6 +782,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		cell_refs     = make(map[Form_ID][dynamic]Ref, 1024, allocator),
 		actor_refs    = make(map[Form_ID][dynamic]Ref, 512, allocator),
 		ref_by_id     = make(map[Form_ID]Ref, 4096, allocator),
+		enable_parents = make(map[Form_ID]bool, 1024, allocator),
 		worlds        = make(map[Form_ID]string, 64, allocator),
 		world_by_edid = make(map[string]Form_ID, 64, allocator),
 		world_cells   = make(map[Form_ID][dynamic]Form_ID, 64, allocator),
@@ -992,6 +995,7 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.actor_refs)
 	delete(db.ref_by_id)
+	delete(db.enable_parents)
 	for _, e in db.worlds {
 		delete(e)
 	}
@@ -1398,24 +1402,28 @@ actor_base :: proc(db: ^DB, form: Form_ID) -> (Actor_Base, bool) {
 }
 
 // ref_effective_disabled reports whether a placed ref is disabled in the STATIC default
-// state — its own "Initially Disabled" flag, OR (via XESP) its enable parent gating it off.
-// A ref with an enable parent is enabled iff the parent is enabled, XOR the "opposite" flag;
-// so it's disabled when that resolves false. One level deep (parent's own raw flag); an
-// unindexed parent falls back to the ref's own flag (don't over-cull). This is the world
-// cull's gate — it drops quest/alternate debris the same way REFR_INITIALLY_DISABLED does.
-ref_effective_disabled :: proc(db: ^DB, r: Ref) -> bool {
-	if r.disabled {
-		return true
-	}
-	if r.enable_parent == 0 {
-		return false
-	}
+// state: its own "Initially Disabled" flag, or its enable parent chain (XESP) gating it off.
+// A ref with an enable parent is enabled iff the parent is enabled, XOR the "opposite" flag.
+// An unindexed parent keeps the ref (don't over-cull); depth caps a cyclic chain.
+ref_effective_disabled :: proc(db: ^DB, r: Ref, depth := 0) -> bool {
+	if r.disabled {return true}
+	if r.enable_parent == 0 || depth > 16 {return false}
 	parent, ok := db.ref_by_id[r.enable_parent]
-	if !ok {
-		return false // parent not indexed (cross-cell / unresolved) — keep the ref
+	if !ok {return false}
+	return ref_effective_disabled(db, parent, depth + 1) != r.enable_opposite
+}
+
+// enable_chain_has reports whether `parent` gates r somewhere up its enable parent chain.
+enable_chain_has :: proc(db: ^DB, r: Ref, parent: Form_ID) -> bool {
+	p := r.enable_parent
+	for _ in 0 ..< 16 {
+		if p == 0 {return false}
+		if p == parent {return true}
+		up, ok := db.ref_by_id[p]
+		if !ok {return false}
+		p = up.enable_parent
 	}
-	child_enabled := (!parent.disabled) != r.enable_opposite // parent-enabled XOR opposite
-	return !child_enabled
+	return false
 }
 
 // --- walk visitor ---
@@ -2015,6 +2023,7 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		db.ref_index[rec.form_id] = Ref_Loc{cell_form_id, len(refs) - 1}
 	}
 	db.ref_by_id[rec.form_id] = ref
+	if ref.enable_parent != 0 {db.enable_parents[ref.enable_parent] = true}
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_ref_ties(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a REFR may carry a FULL override (a uniquely-named placement)
@@ -2064,6 +2073,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		db.actor_ref_index[rec.form_id] = Ref_Loc{ctx.cell_form_id, len(refs) - 1}
 	}
 	db.ref_by_id[rec.form_id] = ref
+	if ref.enable_parent != 0 {db.enable_parents[ref.enable_parent] = true}
 	index_ref_levels(db, rec.form_id, fl, ctx.fm)
 	index_ref_ties(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
@@ -2629,6 +2639,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		a.template_flags = cfg.template_flags
 	}
 	if ai, aok := esm.actor_ai(fl); aok {a.ai = ai}
+	if ag, aok := esm.actor_aggro(fl); aok {a.aggro = ag}
 	if attr, aok := esm.actor_attributes(fl); aok {
 		a.skills = attr.skills
 		a.skill_offsets = attr.skill_offsets
