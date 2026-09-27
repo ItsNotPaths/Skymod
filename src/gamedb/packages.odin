@@ -7,7 +7,8 @@ import "core:encoding/endian"
 import "core:strings"
 import "../formats/esm"
 
-// (hole package-unknowns :tags (records ai) :sev polish) unsourced PACK fields kept raw: general flag names (only bit 13 measured), PSDT day-of-week values 7-10 (31 packs), IDLF bits, PRCB bit 1, the ObjectList CNAM float (0 or 350), location types 10/11 (9 BYOHUrchin_AlesanRunner*), and which of PatrolAndHunt's two PFO2 wins (the last is kept).
+// (hole package-unknowns :tags (records ai) :sev polish) unsourced PACK fields kept raw: general flag names (only bits 10 and 13 read), PSDT day-of-week values 7-10 (31 packs), IDLF bits, PRCB bit 1, the ObjectList CNAM float (0 or 350), location types 10/11 (9 BYOHUrchin_AlesanRunner*), and which of PatrolAndHunt's two PFO2 wins (the last is kept).
+PACK_ONCE_PER_DAY :: 1 << 10 // once finished, not picked again that day
 PACK_PREFERRED_SPEED :: 1 << 13 // `speed` counts only with this general flag
 PACK_TEMPLATE :: 19 // PKDT type; 18 is a package
 

@@ -149,7 +149,7 @@ outfit_items :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form
 	return gamedb.outfit_of(db, record, actor_pick(ws, db, actor))
 }
 
-// (hole sleep-outfits :tags (ai player) :sev gap :needs (proc-furniture)) SetOutfit(abSleepOutfit = true) is ignored: nothing sleeps, so no actor changes into its sleep outfit (NPC_ SOFT is not read).
+// (hole sleep-outfits :tags (ai player) :sev gap) SetOutfit(abSleepOutfit = true) is ignored: nothing sleeps, so no actor changes into its sleep outfit (NPC_ SOFT is not read).
 // set_outfit dresses `actor` in `outfit`: the old outfit's gear is taken off and out of its
 // inventory, the new gear, rolled at the player's level, goes in and on. It stays through resets.
 set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {

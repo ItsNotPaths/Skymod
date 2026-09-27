@@ -551,6 +551,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if g.repl_ok {
 		g.agents.quest_vars = g.repl.vm.ctx.quest_vars
 		g.agents.lua = {&g.repl.vm, slua.run_procedure}
+		g.agents.furniture = {g, actor_furniture_markers}
 		slua.repl_register_cmd(&g.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
 		slua.set_script_dirs(&g.repl.vm, script_dirs(base, &g.mprofile))
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)

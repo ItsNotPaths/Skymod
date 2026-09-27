@@ -8,6 +8,8 @@ import "core:math"
 import "core:math/linalg"
 import imgui "../../vendor/odin-imgui"
 import "../ai"
+import "../assetdb"
+import "../formats/nif"
 import "../formid"
 import "../gamedb"
 import "../input"
@@ -26,10 +28,9 @@ import "../worldstate"
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
 Actor_Body :: struct {
-	char:      physics.Character,
-	placed:    smath.Vec3,
-	capsule:   Capsule,
-	seat_pack: Form_ID, // nonzero: pinned on its furniture, no gravity or push-out, while this package runs
+	char:    physics.Character,
+	placed:  smath.Vec3,
+	capsule: Capsule,
 }
 
 Capsule :: struct {
@@ -69,8 +70,13 @@ tick_actor_bodies :: proc(g: ^Game) {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
-			if pack := g.agents.agents[form].pack; b.seat_pack != 0 && (pack == 0 || pack == b.seat_pack) {continue} // 0: not selected yet
-			b.seat_pack = 0
+			if seat, heading, ok := ai.seated(&g.agents, &g.ws, &g.db, form); ok { // pinned: no gravity or push-out
+				if seat != b.placed {
+					physics.character_set_position(&b.char, seat)
+					actor_publish(g, form, &b, {}, heading)
+				}
+				continue
+			}
 			physics.character_move(phys, &b.char, vel, false, TICK_DT)
 			if vel != {} {actor_publish(g, form, &b, vel)}
 		} else {
@@ -114,9 +120,9 @@ frame_actor_grab :: proc(g: ^Game) {
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell
-// under it, so scripts and saves see where it is.
+// under it, so scripts and saves see where it is. It faces `face`, else the way it walks.
 @(private = "file")
-actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
+actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32, face: Maybe(f32) = nil) {
 	feet := physics.character_position(&b.char)
 	cell := worldstate.ref_cell(&g.ws, &g.db, form)
 	if c, ok := g.db.cells[cell]; ok && c.world_form_id != 0 {
@@ -124,6 +130,7 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	}
 	heading := worldstate.ref_rot(&g.ws, &g.db, form).z
 	if vel != {} {heading = math.PI / 2 - math.atan2(vel.y, vel.x)}
+	if f, ok := face.?; ok {heading = f}
 	worldstate.set_moved(&g.ws, form, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	b.placed = feet
 }
@@ -148,18 +155,14 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	furniture, pack := ai.seat(&g.agents, &g.ws, &g.db, form, pos)
-	if furniture == 0 {
-		pack = 0
-		switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
-		case .Stay:
-		case .Here: start = p
-		case .Away: return // it went on to its place in a cell that is not loaded
-		}
-		start = free_spot(g, phys, start, capsule)
+	switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
+	case .Stay:
+	case .Here: start = p
+	case .Away: return // it went on to its place in a cell that is not loaded
 	}
+	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
-		g.actor_bodies[form] = {ch, pos, capsule, pack}
+		g.actor_bodies[form] = {ch, pos, capsule}
 		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
 	} else {
 		delete_key(&g.actor_bodies, form)
@@ -178,6 +181,14 @@ free_spot :: proc(g: ^Game, phys: ^physics.World, feet: smath.Vec3, c: Capsule) 
 		if physics.capsule_fits(phys, p + lift, c.radius, c.half_h) {return p + lift}
 	}
 	return feet + lift
+}
+
+// actor_furniture_markers is ai.Furniture_Hook's markers: a FURN base's markers, read through the active scene's asset cache.
+actor_furniture_markers :: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_Marker {
+	g := (^Game)(user)
+	modl, ok := gamedb.model_of(&g.db, base)
+	if !ok || g.fr.active_scene == nil {return nil}
+	return assetdb.furniture_markers(&g.fr.active_scene.cache, modl)
 }
 
 @(private = "file")

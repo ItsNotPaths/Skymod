@@ -37,7 +37,7 @@ select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a
 	for c in list {
 		p := gamedb.package_of(db, c.pack) or_continue
 		ctx := conditions.Context{db = db, ws = ws, subject = actor, quest = p.owner_quest if p.owner_quest != 0 else c.quest, quest_vars = w.quest_vars}
-		if schedule_open(ws, p.schedule) && conditions.all(&ctx, p.conditions) {return c.pack, ctx.quest}
+		if schedule_open(ws, p.schedule) && !worldstate.done_today(ws, actor, c.pack) && conditions.all(&ctx, p.conditions) {return c.pack, ctx.quest}
 	}
 	return 0, 0
 }
@@ -89,12 +89,10 @@ Node_State :: struct {
 Proc_Context :: struct {
 	cond:  conditions.Context,
 	agent: ^Agent,
-	mesh:   ^nav.Path_Mesh,
-	routes: ^nav.Route_Index,
+	w:     ^World,
 	feet:  [3]f32,
 	dt:    f32,
 	node:  int,
-	lua:   ^Lua_Hook, // nil where procedures do not run
 }
 
 // run_tree runs one tick of the agent's package. The root done, the actor stands until another package is selected.
@@ -164,7 +162,11 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	switch name {
 	case "Travel":                        return proc_travel(c)
 	case "Sandbox":                       return proc_sandbox(c)
-	case "Find", "Sit", "Sleep", "Eat", "Acquire": return proc_furniture(c, name)
+	case "Find":                          return proc_find(c)
+	case "Sit":                           return proc_seat(c, .Sit)
+	case "Sleep":                         return proc_seat(c, .Lay)
+	// (hole proc-acquire :tags ai :sev gap) Acquire takes nothing and Eat does nothing: an actor eats fake food, and the food a Find names stays where it is (eating itself is animation).
+	case "Eat", "Acquire":                return .Done
 	case "Patrol":                        return proc_patrol(c)
 	case "UseIdleMarker":                 return proc_idle_marker(c)
 	case "Wait", "HoldPosition":          return proc_wait(c)
@@ -182,7 +184,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "DialogueActivate":              return proc_dialogue_activate(c)
 	// (hole proc-combat :tags (ai combat) :sev gap :needs combat-brain) UseWeapon, UseMagic and Shout fail: a package cannot make an actor attack, cast or shout at a target (CW battles, archers, dragons).
 	case "UseWeapon", "UseMagic", "Shout": return .Failed
-	// (hole flight :tags (ai combat) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
+	// (hole flight :tags (animation combat unclaimed) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
 	case "Hover", "Orbit", "FlightGrab":  return .Failed
 	}
 	return lua_procedure(c, name)
@@ -305,17 +307,17 @@ proc_travel :: proc(c: ^Proc_Context) -> Status {
 	return .Running
 }
 
-// (hole proc-sandbox :tags ai :sev gap :needs proc-furniture) Sandbox only wanders: it never sits, eats, sleeps or uses an idle marker (IDLM is not decoded), whatever the package flags allow.
+// (hole proc-sandbox :tags ai :sev gap :needs proc-idle-marker) Sandbox only wanders: it never sits, eats, sleeps or uses an idle marker (IDLM is not decoded), whatever the package flags allow.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
 	p, ok := location(c)
 	center, radius := p.center if ok else c.feet, max(p.radius, SANDBOX_RADIUS)
-	if ok && p.cell not_in c.mesh.cells { // walk there first; spots are picked on the loaded navmesh
+	if ok && p.cell not_in c.w.mesh.cells { // walk there first; spots are picked on the loaded navmesh
 		c.agent.mover.goal = {active = true, point = center, radius = radius, gait = .Walk, cell = p.cell}
 		return .Running
 	}
 	if !st.started || (arrived(c, st.point) && st.timer <= 0) {
-		st.point = nav.random_point_near(c.mesh, center, radius) or_else center
+		st.point = nav.random_point_near(&c.w.mesh, center, radius) or_else center
 		st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
 		st.started = true
 	}
@@ -331,32 +333,6 @@ ARRIVED :: f32(48)
 @(private = "file")
 arrived :: proc(c: ^Proc_Context, p: [3]f32) -> bool {
 	return linalg.length(c.feet.xy - p.xy) <= ARRIVED
-}
-
-// (hole proc-furniture :tags ai :sev gap) Find, Sit, Sleep, Eat and Acquire never finish: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
-// proc_furniture keeps looking, so a Simultaneous beside it (Travel, Sandbox) does the moving.
-proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
-	return .Running
-}
-
-SEAT_RADIUS :: f32(256) // placed this near its furniture ref, an actor is already on the seat
-
-// seat is the furniture ref the actor's package sits or sleeps it in, when it is placed there.
-seat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (furniture, pack: Form_ID) {
-	quest: Form_ID
-	pack, quest = select_package(w, ws, db, actor)
-	if pack == 0 {return}
-	a := Agent{pack = pack}
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = &a, feet = feet}
-	for n, i in gamedb.package_tree(db, pack) {
-		if n.branch != .Procedure || (n.procedure != "Sit" && n.procedure != "Sleep") {continue}
-		c.node = i
-		for k in 0 ..< len(n.inputs) {
-			ref := input_target(&c, k)
-			if ref != 0 && linalg.length(worldstate.ref_pos(ws, db, ref).xy - feet.xy) <= SEAT_RADIUS {return ref, pack}
-		}
-	}
-	return 0, pack
 }
 
 // (hole patrol-marker-idle :tags ai :sev gap) a patrol never pauses at a marker: the marker's patrol data (REFR XPRD idle time, idle, topic) is not decoded.
@@ -421,7 +397,7 @@ input_value :: proc(c: ^Proc_Context, k: int, $T: typeid) -> (v: T, ok: bool) {
 	return in_.value.(T)
 }
 
-// input_target is the ref the node's k-th input names (SpecificRef, or the actor's linked ref).
+// input_target is the ref the node's k-th input names: a SpecificRef, the actor's linked ref, an alias's ref, or itself.
 @(private)
 input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	t, ok := input_value(c, k, gamedb.Package_Target)
@@ -431,6 +407,7 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	case .LinkedRef:
 		ref, _ := gamedb.linked_ref(c.cond.db, c.cond.subject, t.form)
 		return ref
+	case .RefAlias: return worldstate.alias_ref(c.cond.ws, c.cond.quest, t.value)
 	case .Self: return c.cond.subject
 	}
 	return 0

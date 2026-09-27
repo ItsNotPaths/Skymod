@@ -18,7 +18,6 @@ Form_ID :: gamedb.Form_ID
 
 EVAL_EVERY :: f32(1) // seconds between package selections
 
-// (hole once-per-day :tags (ai save) :sev polish) nothing is saved, so a OncePerDay package (125) runs again after a load; decided: choices and paths re-roll on load, as in Skyrim.
 // Agent is an actor's running package. None of it is saved.
 Agent :: struct {
 	pack:      Form_ID,
@@ -34,6 +33,10 @@ Agent :: struct {
 	trip_at:   int, // the next point
 	speed:     f32,
 	planned:   bool, // the trip was planned for this package (it may have found none)
+	done:      bool, // the package tree finished
+	found:     map[u8]Form_ID, // ObjectList input -> the ref a Find put there
+	seat:      Seat, // the furniture marker it claimed
+	seated:    bool, // on `seat`
 	combat:    Combat, // toward the player; the package waits while it is not None
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
@@ -50,6 +53,9 @@ World :: struct {
 	loaded:     map[Form_ID]bool, // the loaded cells, as of the last track_cells
 	visitors:   map[Form_ID][dynamic]Form_ID, // cell -> actors placed elsewhere whose packages can send them there
 	lua:        Lua_Hook,
+	furniture:  Furniture_Hook,
+	seats:      map[Seat]Form_ID, // marker -> the actor that claimed it; stale once that actor holds another
+	seating:    map[Form_ID][dynamic]Form_ID, // cell -> the furniture refs its records place (furniture.odin)
 	chatter_in: f32, // seconds to the next idle line
 	found:      map[[2]Form_ID]bool, // (finder, body): bodies already reported
 }
@@ -76,18 +82,21 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	a.combat.state = next_combat(ws, db, actor, feet, &a.combat, dt)
 	if was != .None && a.combat.state == .None {interrupt(w, actor)}
 	if a.combat.state != .None {
+		a.seated = false
 		combat_goal(ws, db, a, feet)
 	} else if a.pack != 0 {
 		c := Proc_Context {
 			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars},
 			agent = a,
-			mesh   = &w.mesh,
-			routes = &w.routes,
-			feet   = feet,
+			w     = w,
+			feet  = feet,
 			dt    = dt,
-			lua    = &w.lua,
 		}
-		if run_tree(&c) != .Running && action != nil && a.scene {action.done = true}
+		if run_tree(&c) != .Running {
+			if !a.done {worldstate.set_package_done(ws, db, actor, a.pack)}
+			a.done = true
+			if action != nil && a.scene {action.done = true}
+		}
 	}
 	follow_path_order(ws, db, a, actor, feet)
 	if worldstate.held_still(ws, actor) {a.mover.goal = {}}
@@ -106,7 +115,9 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 start_package :: proc(a: ^Agent, db: ^gamedb.DB, pack, quest: Form_ID, now: f64, feet: [3]f32) {
 	a.pack, a.quest, a.started, a.start_pos = pack, quest, now, feet
 	clear(&a.trip)
-	a.planned = false
+	a.planned, a.done = false, false
+	clear(&a.found)
+	a.seat, a.seated = {}, false
 	resize(&a.nodes, len(gamedb.package_tree(db, pack)))
 	for &n in a.nodes {n = {}}
 	a.mover.goal = {}
@@ -217,7 +228,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 @(private = "file")
 plan_trip :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
 	a.planned = true
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
 	points, found := nav.trip(&w.routes, db, worldstate.ref_grid_cell(ws, db, actor), feet, p.cell, p.center, context.temp_allocator)
@@ -227,7 +238,7 @@ plan_trip :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Ag
 	a.speed = gait_speed(gait(&c))
 }
 
-// (hole trip-time-skip :tags (ai world) :sev gap) a wait or sleep skips hours but no traveller walks through them: unloaded trips advance by the tick only, and loaded actors do not jump ahead either.
+// (hole trip-time-skip :tags (ai world) :sev gap) a wait or sleep skips hours but no traveller walks through them: unloaded trips advance by the tick only, and loaded actors do not jump ahead either. Decided: one nav helper advances an actor by N skipped hours (walk the trip, or place it at the end as pull_visitor does), used for loaded and unloaded actors.
 // walk_trip moves an unloaded actor along its trip for one tick and writes where it got to.
 @(private = "file")
 walk_trip :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32, dt: f32) {
@@ -297,7 +308,7 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 // place when that is loaded, else straight into the place's cell.
 @(private = "file")
 jump_to_destination :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, placed: Placement) {
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
 	spot, found := [3]f32{}, false
@@ -320,6 +331,7 @@ destroy :: proc(w: ^World) {
 		delete(a.mover.path)
 		delete(a.route)
 		delete(a.trip)
+		delete(a.found)
 	}
 	delete(w.agents)
 	delete(w.persistent)
@@ -327,6 +339,9 @@ destroy :: proc(w: ^World) {
 	for _, list in w.visitors {delete(list)}
 	delete(w.visitors)
 	delete(w.found)
+	delete(w.seats)
+	for _, list in w.seating {delete(list)}
+	delete(w.seating)
 	nav.destroy(&w.mesh)
 	nav.route_index_destroy(&w.routes)
 }
@@ -340,6 +355,7 @@ interrupt :: proc(w: ^World, actor: Form_ID) {
 	clear(&a.mover.path)
 	clear(&a.trip)
 	a.planned = false
+	a.seated = false
 }
 
 // describe is an actor's AI state as console text: its package, each tree node, its mover and trip.

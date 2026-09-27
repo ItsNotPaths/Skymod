@@ -27,7 +27,7 @@ n_get_dialogue_target :: proc(c: ^Call, args: []Value) -> Value {
 	return formid.PLAYER if c.self != 0 && c.ws.talking == c.self else Form_ID(0)
 }
 
-// (hole teammate-behavior :tags (ai player) :sev gap) a teammate is only a saved flag that dialogue reads: it does not follow the player, share crimes, or use the player's commands, and SetNoFavorAllowed has nothing to read it.
+// (hole teammate-behavior :tags (ai player) :sev gap) a teammate is only a saved flag that dialogue reads: it does not follow the player, share crimes, or use the player's commands, and SetNoFavorAllowed has nothing to read it. Leaning (not final): a Follow package the engine applies, so mods can change it; out of combat that is A* with the player as the goal.
 // SetPlayerTeammate(abTeammate, abCanDoFavor).
 n_set_player_teammate :: proc(c: ^Call, args: []Value) -> Value {
 	if arg_bool(args, 0, true) {c.ws.teammates[c.self] = true} else {delete_key(&c.ws.teammates, c.self)}

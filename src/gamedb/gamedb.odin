@@ -215,6 +215,7 @@ DB :: struct {
 	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
+	furniture:     map[Form_ID]bool, // FURN base formIDs (AI seats)
 	triggers:      map[Form_ID]esm.Primitive, // REFR formID -> its XPRM box or sphere (a trigger volume)
 	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
@@ -774,6 +775,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		recipes_by_bench = make(map[Form_ID][dynamic]Form_ID, 16, allocator),
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
+		furniture     = make(map[Form_ID]bool, 512, allocator),
 		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
 		triggers      = make(map[Form_ID]esm.Primitive, 4096, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
@@ -974,6 +976,7 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.actors)
 	delete(db.doors)
+	delete(db.furniture)
 	delete(db.locks)
 	delete(db.triggers)
 	delete(db.trees)
@@ -2775,6 +2778,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if rec.type == "DOOR" {
 		db.doors[rec.form_id] = true // door-panel base (open-interiors portal cull)
 	}
+	if rec.type == "FURN" {db.furniture[rec.form_id] = true}
 	if rec.type == "TREE" {
 		db.trees[rec.form_id] = true // tree base → distant billboard (the _lod_flat.nif beside the mesh)
 	}
@@ -2808,6 +2812,11 @@ is_tree :: proc(db: ^DB, base_form_id: Form_ID) -> bool {
 // open-interiors portal cull to hide the door panel filling the doorway opening.
 is_door :: proc(db: ^DB, base: Form_ID) -> bool {
 	return base in db.doors
+}
+
+// is_furniture reports whether a base formID is a FURN record.
+is_furniture :: proc(db: ^DB, base: Form_ID) -> bool {
+	return base in db.furniture
 }
 
 // is_container reports whether a base formID is a CONT record (an openable container).

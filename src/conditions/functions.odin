@@ -319,9 +319,9 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap :needs proc-furniture) GetSleeping, GetSitting, IsSmallBump and GetGroupMemberCount read 0: no actor sits, sleeps or bumps as Skyrim counts it, and there are no package groups.
+// (hole package-conditions :tags ai :sev gap) GetSleeping, GetSitting, IsSmallBump and GetGroupMemberCount read 0: no actor sits, sleeps or bumps as Skyrim counts it, and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
-// (hole flight :tags (ai combat) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
+// (hole flight :tags (animation combat unclaimed) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
 // (hole map-markers :tags (ui quest) :sev gap :needs map-screen) GetMapMarkerVisible reads 0: there is no map, so no marker is ever found.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.

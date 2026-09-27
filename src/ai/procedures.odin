@@ -192,7 +192,7 @@ Lua_Input :: union {
 
 // lua_procedure runs a procedure the engine does not know: a mod's, found by its PNAM name. Without one it fails.
 lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
-	if c.lua == nil || c.lua.run == nil {return .Failed}
+	if c.w.lua.run == nil {return .Failed}
 	db := c.cond.db
 	tree := gamedb.package_tree(db, c.agent.pack)
 	inputs := make([dynamic]Lua_Input, context.temp_allocator)
@@ -211,7 +211,7 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 		}
 	}
 	goal: Goal
-	status := c.lua.run(c.lua.user, name, c.cond.subject, c.dt, inputs[:], &goal)
+	status := c.w.lua.run(c.w.lua.user, name, c.cond.subject, c.dt, inputs[:], &goal)
 	c.agent.mover.goal = goal
 	return status
 }

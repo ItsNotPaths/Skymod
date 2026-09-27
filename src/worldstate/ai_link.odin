@@ -1,5 +1,8 @@
 package worldstate
 
+import "core:math"
+import "../gamedb"
+
 // AI_Link is what scripts ask of the AI and what the AI tells them. The script thread writes the
 // asks and the AI drains them at its tick; the AI publishes the rest each tick. Not saved: after a
 // load packages re-select and a path order is gone (the guard's IsPathingTo reads false).
@@ -21,6 +24,17 @@ Location_Move :: struct {
 Path_Order :: struct {
 	to:    Form_ID,
 	speed: f32,
+}
+
+// set_package_done notes that an actor finished a package, if the package runs once per day.
+set_package_done :: proc(ws: ^World_State, db: ^gamedb.DB, actor, pack: Form_ID) {
+	if p, ok := gamedb.package_of(db, pack); ok && p.flags & gamedb.PACK_ONCE_PER_DAY != 0 {ws.packages_done[{actor, pack}] = ws.clock.hours}
+}
+
+// done_today is whether the actor finished this OncePerDay package on the current game day.
+done_today :: proc(ws: ^World_State, actor, pack: Form_ID) -> bool {
+	hour, ok := ws.packages_done[{actor, pack}]
+	return ok && math.floor(hour / 24) == math.floor(ws.clock.hours / 24)
 }
 
 // take removes `form` from a set and says whether it was there.

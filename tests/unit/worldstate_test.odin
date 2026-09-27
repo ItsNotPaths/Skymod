@@ -51,6 +51,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	src.quest_events[0x000C0E01] = ws.Story_Event{type = ws.STORY_SCRIPT, keyword = 0x000C0E02, ref1 = 0x14, value1 = 3}
 	src.story_starts[0x000C0E01] = 30
 	src.story_ran[{0x000C0E03, 0x000C0E01}] = true
+	src.packages_done[{0x000A0001, 0x000C0E04}] = 31 // day 1, like the clock
 	ws.skip_game_time(&src, 2.5)
 	// A Dead delta (the new actor life-state field) on its own ref/cell.
 	ws.set_dead(&src, 0x000A11FE, 0x0004DEAD, true)
@@ -149,6 +150,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, dst.quest_events[0x000C0E01], ws.Story_Event{type = ws.STORY_SCRIPT, keyword = 0x000C0E02, ref1 = 0x14, value1 = 3})
 	testing.expect_value(t, dst.story_starts[0x000C0E01], 30)
 	testing.expect(t, dst.story_ran[{0x000C0E03, 0x000C0E01}], "story round lost")
+	testing.expect(t, ws.done_today(&dst, 0x000A0001, 0x000C0E04), "OncePerDay finish lost")
 
 	// Dead delta survives.
 	deadd, deadok := ws.get(&dst, 0x000A11FE)

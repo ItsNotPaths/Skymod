@@ -105,6 +105,7 @@ Overlay :: struct {
 	display_names:   map[Form_ID]string,           // ref -> the name an alias gave it (owned)
 	courier_waits:   [dynamic]Courier_Remove,      // Courier.RemoveRef calls waiting for the courier to stop talking
 	scenes:          map[Form_ID]Scene_Run,        // scenes playing or waiting for their actors (scenes.odin)
+	packages_done:   map[[2]Form_ID]f64,           // {actor, OncePerDay package} -> the game hour it finished (ai_link.odin)
 }
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
@@ -289,6 +290,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.killers = make(map[Form_ID]Form_ID)
 	o.display_names = make(map[Form_ID]string)
 	o.scenes = make(map[Form_ID]Scene_Run)
+	o.packages_done = make(map[[2]Form_ID]f64)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
@@ -380,6 +382,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.courier_waits)
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)
+	delete(o.packages_done)
 	delete(o.item_filters)
 	delete(o.aliases)
 	delete(o.alias_holders)

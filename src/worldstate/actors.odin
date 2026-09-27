@@ -438,7 +438,7 @@ is_sneaking :: proc(ws: ^World_State, actor: Form_ID) -> bool {
 	return actor in ws.sneaking
 }
 
-// (hole flight :tags (ai combat) :sev gap) the flag is stored, and nothing flies to obey it.
+// (hole flight :tags (animation combat unclaimed) :sev gap) the flag is stored, and nothing flies to obey it.
 set_allow_flying :: proc(ws: ^World_State, actor: Form_ID, allow: bool) {
 	set_in_set(&ws.grounded, actor, !allow)
 }
