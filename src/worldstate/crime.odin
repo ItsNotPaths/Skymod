@@ -1,6 +1,7 @@
 package worldstate
 
 import "../formats/esm"
+import "../formid"
 import "../gamedb"
 
 // Crime is faction logic, for every actor (user, 2026-09-27). An offence gives the members of a
@@ -111,6 +112,7 @@ crime_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> Form_
 // set_crime_faction is SetCrimeFaction; 0 leaves the actor with none.
 set_crime_faction :: proc(ws: ^World_State, actor, faction: Form_ID) {
 	ws.crime_factions[actor] = faction
+	ws.crime_members_built = 0
 }
 
 // VICTIM_DELAY is how long after a violent crime its victim counts as a witness (user, 2026-09-27):
@@ -187,7 +189,6 @@ IGNORES := [Crime_Kind]u32 {
 }
 
 // tick_crime runs crime's clocks after detection: victims turning witness, and bounties spreading.
-// (hole crime-spread :tags (combat ai) :sev gap) a local bounty never moves: wanted a member who knows it passing it to a member it detects (the higher bounty wins), faction-wide when a knower sees a guard of the faction (IsGuardFaction plus CRIF) or when half the members know it in a faction with no guards, and dropped when its last knower dies.
 tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 	#reverse for &w, i in ws.victim_waits {
 		w.wait -= dt
@@ -195,6 +196,95 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		witness(ws, db, w.victim, w.offender, w.kind, 0)
 		ordered_remove(&ws.victim_waits, i)
 	}
+	spread_bounties(ws, db)
+}
+
+// spread_bounties drops what dead knowers knew, passes each local bounty to the members of its
+// faction the knower detects (the higher bounty wins), and makes it faction-wide when a guard of
+// the faction knows it, or, in a faction with no living guard, when half its living members do.
+@(private = "file")
+spread_bounties :: proc(ws: ^World_State, db: ^gamedb.DB) {
+	offenders := make(map[Form_ID][dynamic]Form_ID, context.temp_allocator) // knower -> what it knows of
+	gone := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k in ws.known_bounties {
+		if is_dead(ws, k[0]) {append(&gone, k);continue}
+		if k[0] not_in offenders {offenders[k[0]] = make([dynamic]Form_ID, context.temp_allocator)}
+		append(&offenders[k[0]], k[1])
+	}
+	for k in gone {delete_key(&ws.known_bounties, k)}
+
+	for pair, a in ws.awareness {
+		known_of, ok := offenders[pair[0]]
+		if !a.detected || !ok || is_dead(ws, pair[1]) {continue}
+		for o in known_of {
+			k := ws.known_bounties[{pair[0], o}]
+			if o != pair[1] && crime_faction(ws, db, pair[1]) == k.faction {learn_bounty(ws, db, pair[1], o, k.bounty)}
+		}
+	}
+
+	Spread :: struct {knowers: int, best: Bounty}
+	spread := make(map[[2]Form_ID]Spread, context.temp_allocator) // {offender, faction}
+	wide := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k, known in ws.known_bounties {
+		key := [2]Form_ID{k[1], known.faction}
+		s := spread[key]
+		spread[key] = {s.knowers + 1, higher(s.best, known.bounty)}
+		if in_faction(ws, db, k[0], formid.IS_GUARD_FACTION) {append(&wide, key)}
+	}
+	for key, s in spread {
+		living, guards := crime_census(ws, db, key[1])
+		if guards == 0 && s.knowers * 2 >= living {append(&wide, key)}
+	}
+	for key in wide {go_wide(ws, key[0], key[1], spread[key].best)}
+}
+
+// go_wide makes `b` what every member of `faction` knows of `offender`; the local bounties it
+// covers go.
+@(private = "file")
+go_wide :: proc(ws: ^World_State, offender, faction: Form_ID, b: Bounty) {
+	w := higher(wanted(ws, offender, faction).bounty, b)
+	set_faction_bounty(ws, offender, faction, w)
+	covered := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k, known in ws.known_bounties {
+		if k[1] == offender && known.faction == faction && total(known.bounty) <= total(w) {append(&covered, k)}
+	}
+	for k in covered {delete_key(&ws.known_bounties, k)}
+}
+
+// crime_census counts the living members and guards of a crime faction. The member list is
+// built once from every placed and created actor and every actor a script gave a crime faction,
+// and again after a SetCrimeFaction.
+crime_census :: proc(ws: ^World_State, db: ^gamedb.DB, faction: Form_ID) -> (living, guards: int) {
+	if ws.crime_members_built != len(ws.created) + 1 {
+		for _, m in ws.crime_members {delete(m)}
+		clear(&ws.crime_members)
+		add :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+			f := crime_faction(ws, db, actor)
+			if f == 0 {return}
+			if f not_in ws.crime_members {ws.crime_members[f] = make([dynamic]Form_ID)}
+			append(&ws.crime_members[f], actor)
+		}
+		if db != nil {
+			for _, refs in db.actor_refs {
+				for r in refs {
+					if r.form_id not_in ws.crime_factions {add(ws, db, r.form_id)}
+				}
+			}
+			for id, c in ws.created {
+				if gamedb.is_actor(db, c.base) && id not_in ws.crime_factions {add(ws, db, id)}
+			}
+		}
+		for id in ws.crime_factions {add(ws, db, id)}
+		ws.crime_members_built = len(ws.created) + 1
+	}
+	members, ok := ws.crime_members[faction]
+	if !ok {return}
+	for m in members {
+		if is_dead(ws, m) {continue}
+		living += 1
+		if in_faction(ws, db, m, formid.IS_GUARD_FACTION) {guards += 1}
+	}
+	return
 }
 
 // is_trespassing: the actor stands where its owner forbids it.

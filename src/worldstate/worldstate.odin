@@ -108,6 +108,8 @@ Overlay :: struct {
 	wanted:          map[[2]Form_ID]Wanted,        // {offender, crime faction} -> the faction-wide bounty (crime.odin)
 	known_bounties:  map[[2]Form_ID]Known_Bounty,  // {knower, offender} -> a bounty only the knower holds (crime.odin)
 	victim_waits:    [dynamic]Victim_Wait,         // victims about to turn witness (crime.odin)
+	crime_members:   map[Form_ID][dynamic]Form_ID, // crime faction -> the actors in it; a cache, not saved (crime_census)
+	crime_members_built: int,                      // len(created) + 1 when crime_members was built; 0 = stale
 	unreported:      Form_Set,                     // offenders whose crimes nobody reports (SetPlayerReportCrime)
 	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller
 	display_names:   map[Form_ID]string,           // ref -> the name an alias gave it (owned)
@@ -414,6 +416,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.display_names)
 	delete(o.courier_waits)
 	delete(o.victim_waits)
+	for _, m in o.crime_members {delete(m)}
+	delete(o.crime_members)
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)
 	delete(o.packages_done)
