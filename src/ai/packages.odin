@@ -170,7 +170,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 
 // (hole default-gait :tags ai :sev polish) a package without the preferred-speed flag walks; unsourced (the record stores Run there).
 // gait is the package's preferred speed.
-@(private = "file")
+@(private)
 gait :: proc(c: ^Proc_Context) -> Gait {
 	p, _ := gamedb.package_of(c.cond.db, c.agent.pack)
 	return p.speed if p.flags & gamedb.PACK_PREFERRED_SPEED != 0 else .Walk

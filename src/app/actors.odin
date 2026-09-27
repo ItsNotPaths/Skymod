@@ -75,7 +75,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
-	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen)
+	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen, TICK_DT)
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell
@@ -93,6 +93,8 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	b.placed = feet
 }
 
+SPAWN_LIFT :: f32(24) // a walk between navmesh corners can dip under a hill; the capsule settles
+
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.ws, &g.db, form) {return}
@@ -109,7 +111,11 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {start = p}
+	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {
+		start = p
+	} else if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {
+		start.z += SPAWN_LIFT
+	}
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
 		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}

@@ -197,47 +197,85 @@ Route_Step :: struct {
 	door: Form_ID,
 }
 
-// Route_Index maps each load door to the navmesh it stands on. Built once.
+// Route_Index maps each load door to the navmesh it stands on, and each navmesh to the island
+// of navmeshes it connects to (through portals and doors). Built once.
 Route_Index :: struct {
 	door_mesh: map[Form_ID]Form_ID,
+	island:    map[Form_ID]int,
 }
 
 route_index_destroy :: proc(r: ^Route_Index) {
 	delete(r.door_mesh)
+	delete(r.island)
+}
+
+@(private = "file")
+route_index_build :: proc(r: ^Route_Index, db: ^gamedb.DB) {
+	for _, list in db.navmeshes {
+		for m in list {
+			for d in m.door_links {r.door_mesh[d.door] = m.form}
+		}
+	}
+	stack := make([dynamic]Form_ID, context.temp_allocator)
+	for _, list in db.navmeshes {
+		for m in list {
+			if m.form in r.island {continue}
+			id := len(r.island)
+			append(&stack, m.form)
+			for len(stack) > 0 {
+				cur := pop(&stack)
+				if cur in r.island {continue}
+				r.island[cur] = id
+				geo := gamedb.navmesh_of(db, cur) or_continue
+				for e in geo.edge_links {if e.kind == .Portal {append(&stack, e.navmesh)}}
+				for dl in geo.door_links {
+					if other, ok := door_leads_to(r, db, dl.door); ok {append(&stack, other)}
+				}
+			}
+		}
+	}
+}
+
+// door_leads_to is the navmesh a load door's destination door stands on.
+@(private = "file")
+door_leads_to :: proc(r: ^Route_Index, db: ^gamedb.DB, door: Form_ID) -> (mesh: Form_ID, ok: bool) {
+	d := gamedb.ref_by_formid(db, door) or_return
+	dest := gamedb.ref_by_formid(db, d.teleport.door) or_return
+	return r.door_mesh[dest.form_id]
 }
 
 DOOR_COST :: f32(512) // a door crossing, in units walked
 
-// coarse_route is the cells from one place to another over the navmesh graph (Dijkstra): NAVM
-// portal links between navmeshes, and load doors to the navmesh their destination door stands on.
-// Nodes sit at their NAVI centre; NAVI's own link lists are sparse. Exterior places take their grid cell.
-coarse_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> (route: []Route_Step, ok: bool) {
-	if len(r.door_mesh) == 0 {
-		for _, list in db.navmeshes {
-			for m in list {
-				for d in m.door_links {r.door_mesh[d.door] = m.form}
-			}
-		}
-	}
+// Hop is one navmesh of a route, and the load door crossed to reach it (0 = walked in).
+Hop :: struct {
+	mesh, door: Form_ID,
+}
+
+// navmesh_route is the navmeshes from one place to another (Dijkstra): NAVM portal links, and load
+// doors to the navmesh their destination door stands on. Nodes sit at their NAVI centre; NAVI's
+// own link lists are sparse. Exterior places take their grid cell.
+navmesh_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> (route: []Hop, ok: bool) {
+	if len(r.island) == 0 {route_index_build(r, db)}
 	start := navmesh_near(db, from_cell, from) or_return
 	goal := navmesh_near(db, to_cell, to) or_return
-	Hop :: struct {
+	if r.island[start] != r.island[goal] {return}
+	Came :: struct {
 		prev, door: Form_ID,
 	}
 	Open :: struct {
 		mesh: Form_ID,
 		cost: f32,
 	}
-	came := make(map[Form_ID]Hop, context.temp_allocator)
+	came := make(map[Form_ID]Came, context.temp_allocator)
 	cost := make(map[Form_ID]f32, context.temp_allocator)
 	open: pq.Priority_Queue(Open)
 	pq.init(&open, proc(a, b: Open) -> bool {return a.cost < b.cost}, pq.default_swap_proc(Open), allocator = context.temp_allocator)
 	cost[start] = 0
 	pq.push(&open, Open{start, 0})
-	relax :: proc(open: ^pq.Priority_Queue(Open), cost: ^map[Form_ID]f32, came: ^map[Form_ID]Hop, next: Form_ID, c: f32, hop: Hop) {
+	relax :: proc(open: ^pq.Priority_Queue(Open), cost: ^map[Form_ID]f32, came: ^map[Form_ID]Came, next: Form_ID, c: f32, from: Came) {
 		if old, seen := cost[next]; seen && old <= c {return}
 		cost[next] = c
-		came[next] = hop
+		came[next] = from
 		pq.push(open, Open{next, c})
 	}
 	for pq.len(open) > 0 {
@@ -252,34 +290,90 @@ coarse_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: 
 			relax(&open, &cost, &came, e.navmesh, cur.cost + linalg.distance(n.center, m.center), {cur.mesh, 0})
 		}
 		for dl in geo.door_links {
-			d := dl.door
-			door := gamedb.ref_by_formid(db, d) or_continue
-			dest := gamedb.ref_by_formid(db, door.teleport.door) or_continue
-			other := r.door_mesh[dest.form_id] or_continue
+			other := door_leads_to(r, db, dl.door) or_continue
+			door, _ := gamedb.ref_by_formid(db, dl.door)
+			dest, _ := gamedb.ref_by_formid(db, door.teleport.door)
 			m := gamedb.nav_index_entry(db, other) or_continue
 			c := cur.cost + linalg.distance(n.center, door.pos) + DOOR_COST + linalg.distance(dest.pos, m.center)
-			relax(&open, &cost, &came, other, c, {cur.mesh, d})
+			relax(&open, &cost, &came, other, c, {cur.mesh, dl.door})
 		}
 	}
 	if goal != start && goal not_in came {return}
-	chain := make([dynamic]Form_ID, context.temp_allocator)
-	for m := goal; m != start; m = came[m].prev {append(&chain, m)}
-	append(&chain, start)
-	slice.reverse(chain[:])
+	hops := make([dynamic]Hop, allocator)
+	for m := goal; m != start; m = came[m].prev {append(&hops, Hop{m, came[m].door})}
+	append(&hops, Hop{start, 0})
+	slice.reverse(hops[:])
+	return hops[:], true
+}
+
+// coarse_route is the cells from one place to another, each left at the next cell's navmesh
+// centre or through a load door.
+coarse_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> (route: []Route_Step, ok: bool) {
+	hops := navmesh_route(r, db, from_cell, from, to_cell, to, context.temp_allocator) or_return
 	steps := make([dynamic]Route_Step, allocator)
-	for i in 1 ..< len(chain) {
-		a, _ := gamedb.nav_index_entry(db, chain[i - 1])
-		b, _ := gamedb.nav_index_entry(db, chain[i])
-		door := came[chain[i]].door
-		if door != 0 {
-			d, _ := gamedb.ref_by_formid(db, door)
-			append(&steps, Route_Step{a.cell, d.pos, door})
+	for i in 1 ..< len(hops) {
+		a, _ := gamedb.nav_index_entry(db, hops[i - 1].mesh)
+		b, _ := gamedb.nav_index_entry(db, hops[i].mesh)
+		if hops[i].door != 0 {
+			d, _ := gamedb.ref_by_formid(db, hops[i].door)
+			append(&steps, Route_Step{a.cell, d.pos, hops[i].door})
 		} else if a.cell != b.cell {
-			append(&steps, Route_Step{a.cell, (a.center + b.center) / 2, 0})
+			append(&steps, Route_Step{a.cell, b.center, 0})
 		}
 	}
 	append(&steps, Route_Step{to_cell, to, 0})
 	return steps[:], true
+}
+
+// Trip_Point is a corner of a walk across any cells. `jump` is reached through a load door, not walked.
+Trip_Point :: struct {
+	pos:  [3]f32,
+	cell: Form_ID,
+	jump: bool,
+}
+
+// trip is the fine walk from one place to another, loaded or not: A* and funnel over the route's
+// navmeshes, one leg per load door. A leg with no path goes straight.
+trip :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> (points: []Trip_Point, ok: bool) {
+	hops := navmesh_route(r, db, from_cell, from, to_cell, to, context.temp_allocator) or_return
+	out := make([dynamic]Trip_Point, allocator)
+	start, jump := from, false
+	for i := 0; i < len(hops); {
+		j := i + 1
+		for j < len(hops) && hops[j].door == 0 {j += 1}
+		end := to
+		door: gamedb.Ref
+		if j < len(hops) {door, _ = gamedb.ref_by_formid(db, hops[j].door); end = door.pos}
+		leg(db, hops[i:j], start, end, jump, &out)
+		start, jump = door.teleport.pos, true
+		i = j
+	}
+	return out[:], true
+}
+
+// leg walks one door-free stretch of a trip over its navmeshes.
+@(private = "file")
+leg :: proc(db: ^gamedb.DB, hops: []Hop, from, to: [3]f32, jump: bool, out: ^[dynamic]Trip_Point) {
+	m := Path_Mesh {
+		cells   = make(map[Form_ID]bool, context.temp_allocator),
+		meshes  = make([dynamic]gamedb.Navmesh, context.temp_allocator),
+		by_form = make(map[Form_ID]int, context.temp_allocator),
+	}
+	for h in hops {
+		if h.mesh in m.by_form {continue}
+		nm := gamedb.navmesh_of(db, h.mesh) or_continue
+		m.by_form[h.mesh] = len(m.meshes)
+		append(&m.meshes, nm)
+	}
+	if len(m.meshes) == 0 {return}
+	cell, _ := gamedb.cell_by_formid(db, m.meshes[0].cell)
+	at :: proc(db: ^gamedb.DB, cell: gamedb.Cell, p: [3]f32) -> Form_ID {
+		return cell.form_id if cell.interior else gamedb.cell_under(db, cell.world_form_id, p)
+	}
+	append(out, Trip_Point{from, at(db, cell, from), jump})
+	corners := make([dynamic][3]f32, context.temp_allocator)
+	if !find_path(&m, from, to, &corners) {append(&corners, to)}
+	for p in corners {append(out, Trip_Point{p, at(db, cell, p), false})}
 }
 
 // navmesh_near is the navmesh of a cell whose centre is nearest p.
