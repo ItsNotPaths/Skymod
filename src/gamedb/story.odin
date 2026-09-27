@@ -4,6 +4,8 @@ package gamedb
 // (PNAM) and the sibling before it (SNAM); the event nodes are the roots. An event walks down from
 // the root of its type, and a quest node starts its quests (script/story.odin).
 
+import "core:slice"
+import "core:strings"
 import "../formats/esm"
 
 Story_Node_Kind :: enum u8 {
@@ -29,6 +31,7 @@ Story_Node :: struct {
 	quests:         []Story_Quest, // a quest node's quests, in order (owned)
 	quests_to_run:  u32, // MNAM, with STORY_NUM_QUESTS_TO_RUN
 	children:       []Form_ID, // in sibling order, built once every plugin is read (owned)
+	edid:           string, // lower case: sibling ties go alphabetically (owned)
 }
 
 // Story_Quest is one quest a quest node can start, and how long before it may start again.
@@ -45,6 +48,7 @@ index_story_node :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer if backing != nil {delete(backing)}
 
 	n := Story_Node{kind = .Branch if rec.type == "SMBN" else .Quest if rec.type == "SMQN" else .Event}
+	n.edid = strings.to_lower(esm.editor_id(fl), db.allocator)
 	quests := make([dynamic]Story_Quest, db.allocator)
 	conds_at := -1
 	for f, i in fl {
@@ -77,8 +81,8 @@ index_story_node :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 }
 
 // order_story_nodes gives each node its children, and the tree its roots, in sibling order: each
-// chain of previous-sibling links in turn, chains by their first node's form order.
-// (hole story-sibling-order :tags (quest records) :sev polish) SNAM is no total order: 7 of 117 vanilla parents have several chains or two nodes after one sibling (DungeonNode, the event root). Chains go by form order; the engine's tie-break is unsourced.
+// chain of previous-sibling links in turn. SNAM is no total order (7 of 117 vanilla parents have
+// several chains, or two nodes after one sibling); ties go by editor id (user choice 2026-09-27).
 @(private)
 order_story_nodes :: proc(db: ^DB) {
 	previous := make(map[Form_ID]Form_ID, len(db.story_nodes), context.temp_allocator)
@@ -88,7 +92,12 @@ order_story_nodes :: proc(db: ^DB) {
 		if n.parent not_in by_parent {by_parent[n.parent] = make([dynamic]Form_ID, context.temp_allocator)}
 		append(&by_parent[n.parent], form)
 	}
+	context.user_ptr = db
 	for parent, &kids in by_parent {
+		slice.sort_by(kids[:], proc(a, b: Form_ID) -> bool {
+			db := (^DB)(context.user_ptr)
+			return db.story_nodes[a].edid < db.story_nodes[b].edid
+		})
 		ordered := chain_order(kids[:], previous, db.allocator)
 		if parent == 0 {
 			db.story_roots = ordered
@@ -107,6 +116,7 @@ story_node_of :: proc(db: ^DB, form: Form_ID) -> (Story_Node, bool) {
 @(private)
 free_story_node :: proc(db: ^DB, n: Story_Node) {
 	free_conditions(db, n.conditions)
+	delete(n.edid, db.allocator)
 	delete(n.quests, db.allocator)
 	delete(n.children, db.allocator)
 }

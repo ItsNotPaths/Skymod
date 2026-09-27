@@ -4,6 +4,7 @@ package gamedb
 // the responses (INFO) a topic offers, each with its conditions and the lines an actor says. A
 // topic's INFOs are tried top to bottom; their order is the previous-INFO (PNAM) chain.
 
+import "core:slice"
 import "core:strings"
 import "../formats/esm"
 
@@ -193,6 +194,7 @@ order_topic_infos :: proc(db: ^DB) {
 		append(&by_topic[info.topic], form)
 	}
 	for topic, &kids in by_topic {
+		slice.sort(kids[:])
 		if t, ok := &db.topics[topic]; ok {t.infos = chain_order(kids[:], previous, db.allocator)}
 	}
 }

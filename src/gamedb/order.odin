@@ -3,9 +3,8 @@ package gamedb
 import "core:slice"
 
 // chain_order orders siblings by their previous-sibling links (`previous`, 0 for none): each chain
-// in turn, chains by their first form's order, then any loop. Returns a slice in `allocator`.
+// in turn, ties in the order `kids` comes in, then any loop. Returns a slice in `allocator`.
 chain_order :: proc(kids: []Form_ID, previous: map[Form_ID]Form_ID, allocator := context.allocator) -> []Form_ID {
-	slice.sort(kids)
 	after := make(map[Form_ID][dynamic]Form_ID, len(kids), context.temp_allocator)
 	for k in kids {
 		prev := previous[k]
