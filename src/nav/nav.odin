@@ -5,6 +5,7 @@ package nav
 
 import pq "core:container/priority_queue"
 import "core:math/linalg"
+import "core:math/rand"
 import "core:slice"
 import "../gamedb"
 
@@ -198,4 +199,18 @@ Route_Step :: struct {
 // coarse_route is the cells from one place to another, each with the point where it is left.
 coarse_route :: proc(db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> []Route_Step {
 	return nil
+}
+
+// random_point_near is the centre of a random triangle whose centre lies within radius of p.
+random_point_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32) -> (point: [3]f32, ok: bool) {
+	seen := 0
+	for &nm, mi in m.meshes {
+		for _, ti in nm.tris {
+			c := center(m, {i32(mi), i32(ti)})
+			if linalg.length(c.xy - p.xy) > radius {continue}
+			seen += 1
+			if rand.int_max(seen) == 0 {point, ok = c, true} // reservoir pick
+		}
+	}
+	return
 }

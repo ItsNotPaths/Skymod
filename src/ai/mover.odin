@@ -5,15 +5,11 @@ package ai
 
 import "core:math"
 import "core:math/linalg"
+import "../gamedb"
 import "../nav"
 
 // Gait is a package's preferred speed.
-Gait :: enum u8 {
-	Walk,
-	Fast_Walk,
-	Jog,
-	Run,
-}
+Gait :: gamedb.Package_Speed
 
 // Goal is where the mover goes. A procedure re-aims it each tick to follow a moving ref.
 Goal :: struct {
@@ -43,7 +39,7 @@ BUMP_TURN :: f32(0.35) // radians clockwise while touching another actor
 gait_speed :: proc(g: Gait) -> f32 {
 	switch g {
 	case .Walk:      return 80
-	case .Fast_Walk: return 120
+	case .FastWalk:  return 120
 	case .Jog:       return 200
 	case .Run:       return 300
 	}

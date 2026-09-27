@@ -61,13 +61,14 @@ tick_actor_bodies :: proc(g: ^Game) {
 	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
 	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
 	nav.rebuild(&g.agents.mesh, &g.db, cells[:])
-	// (hole ai-agent :tags ai :sev blocker :needs (package-tree proc-travel proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed. Also: a capsule's walk is never written back to its ref (Moved delta), so scripts, saves and GetDistance see the placed spot.
+	// (hole ai-agent :tags ai :sev blocker :needs (proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed.
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
 			physics.character_move(phys, &b.char, vel, false, TICK_DT)
+			if vel != {} {actor_publish(g, form, &b, vel)}
 		} else {
 			physics.character_destroy(&b.char)
 			append(&gone, form)
@@ -75,6 +76,20 @@ tick_actor_bodies :: proc(g: ^Game) {
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
 	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen)
+}
+
+// actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell
+// under it, so scripts and saves see where it is. A standing actor keeps its placement.
+@(private = "file")
+actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
+	feet := physics.character_position(&b.char)
+	cell := worldstate.ref_cell(&g.ws, &g.db, form)
+	if c, ok := g.db.cells[cell]; ok && c.world_form_id != 0 {
+		if under := gamedb.cell_under(&g.db, c.world_form_id, feet); under != 0 {cell = under}
+	}
+	heading := math.PI / 2 - math.atan2(vel.y, vel.x)
+	worldstate.set_moved(&g.ws, form, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	b.placed = feet
 }
 
 @(private = "file")
