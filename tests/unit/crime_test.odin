@@ -3,6 +3,7 @@ package unit_tests
 import "core:os"
 import "core:testing"
 import "../../src/formats/esm"
+import "../../src/gamedb"
 import ws "../../src/worldstate"
 
 CRIME_TOWN :: ws.Form_ID(0x000267EA)
@@ -77,4 +78,46 @@ test_crime_enemy_is_hostile :: proc(t: ^testing.T) {
 	ws.set_wanted(&s, CRIME_THIEF, CRIME_TOWN, {enemy = true})
 	testing.expect(t, ws.hostile(&s, nil, CRIME_GUARD, CRIME_THIEF), "enemy flag makes members hostile")
 	testing.expect(t, !ws.hostile(&s, nil, CRIME_CITIZEN, CRIME_THIEF), "a non-member is not")
+}
+
+// A witness that detects the offender, and the victim of a violent crime, learn the faction's
+// CRVA bounty; a theft is worth the item's value times the steal multiplier.
+@(test)
+test_crime_report :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	defer delete(db.factions)
+	db.factions[CRIME_TOWN] = {flags = esm.FACT_TRACK_CRIME, has_crime = true, crime = {murder = 1000, assault = 40, steal_multiplier = 0.5}}
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
+	ws.set_crime_faction(&s, CRIME_CITIZEN, CRIME_TOWN)
+
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Steal, 100), ws.Crime_Status.Unreported)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_CITIZEN, CRIME_THIEF), ws.Bounty{}) // an owner sees nothing
+
+	ws.set_awareness(&s, CRIME_GUARD, CRIME_THIEF, {level = 1, detected = true})
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Steal, 100), ws.Crime_Status.Reported)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_GUARD, CRIME_THIEF), ws.Bounty{nonviolent = 50})
+
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Assault, 0), ws.Crime_Status.Reported)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_GUARD, CRIME_THIEF), ws.Bounty{violent = 40, nonviolent = 50})
+	testing.expect_value(t, s.story_events[len(s.story_events) - 1].type, ws.STORY_ASSAULT)
+	// The victim turns witness VICTIM_DELAY later.
+	ws.tick_crime(&s, &db, 1)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_CITIZEN, CRIME_THIEF), ws.Bounty{})
+	ws.tick_crime(&s, &db, 1.5)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_CITIZEN, CRIME_THIEF), ws.Bounty{violent = 40})
+	// A victim dead before then never does.
+	victim2 := ws.Form_ID(0x000A0103)
+	ws.set_crime_faction(&s, victim2, CRIME_TOWN)
+	ws.report_crime(&s, &db, CRIME_THIEF, victim2, .Assault, 0)
+	ws.set_dead(&s, victim2, 0x0004DEAD, true)
+	ws.tick_crime(&s, &db, 3)
+	testing.expect_value(t, ws.bounty(&s, &db, victim2, CRIME_THIEF), ws.Bounty{})
+	testing.expect_value(t, len(s.victim_waits), 0)
+
+	// Fighting an enemy is no crime.
+	ws.set_wanted(&s, CRIME_THIEF, CRIME_TOWN, {enemy = true})
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Assault, 0), ws.Crime_Status.None)
 }

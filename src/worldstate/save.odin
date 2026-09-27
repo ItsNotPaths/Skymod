@@ -330,6 +330,7 @@ Save_Body :: struct {
 	killers:       []Saved_Alias,   // alias = the dead actor, form = its killer
 	display_names: []Saved_Name,
 	courier_waits: []Courier_Remove,
+	victim_waits:  []Victim_Wait,
 	scenes:        []Saved_Scene,
 	packages_done: []Saved_Said,    // speaker = the actor, info = the package
 	awareness:     []Saved_Awareness,
@@ -587,6 +588,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		killers       = save_pairs(ws.killers),
 		display_names = display_names[:],
 		courier_waits = ws.courier_waits[:],
+		victim_waits  = ws.victim_waits[:],
 		scenes        = scenes[:],
 		packages_done = packages_done[:],
 		awareness     = awareness[:],
@@ -790,6 +792,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_pairs(&ws.killers, body.killers, remap, have_remap, rf)
 	for n in body.display_names {
 		if form, ok := rf(remap, have_remap, n.form); ok {set_display_name(ws, form, n.name)}
+	}
+	for w in body.victim_waits {
+		v, vok := rf(remap, have_remap, w.victim)
+		o, ook := rf(remap, have_remap, w.offender)
+		if vok && ook {append(&ws.victim_waits, Victim_Wait{v, o, w.kind, w.wait})}
 	}
 	for w in body.courier_waits {
 		w := w
@@ -1062,6 +1069,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.crime_factions {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for n in body.display_names {add_slot(&seen, n.form)}
+	for w in body.victim_waits {add_slot(&seen, w.victim);add_slot(&seen, w.offender)}
 	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)

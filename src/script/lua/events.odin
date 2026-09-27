@@ -265,6 +265,7 @@ STORY_HANDLERS := []Story_Handler {
 	{worldstate.STORY_SCRIPT, "OnStoryScript", {"K1", "L1", "R1", "R2", "V1", "V2"}},
 	{worldstate.STORY_CHANGE_LOCATION, "OnStoryChangeLocation", {"R1", "L1", "L2"}},
 	{worldstate.STORY_KILL, "OnStoryKillActor", {"R1", "R2", "L1", "V1", "V2"}},
+	{worldstate.STORY_ASSAULT, "OnStoryAssaultActor", {"R1", "R2", "L1", "V1"}},
 	{worldstate.STORY_LEVEL, "OnStoryIncreaseLevel", {"V1"}},
 	{worldstate.STORY_SKILL, "OnStoryIncreaseSkill", {"S1"}},
 	{worldstate.STORY_CAST, "OnStoryCastMagic", {"R1", "R2", "L1", "F1"}},

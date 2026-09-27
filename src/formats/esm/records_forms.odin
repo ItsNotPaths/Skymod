@@ -145,6 +145,7 @@ FACT_IGNORE_TRESPASS :: 0x0000_0400
 FACT_DO_NOT_REPORT_CRIMES :: 0x0000_0800
 FACT_IGNORE_PICKPOCKET :: 0x0000_2000
 FACT_VENDOR :: 0x0000_4000
+FACT_IGNORE_WEREWOLF :: 0x0001_0000 // xEdit's name; 27 vanilla factions, all also ignoring every other crime
 
 // Combat_Reaction is how members of one faction treat members of another (an XNAM row).
 Combat_Reaction :: enum u32 {

@@ -1,5 +1,6 @@
 package worldstate
 
+import "../formats/esm"
 import "../gamedb"
 
 // Crime is faction logic, for every actor (user, 2026-09-27). An offence gives the members of a
@@ -112,19 +113,92 @@ set_crime_faction :: proc(ws: ^World_State, actor, faction: Form_ID) {
 	ws.crime_factions[actor] = faction
 }
 
-// report_crime is an offence by `offender` against `victim` (an actor, or an owner for Steal and
-// Trespass), worth `value` gold for a theft.
-// (hole crime-report :tags (combat ai) :sev gap) an offence reaches nobody: wanted each member of a crime faction that has detected the offender to know the CRVA bounty (assault 40, murder 1000, theft value x0.5, pickpocket 25, trespass 5, escape 100, werewolf 1000; horse theft iCrimeGoldStealHorse 100) unless the faction ignores that crime, and the ASSU event. SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing. A hit or kill between hostile actors is no crime.
-report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) {
+// VICTIM_DELAY is how long after a violent crime its victim counts as a witness (user, 2026-09-27):
+// a victim killed by the next blow never reports, and no hit races the one before it.
+VICTIM_DELAY :: f32(2)
+
+// Victim_Wait is a victim that becomes a witness when `wait` runs out.
+Victim_Wait :: struct {
+	victim, offender: Form_ID,
+	kind:             Crime_Kind,
+	wait:             f32,
 }
 
-// spread_crime passes local bounties between the members of a crime faction, after detection.
-// (hole crime-spread :tags (combat ai) :sev gap :needs (crime-report)) a local bounty never moves: wanted a member who knows it passing it to a member it detects (the higher bounty wins), faction-wide when a knower sees a guard of the faction (IsGuardFaction plus CRIF) or when half the members know it in a faction with no guards, and dropped when its last knower dies.
-spread_crime :: proc(ws: ^World_State, db: ^gamedb.DB) {
+// Crime_Status is a story event's crime value: whether the act was a crime, and whether anyone knows.
+Crime_Status :: enum i32 {
+	None,
+	Unreported,
+	Reported,
+}
+
+// report_crime is an offence by `offender` against `victim` (an actor, or an owner for Steal and
+// Trespass), worth `value` gold for a theft. Each member of a crime faction that detects the
+// offender learns the bounty its faction's CRVA sets. The victim of a violent crime learns it
+// VICTIM_DELAY later, if it is still alive. A hit or kill between hostile actors is no crime.
+// (hole crime-alarms :tags (combat script) :sev gap :needs (combat-any-target)) SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing: an alarm is a crime reported against the player plus combat, and combat has no target but the player.
+report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) -> Crime_Status {
+	if offender == 0 || offender == victim || offender in ws.unreported {return .None}
+	if kind in VIOLENT_CRIMES && (hostile(ws, db, victim, offender) || hostile(ws, db, offender, victim)) {return .None}
+	status := Crime_Status.Unreported
+	for k, a in ws.awareness {
+		if k[1] == offender && a.detected && witness(ws, db, k[0], offender, kind, value) {status = .Reported}
+	}
+	if kind in VIOLENT_CRIMES {append(&ws.victim_waits, Victim_Wait{victim, offender, kind, VICTIM_DELAY})}
+	if kind == .Assault {
+		queue_story_event(ws, {type = STORY_ASSAULT, ref1 = victim, ref2 = offender, location1 = ref_location(ws, db, victim), value1 = i32(status)})
+	}
+	return status
+}
+
+// witness gives `knower` the bounty its crime faction sets for the offence, if it counts one.
+@(private = "file")
+witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kind: Crime_Kind, value: i32) -> bool {
+	if knower == offender || is_dead(ws, knower) {return false}
+	crime := crime_faction(ws, db, knower)
+	f, ok := faction(ws, db, crime)
+	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & (esm.FACT_DO_NOT_REPORT_CRIMES | IGNORES[kind]) != 0 {return false}
+	add: i32
+	switch kind {
+	case .Steal:      add = i32(f32(value) * f.crime.steal_multiplier)
+	case .Pickpocket: add = i32(f.crime.pickpocket)
+	case .Trespass:   add = i32(f.crime.trespass)
+	case .Assault:    add = i32(f.crime.assault)
+	case .Murder:     add = i32(f.crime.murder)
+	case .Escape:     add = i32(f.crime.escape)
+	case .Werewolf:   add = i32(f.crime.werewolf)
+	}
+	if add <= 0 {return false}
+	b := bounty(ws, db, knower, offender)
+	if kind in VIOLENT_CRIMES {b.violent += add} else {b.nonviolent += add}
+	learn_bounty(ws, db, knower, offender, b)
+	return true
+}
+
+// IGNORES is the FACT flag that makes a faction ignore each crime.
+@(private = "file")
+IGNORES := [Crime_Kind]u32 {
+	.Steal      = esm.FACT_IGNORE_STEALING,
+	.Pickpocket = esm.FACT_IGNORE_PICKPOCKET,
+	.Trespass   = esm.FACT_IGNORE_TRESPASS,
+	.Assault    = esm.FACT_IGNORE_ASSAULT,
+	.Murder     = esm.FACT_IGNORE_MURDER,
+	.Escape     = 0,
+	.Werewolf   = esm.FACT_IGNORE_WEREWOLF,
+}
+
+// tick_crime runs crime's clocks after detection: victims turning witness, and bounties spreading.
+// (hole crime-spread :tags (combat ai) :sev gap) a local bounty never moves: wanted a member who knows it passing it to a member it detects (the higher bounty wins), faction-wide when a knower sees a guard of the faction (IsGuardFaction plus CRIF) or when half the members know it in a faction with no guards, and dropped when its last knower dies.
+tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
+	#reverse for &w, i in ws.victim_waits {
+		w.wait -= dt
+		if w.wait > 0 {continue}
+		witness(ws, db, w.victim, w.offender, w.kind, 0)
+		ordered_remove(&ws.victim_waits, i)
+	}
 }
 
 // is_trespassing: the actor stands where its owner forbids it.
-// (hole trespass :tags (combat world) :sev gap :needs (crime-report)) nobody trespasses: no check of owned cells (254, all interior) against the public flag (CELL DATA 0x20, 152) and locked doors, no warnings (iGuardWarnings 2, fAITrespassWarningTimer 5), no Trespass crime.
+// (hole trespass :tags (combat world) :sev gap) nobody trespasses: no check of owned cells (254, all interior) against the public flag (CELL DATA 0x20, 152) and locked doors, no warnings (iGuardWarnings 2, fAITrespassWarningTimer 5), no Trespass crime.
 is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool {
 	return false
 }
