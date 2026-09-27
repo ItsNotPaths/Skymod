@@ -16,7 +16,7 @@ import "../../sight"
 import "../../worldstate"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) nothing sends OnHit (8 script classes set a stage from it) and Health at 0 does not kill: no attack makes a hit.
+// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) only a projectile sends OnHit (8 script classes set a stage from it): melee and spells make no hit.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
@@ -181,6 +181,12 @@ tick_deaths :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 		send(vm, d.actor, "OnDeath", d.killer)
 	}
 	clear(&ws.deaths)
+}
+
+// tick_hits sends OnHit to each actor hit; no hit is a power, sneak or bash attack, or blocked yet.
+tick_hits :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	for h in ws.hits {send(vm, h.target, "OnHit", h.aggressor, h.source, h.projectile, false, false, false, false)}
+	clear(&ws.hits)
 }
 
 // tick_los checks each LOS registration and sends OnGainLOS / OnLostLOS to the registering form
@@ -357,6 +363,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_location(vm, ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
 	tick_updates(vm, ws, dt, hours)
 	tick_items(vm, db, ws)
+	tick_hits(vm, ws)
 	tick_deaths(vm, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)

@@ -101,6 +101,7 @@ game_frame :: proc(g: ^Game) {
 	frame_inspect(g)
 	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
 	frame_actor_grab(g)
+	frame_dev_shot(g)
 	frame_cast(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 	draw_actor_nametags(g)
@@ -143,6 +144,7 @@ game_tick :: proc(g: ^Game) {
 	frame_scene_select(g)
 	tick_locomotion(g)
 	tick_actor_bodies(g)
+	tick_projectiles(g)
 	frame_physics(g)
 	frame_traversal(g)
 	g.scripts.pending = true

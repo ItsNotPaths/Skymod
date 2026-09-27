@@ -52,6 +52,12 @@ MAX_CLUTTER_VEL :: f32(2500)
 // than any real swing yet stops a transient from diverging.
 MAX_CLUTTER_ANG_VEL :: f32(15)
 
+// A projectile keeps its authored speed (arrows fly 3600 u/s and up, past MAX_CLUTTER_VEL), sweeps
+// each step (LinearCast) so it cannot skip a wall, and keeps some energy when it strikes one.
+MAX_PROJECTILE_VEL :: f32(100000)
+PROJECTILE_RESTITUTION :: f32(0.3)
+PROJECTILE_FRICTION :: f32(0.4)
+
 // convex_radius: the rounding radius (units) for convex shapes (hulls + boxes). Kept at Jolt's small
 // default. An earlier theory raised it to ~3.5 u (0.05 m × 69.99) to give GJK a shrink margin against
 // the convex-vs-mesh EPA storm — but the profiler+probe proved that storm was actually FLAT convex
@@ -416,7 +422,7 @@ Dyn_Shape :: struct {
 // world placement). Spawns ASLEEP (placed clutter is inert until kicked/interacted — same as the old
 // the old per-instance hull). Mass is auto-derived from the compound volume (the Havok mass only CLASSIFIES).
 // Returns 0 if no sub-shape built.
-add_dynamic_body :: proc(w: ^World, subs: []Dyn_Shape, origin: [3]f32) -> Body {
+add_dynamic_body :: proc(w: ^World, subs: []Dyn_Shape, origin: [3]f32, projectile := false) -> Body {
 	if len(subs) == 0 {return 0}
 	settings := jolt.StaticCompoundShapeSettings_Create()
 	children := make([dynamic]^jolt.Shape, 0, len(subs), context.temp_allocator)
@@ -436,7 +442,7 @@ add_dynamic_body :: proc(w: ^World, subs: []Dyn_Shape, origin: [3]f32) -> Body {
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
 	for c in children {jolt.Shape_Destroy(c)} // compound holds its own refs now; drop ours
 	if shape == nil {return 0}
-	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true, ccd = clutter_ccd, activate = false)
+	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true, ccd = clutter_ccd || projectile, activate = false, projectile = projectile)
 }
 
 // build_sub_shape creates one Jolt leaf shape for a compound sub-shape. Caller owns the returned
@@ -570,7 +576,7 @@ add_static_capsule :: proc(w: ^World, a: [3]f32, b: [3]f32, radius: f32) -> Body
 // the body holds its own ref, so remove_body frees the shape). Jolt shapes are ref-counted;
 // without this the streaming churn would leak C++ shapes (invisible to the Odin [mem] report).
 @(private)
-make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool, ccd := false, activate := true) -> Body {
+make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool, ccd := false, activate := true, projectile := false) -> Body {
 	p := to_rvec(pos)
 	r := rot
 	motion := jolt.MotionType.Dynamic if is_dynamic else jolt.MotionType.Static
@@ -596,6 +602,11 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 		// through the chain toward inf → NaN (the Trader sign blow-up). Jolt's default is ~47 rad/s;
 		// clamp to a sane spin so a transient can't diverge.
 		jolt.BodyCreationSettings_SetMaxAngularVelocity(bcs, MAX_CLUTTER_ANG_VEL)
+		if projectile {
+			jolt.BodyCreationSettings_SetMaxLinearVelocity(bcs, MAX_PROJECTILE_VEL)
+			jolt.BodyCreationSettings_SetRestitution(bcs, PROJECTILE_RESTITUTION)
+			jolt.BodyCreationSettings_SetFriction(bcs, PROJECTILE_FRICTION)
+		}
 	}
 	// activate=false spawns the body ASLEEP: placed clutter stays inert (Skyrim keyframes it until
 	// touched) so it neither simulates a mass-settle at load — the blow-up that froze the frame and
@@ -648,6 +659,36 @@ remove_body :: proc(w: ^World, b: Body) {
 set_velocity :: proc(w: ^World, b: Body, v: [3]f32) {
 	vv := v
 	jolt.BodyInterface_SetLinearVelocity(w.bodies, b, &vv)
+}
+
+body_velocity :: proc(w: ^World, b: Body) -> [3]f32 {
+	v: jolt.Vec3
+	jolt.BodyInterface_GetLinearVelocity(w.bodies, b, &v)
+	return {v[0], v[1], v[2]}
+}
+
+// launch wakes a body at `pos` with velocity `v`, falling at `gravity` times world gravity.
+launch :: proc(w: ^World, b: Body, pos, v: [3]f32, gravity: f32) {
+	p := to_rvec(pos)
+	jolt.BodyInterface_SetPosition(w.bodies, b, &p, .Activate)
+	jolt.BodyInterface_SetGravityFactor(w.bodies, b, gravity)
+	set_velocity(w, b, v)
+}
+
+// body_origin is a body's frame origin, the point launch places (body_position is its centre of mass).
+body_origin :: proc(w: ^World, b: Body) -> [3]f32 {
+	p: jolt.RVec3
+	jolt.BodyInterface_GetPosition(w.bodies, b, &p)
+	return from_rvec(p)
+}
+
+set_rotation :: proc(w: ^World, b: Body, rot: quaternion128) {
+	r := jolt.Quat(rot)
+	jolt.BodyInterface_SetRotation(w.bodies, b, &r, .Activate)
+}
+
+set_gravity_factor :: proc(w: ^World, b: Body, gravity: f32) {
+	jolt.BodyInterface_SetGravityFactor(w.bodies, b, gravity)
 }
 
 // body_position returns a body's centre-of-mass in world space — the EXACT simulated value,

@@ -73,6 +73,7 @@ Overlay :: struct {
 	pending_moves:   map[Form_ID]Pending_Move,     // MoveToWhenUnloaded: ref -> the move that waits for both locations to unload
 	anim_regs:       map[Form_ID][dynamic]Anim_Reg, // sender -> RegisterForAnimationEvent registrations on it
 	los_regs:        [dynamic]Los_Reg,             // RegisterForLOS and the single gain/lost registrations
+	projectiles:     [dynamic]Flight,              // projectiles that can still hit (projectiles.odin)
 	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
@@ -120,6 +121,7 @@ Runtime :: struct {
 	// Activations a script requested (ObjectReference.Activate). The app runs them at the next tick,
 	// through the same path as the player's Activate key, and clears the list.
 	activations:     [dynamic]Activation,
+	fires:           [dynamic]Fire, // Weapon.Fire calls for the app to launch
 	// Items scripts moved since the last tick; the tick sends their inventory events.
 	item_moves:      [dynamic]Item_Move,
 	// Refs created and deleted since the VM last looked. It gives the new ones their scripts
@@ -141,6 +143,7 @@ Runtime :: struct {
 	equip_changes:   [dynamic]Equip_Change, // items on or off since the VM last looked: OnObject(Un)Equipped
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
 	deaths:          [dynamic]Death,        // deaths since the VM last looked: OnDying, OnDeath
+	hits:            [dynamic]Hit,          // hits since the VM last looked: OnHit
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
@@ -176,6 +179,7 @@ init :: proc(ws: ^World_State) {
 	init_overlay(&ws.overlay)
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
+	ws.fires = make([dynamic]Fire)
 	ws.item_moves = make([dynamic]Item_Move)
 	ws.new_refs = make([dynamic]Form_ID)
 	ws.gone_refs = make([dynamic]Form_ID)
@@ -190,6 +194,7 @@ init :: proc(ws: ^World_State) {
 	ws.equip_changes = make([dynamic]Equip_Change)
 	ws.level_ups = make([dynamic]Level_Up)
 	ws.deaths = make([dynamic]Death)
+	ws.hits = make([dynamic]Hit)
 	ws.story_events = make([dynamic]Story_Event)
 	ws.barks = make([dynamic]Bark)
 	ws.story_quests = make([dynamic]Form_ID)
@@ -202,6 +207,7 @@ destroy :: proc(ws: ^World_State) {
 	destroy_overlay(&ws.overlay)
 	delete(ws.scene_dirty)
 	delete(ws.activations)
+	delete(ws.fires)
 	delete(ws.item_moves)
 	delete(ws.new_refs)
 	delete(ws.gone_refs)
@@ -216,6 +222,7 @@ destroy :: proc(ws: ^World_State) {
 	for l in ws.level_ups {delete(l.choice)}
 	delete(ws.level_ups)
 	delete(ws.deaths)
+	delete(ws.hits)
 	delete(ws.in_triggers)
 	delete(ws.story_events)
 	delete(ws.barks)
@@ -304,6 +311,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.pending_moves = make(map[Form_ID]Pending_Move)
 	o.anim_regs = make(map[Form_ID][dynamic]Anim_Reg)
 	o.los_regs = make([dynamic]Los_Reg)
+	o.projectiles = make([dynamic]Flight)
 	o.effects = make(map[Form_ID]Active_Effect)
 	o.effects_on = make(map[Form_ID][dynamic]Form_ID)
 }
@@ -398,6 +406,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.pending_moves)
 	delete(o.anim_regs)
 	delete(o.los_regs)
+	delete(o.projectiles)
 	delete(o.effects)
 	for _, &list in o.effects_on {delete(list)}
 	delete(o.effects_on)

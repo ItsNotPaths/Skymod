@@ -171,6 +171,7 @@ Cache :: struct {
 	textures: map[string]Tex_Entry, // tex_key(path,srgb) -> entry (key owned); see Tex_Entry
 	failed:   map[string]bool, // model paths that decoded to nothing (missing / no shapes) — don't retry (key owned)
 	furniture: map[string][]nif.Furniture_Marker, // model path -> its furniture markers, never evicted (key + slice owned)
+	projectile_nodes: map[string]Maybe(matrix[4, 4]f32), // model path -> its ProjectileNode, never evicted (key owned)
 	// D1 eviction (models). refs = live holders per lowercased model path (a resident chunk's
 	// instances/grass, a baked LOD draw); set BY the world layer via model_acquire/model_release,
 	// independent of residency (a ref can precede the upload). A model with refs>0 is pinned. When
@@ -201,6 +202,7 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
 		failed   = make(map[string]bool),
 		refs     = make(map[string]int),
 		furniture = make(map[string][]nif.Furniture_Marker),
+		projectile_nodes = make(map[string]Maybe(matrix[4, 4]f32)),
 	}
 }
 
@@ -264,6 +266,8 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(m)
 	}
 	delete(c.furniture)
+	for key in c.projectile_nodes {delete(key)}
+	delete(c.projectile_nodes)
 	for key, _ in c.refs {
 		delete(key)
 	}
@@ -512,6 +516,22 @@ furniture_markers :: proc(c: ^Cache, modl: string) -> []nif.Furniture_Marker {
 	}
 	c.furniture[strings.clone(key)] = markers
 	return markers
+}
+
+// projectile_node is where a model launches projectiles, in model space: its ProjectileNode, read once.
+// MAIN THREAD.
+projectile_node :: proc(c: ^Cache, modl: string) -> (matrix[4, 4]f32, bool) {
+	key := strings.to_lower(modl, context.temp_allocator)
+	if m, hit := c.projectile_nodes[key]; hit {return m.? or_else 1, m != nil}
+	node: Maybe(matrix[4, 4]f32)
+	full := strings.concatenate({"meshes\\", modl}, context.temp_allocator)
+	if data, ok := vfs.read(c.v, full, context.temp_allocator); ok {
+		if h, hok := nif.parse_header(data, context.temp_allocator); hok {
+			if m, found := nif.node_world_by_name(data, &h, "ProjectileNode"); found {node = m}
+		}
+	}
+	c.projectile_nodes[strings.clone(key)] = node
+	return node.? or_else 1, node != nil
 }
 
 // get_model loads (or returns the cached) model for a MODL path, synchronously. Used

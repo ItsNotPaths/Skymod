@@ -46,6 +46,7 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"DevDisable",    "gameplay", .Button, "x"},
 	{"DevSpawn",      "gameplay", .Button, "b"},
 	{"DevGrabActor",  "gameplay", .Button, "j"},
+	{"DevShoot",      "gameplay", .Button, "mouse1"},
 }
 
 // input_setup initializes the manager, registers the default scheme, then applies any

@@ -323,6 +323,7 @@ Save_Body :: struct {
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	los_regs:      []Los_Reg,
+	projectiles:   []Flight,
 	effects:       []Saved_Effect,
 	next_effect:   u32,
 	clock:         Game_Clock,
@@ -570,6 +571,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		los_regs      = ws.los_regs[:],
+		projectiles   = ws.projectiles[:],
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
 		clock         = ws.clock,
@@ -888,6 +890,15 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		target, tok := rf(remap, have_remap, l.target)
 		if fok && vok && tok {append(&ws.los_regs, Los_Reg{form, viewer, target, l.mode, l.seen})}
 	}
+	for f in body.projectiles {
+		fl := f
+		fl.launched = false
+		ref, rok := rf(remap, have_remap, f.ref)
+		shooter, sok := rf(remap, have_remap, f.shooter)
+		weapon, wok := rf(remap, have_remap, f.weapon)
+		fl.ref, fl.shooter, fl.weapon = ref, shooter, weapon
+		if rok && sok && wok {append(&ws.projectiles, fl)}
+	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
 		form, fok := rf(remap, have_remap, a.form)
@@ -1029,6 +1040,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for m in body.pending_moves {add_slot(&seen, m.ref);add_slot(&seen, m.move.target)}
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for l in body.los_regs {add_slot(&seen, l.form);add_slot(&seen, l.viewer);add_slot(&seen, l.target)}
+	for f in body.projectiles {add_slot(&seen, f.ref);add_slot(&seen, f.shooter);add_slot(&seen, f.weapon)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
 	for sc in body.scripts {
 		add_slot(&seen, sc.form)

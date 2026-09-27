@@ -360,6 +360,7 @@ build_created_instance :: proc(db: ^gamedb.DB, form_id: Form_ID, c: worldstate.C
 			scale = c.scale,
 			world = smath.trs(c.pos, c.rot, c.scale),
 			veg = veg_classify(modl),
+			projectile = c.base in db.projectiles,
 		},
 		true
 }

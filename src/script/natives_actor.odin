@@ -5,6 +5,7 @@ package script
 
 import "core:log"
 import "../formats/esm"
+import "../formid"
 import "../gamedb"
 import "../worldstate"
 
@@ -101,15 +102,21 @@ n_force_av :: proc(c: ^Call, args: []Value) -> Value {
 n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	av, ok := av_arg(c, args)
 	if !ok {return nil}
-	worldstate.av_damage(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
-	if av == "Health" && worldstate.av_current(c.ws, c.db, c.self, av) <= 0 && !mortal_blocked(c, c.self) {kill(c, c.self, 0)}
+	if av == "Health" {
+		damage_health(c, c.self, arg_f32(args, 1, 0), 0)
+	} else {
+		worldstate.av_damage(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
+	}
 	return nil
 }
 
-// mortal_blocked: essential and protected actors survive 0 Health (protected dies only to the player,
-// and this damage names no attacker).
-mortal_blocked :: proc(c: ^Call, actor: Form_ID) -> bool {
-	return worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) || worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED)
+// damage_health takes Health; at 0 the actor dies, unless essential or protected (protected dies
+// only to the player).
+damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) {
+	worldstate.av_damage(c.ws, c.db, actor, "Health", amount)
+	if worldstate.av_current(c.ws, c.db, actor, "Health") > 0 || worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
+	if attacker != formid.PLAYER && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
+	kill(c, actor, attacker)
 }
 
 // SetActorValueCap(asValueName, afCap) is ours: the soft cap training stops at, a skill's or a pool's

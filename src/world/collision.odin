@@ -488,8 +488,16 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 	// one Jolt body per shape — the FIRST is the representative (all its parts are fixed at the same
 	// place, so a hinge anchored to any of them is equivalent).
 	body_ids := make([]physics.Body, len(m.collision.bodies), context.temp_allocator)
+	if inst.projectile {
+		if b := physics.add_dynamic_body(w, {projectile_capsule(inst, m)}, inst.pos, projectile = true); b != 0 {
+			append(&chunk.bodies, b)
+			inst.dyn_body = b
+			nmov = 1
+		}
+	}
 
 	for body, bi in m.collision.bodies {
+		if inst.projectile {break}
 		if allow_dynamic && body.movable {
 			// ONE dynamic compound body per movable rigid body, from its exact sub-shapes.
 			subs := make([dynamic]physics.Dyn_Shape, 0, 8, context.temp_allocator)
@@ -616,6 +624,22 @@ dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, wm0: smath.Mat4, origin: [3]f
 		pts := make([][3]f32, len(sh.vertices), context.temp_allocator)
 		for p, i in sh.vertices {pts[i] = mat_point(wm, p) - origin}
 		append(subs, physics.Dyn_Shape{kind = .Hull, points = pts, margin = sh.radius * s})
+	}
+}
+
+// projectile_capsule is a projectile's body: a capsule along the model's +Y, the way darts and arrows
+// point, fitted to its bounds.
+@(private = "file")
+projectile_capsule :: proc(inst: ^Instance, m: ^assetdb.Model) -> physics.Dyn_Shape {
+	s := mat_scale(inst.world)
+	e := (m.hi - m.lo) * s * 0.5
+	radius := max(min(e.x, e.z), 0.5)
+	return {
+		kind = .Capsule,
+		pos = mat_point(inst.world, (m.lo + m.hi) * 0.5) - inst.pos,
+		rot = mat_rotation(inst.world),
+		radius = radius,
+		half_h = max(e.y - radius, 0.1),
 	}
 }
 
