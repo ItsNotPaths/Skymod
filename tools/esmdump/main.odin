@@ -10,6 +10,7 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --rectypes       # record-type histogram
 //   odin run tools/esmdump -- <plugin.esm> --cells <substr> # interior cells matching
 //   odin run tools/esmdump -- <plugin.esm> --cell <edid>    # one cell's placed refs
+//   odin run tools/esmdump -- <plugin.esm> --quest <hex>    # one quest: stages, aliases, scenes, packages
 //   odin run tools/esmdump -- <plugin.esm> --forms [edid]   # keyword/link/faction/magic/alias survey
 //   odin run tools/esmdump -- <plugin.esm> --gmst [substr] # game-setting (GMST) survey
 //   odin run tools/esmdump -- <plugin.esm> --mesg [substr] # message (MESG) survey
@@ -149,6 +150,11 @@ main :: proc() {
 	}
 	if len(os.args) >= 4 && os.args[2] == "--cell" {
 		dump_cell(&db, os.args[3])
+		return
+	}
+	if len(os.args) >= 4 && os.args[2] == "--quest" {
+		id, _ := strconv.parse_uint(os.args[3], 16)
+		dump_quest(&db, gamedb.Form_ID(id))
 		return
 	}
 	if len(os.args) >= 4 && os.args[2] == "--cell-load" {
@@ -2146,7 +2152,8 @@ dump_cell :: proc(db: ^gamedb.DB, edid: string) {
 	)
 	for a in actors {
 		_, hasbase := gamedb.actor_base(db, a.base)
-		fmt.printfln("  actor 0x%08X base=0x%08X (NPC_ indexed=%t)", a.form_id, a.base, hasbase)
+		fmt.printfln("  actor 0x%08X base=0x%08X pos=(%.0f,%.0f,%.0f) (NPC_ indexed=%t)", a.form_id, a.base, a.pos.x, a.pos.y, a.pos.z, hasbase)
+		print_ref_ties(db, a)
 	}
 
 	// World-load filtering preview (matches src/world.load_cell): a ref becomes a
@@ -2186,7 +2193,8 @@ dump_cell :: proc(db: ^gamedb.DB, edid: string) {
 			}
 			RAD :: 180.0 / 3.14159265
 			fmt.printfln(
-				"  base=0x%08X pos=(%.0f,%.0f,%.0f) rot=(%.1f,%.1f,%.1f) scale=%.2f  %q%s",
+				"  ref=0x%08X base=0x%08X pos=(%.0f,%.0f,%.0f) rot=(%.1f,%.1f,%.1f) scale=%.2f  %q%s",
+				r.form_id,
 				r.base,
 				r.pos.x,
 				r.pos.y,
@@ -2198,6 +2206,7 @@ dump_cell :: proc(db: ^gamedb.DB, edid: string) {
 				model,
 				tp,
 			)
+			print_ref_ties(db, r)
 			shown += 1
 		}
 	}
@@ -2213,6 +2222,54 @@ dump_cell :: proc(db: ^gamedb.DB, edid: string) {
 		markers,
 		disabled,
 	)
+}
+
+dump_quest :: proc(db: ^gamedb.DB, quest: gamedb.Form_ID) {
+	qb, ok := db.quest_baseline[quest]
+	if !ok {
+		fmt.eprintfln("no quest 0x%08X", quest)
+		return
+	}
+	fmt.printfln("quest 0x%08X sge=%t run_once=%t event=%q", quest, qb.start_game_enabled, qb.run_once, string(qb.event[:]))
+	for idx, st in qb.stages {fmt.printfln("  stage %d flags=0x%X items=%d", idx, st.flags, len(st.items))}
+	for a in qb.aliases {
+		fmt.printfln("  alias %d %q loc=%t flags=0x%X fill=%v target=0x%08X alias=%d conds=%d packages=%v", a.id, a.name, a.location, a.flags, a.fill, a.target, a.alias, len(a.conditions), a.packages)
+	}
+	for form, sc in db.scenes {
+		if sc.quest != quest {continue}
+		fmt.printfln("  scene 0x%08X flags=0x%X phases=%d", form, sc.flags, len(sc.phases))
+		for a in sc.actors {fmt.printfln("    actor alias=%d flags=0x%X", a.alias, a.flags)}
+		for a in sc.actions {
+			fmt.printfln("    action %v alias=%d phases %d..%d packages=%v seconds=%.1f", a.kind, a.alias, a.start, a.end, a.packages, a.seconds)
+			for p in a.packages {dump_package(db, p)}
+		}
+	}
+}
+
+dump_package :: proc(db: ^gamedb.DB, form: gamedb.Form_ID) {
+	pk, ok := db.packages[form]
+	if !ok {
+		fmt.printfln("      package 0x%08X not decoded", form)
+		return
+	}
+	fmt.printfln("      package 0x%08X type=%d template=0x%08X conds=%d", form, pk.type, pk.template, len(pk.conditions))
+	for n in pk.tree {fmt.printfln("        node %v %q inputs=%v", n.branch, n.procedure, n.inputs)}
+	for in_ in pk.inputs {fmt.printfln("        input %d %v %v", in_.index, in_.kind, in_.value)}
+	if tpl, tok := db.packages[pk.template]; tok {
+		for n in tpl.tree {fmt.printfln("        tpl node %v %q inputs=%v", n.branch, n.procedure, n.inputs)}
+		for in_ in tpl.inputs {fmt.printfln("        tpl input %d %v %v", in_.index, in_.kind, in_.value)}
+	}
+}
+
+print_ref_ties :: proc(db: ^gamedb.DB, r: gamedb.Ref) {
+	if r.disabled {fmt.println("      disabled")}
+	if r.enable_parent != 0 {fmt.printfln("      enable-parent 0x%08X opposite=%t", r.enable_parent, r.enable_opposite)}
+	for l in gamedb.linked_refs_of(db, r.form_id) {fmt.printfln("      link kw=0x%08X -> 0x%08X", l.keyword, l.ref)}
+	for p in db.activate_parents[r.form_id] {fmt.printfln("      activate-parent 0x%08X", p)}
+	for a in gamedb.effective_scripts(db, r.form_id, r.base, context.temp_allocator) {
+		fmt.printfln("      script %s", a.name)
+		for p in a.props {fmt.printfln("        %s = %v", p.name, p.value)}
+	}
 }
 
 // loadorder_mode resolves the full load order over a Data dir and builds one DB,
