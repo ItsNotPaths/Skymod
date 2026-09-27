@@ -38,6 +38,7 @@ Agent :: struct {
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
 	greeted:   bool, // said Hello to the player, who has not walked off since
+	location:  Maybe(Form_ID), // the location it was last seen in
 }
 
 World :: struct {
@@ -94,6 +95,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		a.mover.goal = route_goal(w, ws, db, a, actor, feet, g)
 	}
 	vel := mover_step(&a.mover, &w.mesh, feet, touching, dt)
+	note_location(ws, db, a, actor)
 	ws.ai.packages[actor] = a.pack
 	worldstate.set_in_set(&ws.ai.moving, actor, vel != {})
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
@@ -130,6 +132,15 @@ route_goal :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^A
 	if at >= len(a.route) - 1 {return final}
 	s := a.route[at]
 	return {active = true, point = s.exit, radius = DOOR_RADIUS if s.door != 0 else ARRIVED, gait = final.gait, door = s.door}
+}
+
+// note_location queues a location change for the script tick when the actor's location differs from
+// the last one seen. The first sight only records it.
+@(private = "file")
+note_location :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID) {
+	now := worldstate.ref_location(ws, db, actor)
+	if old, seen := a.location.?; seen && old != now {append(&ws.ai.moves, worldstate.Location_Move{actor, old, now})}
+	a.location = now
 }
 
 // follow_path_order walks a script's PathTo in place of the package, and drops it on arrival.
@@ -198,6 +209,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 	}
 	if a.pack != 0 && !a.planned {plan_trip(w, ws, db, a, actor, feet)}
 	walk_trip(ws, db, a, actor, feet, dt)
+	note_location(ws, db, a, actor)
 	if _, _, action := worldstate.scene_package(ws, db, actor); action != nil && action.pack == a.pack && a.trip_at >= len(a.trip) {action.done = true}
 }
 

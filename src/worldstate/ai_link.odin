@@ -9,6 +9,12 @@ AI_Link :: struct {
 	paths:      map[Form_ID]Path_Order, // PathTo
 	packages:   map[Form_ID]Form_ID, // actor -> the package it runs (AI)
 	moving:     Form_Set, // actors walking this tick (AI)
+	moves:      [dynamic]Location_Move, // NPCs that changed location since the VM last looked (AI)
+}
+
+// Location_Move is an actor going from one location to another: OnLocationChange and a CLOC story event.
+Location_Move :: struct {
+	actor, old, now: Form_ID,
 }
 
 // Path_Order is a PathTo: walk to `to`, at `speed` 0 (walk) .. 1 (run); the AI drops it on arrival.
@@ -39,4 +45,5 @@ destroy_ai_link :: proc(l: ^AI_Link) {
 	delete(l.paths)
 	delete(l.packages)
 	delete(l.moving)
+	delete(l.moves)
 }

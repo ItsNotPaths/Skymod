@@ -28,16 +28,20 @@ transitions_destroy :: proc(t: ^Transitions) {
 	delete(t.persistent)
 }
 
-// (hole npc-change-location :tags (quest ai) :sev polish) only the player sends CLOC; 7 vanilla CLOC conditions run on actor 1, so an NPC's move may be meant to send it too (unsourced).
-// tick_location sends OnLocationChange(old, new) to the player and its aliases, and queues a
-// Change Location story event (actor 1 the player, location 1 the old, location 2 the new), when
-// the player's location differs from the last tick's.
+// tick_location sends OnLocationChange(old, new) to an actor and its aliases, and queues a Change
+// Location story event (actor 1 the actor, location 1 the old, location 2 the new): for the player
+// when its location differs from the last tick's, for NPCs as the AI saw them move.
 tick_location :: proc(vm: ^VM, ws: ^worldstate.World_State, t: ^Transitions, now: script.Form_ID) {
-	if old, known := t.location.?; known && old != now {
-		send(vm, formid.PLAYER, "OnLocationChange", old, now)
-		worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = formid.PLAYER, location1 = old, location2 = now})
-	}
+	if old, known := t.location.?; known && old != now {location_changed(vm, ws, formid.PLAYER, old, now)}
 	t.location = now
+	for m in ws.ai.moves {location_changed(vm, ws, m.actor, m.old, m.now)}
+	clear(&ws.ai.moves)
+}
+
+@(private = "file")
+location_changed :: proc(vm: ^VM, ws: ^worldstate.World_State, actor, old, now: script.Form_ID) {
+	send(vm, actor, "OnLocationChange", old, now)
+	worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = actor, location1 = old, location2 = now})
 }
 
 // tick_transitions compares `now`, the cells attached this tick, with ws.attached and queues the
