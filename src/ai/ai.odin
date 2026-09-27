@@ -42,6 +42,8 @@ World :: struct {
 	mesh:       nav.Path_Mesh,
 	routes:     nav.Route_Index,
 	quest_vars: conditions.Quest_Vars, // GetVMQuestVariable reads the script VM
+	loaded:     map[Form_ID]bool, // the loaded cells, as of the last track_cells
+	visitors:   map[Form_ID][dynamic]Form_ID, // cell -> actors placed elsewhere whose packages can send them there
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
@@ -74,7 +76,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	return vel
 }
 
-@(private = "file")
+@(private)
 start_package :: proc(a: ^Agent, db: ^gamedb.DB, pack, quest: Form_ID, now: f64, feet: [3]f32) {
 	a.pack, a.quest, a.started, a.start_pos = pack, quest, now, feet
 	clear(&a.trip)
@@ -194,7 +196,7 @@ walk_trip :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor:
 
 // destination is where an actor's package wants it: the first procedure location that resolves, or
 // a Patrol's first marker.
-@(private = "file")
+@(private)
 destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	for n, i in gamedb.package_tree(c.cond.db, c.agent.pack) {
 		if n.branch != .Procedure {continue}
@@ -251,6 +253,9 @@ destroy :: proc(w: ^World) {
 	}
 	delete(w.agents)
 	delete(w.persistent)
+	delete(w.loaded)
+	for _, list in w.visitors {delete(list)}
+	delete(w.visitors)
 	nav.destroy(&w.mesh)
 	nav.route_index_destroy(&w.routes)
 }
