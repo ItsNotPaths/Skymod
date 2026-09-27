@@ -118,7 +118,7 @@ rt_stolen_mark :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	item, _ := ref_form(L, 1)
-	worldstate.set_unmarked(vm.ctx.ws, item, !bool(lua.toboolean(L, 2)))
+	worldstate.set_stolen_mark(vm.ctx.ws, item, bool(lua.toboolean(L, 2)))
 	return 0
 }
 

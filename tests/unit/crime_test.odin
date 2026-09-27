@@ -250,6 +250,9 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	db: gamedb.DB
 	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
 	db.ref_by_id[OWNER_REF] = {form_id = OWNER_REF, base = CHEST_OWNER}
+	CUP :: gamedb.Form_ID(0x000E0006)
+	db.base_value = make(map[gamedb.Form_ID]i32, context.temp_allocator)
+	db.base_value[AXE], db.base_value[CUP], db.base_value[0xF] = 20, 3, 1
 	s: ws.World_State
 	ws.init(&s)
 	defer ws.destroy(&s)
@@ -288,9 +291,17 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	rows := 0
 	for r in ws.inv_stacks(&s, &db, THIEF) {if r.stolen {rows += 1; testing.expect_value(t, r.count, 1)}}
 	testing.expect_value(t, rows, 2)
-	ws.inv_add(&s, THIEF, 0xF, 100)
-	ws.mark_stolen(&s, &db, THIEF, 0xF, CHEST_OWNER, 100)
+	ws.inv_add(&s, THIEF, 0xF, 500)
+	ws.mark_stolen(&s, &db, THIEF, 0xF, CHEST_OWNER, 500) // 500 units of 1 gold, not one of 500
 	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, 0xF), 0)
+
+	// A unit worth 5 or less stays clean however many are taken; a mod can make one take marks.
+	ws.inv_add(&s, THIEF, CUP, 20)
+	ws.mark_stolen(&s, &db, THIEF, CUP, CHEST_OWNER, 20)
+	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, CUP), 0)
+	ws.set_stolen_mark(&s, CUP, true)
+	ws.mark_stolen(&s, &db, THIEF, CUP, CHEST_OWNER, 1)
+	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, CUP), 1)
 }
 
 // An owned interior that is not public is off limits while its owner has a load door locked. A

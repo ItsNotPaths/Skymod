@@ -48,9 +48,9 @@ stolen_count :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item: Form_ID) ->
 }
 
 // mark_stolen marks `n` of `holder`'s `item`s as stolen from `owner`; an owner getting its own
-// things back, or its faction's, holds them clean, and an unmarked item (gold) is never marked.
+// things back, or its faction's, holds them clean, and an item a theft does not mark stays clean.
 mark_stolen :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item, owner: Form_ID, n: i32) {
-	if n <= 0 || owner == 0 || item in ws.unmarked || owns(ws, db, holder, owner) {return}
+	if n <= 0 || owner == 0 || !takes_mark(ws, db, item) || owns(ws, db, holder, owner) {return}
 	if holder not_in ws.stolen {ws.stolen[holder] = make(map[[2]Form_ID]i32)}
 	(&ws.stolen[holder])^[{item, owner}] += n
 }
@@ -87,10 +87,19 @@ stolen_moved :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) -> i32 {
 	return max(m.count - (inv_count(ws, db, m.from, m.base) - have), 0)
 }
 
-// set_unmarked is rt.stolen_mark: whether a theft marks `item` stolen. Gold never is (the engine's
-// rule; no record says so), and a mod can add a currency or put gold back.
-set_unmarked :: proc(ws: ^World_State, item: Form_ID, unmarked: bool) {
-	set_in_set(&ws.unmarked, item, unmarked)
+// takes_mark: a theft marks `item` stolen. One unit worth no more than iStolenMarkMaxValue (5; a
+// plugin's GMST can change it) could be anyone's, so it stays clean: cups, pots, lockpicks, and gold,
+// whose 500 coins are 500 units of 1. A mod's rt.stolen_mark overrides the rule for an item.
+takes_mark :: proc(ws: ^World_State, db: ^gamedb.DB, item: Form_ID) -> bool {
+	if marks, set := ws.stolen_marks[item]; set {return marks}
+	value, _ := gamedb.value_of(db, item)
+	return value > gamedb.setting_int(db, "iStolenMarkMaxValue", 5)
+}
+
+// set_stolen_mark is rt.stolen_mark: whether a theft marks `item`, whatever it is worth. Gold never
+// is (the engine's rule; no record says so).
+set_stolen_mark :: proc(ws: ^World_State, item: Form_ID, marks: bool) {
+	ws.stolen_marks[item] = marks
 }
 
 // Item_Stack is one row of a holder's items: the clean ones stack, a stolen one never does.

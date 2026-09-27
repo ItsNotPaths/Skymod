@@ -1097,8 +1097,9 @@ function rt.faction(name, def)
   return __faction(name, d)
 end
 
--- rt.stolen_mark(item, marks) says whether a theft marks `item` stolen: gold never is, so a mod can
--- add its own currency (false) or put gold back (true). Only inside OnGameLoaded; it lasts until the
+-- rt.stolen_mark(item, marks) says whether a theft marks `item` stolen, over the engine's rule (a
+-- unit worth more than the iStolenMarkMaxValue GMST, 5 by default; gold never): false for a mod's
+-- currency, true for a cheap item a quest must track. Only inside OnGameLoaded; it lasts until the
 -- next new game or load.
 function rt.stolen_mark(item, marks)
   if not game_loading then error("rt.stolen_mark outside OnGameLoaded", 2) end
