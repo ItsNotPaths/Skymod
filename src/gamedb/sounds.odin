@@ -17,12 +17,29 @@ Sound_Loop :: enum u8 {
 Sound_Descriptor :: struct {
 	files:         []string, // ANAM variants, one picked per play: "sound\fx\...\x.wav", lowercased (owned)
 	category:      Form_ID, // GNAM (SNCT)
+	output:        Form_ID, // ONAM (SOPM)
 	loop:          Sound_Loop, // LNAM
 	freq_shift:    f32, // BNAM, a fraction of the file's rate: 0.1 plays 10% faster
 	freq_variance: f32, // BNAM: up to this fraction faster or slower, per play
 	priority:      u8,
 	db_variance:   f32, // BNAM: up to this many dB quieter, per play
 	attenuation:   f32, // BNAM: static attenuation, dB
+}
+
+// Sound_Output is an output model (SOPM): how a sound falls off with distance, and whether it pans.
+Sound_Output :: struct {
+	min, max:   f32, // ANAM, game units: the curve's first and last point
+	curve:      [5]f32, // ANAM: the level at 5 even steps from min to max, 0..1
+	attenuates: bool, // NAM1 bit 0
+	pans:       bool, // MNAM 0 (mono / 3D); 1 is defined speaker output, which does not pan
+}
+
+// output_level is a sound's level at distance d under an output model.
+output_level :: proc(o: Sound_Output, d: f32) -> f32 {
+	if !o.attenuates || o.max <= o.min {return 1}
+	t := clamp((d - o.min) / (o.max - o.min), 0, 1) * 4
+	i := min(int(t), 3)
+	return o.curve[i] + (o.curve[i + 1] - o.curve[i]) * (t - f32(i))
 }
 
 Sound_Category :: struct {
@@ -110,6 +127,8 @@ index_sound_descriptor :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 			append(&files, strings.clone(name, db.allocator))
 		case "GNAM":
 			if v, vok := esm.field_u32(f); vok {s.category = esm.remap_form(fm, v)}
+		case "ONAM":
+			if v, vok := esm.field_u32(f); vok {s.output = esm.remap_form(fm, v)}
 		case "LNAM":
 			if len(f.data) >= 2 {
 				switch f.data[1] {
@@ -139,6 +158,23 @@ index_sound_marker :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 	if v, vok := esm.subrecord_formid(fl, "SDSC"); vok {db.sound_markers[rec.form_id] = esm.remap_form(fm, v)}
+}
+
+@(private)
+index_sound_output :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+	o: Sound_Output
+	if f, has := esm.find_field(fl, "ANAM"); has && len(f.data) >= 17 {
+		o.min = f32((^f32le)(&f.data[4])^)
+		o.max = f32((^f32le)(&f.data[8])^)
+		for i in 0 ..< 5 {o.curve[i] = f32(f.data[12 + i]) / 100}
+	}
+	if f, has := esm.find_field(fl, "NAM1"); has && len(f.data) >= 1 {o.attenuates = f.data[0] & 1 != 0}
+	if f, has := esm.find_field(fl, "MNAM"); has && len(f.data) >= 1 {o.pans = f.data[0] == 0}
+	db.sound_outputs[rec.form_id] = o
 }
 
 @(private)
@@ -181,6 +217,7 @@ free_sound_indexes :: proc(db: ^DB) {
 	delete(db.sounds)
 	delete(db.sound_markers)
 	delete(db.sound_categories)
+	delete(db.sound_outputs)
 	delete(db.base_sounds)
 	delete(db.defaults)
 }
