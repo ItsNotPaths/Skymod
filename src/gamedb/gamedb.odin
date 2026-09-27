@@ -464,11 +464,22 @@ Potion :: struct {
 // Magic_Effect is an MGEF baseline: what the effect does (archetype + the actor values it reads
 // and writes), what it costs, and its player-facing description. Same raw-vs-remapped split as
 // Spell. `description` is English-resolved and owned ("" when the effect has none).
+// Effect_Sound is when a magic effect plays one of its sounds (MGEF SNDD, the entry's type).
+Effect_Sound :: enum u32 {
+	Sheathe_Draw,
+	Charge,
+	Ready,
+	Release,
+	Cast_Loop,
+	On_Hit,
+}
+
 Magic_Effect :: struct {
 	info:        esm.Magic_Effect_Info,
 	projectile:  Form_ID, // remapped
 	explosion:   Form_ID, // remapped
 	related:     Form_ID, // remapped: a Peak Value Modifier's no-stack keyword
+	sounds:      [Effect_Sound]Form_ID, // SNDD, remapped SNDRs
 	description: string, // DNAM (owned)
 	conditions:  []Condition, // CTDA (owned)
 }

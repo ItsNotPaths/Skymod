@@ -124,7 +124,7 @@ frame_interact :: proc(g: ^Game) {
 frame_cast :: proc(g: ^Game) {
 	if g.menu != .None {return}
 	if input.fired(&g.imgr, "Sneak") {worldstate.set_sneaking(&g.ws, formid.PLAYER, !worldstate.is_sneaking(&g.ws, formid.PLAYER))}
-	c := script.Call{ws = &g.ws, db = &g.db}
+	c := script.Call{ws = &g.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := g.fr.act.form if g.fr.act.present else 0
 	if input.fired(&g.imgr, "CastLeft") {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
 	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}

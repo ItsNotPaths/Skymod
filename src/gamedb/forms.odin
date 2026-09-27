@@ -406,6 +406,13 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	me.projectile = esm.remap_form(fm, me.info.projectile)
 	me.explosion = esm.remap_form(fm, me.info.explosion)
 	me.related = esm.remap_form(fm, me.info.related)
+	if f, has := esm.find_field(fl, "SNDD"); has {
+		for i := 0; i + 8 <= len(f.data); i += 8 {
+			if kind := u32((^u32le)(&f.data[i])^); kind <= u32(max(Effect_Sound)) {
+				me.sounds[Effect_Sound(kind)] = esm.remap_form(fm, u32((^u32le)(&f.data[i + 4])^))
+			}
+		}
+	}
 	if f, has := esm.find_field(fl, "DNAM"); has {
 		if txt := resolve_lstring(db, f, db.cur_strings); txt != "" {
 			me.description = strings.clone(txt, db.allocator)
