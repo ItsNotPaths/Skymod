@@ -12,18 +12,9 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_NAME="$(basename "$PROJECT_DIR")"
 RELEASE_DIR="$(cd "$PROJECT_DIR/.." && pwd)/${PROJECT_NAME}-release"
-SDL_PREFIX="$PROJECT_DIR/vendor/sdl3"
 
-if [ ! -e "$SDL_PREFIX/lib/pkgconfig/sdl3.pc" ] && [ ! -e "$SDL_PREFIX/lib64/pkgconfig/sdl3.pc" ]; then
-    echo "error: vendored SDL3 missing — run ./download-deps.sh first" >&2
-    exit 1
-fi
-
-# Static SDL3: the vendor:sdl3 binding emits -lSDL3, resolving to our vendored
-# libSDL3.a (no .so installed). Append SDL's private static deps + its -L path from
-# pkg-config (the source of truth) so the archive's symbols resolve.
-export PKG_CONFIG_PATH="$SDL_PREFIX/lib/pkgconfig:$SDL_PREFIX/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
-SDL_LINK="$(pkg-config --static --libs sdl3 | tr ' ' '\n' | grep -vx -- '-lSDL3' | tr '\n' ' ')"
+# Static SDL3: the vendor:sdl3 binding emits -lSDL3, resolving to our vendored libSDL3.a.
+SDL_LINK="$("$PROJECT_DIR/build/sdl-link.sh")"
 
 # Shaders are #load'd into the binary, so compile them to SPIR-V first.
 echo "==> compiling shaders"

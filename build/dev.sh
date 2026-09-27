@@ -8,16 +8,8 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="$PROJECT_DIR/build/out"
-SDL_PREFIX="$PROJECT_DIR/vendor/sdl3"
 
-if [ ! -e "$SDL_PREFIX/lib/pkgconfig/sdl3.pc" ] && [ ! -e "$SDL_PREFIX/lib64/pkgconfig/sdl3.pc" ]; then
-    echo "error: vendored SDL3 missing — run ./download-deps.sh first" >&2
-    exit 1
-fi
-
-# Static SDL3 link flags (same source of truth as release.sh: SDL's pkg-config).
-export PKG_CONFIG_PATH="$SDL_PREFIX/lib/pkgconfig:$SDL_PREFIX/lib64/pkgconfig:${PKG_CONFIG_PATH:-}"
-SDL_LINK="$(pkg-config --static --libs sdl3 | tr ' ' '\n' | grep -vx -- '-lSDL3' | tr '\n' ' ')"
+SDL_LINK="$("$PROJECT_DIR/build/sdl-link.sh")"
 
 echo "==> compiling shaders"
 "$PROJECT_DIR/build/build_shaders.sh"
