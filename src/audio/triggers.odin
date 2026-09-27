@@ -163,6 +163,7 @@ say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State,
 	if a.device == 0 {return 0, 0}
 	at: Maybe(Placement)
 	if placed {
+		if !same_space(ws, db, speaker) {return 0, 0}
 		p := Placement{worldstate.ref_pos(ws, db, speaker) + {0, 0, HEAD_Z}, db.sound_outputs[gamedb.default_object(db, "DOP2")]}
 		if gamedb.output_level(p.output, distance(a, p.pos)) == 0 {return 0, 0} // out of earshot
 		at = p

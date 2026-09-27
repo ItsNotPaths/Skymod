@@ -18,6 +18,7 @@ import "core:sync"
 import sdl "vendor:sdl3"
 import "../conditions"
 import "../formats/ffmpeg"
+import "../formid"
 import "../gamedb"
 import "../vfs"
 import "../worldstate"
@@ -136,6 +137,7 @@ play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, 
 play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.Form_ID, at: Maybe([3]f32) = nil, ws: ^worldstate.World_State = nil, source: gamedb.Form_ID = 0) -> Handle {
 	d, ok := db.sounds[sndr]
 	if !ok || len(d.files) == 0 || a.device == 0 || !allowed(db, ws, d.conditions, source) {return 0}
+	if _, placed := at.?; placed && ws != nil && source != 0 && !same_space(ws, db, source) {return 0}
 	if pos, placed := at.?; placed && d.loop == .None && gamedb.output_level(db.sound_outputs[d.output], distance(a, pos)) == 0 {
 		return 0 // out of earshot: a one-shot is never heard, so never decoded
 	}
@@ -329,6 +331,16 @@ feed :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total:
 		need -= n
 		if n == 0 {break}
 	}
+}
+
+// same_space: a ref is where the player can hear it: in the player's interior cell, or outdoors in
+// the player's worldspace. Each interior has its own coordinates, so distance alone would hear a
+// speaker in another building.
+same_space :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, ref: gamedb.Form_ID) -> bool {
+	here := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)]
+	there := db.cells[worldstate.ref_cell(ws, db, ref)]
+	if here.interior || there.interior {return here.form_id == there.form_id}
+	return here.world_form_id == there.world_form_id
 }
 
 // allowed: every condition passes on `subject`; true without a world state to ask.
