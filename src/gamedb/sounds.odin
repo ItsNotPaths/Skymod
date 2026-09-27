@@ -177,6 +177,17 @@ index_sound_output :: proc(db: ^DB, rec: esm.Record) {
 	db.sound_outputs[rec.form_id] = o
 }
 
+// index_acoustic_space records an ASPC's ambient loop (SNAM). Its reverb (RDAT) and region sound
+// (BNAM) are not read.
+@(private)
+index_acoustic_space :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+	if v, vok := esm.subrecord_formid(fl, "SNAM"); vok {db.acoustic_loops[rec.form_id] = esm.remap_form(fm, v)}
+}
+
 @(private)
 index_sound_category :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
@@ -218,6 +229,7 @@ free_sound_indexes :: proc(db: ^DB) {
 	delete(db.sound_markers)
 	delete(db.sound_categories)
 	delete(db.sound_outputs)
+	delete(db.acoustic_loops)
 	delete(db.base_sounds)
 	delete(db.defaults)
 }

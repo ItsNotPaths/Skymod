@@ -137,6 +137,7 @@ Game :: struct {
 	// platform + renderer
 	p: platform.Platform,
 	r: render.Renderer,
+	ambient: audio.Ambient, // before `audio`, which names the package for the fields after it
 	audio: audio.Audio,
 
 	// input: rebindable action manager (src/input). Driven each frame from the SDL
@@ -648,7 +649,10 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.loadui {loadui_destroy(g)} // releases the atlas/UI textures — before render.shutdown (device alive)
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
-	if g.up.audio {audio.shutdown(&g.audio)}
+	if g.up.audio {
+		audio.ambient_destroy(&g.ambient)
+		audio.shutdown(&g.audio)
+	}
 	input.destroy(&g.imgr) // leaf; safe on a zero-value manager
 	if g.cfg_overlaid {settings.destroy(&g.cfg_overlay)} // frees only its own overrides, not the root
 	if g.up.platform {platform.shutdown(&g.p)}

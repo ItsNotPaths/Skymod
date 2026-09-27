@@ -106,7 +106,7 @@ game_frame :: proc(g: ^Game) {
 	frame_cast(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 	audio.music_update(&g.db, &g.ws)
-	audio.ambient_update(&g.db, &g.ws)
+	audio.ambient_update(&g.ambient, &g.audio, &g.v, &g.db, &g.ws)
 	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam))
 	draw_actor_nametags(g)
 

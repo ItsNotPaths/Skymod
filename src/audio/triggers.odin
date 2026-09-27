@@ -13,8 +13,57 @@ HEAD_Z :: 110
 // (hole music-system :tags audio :sev gap :needs (music-records)) no music: nothing picks a MUSC type (DOBJ battle BTMS, death, success, level-up, dungeon-cleared; cell XCMO, worldspace ZNAM; script MusicType.Add by priority) or plays its MUST tracks.
 music_update :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {}
 
-// (hole ambient-sounds :tags (audio world) :sev gap) no ambient sound: placed SOUN markers (997 in Skyrim.esm), acoustic spaces (ASPC loop + reverb, cell XCAS) and region sounds (REGN RDSA, by weather and hour) are silent. ASPC and RDSA are not decoded.
-ambient_update :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {}
+// (hole region-sounds :tags (audio world) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
+// (hole acoustic-boxes :tags (audio world) :sev gap) placed acoustic spaces (125 ASPC refs, a box each) are not entered: only a cell's own space (XCAS) plays, and no space's reverb (RDAT) applies.
+
+// Ambient is what plays because of where the listener is: the looping sound markers in earshot
+// and the loop of the player's cell's acoustic space.
+Ambient :: struct {
+	markers: map[formid.Form_ID]Handle, // placed SOUN refs playing now
+	space:   formid.Form_ID, // the acoustic space whose loop plays
+	loop:    Handle,
+	frame:   int,
+}
+
+// MARKER_SCAN_FRAMES is how often ambient_update walks the attached cells for sound markers.
+MARKER_SCAN_FRAMES :: 10
+
+ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State) {
+	if a.device == 0 {return}
+	if space := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)].acoustic; space != am.space {
+		stop(a, am.loop)
+		am.space, am.loop = space, play_descriptor(a, v, db, db.acoustic_loops[space])
+	}
+	am.frame += 1
+	if am.frame % MARKER_SCAN_FRAMES != 0 {return}
+	want := make(map[formid.Form_ID]bool, context.temp_allocator)
+	for cell in ws.attached {
+		for r in db.cell_refs[cell] {
+			sndr, is_marker := db.sound_markers[r.base]
+			d := db.sounds[sndr]
+			if !is_marker || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) {continue}
+			out := db.sound_outputs[d.output]
+			dist := distance(a, r.pos)
+			_, playing := am.markers[r.form_id]
+			// Stops a little past where it starts, so a marker at the edge does not flutter.
+			if gamedb.output_level(out, dist) == 0 && !(playing && out.attenuates && dist < out.max * 1.1) {continue}
+			want[r.form_id] = true
+			if !playing {am.markers[r.form_id] = play_descriptor(a, v, db, sndr, r.pos)}
+		}
+	}
+	gone := make([dynamic]formid.Form_ID, context.temp_allocator)
+	for ref in am.markers {
+		if ref not_in want {append(&gone, ref)}
+	}
+	for ref in gone {
+		stop(a, am.markers[ref])
+		delete_key(&am.markers, ref)
+	}
+}
+
+ambient_destroy :: proc(am: ^Ambient) {
+	delete(am.markers)
+}
 
 // (hole form-sounds :tags audio :sev gap) equipping, drinking and putting an item down make no sound, and an activator's or light's loop sound (ACTI, LIGH SNAM) does not play.
 // activate_sound plays the sound of a ref's base where the ref is, when it is used (a door or

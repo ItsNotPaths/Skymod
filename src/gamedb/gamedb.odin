@@ -172,6 +172,7 @@ Cell :: struct {
 	water_type:    Form_ID, // XCWT water-type WATR formID (0 = none/default; reserved for appearance)
 	location:      Form_ID, // XLCN location LCTN (0 = none; an exterior then falls back to its worldspace's)
 	zone:          Form_ID, // XEZN encounter zone ECZN (0 = none)
+	acoustic:      Form_ID, // XCAS acoustic space ASPC (0 = none)
 }
 
 // DB is the in-memory record index. All strings / dynamic arrays are owned and freed
@@ -205,6 +206,7 @@ DB :: struct {
 	sound_markers:    map[Form_ID]Form_ID, // SOUN formID -> its SNDR
 	sound_categories: map[Form_ID]Sound_Category, // SNCT formID -> its parent and volume
 	sound_outputs:    map[Form_ID]Sound_Output, // SOPM formID -> its distance curve and panning
+	acoustic_loops:   map[Form_ID]Form_ID, // ASPC formID -> its ambient loop (SNAM, SNDR)
 	base_sounds:      map[Form_ID]Base_Sounds, // DOOR/CONT/ACTI/FLOR/item base -> its use and done sounds
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
@@ -781,6 +783,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		sound_markers    = make(map[Form_ID]Form_ID, 2048, allocator),
 		sound_categories = make(map[Form_ID]Sound_Category, 32, allocator),
 		sound_outputs    = make(map[Form_ID]Sound_Output, 128, allocator),
+		acoustic_loops   = make(map[Form_ID]Form_ID, 64, allocator),
 		base_sounds      = make(map[Form_ID]Base_Sounds, 8192, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
@@ -1592,6 +1595,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_sound_category(db, rec, ctx.fm)
 	case s == "SOPM":
 		index_sound_output(db, rec)
+	case s == "ASPC":
+		index_acoustic_space(db, rec, ctx.fm)
 	case s == "CLAS":
 		index_class(db, rec)
 	case s == "VTYP":
@@ -1956,6 +1961,9 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	if z, zok := esm.subrecord_formid(fl, "XEZN"); zok {
 		cell.zone = esm.remap_form(ctx.fm, z)
+	}
+	if s, sok := esm.subrecord_formid(fl, "XCAS"); sok {
+		cell.acoustic = esm.remap_form(ctx.fm, s)
 	}
 	index_owner(db, rec.form_id, fl, ctx.fm)
 	if gx, gy, gok := esm.cell_grid(fl); gok {
