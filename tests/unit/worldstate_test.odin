@@ -26,6 +26,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	ws.set_scale(&src, 0x000ABCDE, 0x0001A26F, 3.5)
 	ws.set_disabled(&src, 0x000C0FFE, 0x0002BEEF, true)
 	ws.set_activation_blocked(&src, 0x000C0FFE, 0x0002BEEF, true) // the 9th field: live is wider than a byte
+	ws.set_destroyed(&src, 0x000C0FFE, 0x0002BEEF, true)
 	ws.register_update(&src.updates, 0x000C0DE0, 2.5, false)
 	ws.register_update(&src.updates, 0x000C0DE0, 4, true)
 	ws.register_update(&src.game_updates, 0x000C0DE0, 24, false)
@@ -108,6 +109,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect(t, .Disabled in dd.live, "Disabled flag lost")
 	testing.expect(t, .Moved not_in dd.live, "spurious Moved flag on a disabled-only delta")
 	testing.expect(t, ws.activation_blocked(&dst, 0x000C0FFE), "Activation_Blocked flag lost")
+	testing.expect(t, ws.is_destroyed(&dst, 0x000C0FFE), "Destroyed flag lost")
 	testing.expect_value(t, dst.updates[0x000C0DE0], ws.Update_Timers{single = 2.5, repeat = 4, interval = 4, single_on = true, repeat_on = true})
 	testing.expect_value(t, dst.game_updates[0x000C0DE0], ws.Update_Timers{single = 24, single_on = true})
 	testing.expect_value(t, dst.item_filters[0x000C0DE0][0], 0xF)

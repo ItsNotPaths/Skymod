@@ -22,6 +22,7 @@ Ref_Field :: enum u8 {
 	Delete_When_Detached, // DeleteWhenAble on an attached ref: deleted when its cell detaches. The bit is the whole state
 	Harvested, // flora picked; a cell reset grows it back. The bit is the whole state
 	Lock_Level, // SetLockLevel: the lock's level
+	Destroyed, // SetDestroyed: at its last destruction stage. The bit is the whole state
 }
 
 // (hole combat-damage :tags combat :sev blocker) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
@@ -162,6 +163,21 @@ set_activation_blocked :: proc(ws: ^World_State, form_id, cell: Form_ID, blocked
 	} else if d, ok := &ws.ref_deltas[form_id]; ok {
 		d.live -= {.Activation_Blocked}
 	}
+}
+
+// (hole destruction-stages :tags (combat world) :sev gap :needs combat-damage) damage never moves a ref through its DEST stages: only SetDestroyed marks one destroyed, GetCurrentDestructionStage and GetDestructionStage do not read it, and nothing swaps in the destroyed model or explodes.
+// set_destroyed records SetDestroyed and ClearDestruction.
+set_destroyed :: proc(ws: ^World_State, form_id, cell: Form_ID, destroyed: bool) {
+	if destroyed {
+		upsert(ws, form_id, cell).live += {.Destroyed}
+	} else if d, ok := &ws.ref_deltas[form_id]; ok {
+		d.live -= {.Destroyed}
+	}
+}
+
+is_destroyed :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
+	d, ok := ws.ref_deltas[form_id]
+	return ok && .Destroyed in d.live
 }
 
 // set_delete_when_detached records DeleteWhenAble on a ref whose cell is attached: the ref is

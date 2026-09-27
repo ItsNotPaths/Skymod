@@ -68,6 +68,8 @@ register_builtins :: proc(reg: ^Registry) {
 	}
 	register(reg, "ObjectReference", "BlockActivation", n_block_activation)
 	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
+	register(reg, "ObjectReference", "SetDestroyed", n_set_destroyed)
+	register(reg, "ObjectReference", "ClearDestruction", n_clear_destruction)
 
 	// Game / Debug — the top globals (callstatic), self is unused (0).
 	register(reg, "Game", "GetPlayer", n_get_player)
@@ -197,6 +199,16 @@ n_block_activation :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_activation_blocked :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.activation_blocked(c.ws, c.self)
+}
+
+n_set_destroyed :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_destroyed(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_bool(args, 0, true))
+	return nil
+}
+
+n_clear_destruction :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_destroyed(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), false)
+	return nil
 }
 
 n_set_scale :: proc(c: ^Call, args: []Value) -> Value {

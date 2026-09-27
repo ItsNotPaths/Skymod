@@ -70,6 +70,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	180 = fn_has_same_editor_loc_as_ref,
 	181 = fn_has_same_editor_loc_as_ref_alias,
 	182 = fn_get_equipped,
+	203 = fn_get_destroyed,
 	214 = fn_has_magic_effect,
 	223 = fn_is_spell_target,
 	237 = fn_get_is_ghost,
@@ -632,6 +633,11 @@ fn_is_in_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 fn_get_current_time :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	_, _, _, hour := worldstate.game_date(ctx.ws)
 	return f32(hour), true
+}
+
+@(private = "file")
+fn_get_destroyed :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.is_destroyed(ctx.ws, on))
 }
 
 @(private = "file")
