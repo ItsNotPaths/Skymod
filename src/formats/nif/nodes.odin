@@ -179,6 +179,7 @@ walk_node :: proc(
 			if is_eff {
 				eff := resolve_effect(data, h, info.shader_ref)
 				diffuse, scroll = eff.source, eff.scroll
+				drop_clear_triangles(&g)
 			} else {
 				diffuse, normal, material = resolve_lighting(data, h, info.shader_ref)
 			}
@@ -452,4 +453,20 @@ bound :: proc(data: []u8) -> (center, half: [3]f32, ok: bool) {
 		return {f(b, 4), f(b, 8), f(b, 12)}, {f(b, 16), f(b, 20), f(b, 24)}, true
 	}
 	return
+}
+
+// (hole effect-vertex-alpha :tags (render unclaimed) :sev polish) effect shapes ignore vertex colour and alpha (and falloff, emissive colour, the NiAlphaProperty blend mode), so fog cards show hard edges; Mesh_Vertex.normal.w is free to carry alpha to effect.frag.
+// drop_clear_triangles removes the triangles whose three vertices have zero alpha: vanilla draws
+// them as nothing (a stray quad in FXWaterfallSkirtTallFront floats 3320 units up).
+@(private = "file")
+drop_clear_triangles :: proc(g: ^Geometry) {
+	if len(g.alphas) == 0 {return}
+	kept := 0
+	for t := 0; t + 2 < len(g.triangles); t += 3 {
+		tri := g.triangles[t:t + 3]
+		if g.alphas[tri[0]] == 0 && g.alphas[tri[1]] == 0 && g.alphas[tri[2]] == 0 {continue}
+		copy(g.triangles[kept:], tri)
+		kept += 3
+	}
+	g.triangles = g.triangles[:kept]
 }
