@@ -678,20 +678,59 @@ test_alias_fills :: proc(t: ^testing.T) {
 	q7[0].flags = esm.ALIAS_ALLOW_CLEARED
 	testing.expect(t, script.start_quest(&c, Q7, &{location1 = LOC}), "Allow Cleared")
 
-	// Alias data: its factions and keywords count only while it holds the ref, and clearing it
-	// leaves the ref's own membership alone.
+	// Alias data: its factions, keywords, flags and spells count only while it holds the ref, and
+	// clearing it leaves the ref's own membership alone. Its items and display name stay.
 	Q8, GUILD, OWN, MARKED :: gamedb.Form_ID(0xC08), gamedb.Form_ID(0xE01), gamedb.Form_ID(0xE02), gamedb.Form_ID(0xE03)
-	q8 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = B, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED, factions = {GUILD, OWN}, keywords = {MARKED}}}
+	WARD, COIN, TITLE :: gamedb.Form_ID(0xE04), gamedb.Form_ID(0xE05), gamedb.Form_ID(0xE06)
+	db.names = make(map[gamedb.Form_ID]string)
+	defer delete(db.names)
+	db.names[BANDIT] = "Bandit"
+	db.messages = make(map[gamedb.Form_ID]gamedb.Message)
+	defer delete(db.messages)
+	db.messages[TITLE] = {title = "<BaseName> the Marked"}
+	q8 := []gamedb.Quest_Alias{{
+		id = 0, fill = .Specific, target = B, alias = -1, force_into = -1,
+		flags = esm.ALIAS_ALLOW_RESERVED | esm.ALIAS_ESSENTIAL | esm.ALIAS_PROTECTED,
+		factions = {GUILD, OWN}, keywords = {MARKED}, spells = {WARD}, items = {{COIN, 3}}, display_name = TITLE,
+	}}
 	db.quest_baseline[Q8] = {aliases = q8}
 	worldstate.faction_set_rank(&ws, B, OWN, 2)
 	testing.expect(t, script.start_quest(&c, Q8), "Q8 starts")
 	testing.expect(t, worldstate.in_faction(&ws, &db, B, GUILD), "a member through the alias")
 	testing.expect(t, worldstate.has_keyword(&ws, &db, B, MARKED), "the alias's keyword")
+	testing.expect(t, worldstate.actor_flag(&ws, &db, B, esm.ACBS_ESSENTIAL) && worldstate.actor_flag(&ws, &db, B, esm.ACBS_PROTECTED), "essential and protected")
+	testing.expect(t, worldstate.has_spell(&ws, &db, B, WARD), "the alias's spell")
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, B, COIN), i32(3))
+	testing.expect_value(t, worldstate.display_name(&ws, &db, B), "Bandit the Marked")
 	own, _ := worldstate.faction_rank(&ws, &db, B, OWN)
 	testing.expect_value(t, own, i32(2))
-	script.clear_aliases(&ws, &db, Q8)
+	script.clear_aliases(&c, Q8)
 	testing.expect(t, !worldstate.in_faction(&ws, &db, B, GUILD) && !worldstate.has_keyword(&ws, &db, B, MARKED), "gone with the alias")
+	testing.expect(t, !worldstate.actor_flag(&ws, &db, B, esm.ACBS_ESSENTIAL) && !worldstate.has_spell(&ws, &db, B, WARD), "flags and spells go too")
 	testing.expect(t, worldstate.in_faction(&ws, &db, B, OWN), "its own membership stays")
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, B, COIN), i32(3))
+	testing.expect_value(t, worldstate.display_name(&ws, &db, B), "Bandit the Marked")
+	q8[0].flags |= esm.ALIAS_CLEARS_NAME
+	worldstate.quest_set_running(&ws, Q8, false)
+	testing.expect(t, script.start_quest(&c, Q8), "Q8 starts again")
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, B, COIN), i32(6))
+	script.clear_aliases(&c, Q8)
+	testing.expect_value(t, worldstate.display_name(&ws, &db, B), "Bandit")
+
+	// A Quest Object the player carries cannot be dropped or stored, save in a Quest Object of its quest.
+	Q9, BOX :: gamedb.Form_ID(0xC09), gamedb.Form_ID(0xA09)
+	q9 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = C, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED | esm.ALIAS_QUEST_OBJECT}}
+	db.quest_baseline[Q9] = {aliases = q9}
+	ws.carried[C] = formid.PLAYER
+	testing.expect(t, script.start_quest(&c, Q9), "Q9 starts")
+	testing.expect(t, worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER), "no drop")
+	testing.expect(t, worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER, BOX), "no store")
+	worldstate.fill_alias(&ws, formid.alias_handle(Q9, 1) or_else 0, BOX)
+	q9b := []gamedb.Quest_Alias{q9[0], {id = 1, alias = -1, force_into = -1, flags = esm.ALIAS_QUEST_OBJECT}}
+	db.quest_baseline[Q9] = {aliases = q9b}
+	testing.expect(t, !worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER, BOX), "a Quest Object box of the quest takes it")
+	testing.expect(t, worldstate.holds_quest_object(&ws, &db, formid.PLAYER), "its holder is never cleaned up")
+	delete_key(&ws.carried, C)
 
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
 	db.quest_baseline[Q5] = {aliases = q5}

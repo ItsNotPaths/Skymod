@@ -100,6 +100,7 @@ Overlay :: struct {
 	actor_flags:     map[Form_ID]Flag_Override,    // actor or NPC_ -> ACBS bits a script set: ghost, essential, protected, invulnerable
 	owners:          map[Form_ID]Form_ID,          // ref or cell -> the owner a script set; 0 = none (ownership.odin)
 	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller
+	display_names:   map[Form_ID]string,           // ref -> the name an alias gave it (owned)
 	courier_waits:   [dynamic]Courier_Remove,      // Courier.RemoveRef calls waiting for the courier to stop talking
 	scenes:          map[Form_ID]Scene_Run,        // scenes playing or waiting for their actors (scenes.odin)
 }
@@ -280,6 +281,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
+	o.display_names = make(map[Form_ID]string)
 	o.script_state = make(map[Form_ID][dynamic]Script_Var)
 	o.list_adds = make(map[Form_ID][dynamic]Form_ID)
 	o.keyword_data = make(map[Keyword_Key]f32)
@@ -365,6 +367,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)
 	delete(o.item_filters)
+	for _, n in o.display_names {delete(n)}
+	delete(o.display_names)
 	delete(o.aliases)
 	delete(o.alias_holders)
 	delete(o.script_state)

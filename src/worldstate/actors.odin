@@ -26,8 +26,24 @@ ref_base :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_ID {
 	return r.base
 }
 
-// display_name is a form's name, an actor's through its templates.
+// display_name is a form's name: the one an alias gave it, else its base_name.
 display_name :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> string {
+	if n, ok := ws.display_names[form]; ok {return n}
+	return base_name(ws, db, form)
+}
+
+set_display_name :: proc(ws: ^World_State, form: Form_ID, name: string) {
+	clear_display_name(ws, form)
+	ws.display_names[form] = strings.clone(name)
+}
+
+clear_display_name :: proc(ws: ^World_State, form: Form_ID) {
+	if n, ok := ws.display_names[form]; ok {delete(n)}
+	delete_key(&ws.display_names, form)
+}
+
+// base_name is a form's own name, an actor's through its templates.
+base_name :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> string {
 	if n := gamedb.name_of(db, form); n != "" {return n}
 	base := ref_base(ws, db, form)
 	return gamedb.actor_name(db, base if base != 0 else form, actor_pick(ws, db, form))

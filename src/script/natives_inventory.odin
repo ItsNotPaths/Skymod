@@ -67,21 +67,26 @@ courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(args, 0))
 	count := max(1, arg_i32(args, 1, 1))
-	if _, leveled := gamedb.leveled_list_of(c.db, base); leveled {
-		rolled := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
-		level := worldstate.zone_level(c.ws, c.db, gamedb.zone_of(c.db, c.self))
-		worldstate.roll(c.ws, c.db, base, level, count, &rolled)
-		for e in rolled {move_items(c, {base = e.item, to = c.self, count = e.count})}
-		return nil
-	}
 	if ref == 0 {
-		move_items(c, {base = base, to = c.self, count = count})
+		give_items(c, c.self, base, count)
 	} else if holder, carried := c.ws.carried[ref]; carried {
 		move_items(c, {base = base, ref = ref, from = holder, to = c.self, count = worldstate.stack_count(c.ws, c.db, ref)})
 	} else if gamedb.is_item(c.db, base) {
 		take(c, ref, base, c.self)
 	}
 	return nil
+}
+
+// give_items adds new items to `to`; a leveled list rolls at `to`'s zone level.
+give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
+	if _, leveled := gamedb.leveled_list_of(c.db, base); !leveled {
+		move_items(c, {base = base, to = to, count = count})
+		return
+	}
+	rolled := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
+	level := worldstate.zone_level(c.ws, c.db, gamedb.zone_of(c.db, to))
+	worldstate.roll(c.ws, c.db, base, level, count, &rolled)
+	for e in rolled {move_items(c, {base = e.item, to = to, count = e.count})}
 }
 
 // take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.

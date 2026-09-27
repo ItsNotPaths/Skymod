@@ -62,12 +62,7 @@ index_recipe :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		r.quantity = u16(q.data[0]) | u16(q.data[1]) << 8
 	}
 	r.conditions = index_conditions(db, fl, fm)
-	raw := esm.container_contents(fl, context.allocator) // walk has no temp reset — explicit free
-	defer if raw != nil {delete(raw, context.allocator)}
-	r.ingredients = make([]Content_Entry, len(raw), db.allocator)
-	for c, i in raw {
-		r.ingredients[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
-	}
+	r.ingredients = remap_contents(db, esm.container_contents(fl, context.allocator), fm) // walk has no temp reset — explicit free
 
 	if old, existed := db.recipes[rec.form_id]; existed {
 		free_recipe(db, old) // override: free the previous plugin's ingredient list

@@ -41,6 +41,7 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 
 // Kill(akKiller) -> None: the Dead flag, OnDying and OnDeath, cleared boss locations and the KILL
 // story event. A dead actor does not die again.
+// (hole kill-essential :tags combat :sev polish) Kill does not read IsEssential (worldstate.actor_flag); unsourced whether Skyrim refuses, or sends the actor to bleedout.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	if worldstate.is_dead(c.ws, c.self) {return nil}
 	append(&c.ws.deaths, worldstate.Death{c.self, arg_form(args, 0)})

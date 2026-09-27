@@ -21,14 +21,14 @@ fill_aliases :: proc(c: ^Call, quest: Form_ID, new_game := false) -> bool {
 		if !ok {continue}
 		form, known := fill(c, quest, h, a, used, new_game)
 		if !known {continue}
-		worldstate.fill_alias(c.ws, h, form)
+		enter_alias(c, h, form)
 		if form == 0 {
 			if a.flags & esm.ALIAS_OPTIONAL == 0 {return false}
 			continue
 		}
 		used[form] = true
 		if into, iok := formid.alias_handle(quest, u32(a.force_into)); iok && a.force_into >= 0 {
-			worldstate.fill_alias(c.ws, into, form)
+			enter_alias(c, into, form)
 		}
 	}
 	return true

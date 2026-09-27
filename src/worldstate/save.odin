@@ -101,6 +101,11 @@ Saved_Alias :: struct {
 	alias, form: Form_ID,
 }
 
+Saved_Name :: struct {
+	form: Form_ID,
+	name: string,
+}
+
 Saved_List_Add :: struct {
 	list, form: Form_ID,
 }
@@ -301,6 +306,7 @@ Save_Body :: struct {
 	actor_flags:   []Saved_Flags,
 	owners:        []Saved_Alias,   // alias = the ref or cell, form = its owner
 	killers:       []Saved_Alias,   // alias = the dead actor, form = its killer
+	display_names: []Saved_Name,
 	courier_waits: []Courier_Remove,
 	scenes:        []Saved_Scene,
 	pending_moves: []Saved_Move,
@@ -435,6 +441,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for zone, level in ws.zone_levels {append(&zone_levels, Saved_Level{zone, level})}
 	picks := make([dynamic]Saved_Alias, 0, len(ws.actor_picks), context.temp_allocator)
 	for ref, npc in ws.actor_picks {append(&picks, Saved_Alias{ref, npc})}
+	display_names := make([dynamic]Saved_Name, 0, len(ws.display_names), context.temp_allocator)
+	for form, name in ws.display_names {append(&display_names, Saved_Name{form, name})}
 	actor_flags := make([dynamic]Saved_Flags, 0, len(ws.actor_flags), context.temp_allocator)
 	for form, o in ws.actor_flags {append(&actor_flags, Saved_Flags{form, o})}
 	outfits := make([dynamic]Saved_Alias, 0, len(ws.outfits), context.temp_allocator)
@@ -534,6 +542,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		actor_flags   = actor_flags[:],
 		owners        = save_pairs(ws.owners),
 		killers       = save_pairs(ws.killers),
+		display_names = display_names[:],
 		courier_waits = ws.courier_waits[:],
 		scenes        = scenes[:],
 		pending_moves = moves[:],
@@ -727,6 +736,9 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	}
 	load_pairs(&ws.owners, body.owners, remap, have_remap, rf)
 	load_pairs(&ws.killers, body.killers, remap, have_remap, rf)
+	for n in body.display_names {
+		if form, ok := rf(remap, have_remap, n.form); ok {set_display_name(ws, form, n.name)}
+	}
 	for w in body.courier_waits {
 		w := w
 		ok := true
@@ -954,6 +966,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.owners {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
+	for n in body.display_names {add_slot(&seen, n.form)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)
 		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker)}

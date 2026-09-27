@@ -17,7 +17,7 @@ import "../worldstate"
 // (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: school tabs, a spell list and a card with cost and effects; no favourites and no shouts.
 // (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
 // (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: journal, stats and system tabs, each a sidebar and a panel.
-// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership.
+// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, stealing or ownership. Barter must refuse a Quest Object (worldstate.quest_object_kept).
 
 Menu :: enum u8 {
 	None,
@@ -233,7 +233,11 @@ item_card :: proc(g: ^Game, item: Form_ID) {
 		equip_buttons(g, item)
 	}
 	imgui.SameLine()
-	if imgui.Button("Drop") {script.drop_object(&c, formid.PLAYER, item, 0, 1)}
+	if worldstate.quest_object_kept(ws, db, formid.PLAYER, item) {
+		imgui.TextDisabled("Quest item")
+	} else if imgui.Button("Drop") {
+		script.drop_object(&c, formid.PLAYER, item, 0, 1)
+	}
 }
 
 @(private = "file")
@@ -375,7 +379,7 @@ container_menu :: proc(g: ^Game) {
 	imgui.Separator()
 	imgui.TextUnformatted("Carried")
 	for item in by_name(g, worldstate.inv_items(&g.ws, &g.db, formid.PLAYER)) {
-		if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, item) {continue}
+		if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, item) || worldstate.quest_object_kept(&g.ws, &g.db, formid.PLAYER, item, box) {continue}
 		n := worldstate.inv_count(&g.ws, &g.db, formid.PLAYER, item)
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", label(g, item), n))
 		imgui.SameLine()

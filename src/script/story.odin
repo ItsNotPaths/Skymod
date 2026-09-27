@@ -113,7 +113,7 @@ start_quest :: proc(c: ^Call, quest: Form_ID, event: ^Story_Event = nil) -> bool
 	worldstate.quest_set_running(c.ws, quest, true)
 	if !fill_aliases(c, quest) {
 		worldstate.quest_set_running(c.ws, quest, false)
-		clear_aliases(c.ws, c.db, quest)
+		clear_aliases(c, quest)
 		return false
 	}
 	if event != nil {append(&c.ws.story_quests, quest)}

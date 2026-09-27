@@ -167,6 +167,6 @@ test_dialogue_text_tags :: proc(t: ^testing.T) {
 	aliases := []gamedb.Quest_Alias{{id = 3, name = "Innkeeper"}}
 	tk.db.quest_baseline[Q] = {start_game_enabled = true, aliases = aliases}
 	tk.ws.aliases[formid.alias_handle(Q, 3) or_else 0] = 0xA01
-	got := dialogue.text(&tk.c, "Rent a room (<Global=RoomCost> gold) from <Alias.PronounObj=innkeeper>. <Laughter>", Q)
+	got := worldstate.fill_tags(&tk.ws, &tk.db, "Rent a room (<Global=RoomCost> gold) from <Alias.PronounObj=innkeeper>. <Laughter>", Q)
 	testing.expect_value(t, got, "Rent a room (10 gold) from him. <Laughter>")
 }

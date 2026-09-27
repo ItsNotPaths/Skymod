@@ -19,9 +19,13 @@ set_actor_flag :: proc(ws: ^World_State, form: Form_ID, bit: u32, on: bool) {
 	ws.actor_flags[form] = o
 }
 
-// actor_flag reads an ACBS bit of an actor or an NPC_: a script's setting on the actor, its leveled
-// pick or its base, else the records through the base-data template.
+// actor_flag reads an ACBS bit of an actor or an NPC_: an Essential or Protected alias that holds
+// the actor, a script's setting on the actor, its leveled pick or its base, else the records
+// through the base-data template.
 actor_flag :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, bit: u32) -> bool {
+	from_alias := alias_flags(ws, db, form)
+	if bit == esm.ACBS_ESSENTIAL && from_alias & esm.ALIAS_ESSENTIAL != 0 {return true}
+	if bit == esm.ACBS_PROTECTED && from_alias & esm.ALIAS_PROTECTED != 0 {return true}
 	base, pick := ref_base(ws, db, form), Form_ID(0)
 	if base == 0 {base = form} else {pick = actor_pick(ws, db, form)}
 	for f in ([]Form_ID{form, pick, base}) {

@@ -461,7 +461,7 @@ Linked_Ref :: struct {
 	ref:     Form_ID,
 }
 
-// (hole alias-data :tags (quest ai) :sev gap) an alias applies only its factions and keywords while filled: the Essential, Protected and Quest Object flags, spells (ALSP), override package lists, display name (ALDN, with SetDisplayName) and inventory (CNTO) are not decoded.
+// (hole alias-override-packages :tags (quest ai combat) :sev gap :needs combat-brain) an alias's override package lists are not decoded (219 in Skyrim.esm: 218 ECOR combat, 1 SPOR spectator), nor NPC_ ones: they replace combat, spectator, corpse and guard-warn behaviour, which only the combat brain runs.
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
 // (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
 // the quest engine fills it at start. `name` and `conditions` are owned by the DB.
@@ -480,6 +480,9 @@ Quest_Alias :: struct {
 	factions:     []Form_ID, // ALFC: the holder counts as a member while in the alias (owned)
 	keywords:     []Form_ID, // KWDA: the holder has these keywords while in the alias (owned)
 	packages:     []Form_ID, // ALPC: the holder may run these while in the alias (owned)
+	spells:       []Form_ID, // ALSP: the holder knows these while in the alias (owned)
+	items:        []Content_Entry, // CNTO: added to the holder when it fills the alias, and kept (owned)
+	display_name: Form_ID, // ALDN: the MESG whose title renames the holder
 	name:         string, // owned
 }
 
@@ -1099,6 +1102,8 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 		delete(a.factions, db.allocator)
 		delete(a.keywords, db.allocator)
 		delete(a.packages, db.allocator)
+		delete(a.spells, db.allocator)
+		delete(a.items, db.allocator)
 	}
 	delete(qb.aliases, db.allocator)
 	free_conditions(db, qb.dialogue_conditions)
@@ -2225,14 +2230,9 @@ index_container :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	} else {
 		delete_key(&db.respawning_containers, rec.form_id)
 	}
-	raw := esm.container_contents(fl, context.allocator) // walk has no temp reset — explicit free
-	if raw == nil {
+	entries := remap_contents(db, esm.container_contents(fl, context.allocator), fm) // walk has no temp reset — explicit free
+	if entries == nil {
 		return
-	}
-	defer delete(raw, context.allocator)
-	entries := make([]Content_Entry, len(raw), db.allocator)
-	for c, i in raw {
-		entries[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
 	}
 	if old, exists := db.containers[rec.form_id]; exists {
 		delete(old, db.allocator) // override: free the previous inventory
@@ -2664,14 +2664,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	a.packages = remap_formid_list(db, esm.formid_list(fl, "PKID", context.allocator), fm)
 
 	// CNTO starting inventory — same shape as a container's (base item + count), remapped.
-	if raw := esm.container_contents(fl, context.allocator); raw != nil {
-		defer delete(raw, context.allocator)
-		inv := make([]Content_Entry, len(raw), db.allocator)
-		for c, i in raw {
-			inv[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
-		}
-		a.inventory = inv
-	}
+	a.inventory = remap_contents(db, esm.container_contents(fl, context.allocator), fm)
 
 	// SNAM baseline faction memberships — what IsInFaction answers before any script joins/leaves.
 	if raw := esm.faction_memberships(fl, context.allocator); raw != nil {
@@ -2700,6 +2693,20 @@ remap_formid_list :: proc(db: ^DB, raw: []u32, fm: ^esm.Form_Map) -> []Form_ID {
 	out := make([]Form_ID, len(raw), db.allocator)
 	for r, i in raw {
 		out[i] = esm.remap_form(fm, r)
+	}
+	return out
+}
+
+// remap_contents is remap_formid_list for CNTO entries (esm.container_contents).
+@(private)
+remap_contents :: proc(db: ^DB, raw: []esm.Content_Item, fm: ^esm.Form_Map) -> []Content_Entry {
+	if raw == nil {
+		return nil
+	}
+	defer delete(raw, context.allocator)
+	out := make([]Content_Entry, len(raw), db.allocator)
+	for c, i in raw {
+		out[i] = Content_Entry{item = esm.remap_form(fm, c.item), count = c.count}
 	}
 	return out
 }

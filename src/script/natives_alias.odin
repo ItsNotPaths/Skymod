@@ -35,13 +35,51 @@ register_alias :: proc(reg: ^Registry) {
 }
 
 // clear_aliases empties a stopping quest's aliases and stops their update and animation registrations.
-clear_aliases :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, quest: Form_ID) {
-	for a in gamedb.quest_aliases_of(db, quest) {
+clear_aliases :: proc(c: ^Call, quest: Form_ID) {
+	for a in gamedb.quest_aliases_of(c.db, quest) {
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
-		worldstate.clear_alias(ws, h)
-		worldstate.unregister_all(ws, h)
+		leave_alias(c, h)
+		worldstate.unregister_all(c.ws, h)
 	}
+}
+
+// enter_alias puts `form` in alias `h`. The ref keeps the alias's items, and its display name
+// unless the alias clears it; its spells last while it stays (CK "Quest Alias Tab").
+enter_alias :: proc(c: ^Call, h, form: Form_ID) {
+	leave_alias(c, h)
+	worldstate.fill_alias(c.ws, h, form)
+	if form == 0 {return}
+	quest, a := alias_data(c, h)
+	for e in a.items {give_items(c, form, e.item, e.count)}
+	if m, ok := gamedb.message_of(c.db, a.display_name); ok {
+		worldstate.set_display_name(c.ws, form, worldstate.fill_tags(c.ws, c.db, m.title, quest, form))
+	}
+	sync_holder(c, form)
+}
+
+// leave_alias empties alias `h`.
+leave_alias :: proc(c: ^Call, h: Form_ID) {
+	form := c.ws.aliases[h]
+	if form == 0 {return}
+	worldstate.clear_alias(c.ws, h)
+	if _, a := alias_data(c, h); a.flags & esm.ALIAS_CLEARS_NAME != 0 && a.display_name != 0 {
+		worldstate.clear_display_name(c.ws, form)
+	}
+	sync_holder(c, form)
+}
+
+@(private = "file")
+alias_data :: proc(c: ^Call, h: Form_ID) -> (Form_ID, gamedb.Quest_Alias) {
+	quest, id, _ := formid.alias_key(h)
+	a, _ := gamedb.quest_alias(c.db, quest, id)
+	return quest, a
+}
+
+// sync_holder starts or ends an actor's alias abilities.
+@(private = "file")
+sync_holder :: proc(c: ^Call, form: Form_ID) {
+	if gamedb.is_actor(c.db, worldstate.ref_base(c.ws, c.db, form)) {sync_constant_effects(c, form)}
 }
 
 // objective_targets are the refs filling an objective's target aliases whose conditions pass, in
@@ -79,11 +117,11 @@ n_alias_get :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_alias_force :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.fill_alias(c.ws, c.self, arg_form(args, 0))
+	enter_alias(c, c.self, arg_form(args, 0))
 	return nil
 }
 
 n_alias_clear :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.clear_alias(c.ws, c.self)
+	leave_alias(c, c.self)
 	return nil
 }

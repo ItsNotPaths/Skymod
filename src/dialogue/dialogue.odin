@@ -203,14 +203,14 @@ prompt :: proc(c: ^script.Call, info: Form_ID) -> string {
 	raw := i.prompt
 	if raw == "" {raw = gamedb.name_of(c.db, i.topic)}
 	if raw == "" && is_subtype(c.db.topics[i.topic], "RUMO") {raw = "Heard any rumors lately?"} // sTopicSubtypeTextPlayerDialogueRumors
-	return text(c, raw, c.db.topics[i.topic].quest)
+	return worldstate.fill_tags(c.ws, c.db, raw, c.db.topics[i.topic].quest)
 }
 
 // line_text is response `n` of `info` as shown, tags filled in; "" past its last.
 line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
 	lines := responses(c.db, info)
 	if n < 0 || n >= len(lines) {return ""}
-	return text(c, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
+	return worldstate.fill_tags(c.ws, c.db, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
 }
 
 // stack joins the infos of every topic of one subtype (Hellos, Rumors), which stack across

@@ -36,6 +36,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	fx := ws.start_effect(&src, {effect = 0x000A0003, spell = 0x000A0004, target = 0x000A0001, duration = 5, elapsed = 2})
 	alias, _ := formid.alias_handle(0x000C0DE0, 3)
 	ws.fill_alias(&src, alias, 0x000ABCDE)
+	ws.set_display_name(&src, 0x000ABCDE, "Bandit the Marked")
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
 	testing.expect_value(t, new_id, formid.CREATED_FORM_BASE)
@@ -118,6 +119,7 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(ws.effects_on(&dst, 0x000A0001)), 1)
 	testing.expect_value(t, dst.aliases[alias], 0x000ABCDE)
 	testing.expect_value(t, dst.alias_holders[0x000ABCDE][0], alias)
+	testing.expect_value(t, dst.display_names[0x000ABCDE], "Bandit the Marked")
 	testing.expect(t, dd.disabled, "disabled value lost")
 	testing.expect_value(t, dd.cell, u64(0x0002BEEF))
 

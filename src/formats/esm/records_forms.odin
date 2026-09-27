@@ -600,15 +600,19 @@ Alias_Fill :: enum u8 {
 // Quest alias FNAM flags (xEdit).
 ALIAS_RESERVES :: 0x0000_0001 // no other alias takes its ref, unless Allow Reserved or External
 ALIAS_OPTIONAL :: 0x0000_0002 // the quest starts without this alias filled
+ALIAS_QUEST_OBJECT :: 0x0000_0004 // the player cannot drop or sell the ref
 ALIAS_ALLOW_REUSE :: 0x0000_0008 // may take a ref another alias of the quest took
 ALIAS_ALLOW_DEAD :: 0x0000_0010
 ALIAS_IN_LOADED_AREA :: 0x0000_0020 // a Matching fill searches the loaded cells only
+ALIAS_ESSENTIAL :: 0x0000_0040
 ALIAS_ALLOW_DISABLED :: 0x0000_0080
 ALIAS_ALLOW_RESERVED :: 0x0000_0200
+ALIAS_PROTECTED :: 0x0000_0400
 ALIAS_ALLOW_DESTROYED :: 0x0000_1000
 ALIAS_CLOSEST :: 0x0000_2000 // a loaded-area Matching fill takes the closest match
 ALIAS_INITIALLY_DISABLED :: 0x0000_8000 // a Create_Ref fill makes its ref disabled
 ALIAS_ALLOW_CLEARED :: 0x0001_0000 // a location alias may take a cleared location
+ALIAS_CLEARS_NAME :: 0x0002_0000 // the display name goes when the ref leaves
 
 // Quest_Alias is one QUST alias definition: the slot a quest's scripts address by id, its fill rule
 // and its editor name. `target` is raw/local; `name` and `match` borrow the record's fields.

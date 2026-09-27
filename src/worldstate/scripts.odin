@@ -1,6 +1,8 @@
 package worldstate
 
+import "core:slice"
 import "core:strings"
+import "../formats/esm"
 import "../formid"
 import "../gamedb"
 
@@ -253,6 +255,44 @@ holder_aliases :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> []gam
 // fill_alias puts `form` in `alias`, replacing what it held.
 fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
 	clear_alias(ws, alias)
+// alias_flags ORs the esm.ALIAS_* flags of the aliases that hold `form` now.
+alias_flags :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> (flags: u32) {
+	for a in holder_aliases(ws, db, form) {flags |= a.flags}
+	return
+}
+
+// quest_object_kept: the player may not drop `base` from `holder` (into = 0) or store it in `into`
+// while a carried ref of it is a Quest Object, unless `into` is a Quest Object of the same quest.
+quest_object_kept :: proc(ws: ^World_State, db: ^gamedb.DB, holder, base: Form_ID, into: Form_ID = 0) -> bool {
+	boxes := quest_object_quests(ws, db, into)
+	for r in carried_refs(ws, db, holder, base) {
+		for q in quest_object_quests(ws, db, r) {
+			if !slice.contains(boxes, q) {return true}
+		}
+	}
+	return false
+}
+
+// holds_quest_object: a container that carries a Quest Object is never cleaned up.
+holds_quest_object :: proc(ws: ^World_State, db: ^gamedb.DB, container: Form_ID) -> bool {
+	for ref, holder in ws.carried {
+		if holder == container && len(quest_object_quests(ws, db, ref)) > 0 {return true}
+	}
+	return false
+}
+
+// quest_object_quests are the quests whose Quest Object aliases hold `ref` now.
+@(private = "file")
+quest_object_quests :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> []Form_ID {
+	holders, _ := ws.alias_holders[ref]
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for h in holders {
+		quest, id, _ := formid.alias_key(h)
+		if a, ok := gamedb.quest_alias(db, quest, id); ok && a.flags & esm.ALIAS_QUEST_OBJECT != 0 {append(&out, quest)}
+	}
+	return out[:]
+}
+
 	if form == 0 {return}
 	ws.aliases[alias] = form
 	if form not_in ws.alias_holders {ws.alias_holders[form] = make([dynamic]Form_ID)}

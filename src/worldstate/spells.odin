@@ -12,13 +12,15 @@ import "../gamedb"
 GIVEN :: 1
 REMOVED :: -1
 
-// spell_list is what `actor` knows now: its race's list, its NPC_'s, then what it was given.
+// spell_list is what `actor` knows now: its race's list, its NPC_'s, the spells of the aliases
+// that hold it, then what it was given.
 spell_list :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
 	seeded := make([dynamic]Form_ID, context.temp_allocator)
 	for src in gamedb.spell_sources(db, record_of(ws, actor), actor_pick(ws, db, actor)) {
 		edits, _ := ws.spell_seeds[src.owner]
 		append(&seeded, ..with_delta(rolled_spells(ws, db, actor, src.spells), edits))
 	}
+	for a in holder_aliases(ws, db, actor) {append(&seeded, ..a.spells)}
 	delta, _ := ws.spells[actor]
 	return with_delta(seeded[:], delta)
 }

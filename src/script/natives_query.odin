@@ -183,7 +183,6 @@ n_set_essential :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, ar
 n_set_protected :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, esm.ACBS_PROTECTED)}
 n_set_invulnerable :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, esm.ACBS_INVULNERABLE)}
 
-// An Essential alias does not count yet (alias-data).
 n_is_ghost :: proc(c: ^Call, args: []Value) -> Value {return worldstate.actor_flag(c.ws, c.db, c.self, esm.ACBS_GHOST)}
 n_is_essential :: proc(c: ^Call, args: []Value) -> Value {return worldstate.actor_flag(c.ws, c.db, c.self, esm.ACBS_ESSENTIAL)}
 n_is_protected :: proc(c: ^Call, args: []Value) -> Value {return worldstate.actor_flag(c.ws, c.db, c.self, esm.ACBS_PROTECTED)}

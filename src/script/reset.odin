@@ -30,7 +30,7 @@ enter_cell :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, cell: Form_ID) {
 			}
 		}
 	}
-	if s.reset_asked {drop_created(ws, cell)}
+	if s.reset_asked {drop_created(db, ws, cell)}
 	append(&ws.rebuild_cells, cell)
 }
 
@@ -54,29 +54,30 @@ location_cleared :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, loc: Form_
 	return false
 }
 
-// reset_ref puts one ref back to its baseline and restarts its scripts. A ref a quest alias holds
-// or a script deleted stays as it is.
+// reset_ref puts one ref back to its baseline and restarts its scripts. A ref a quest alias holds,
+// one that carries a Quest Object, or one a script deleted stays as it is.
 @(private)
 reset_ref :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, r: gamedb.Ref) {
-	if held_by_alias(ws, r.form_id) || worldstate.is_deleted(ws, r.form_id) {return}
+	if kept(db, ws, r.form_id) || worldstate.is_deleted(ws, r.form_id) {return}
 	_, is_actor := db.actors[r.base]
 	worldstate.reset_ref_state(ws, r.form_id, is_actor || db.respawning_containers[r.base])
 	worldstate.restart_scripts(ws, r.form_id)
 }
 
-// drop_created removes the refs made in `cell`, except those an alias holds.
+// drop_created removes the refs made in `cell`, except kept ones.
 @(private)
-drop_created :: proc(ws: ^worldstate.World_State, cell: Form_ID) {
+drop_created :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, cell: Form_ID) {
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for id in worldstate.created_in(ws, cell) {
-		if !held_by_alias(ws, id) {append(&gone, id)}
+		if !kept(db, ws, id) {append(&gone, id)}
 	}
 	for id in gone {worldstate.remove_created(ws, id)}
 }
 
+// kept: a ref an alias holds, or a container with a Quest Object in it, never resets.
 @(private)
-held_by_alias :: proc(ws: ^worldstate.World_State, form: Form_ID) -> bool {
-	return len(ws.alias_holders[form]) > 0
+kept :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: Form_ID) -> bool {
+	return len(ws.alias_holders[form]) > 0 || worldstate.holds_quest_object(ws, db, form)
 }
 
 // restock_vendors empties what the player changed in each merchant chest every iDaysToRespawnVendor

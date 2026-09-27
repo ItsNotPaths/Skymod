@@ -144,7 +144,7 @@ request_stop :: proc(c: ^Call, quest: Form_ID) {
 stop_quest :: proc(c: ^Call, quest: Form_ID) {
 	worldstate.quest_set_running(c.ws, quest, false)
 	worldstate.unregister_all(c.ws, quest)
-	clear_aliases(c.ws, c.db, quest)
+	clear_aliases(c, quest)
 }
 
 // queue_stages queues the fragments of every stage of `quest` that has `flag`, in stage order.
@@ -159,7 +159,7 @@ queue_stages :: proc(c: ^Call, quest: Form_ID, flag: u8) {
 }
 
 n_quest_reset :: proc(c: ^Call, args: []Value) -> Value {
-	if reset_quest(c, c.self) {clear_aliases(c.ws, c.db, c.self)}
+	if reset_quest(c, c.self) {clear_aliases(c, c.self)}
 	return nil
 }
 
