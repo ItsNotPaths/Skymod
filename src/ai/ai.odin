@@ -15,7 +15,6 @@ import "../worldstate"
 Form_ID :: gamedb.Form_ID
 
 EVAL_EVERY :: f32(1) // seconds between package selections
-PLANS_PER_TICK :: 8 // unloaded trips planned per tick; a new game plans hundreds
 
 // (hole once-per-day :tags (ai save) :sev polish) nothing is saved, so a OncePerDay package (125) runs again after a load; decided: choices and paths re-roll on load, as in Skyrim.
 // Agent is an actor's running package. None of it is saved.
@@ -38,7 +37,6 @@ Agent :: struct {
 World :: struct {
 	agents:     map[Form_ID]Agent,
 	persistent: [dynamic]Form_ID, // the persistent actor placements, which live while unloaded
-	plans_left: int, // trips this tick may still plan
 	mesh:       nav.Path_Mesh,
 	routes:     nav.Route_Index,
 	quest_vars: conditions.Quest_Vars, // GetVMQuestVariable reads the script VM
@@ -103,7 +101,6 @@ tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 			if r, ok := gamedb.ref_by_formid(db, id); ok && gamedb.is_actor(db, r.base) {append(&w.persistent, id)}
 		}
 	}
-	w.plans_left = PLANS_PER_TICK
 	for id in w.persistent {step_unloaded(w, ws, db, loaded, id, dt)}
 	for id, cr in ws.created {
 		if gamedb.is_actor(db, cr.base) {step_unloaded(w, ws, db, loaded, id, dt)}
@@ -121,10 +118,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 		a.eval_in += EVAL_EVERY
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 	}
-	if a.pack != 0 && !a.planned && w.plans_left > 0 {
-		w.plans_left -= 1
-		plan_trip(w, ws, db, a, actor, feet)
-	}
+	if a.pack != 0 && !a.planned {plan_trip(w, ws, db, a, actor, feet)}
 	walk_trip(ws, db, a, actor, feet, dt)
 }
 
