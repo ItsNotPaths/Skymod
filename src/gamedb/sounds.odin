@@ -5,7 +5,7 @@ package gamedb
 import "core:strings"
 import "../formats/esm"
 
-// (hole sound-conditions :tags (audio records) :sev gap) a descriptor's conditions (CTDA, on 336 vanilla SNDRs) and its Alternate Sound For (SNAM, 247) are not read: every descriptor plays its own files, always.
+// (hole alternate-sounds :tags (audio records) :sev polish) a descriptor's Alternate Sound For (SNAM, 247 vanilla: ITMFishUp -> ITMGenericUpLoFi) is not read; unsourced when Skyrim plays the alternate.
 
 Sound_Loop :: enum u8 {
 	None,
@@ -24,6 +24,7 @@ Sound_Descriptor :: struct {
 	priority:      u8,
 	db_variance:   f32, // BNAM: up to this many dB quieter, per play
 	attenuation:   f32, // BNAM: static attenuation, dB
+	conditions:    []Condition, // CTDA, run on the sound's source: it plays only when all pass (owned)
 }
 
 // Sound_Output is an output model (SOPM): how a sound falls off with distance, and whether it pans.
@@ -175,6 +176,7 @@ index_sound_descriptor :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		}
 	}
 	s.files = files[:]
+	s.conditions = index_conditions(db, fl, fm)
 	db.sounds[rec.form_id] = s
 }
 
@@ -248,6 +250,7 @@ index_default_objects :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 free_sound :: proc(db: ^DB, s: Sound_Descriptor) {
 	for f in s.files {delete(f, db.allocator)}
 	delete(s.files, db.allocator)
+	free_conditions(db, s.conditions)
 }
 
 @(private)

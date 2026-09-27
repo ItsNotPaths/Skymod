@@ -4,8 +4,6 @@ package gamedb
 
 import "../formats/esm"
 
-// (hole music-conditions :tags (audio records) :sev gap) a track's conditions (CITC/CTDA, on 48 vanilla MUSTs) are not read: every track of a type can play.
-
 MUSIC_PLAYS_ONE :: 0x01 // FNAM: plays one track, then leaves
 MUSIC_ABRUPT :: 0x02 // FNAM: starts without fading the music before it out
 MUSIC_CYCLES :: 0x04 // FNAM: plays its tracks in order, not at random
@@ -27,7 +25,8 @@ Music_Track :: struct {
 	kind:     Music_Track_Kind, // CNAM
 	file:     string, // ANAM: "music\...\x.wav", lowercased (owned)
 	duration: f32, // FLTV: a silent track's length, seconds
-	children: []Form_ID, // SNAM: a palette's tracks (owned)
+	children:   []Form_ID, // SNAM: a palette's tracks (owned)
+	conditions: []Condition, // CTDA, run on the player: it is picked only when all pass (owned)
 }
 
 @(private)
@@ -69,6 +68,7 @@ index_music_track :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		case "SNAM": t.children = form_list(f, fm, db.allocator)
 		}
 	}
+	t.conditions = index_conditions(db, fl, fm)
 	db.music_tracks[rec.form_id] = t
 }
 
@@ -84,6 +84,7 @@ form_list :: proc(f: esm.Field, fm: ^esm.Form_Map, allocator := context.allocato
 free_music_track :: proc(db: ^DB, t: Music_Track) {
 	delete(t.file, db.allocator)
 	delete(t.children, db.allocator)
+	free_conditions(db, t.conditions)
 }
 
 @(private)

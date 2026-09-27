@@ -589,6 +589,7 @@ Unhandled_Types: map[string]int
 // parse_compressed_mesh decodes a bhkCompressedMeshShapeData block into ONE triangle
 // mesh: big verts (full-precision) followed by every chunk's decompressed verts, with
 // big-tris + per-chunk strips/lists remapped into one combined index list.
+// (hole havok-materials :tags (physics assets) :sev gap) collision shapes drop their Havok materials (the shape's own, a compressed mesh's chunk materials), so no hit knows its surface: stone, wood, dirt, flesh. Impacts and footsteps pick their sounds by it (IPDS keys MATT, which maps Havok material ids).
 @(private = "file")
 parse_compressed_mesh :: proc(b: []u8, xform: matrix[4, 4]f32, out: ^[dynamic]Collision_Shape) {
 	r := Reader{data = b, ok = true}

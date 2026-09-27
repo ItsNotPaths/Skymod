@@ -16,9 +16,11 @@ import "core:math/rand"
 import "core:slice"
 import "core:sync"
 import sdl "vendor:sdl3"
+import "../conditions"
 import "../formats/ffmpeg"
 import "../gamedb"
 import "../vfs"
+import "../worldstate"
 
 // Sound is one decoded file: interleaved samples, and the smpl loop region in frames (0, 0 = none).
 Sound :: struct {
@@ -129,10 +131,11 @@ play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, 
 
 // play_descriptor plays one of a sound descriptor's files (SNDR) at its category's volume and
 // static attenuation, with a random part of its dB and frequency variance; placed at `at` under
-// its output model, else flat. 0 when it has none.
-play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.Form_ID, at: Maybe([3]f32) = nil) -> Handle {
+// its output model, else flat. Given a world state, it plays only when its conditions pass on
+// `source`. 0 when it plays nothing.
+play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.Form_ID, at: Maybe([3]f32) = nil, ws: ^worldstate.World_State = nil, source: gamedb.Form_ID = 0) -> Handle {
 	d, ok := db.sounds[sndr]
-	if !ok || len(d.files) == 0 || a.device == 0 {return 0}
+	if !ok || len(d.files) == 0 || a.device == 0 || !allowed(db, ws, d.conditions, source) {return 0}
 	if pos, placed := at.?; placed && d.loop == .None && gamedb.output_level(db.sound_outputs[d.output], distance(a, pos)) == 0 {
 		return 0 // out of earshot: a one-shot is never heard, so never decoded
 	}
@@ -326,6 +329,13 @@ feed :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total:
 		need -= n
 		if n == 0 {break}
 	}
+}
+
+// allowed: every condition passes on `subject`; true without a world state to ask.
+allowed :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, conds: []gamedb.Condition, subject: gamedb.Form_ID) -> bool {
+	if ws == nil || len(conds) == 0 {return true}
+	ctx := conditions.Context{db = db, ws = ws, subject = subject}
+	return conditions.all(&ctx, conds)
 }
 
 // region is a sound's loop region in samples: its smpl loop, else the whole file.

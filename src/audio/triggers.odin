@@ -50,6 +50,7 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	for hops := 0; track.kind == .Palette && len(track.children) > 0 && hops < 4; hops += 1 {
 		track = db.music_tracks[rand.choice(track.children)]
 	}
+	if !allowed(db, ws, track.conditions, formid.PLAYER) {return} // the next frame picks again
 	switch track.kind {
 	case .Silent:
 		m.wait = track.duration
@@ -100,14 +101,14 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 		for r in db.cell_refs[cell] {
 			sndr := db.sound_markers[r.base] or_else db.base_sounds[r.base].loop // a marker, else an activator's or light's loop
 			d := db.sounds[sndr]
-			if sndr == 0 || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) {continue}
+			if sndr == 0 || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) || !allowed(db, ws, d.conditions, r.form_id) {continue}
 			out := db.sound_outputs[d.output]
 			dist := distance(a, r.pos)
 			_, playing := am.markers[r.form_id]
 			// Stops a little past where it starts, so a marker at the edge does not flutter.
 			if gamedb.output_level(out, dist) == 0 && !(playing && out.attenuates && dist < out.max * 1.1) {continue}
 			want[r.form_id] = true
-			if !playing {am.markers[r.form_id] = play_descriptor(a, v, db, sndr, r.pos)}
+			if !playing {am.markers[r.form_id] = play_descriptor(a, v, db, sndr, r.pos, ws, r.form_id)}
 		}
 	}
 	gone := make([dynamic]formid.Form_ID, context.temp_allocator)
@@ -128,10 +129,10 @@ ambient_destroy :: proc(am: ^Ambient) {
 // activate_sound plays the sound of a ref's base where the ref is, when it is used (a door or
 // container opens, an item is picked up), or with done when done with (a container closes).
 activate_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, ref: formid.Form_ID, done := false) {
-	play_descriptor(a, v, db, gamedb.base_sound(db, worldstate.ref_base(ws, db, ref), done), worldstate.ref_pos(ws, db, ref))
+	play_descriptor(a, v, db, gamedb.base_sound(db, worldstate.ref_base(ws, db, ref), done), worldstate.ref_pos(ws, db, ref), ws, ref)
 }
 
-// (hole impact-sounds :tags (audio combat) :sev gap) a hit makes no sound: IPDS (220) and IPCT (515) are not decoded, and no surface material picks the row. Melee hits wait on combat-damage.
+// (hole impact-sounds :tags (audio combat) :sev gap :needs (havok-materials)) a hit makes no sound: IPDS (220) and IPCT (515) are not decoded, and no hit knows the surface that picks the row. Melee hits wait on combat-damage.
 impact_sound :: proc(db: ^gamedb.DB, source, target: formid.Form_ID, pos: [3]f32) {}
 
 // (hole anim-sounds :tags (audio animation unclaimed) :sev gap :needs (hkx-porter)) no animation plays a sound: SoundPlay/SoundStop/SoundPlayAt annotations (727 SNDR names over 800 SE clips; 90 of 183 dragon clips), weaponSwing (the WEAP attack sound) and FootLeft/FootRight (FSTS/FSTP footstep sets, by gait and ground material; not decoded) have no animation to fire them.

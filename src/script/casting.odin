@@ -32,12 +32,12 @@ cast_sounds :: proc(c: ^Call, spell: Form_ID, sp: gamedb.Spell, caster, hit: For
 	if c.audio == nil {return}
 	if i, ok := gamedb.spell_costliest_effect(c.db, spell); ok {
 		m, _ := gamedb.magic_effect_of(c.db, sp.effects[i].effect)
-		audio.play_descriptor(c.audio, c.vfs, c.db, m.sounds[.Release], worldstate.ref_pos(c.ws, c.db, caster))
+		audio.play_descriptor(c.audio, c.vfs, c.db, m.sounds[.Release], worldstate.ref_pos(c.ws, c.db, caster), c.ws, caster)
 	}
 	if hit == 0 {return}
 	for e in sp.effects {
 		m, _ := gamedb.magic_effect_of(c.db, e.effect)
-		audio.play_descriptor(c.audio, c.vfs, c.db, m.sounds[.On_Hit], worldstate.ref_pos(c.ws, c.db, hit))
+		audio.play_descriptor(c.audio, c.vfs, c.db, m.sounds[.On_Hit], worldstate.ref_pos(c.ws, c.db, hit), c.ws, hit)
 	}
 }
 

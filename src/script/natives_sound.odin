@@ -4,6 +4,7 @@ package script
 // polls Sound.IsPlaying(id) (docs/script-api.md section 4).
 
 import "../audio"
+import "../formid"
 import "../worldstate"
 
 register_sound :: proc(reg: ^Registry) {
@@ -32,8 +33,9 @@ register_sound :: proc(reg: ^Registry) {
 n_sound_play :: proc(c: ^Call, args: []Value) -> Value {
 	if c.audio == nil {return i32(0)}
 	at: Maybe([3]f32)
-	if src := arg_form(args, 0); src != 0 {at = worldstate.ref_pos(c.ws, c.db, src)}
-	return i32(audio.play_descriptor(c.audio, c.vfs, c.db, c.db.sound_markers[c.self], at))
+	src := arg_form(args, 0)
+	if src != 0 {at = worldstate.ref_pos(c.ws, c.db, src)}
+	return i32(audio.play_descriptor(c.audio, c.vfs, c.db, c.db.sound_markers[c.self], at, c.ws, src if src != 0 else formid.PLAYER))
 }
 
 n_sound_is_playing :: proc(c: ^Call, args: []Value) -> Value {
