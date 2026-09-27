@@ -91,7 +91,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	289 = fn_resting,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
-	314 = fn_resting,
+	314 = fn_is_actor_a_victim,
 	353 = fn_is_actor,
 	354 = fn_is_essential,
 	359 = fn_get_in_current_loc,
@@ -115,7 +115,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	476 = fn_is_protected,
 	491 = fn_resting,
 	497 = fn_can_pay_crime_gold,
-	499 = fn_resting,
+	499 = fn_get_days_in_jail,
 	503 = fn_get_allow_world_interactions,
 	513 = fn_resting,
 	543 = fn_get_quest_completed,
@@ -155,11 +155,11 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	641 = fn_is_unique,
 	650 = fn_is_linked_to,
 	651 = fn_get_keyword_data_for_current_location,
-	652 = fn_resting,
+	652 = fn_get_in_shared_crime_faction,
 	654 = fn_resting,
 	655 = fn_resting,
-	656 = fn_resting,
-	657 = fn_resting,
+	656 = fn_get_arrested_state,
+	657 = fn_get_arresting_actor,
 	682 = fn_worn_has_keyword,
 	698 = fn_is_allowed_to_fly,
 	699 = fn_has_magic_effect_keyword,
@@ -261,6 +261,32 @@ fn_get_crime_gold_nonviolent :: proc(ctx: ^Context, c: gamedb.Condition, on: For
 fn_can_pay_crime_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	b := worldstate.bounty(ctx.ws, ctx.db, on, ctx.target)
 	return yes(worldstate.inv_count(ctx.ws, ctx.db, ctx.target, formid.GOLD) >= worldstate.total(b))
+}
+
+// The crime functions a speaker's line asks about the actor it talks to (vanilla: the player).
+@(private = "file")
+fn_is_actor_a_victim :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(ctx.ws.crime_victims[{on, ctx.target}])
+}
+
+@(private = "file")
+fn_get_days_in_jail :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(ctx.ws.days_jailed[ctx.target]), true
+}
+
+@(private = "file")
+fn_get_arresting_actor :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(ctx.target != 0 && ctx.ws.arresting[on] == ctx.target)
+}
+
+@(private = "file")
+fn_get_arrested_state :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.arrest_state(ctx.ws, on)), true
+}
+
+@(private = "file")
+fn_get_in_shared_crime_faction :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.shared_crime_faction(ctx.ws, ctx.db, on, p1(c)))
 }
 
 @(private = "file")
@@ -365,7 +391,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
-// (hole crime-conditions :tags (combat quest) :sev gap) GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: nothing answers them yet (the confront and the jail sentence hold the data).
+// (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.

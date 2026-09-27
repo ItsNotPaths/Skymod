@@ -339,5 +339,45 @@ test_trespass :: proc(t: ^testing.T) {
 	db.cells[HOUSE] = {form_id = HOUSE, interior = true, public = true}
 	testing.expect(t, !ws.is_trespassing(&s, &db, CRIME_THIEF), "a public place")
 	ws.tick_crime(&s, &db, 1)
+	ws.tick_crime(&s, &db, 1) // a warning nobody ran for a whole tick is over
 	testing.expect_value(t, len(s.trespass_warnings), 0)
+}
+
+// Crimes against a member of a "do not report crimes against members" faction go unreported; a
+// victim remembers who wronged it until the bounty is paid; two actors share a crime faction when
+// theirs match or one's crime group lists the other's.
+@(test)
+test_crime_victims_and_groups :: proc(t: ^testing.T) {
+	QUIET, GROUP, OTHER_TOWN :: gamedb.Form_ID(0x000FC001), gamedb.Form_ID(0x000FC002), gamedb.Form_ID(0x000FC003)
+	db: gamedb.DB
+	defer {delete(db.factions)}
+	db.factions[CRIME_TOWN] = {flags = esm.FACT_TRACK_CRIME, has_crime = true, crime = {assault = 40}, crime_group = GROUP}
+	db.factions[QUIET] = {flags = esm.FACT_DO_NOT_REPORT_CRIMES}
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
+	ws.set_crime_faction(&s, CRIME_CITIZEN, CRIME_TOWN)
+	ws.set_awareness(&s, CRIME_GUARD, CRIME_THIEF, {level = 1, detected = true})
+
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Assault, 0), ws.Crime_Status.Reported)
+	testing.expect(t, s.crime_victims[{CRIME_CITIZEN, CRIME_THIEF}], "the victim remembers")
+	ws.pay_bounty(&s, CRIME_THIEF, CRIME_TOWN)
+	testing.expect(t, !s.crime_victims[{CRIME_CITIZEN, CRIME_THIEF}], "paid off")
+
+	quiet := ws.Form_ID(0x000A0105)
+	ws.faction_set_rank(&s, quiet, QUIET, 0)
+	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, quiet, .Assault, 0), ws.Crime_Status.Unreported)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_GUARD, CRIME_THIEF), ws.Bounty{})
+
+	testing.expect(t, ws.shared_crime_faction(&s, &db, CRIME_GUARD, CRIME_CITIZEN), "one crime faction")
+	far := ws.Form_ID(0x000A0106)
+	ws.set_crime_faction(&s, far, OTHER_TOWN)
+	testing.expect(t, !ws.shared_crime_faction(&s, &db, CRIME_GUARD, far), "not in the group")
+	ws.add_to_list(&s, GROUP, OTHER_TOWN)
+	testing.expect(t, ws.shared_crime_faction(&s, &db, CRIME_GUARD, far), "a script added it to the group")
+
+	testing.expect_value(t, ws.arrest_state(&s, CRIME_THIEF), i32(0))
+	ws.set_arresting(&s, CRIME_GUARD, CRIME_THIEF)
+	testing.expect_value(t, ws.arrest_state(&s, CRIME_THIEF), i32(1))
 }

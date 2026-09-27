@@ -46,7 +46,9 @@ release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.F
 	worldstate.relocate(&g.ws, o.actor, outside.cell, outside.pos, outside.rot)
 	if f.jail_outfit != 0 {worldstate.restore_outfit(&g.ws, &g.db, o.actor, j.outfit)}
 	take_all(c, o.actor, f.player_chest)
-	worldstate.lose_skill_progress(&g.ws, o.actor, worldstate.jail_days(worldstate.wanted(&g.ws, o.actor, o.faction).bounty))
+	days := worldstate.jail_days(worldstate.wanted(&g.ws, o.actor, o.faction).bounty)
+	g.ws.days_jailed[o.actor] += days
+	worldstate.lose_skill_progress(&g.ws, o.actor, days)
 	worldstate.pay_bounty(&g.ws, o.actor, o.faction)
 }
 

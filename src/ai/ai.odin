@@ -110,6 +110,9 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	alarm := a.combat.target if a.combat.state == .Combat else a.confront.target
 	if alarm == 0 && (ws.talking == actor || ws.force_greet.speaker == actor) {alarm = ws.alarmed[actor]} // through the talk a confront opened
 	worldstate.set_alarmed(ws, actor, alarm)
+	arrest := a.confront.target
+	if arrest == 0 && (ws.talking == actor || ws.force_greet.speaker == actor) {arrest = ws.arresting[actor]} // through the arrest talk
+	worldstate.set_arresting(ws, actor, arrest)
 	escorts_follow(w, ws, db, a, actor, feet, dt)
 	follow_path_order(ws, db, a, actor, feet)
 	keep_offset(ws, db, a, actor, feet)

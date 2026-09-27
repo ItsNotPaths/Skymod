@@ -108,6 +108,8 @@ Overlay :: struct {
 	crime_factions:  map[Form_ID]Form_ID,          // actor -> the crime faction a script set; 0 = none (crime.odin)
 	faction_relations: map[[2]Form_ID]gamedb.Faction_Relation, // {faction, other} -> a script's relation (factions.odin)
 	script_factions: map[Form_ID]Script_Faction,  // the factions scripts made (factions.odin)
+	crime_victims:   map[[2]Form_ID]bool,          // {victim, offender}: a crime it has not paid for (IsActorAVictim; crime.odin)
+	days_jailed:     map[Form_ID]i32,              // actor -> days it has served in all (GetDaysInJail; crime.odin)
 	wanted:          map[[2]Form_ID]Wanted,        // {offender, crime faction} -> the faction-wide bounty (crime.odin)
 	known_bounties:  map[[2]Form_ID]Known_Bounty,  // {knower, offender} -> a bounty only the knower holds (crime.odin)
 	victim_waits:    [dynamic]Victim_Wait,         // victims about to turn witness (crime.odin)
@@ -161,6 +163,8 @@ Runtime :: struct {
 	struck:          map[Form_ID]Form_ID,   // victim -> who last hit it, until its combat looks (projectiles.odin); not saved
 	alarmed:         map[Form_ID]Form_ID,   // actor -> whom it fights or confronts, as the AI set it (GetAlarmed); not saved
 	trespass_warnings: map[[2]Form_ID]Trespass_Warning, // {warner, trespasser} -> its warnings so far (crime.odin); not saved
+	arresting:       map[Form_ID]Form_ID,   // guard -> the actor it arrests, as the AI set it (GetArrestingActor); not saved
+	warn_tick:       u64,                   // counts crime ticks, to end warnings nobody runs (crime.odin)
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
@@ -216,6 +220,7 @@ init :: proc(ws: ^World_State) {
 	ws.struck = make(map[Form_ID]Form_ID)
 	ws.alarmed = make(map[Form_ID]Form_ID)
 	ws.trespass_warnings = make(map[[2]Form_ID]Trespass_Warning)
+	ws.arresting = make(map[Form_ID]Form_ID)
 	ws.story_events = make([dynamic]Story_Event)
 	ws.barks = make([dynamic]Bark)
 	ws.story_quests = make([dynamic]Form_ID)
@@ -248,6 +253,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.struck)
 	delete(ws.alarmed)
 	delete(ws.trespass_warnings)
+	delete(ws.arresting)
 	delete(ws.in_triggers)
 	delete(ws.story_events)
 	delete(ws.barks)
@@ -333,6 +339,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.jailed = make(map[Form_ID]Jailed)
 	o.faction_relations = make(map[[2]Form_ID]gamedb.Faction_Relation)
 	o.script_factions = make(map[Form_ID]Script_Faction)
+	o.crime_victims = make(map[[2]Form_ID]bool)
+	o.days_jailed = make(map[Form_ID]i32)
 	o.known_bounties = make(map[[2]Form_ID]Known_Bounty)
 	o.killers = make(map[Form_ID]Form_ID)
 	o.display_names = make(map[Form_ID]string)
@@ -435,6 +443,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.faction_relations)
 	for _, s in o.script_factions {delete(s.name);free_ranks(s.data.ranks)}
 	delete(o.script_factions)
+	delete(o.crime_victims)
+	delete(o.days_jailed)
 	delete(o.known_bounties)
 	delete(o.killers)
 	for _, n in o.display_names {delete(n)}

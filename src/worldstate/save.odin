@@ -171,6 +171,11 @@ Saved_Stolen :: struct {
 	count:               i32,
 }
 
+Saved_Count :: struct {
+	form:  Form_ID,
+	count: i32,
+}
+
 Saved_Jailed :: struct {
 	actor:  Form_ID,
 	jailed: Jailed,
@@ -366,6 +371,8 @@ Save_Body :: struct {
 	relations:     []Saved_Relation,
 	jailed:        []Saved_Jailed,
 	faction_defs:  []Saved_Faction_Def,
+	crime_victims: []Saved_Alias,   // alias = the victim, form = the offender
+	days_jailed:   []Saved_Count,
 	unreported:    []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -555,6 +562,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		for r, i in f.ranks {ranks[i] = {r.index, r.male_title, r.female_title}}
 		append(&faction_defs, Saved_Faction_Def{id, sf.name, f.flags, f.crime, f.has_crime, f.jail, f.follower_wait, f.stolen_chest, f.player_chest, f.crime_group, f.jail_outfit, ranks})
 	}
+	crime_victims := make([dynamic]Saved_Alias, 0, len(ws.crime_victims), context.temp_allocator)
+	for k in ws.crime_victims {append(&crime_victims, Saved_Alias{alias = k[0], form = k[1]})}
+	days_jailed := make([dynamic]Saved_Count, 0, len(ws.days_jailed), context.temp_allocator)
+	for a, n in ws.days_jailed {append(&days_jailed, Saved_Count{a, n})}
 	jailed := make([dynamic]Saved_Jailed, 0, len(ws.jailed), context.temp_allocator)
 	for a, j in ws.jailed {append(&jailed, Saved_Jailed{a, j})}
 	bounties := make([dynamic]Saved_Bounty, 0, len(ws.wanted) + len(ws.known_bounties), context.temp_allocator)
@@ -640,6 +651,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		relations     = relations[:],
 		jailed        = jailed[:],
 		faction_defs  = faction_defs[:],
+		crime_victims = crime_victims[:],
+		days_jailed   = days_jailed[:],
 		unreported    = save_set(ws.unreported),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -903,6 +916,14 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 			crime_group = ref(remap, have_remap, rf, d.crime_group), jail_outfit = ref(remap, have_remap, rf, d.jail_outfit),
 		}}
 	}
+	for r in body.crime_victims {
+		v, vok := rf(remap, have_remap, r.alias)
+		o, ook := rf(remap, have_remap, r.form)
+		if vok && ook {ws.crime_victims[{v, o}] = true}
+	}
+	for r in body.days_jailed {
+		if a, ok := rf(remap, have_remap, r.form); ok {ws.days_jailed[a] = r.count}
+	}
 	for r in body.jailed {
 		a, aok := rf(remap, have_remap, r.actor)
 		f, fok := rf(remap, have_remap, r.jailed.faction)
@@ -1156,6 +1177,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.bounties {add_slot(&seen, r.offender);add_slot(&seen, r.knower);add_slot(&seen, r.faction)}
 	for a in body.unreported {add_slot(&seen, a)}
 	for d in body.faction_defs {add_slot(&seen, d.jail);add_slot(&seen, d.follower_wait);add_slot(&seen, d.stolen_chest);add_slot(&seen, d.player_chest);add_slot(&seen, d.crime_group);add_slot(&seen, d.jail_outfit)}
+	for r in body.crime_victims {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for r in body.days_jailed {add_slot(&seen, r.form)}
 	for r in body.jailed {add_slot(&seen, r.actor);add_slot(&seen, r.jailed.faction);add_slot(&seen, r.jailed.cell);add_slot(&seen, r.jailed.outfit)}
 	for r in body.relations {add_slot(&seen, r.from);add_slot(&seen, r.relation.faction)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}

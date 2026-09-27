@@ -92,6 +92,26 @@ pay_bounty :: proc(ws: ^World_State, offender, faction: Form_ID) {
 		if k[1] == offender && b.faction == faction {append(&paid, k)}
 	}
 	for k in paid {delete_key(&ws.known_bounties, k)}
+	clear(&paid)
+	for k in ws.crime_victims {
+		if k[1] == offender {append(&paid, k)}
+	}
+	for k in paid {delete_key(&ws.crime_victims, k)}
+}
+
+// set_arresting is whom a guard arrests now; 0 when none.
+set_arresting :: proc(ws: ^World_State, guard, actor: Form_ID) {
+	if actor == 0 {delete_key(&ws.arresting, guard)} else {ws.arresting[guard] = actor}
+}
+
+// arrest_state is GetArrestedState: 1 while a guard arrests the actor or it serves a sentence.
+// (hole arrested-state-values :tags combat :sev polish) unsourced: GetArrestedState's values (1 vanilla use, == 0); only 0 and 1 are read.
+arrest_state :: proc(ws: ^World_State, actor: Form_ID) -> i32 {
+	if actor in ws.jailed {return 1}
+	for _, a in ws.arresting {
+		if a == actor {return 1}
+	}
+	return 0
 }
 
 // forget_bounty drops what `knower` alone knows of `offender`.
@@ -142,6 +162,8 @@ Crime_Status :: enum i32 {
 report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) -> Crime_Status {
 	if offender == 0 || offender == victim || offender in ws.unreported {return .None}
 	if kind in VIOLENT_CRIMES && (hostile(ws, db, victim, offender) || hostile(ws, db, offender, victim)) {return .None}
+	if kind in (bit_set[Crime_Kind]{.Assault, .Murder, .Pickpocket}) {ws.crime_victims[{victim, offender}] = true}
+	if unreported_against(ws, db, victim) {return .Unreported}
 	status := Crime_Status.Unreported
 	for k, a in ws.awareness {
 		if k[1] == offender && a.detected && witness(ws, db, k[0], offender, kind, value) {status = .Reported}
@@ -153,28 +175,6 @@ report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID
 	return status
 }
 
-// witness gives `knower` the bounty its crime faction sets for the offence, if it counts one.
-@(private = "file")
-witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kind: Crime_Kind, value: i32) -> bool {
-	if knower == offender || is_dead(ws, db, knower) {return false}
-	f := counts(ws, db, knower, kind) or_return
-	add: i32
-	switch kind {
-	case .Steal:      add = i32(f32(value) * f.crime.steal_multiplier)
-	case .Pickpocket: add = i32(f.crime.pickpocket)
-	if kind in (bit_set[Crime_Kind]{.Assault, .Murder, .Pickpocket}) {ws.crime_victims[{victim, offender}] = true}
-	if unreported_against(ws, db, victim) {return .Unreported}
-	case .Trespass:   add = i32(f.crime.trespass)
-	case .Assault:    add = i32(f.crime.assault)
-	case .Murder:     add = i32(f.crime.murder)
-	case .Escape:     add = i32(f.crime.escape)
-	case .Werewolf:   add = i32(f.crime.werewolf)
-	}
-	if add <= 0 {return false}
-	b := bounty(ws, db, knower, offender)
-	if kind in VIOLENT_CRIMES {b.violent += add} else {b.nonviolent += add}
-	learn_bounty(ws, db, knower, offender, b)
-	return true
 // unreported_against: `victim` (an actor, or an owner) is, or is a member of, a faction whose members'
 // crimes nobody reports (FACT DATA 0x800; 33 vanilla factions, the Companions among them).
 @(private = "file")
@@ -186,6 +186,26 @@ unreported_against :: proc(ws: ^World_State, db: ^gamedb.DB, victim: Form_ID) ->
 	return false
 }
 
+// witness gives `knower` the bounty its crime faction sets for the offence, if it counts one.
+@(private = "file")
+witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kind: Crime_Kind, value: i32) -> bool {
+	if knower == offender || is_dead(ws, db, knower) {return false}
+	f := counts(ws, db, knower, kind) or_return
+	add: i32
+	switch kind {
+	case .Steal:      add = i32(f32(value) * f.crime.steal_multiplier)
+	case .Pickpocket: add = i32(f.crime.pickpocket)
+	case .Trespass:   add = i32(f.crime.trespass)
+	case .Assault:    add = i32(f.crime.assault)
+	case .Murder:     add = i32(f.crime.murder)
+	case .Escape:     add = i32(f.crime.escape)
+	case .Werewolf:   add = i32(f.crime.werewolf)
+	}
+	if add <= 0 {return false}
+	b := bounty(ws, db, knower, offender)
+	if kind in VIOLENT_CRIMES {b.violent += add} else {b.nonviolent += add}
+	learn_bounty(ws, db, knower, offender, b)
+	return true
 }
 
 // shared_crime_faction is GetInSharedCrimeFaction: `a` and `b` report to one crime faction, or `b`'s
@@ -353,20 +373,42 @@ is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool
 	return false
 }
 
-// Trespass_Warning is how far `warner` has got warning a trespasser away.
+// Trespass_Warning is how far `warner` has got warning an actor off (trespass, or a Guard's area).
 Trespass_Warning :: struct {
 	level:    i32, // GetTrespassWarningLevel: the warning it is on
 	wait:     f32, // seconds to the next warning
 	started:  bool,
 	reported: bool,
+	touched:  u64, // the warn tick that last ran it; one left a tick behind is over
 }
 
-// warn_trespassers has each actor that counts trespass warn the trespassers it detects: a TRES line
-// every fAITrespassWarningTimer, iGuardWarnings times, then the Trespass crime. Leaving ends it.
+// warn_step runs one tick of `warner` warning `target` off: a TRES line every
+// fAITrespassWarningTimer, iGuardWarnings times. True on each warning tick after the last warning.
+warn_step :: proc(ws: ^World_State, db: ^gamedb.DB, warner, target: Form_ID, dt: f32) -> (spent: bool) {
+	k := [2]Form_ID{warner, target}
+	w := ws.trespass_warnings[k]
+	w.touched = ws.warn_tick
+	w.wait -= dt
+	if w.wait <= 0 {
+		w.wait = gamedb.setting_float(db, "fAITrespassWarningTimer", 5)
+		if w.started {w.level += 1}
+		w.started = true
+		if w.level <= gamedb.setting_int(db, "iGuardWarnings", 2) {
+			append(&ws.barks, Bark{speaker = warner, to = target, subtype = SUBTYPE_TRESPASS})
+		} else {
+			spent = true
+		}
+	}
+	ws.trespass_warnings[k] = w
+	return
+}
+
+// warn_trespassers has each actor that counts trespass warn the trespassers it detects, then
+// report the Trespass crime once. A warning nobody ran for a tick is over.
 @(private = "file")
 warn_trespassers :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
+	ws.warn_tick += 1
 	trespassing := make(map[Form_ID]bool, context.temp_allocator)
-	still := make(map[[2]Form_ID]bool, context.temp_allocator)
 	for k, a in ws.awareness {
 		warner, target := k[0], k[1]
 		if !a.detected || is_dead(ws, db, warner) {continue}
@@ -377,27 +419,16 @@ warn_trespassers :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		}
 		if !t {continue}
 		if _, ok := counts(ws, db, warner, .Trespass); !ok || hostile(ws, db, warner, target) {continue}
-		still[k] = true
-		w := ws.trespass_warnings[k]
-		w.wait -= dt
-		if w.wait <= 0 {
-			w.wait = gamedb.setting_float(db, "fAITrespassWarningTimer", 5)
-			if w.started {w.level += 1}
-			w.started = true
-			if w.level <= i32(gamedb.setting_int(db, "iGuardWarnings", 2)) {
-				append(&ws.barks, Bark{speaker = warner, to = target, subtype = SUBTYPE_TRESPASS})
-			} else if !w.reported {
-				w.reported = true
-				report_crime(ws, db, target, owner(ws, db, ref_cell(ws, db, target)), .Trespass, 0)
-			}
+		if warn_step(ws, db, warner, target, dt) && !ws.trespass_warnings[k].reported {
+			(&ws.trespass_warnings[k]).reported = true
+			report_crime(ws, db, target, owner(ws, db, ref_cell(ws, db, target)), .Trespass, 0)
 		}
-		ws.trespass_warnings[k] = w
 	}
-	gone := make([dynamic][2]Form_ID, context.temp_allocator)
-	for k in ws.trespass_warnings {
-		if k not_in still {append(&gone, k)}
+	over := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k, w in ws.trespass_warnings {
+		if w.touched + 1 < ws.warn_tick {append(&over, k)}
 	}
-	for k in gone {delete_key(&ws.trespass_warnings, k)}
+	for k in over {delete_key(&ws.trespass_warnings, k)}
 }
 
 // trespass_warning is GetTrespassWarningLevel: the warning `warner` is on with `target`.
@@ -460,7 +491,7 @@ jail_days :: proc(b: Bounty) -> i32 {
 
 // send_to_jail jails `actor` for its bounty with `faction`, whose jail's exterior marker (FACT
 // JAIL) leads to the prison marker inside the cell. A faction with no jail jails nobody.
-// (hole jail-escape :tags (combat player) :sev gap :needs (lockpicking)) no jailbreak bounty (CRVA escape) when a jail door is picked. SendPlayerToJail's abRealJail is read as true.
+// (hole jail-real-arg :tags combat :sev polish) SendPlayerToJail's abRealJail is read as true: unsourced what a jailing that is not real does.
 send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, crime, guard: Form_ID) -> bool {
 	f, _ := faction(ws, db, crime)
 	if f.jail == 0 || actor in ws.jailed {return false}

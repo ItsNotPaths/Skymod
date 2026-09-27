@@ -144,6 +144,9 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	ref, is_record := gamedb.ref_by_formid(&g.db, form)
 	base := worldstate.ref_base(&g.ws, &g.db, form)
 	if base == 0 {return}
+	if j, jailed := g.ws.jailed[by]; jailed && gamedb.is_door(&g.db, base) && worldstate.is_locked(&g.ws, &g.db, form) && worldstate.ref_cell(&g.ws, &g.db, form) == j.cell {
+		worldstate.report_crime(&g.ws, &g.db, by, 0, .Escape, 0) // a jailbreak: a locked door of its own cell opened (CRVA escape)
+	}
 	audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, form)
 	switch kind := Activate_Kind.Door if is_record && ref.has_tp else classify_base(&g.db, base); kind {
 	case .Door:

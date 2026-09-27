@@ -455,11 +455,42 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	return worldstate.package_target_ref(c.cond.ws, c.cond.db, t, c.cond.subject, c.cond.quest)
 }
 
-// (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
-// proc_guard walks to the package location and holds it.
+// proc_guard watches an area, never moving the actor (its siblings do; it does not pursue). An actor
+// it is suspicious of comes inside ImmediateAttackRadius of RestrictedArea: it attacks. Inside
+// WarnOnlyRadius, where it sees it: trespass lines every fAITrespassWarningTimer, then after
+// iGuardWarnings it attacks. The area's owners and the guard's allies and friends are let be (CK:
+// Guard (Procedure), build/out/wsK/wiki). Inputs: RestrictedArea, SuspiciousOf, WarnOnlyRadius,
+// ImmediateAttackRadius.
+// (hole guard-draws-weapon :tags (ai animation) :sev polish :needs (combat-damage)) a Guard does not draw its weapon while it warns: no actor has a drawn state.
 proc_guard :: proc(c: ^Proc_Context) -> Status {
-	if proc_travel(c) == .Failed {return .Failed}
+	ws, db, guard := c.cond.ws, c.cond.db, c.cond.subject
+	area, ok := input_place(c, 0)
+	if !ok {return .Running}
+	suspect, _ := input_value(c, 1, gamedb.Package_Target)
+	warn, attack := input_value(c, 2, f32) or_else 0, input_value(c, 3, f32) or_else 0
+	area_owner := worldstate.owner(ws, db, area.ref if area.ref != 0 else area.cell)
+	for other in c.w.present {
+		if other == guard || worldstate.is_dead(ws, db, other) || !suspicious(c, suspect, other) {continue}
+		if area_owner != 0 && worldstate.owns(ws, db, other, area_owner) || worldstate.faction_relation(ws, db, guard, other) >= .Ally {continue}
+		d := max(linalg.length(worldstate.ref_pos(ws, db, other).xy - area.center.xy) - area.radius, 0) // from the area's edge
+		if d <= attack || d <= warn && worldstate.detected(ws, guard, other) && worldstate.warn_step(ws, db, guard, other, c.dt) {
+			c.agent.combat = {state = .Combat, target = other}
+		}
+	}
 	return .Running
+}
+
+// suspicious: `other` is whom a Guard's SuspiciousOf names: that ref, or a member of that faction,
+// or an actor of that base.
+@(private = "file")
+suspicious :: proc(c: ^Proc_Context, t: gamedb.Package_Target, other: Form_ID) -> bool {
+	ws, db := c.cond.ws, c.cond.db
+	if t.kind == .ObjectID {
+		if _, is_faction := worldstate.faction(ws, db, t.form); is_faction {return worldstate.in_faction(ws, db, other, t.form)}
+		return worldstate.ref_base(ws, db, other) == t.form
+	}
+	ref := worldstate.package_target_ref(ws, db, t, c.cond.subject, c.cond.quest)
+	return ref != 0 && ref == other
 }
 
 // proc_wait stands until the package or its parent ends.
