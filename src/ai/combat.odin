@@ -63,10 +63,13 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 
 	attack, near := Form_ID(0), Form_ID(0)
 	attack_d, near_d := max(f32), max(f32)
-	for other in candidates(w) {
-		if other == actor || worldstate.is_dead(ws, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
+	reach := max(aggro.warn, aggro.warn_attack, aggro.attack) if aggro.on else 0
+	for other in w.present {
+		if other == actor {continue}
+		seen := worldstate.detected(ws, actor, other)
 		d := linalg.length(worldstate.ref_pos(ws, db, other).xy - feet.xy)
-		if d < attack_d && attacks_on_sight(ws, db, actor, other) {attack, attack_d = other, d}
+		if !seen && d > reach || worldstate.is_dead(ws, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
+		if seen && d < attack_d && attacks_on_sight(ws, db, actor, other) {attack, attack_d = other, d}
 		if d < near_d {near, near_d = other, d}
 	}
 	if attack != 0 {
@@ -83,13 +86,12 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	return .Warn
 }
 
-// candidates are the actors combat and guards look at: the loaded ones and the player.
-@(private)
-candidates :: proc(w: ^World) -> []Form_ID {
-	out := make([dynamic]Form_ID, 0, len(w.agents) + 1, context.temp_allocator)
-	for a in w.agents {append(&out, a)}
-	if formid.PLAYER not_in w.agents {append(&out, formid.PLAYER)}
-	return out[:]
+// set_present is the loaded actors this tick; with the player they are whom combat and guards
+// look at. Every persistent actor has an agent, so the agents are no candidate list.
+set_present :: proc(w: ^World, loaded: map[Form_ID]bool) {
+	clear(&w.present)
+	for a in loaded {append(&w.present, a)}
+	if formid.PLAYER not_in loaded {append(&w.present, formid.PLAYER)}
 }
 
 // engage is Combat, or Flee for a Cowardly actor.

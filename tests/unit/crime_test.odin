@@ -145,10 +145,10 @@ test_crime_spread :: proc(t: ^testing.T) {
 	defer ws.destroy(&s)
 
 	ws.learn_bounty(&s, &db, members[0], CRIME_THIEF, {violent = 40})
-	ws.tick_crime(&s, &db, 0.1)
+	ws.tick_crime(&s, &db, ws.SPREAD_EVERY)
 	testing.expect_value(t, ws.wanted(&s, CRIME_THIEF, WILD).bounty, ws.Bounty{}) // 1 of 4 knows
 	ws.set_awareness(&s, members[0], members[1], {level = 1, detected = true})
-	ws.tick_crime(&s, &db, 0.1)
+	ws.tick_crime(&s, &db, ws.SPREAD_EVERY)
 	testing.expect_value(t, ws.wanted(&s, CRIME_THIEF, WILD).bounty, ws.Bounty{violent = 40}) // 2 of 4
 	testing.expect_value(t, len(s.known_bounties), 0)
 	testing.expect_value(t, ws.bounty(&s, &db, members[3], CRIME_THIEF), ws.Bounty{violent = 40})
@@ -159,10 +159,10 @@ test_crime_spread :: proc(t: ^testing.T) {
 	ws.faction_set_rank(&s, CRIME_GUARD, 0x86EEE, 0) // IsGuardFaction
 	ws.learn_bounty(&s, &db, CRIME_CITIZEN, 0x000C00FF, {nonviolent = 5})
 	ws.set_dead(&s, CRIME_CITIZEN, 0x0004CE11, true)
-	ws.tick_crime(&s, &db, 0.1)
+	ws.tick_crime(&s, &db, ws.SPREAD_EVERY)
 	testing.expect_value(t, len(s.known_bounties), 0)
 	ws.learn_bounty(&s, &db, CRIME_GUARD, CRIME_THIEF, {nonviolent = 5})
-	ws.tick_crime(&s, &db, 0.1)
+	ws.tick_crime(&s, &db, ws.SPREAD_EVERY)
 	testing.expect_value(t, ws.wanted(&s, CRIME_THIEF, CRIME_TOWN).bounty, ws.Bounty{nonviolent = 5})
 }
 

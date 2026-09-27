@@ -50,6 +50,7 @@ Agent :: struct {
 World :: struct {
 	agents:     map[Form_ID]Agent,
 	persistent: [dynamic]Form_ID, // the persistent actor placements, which live while unloaded
+	present:    [dynamic]Form_ID, // the loaded actors and the player this tick: whom combat and guards look at
 	mesh:       nav.Path_Mesh,
 	routes:     nav.Route_Index,
 	quest_vars: conditions.Quest_Vars, // GetVMQuestVariable reads the script VM
@@ -403,6 +404,7 @@ destroy :: proc(w: ^World) {
 	}
 	delete(w.agents)
 	delete(w.persistent)
+	delete(w.present)
 	delete(w.loaded)
 	for _, list in w.visitors {delete(list)}
 	delete(w.visitors)

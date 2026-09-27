@@ -111,6 +111,7 @@ Overlay :: struct {
 	jailed:          map[Form_ID]Jailed,           // actors serving a sentence (crime.odin)
 	jail_orders:     [dynamic]Jail_Order,          // moves into and out of jail for the app; not saved
 	crime_members:   map[Form_ID][dynamic]Form_ID, // crime faction -> the actors in it; a cache, not saved (crime_census)
+	spread_in:       f32,                          // seconds to the next bounty spread; not saved
 	crime_members_built: int,                      // len(created) + 1 when crime_members was built; 0 = stale
 	unreported:      Form_Set,                     // offenders whose crimes nobody reports (SetPlayerReportCrime)
 	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller

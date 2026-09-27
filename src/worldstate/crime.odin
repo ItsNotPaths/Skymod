@@ -197,7 +197,11 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		witness(ws, db, w.victim, w.offender, w.kind, 0)
 		ordered_remove(&ws.victim_waits, i)
 	}
-	spread_bounties(ws, db)
+	ws.spread_in -= dt
+	if ws.spread_in <= 0 {
+		ws.spread_in = SPREAD_EVERY
+		spread_bounties(ws, db)
+	}
 	escaped := make([dynamic]Form_ID, context.temp_allocator)
 	for actor, j in ws.jailed {
 		if ref_cell(ws, db, actor) != j.cell {
@@ -208,6 +212,8 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 	}
 	for actor in escaped {escape_jail(ws, db, actor)}
 }
+
+SPREAD_EVERY :: f32(1) // seconds between spreads
 
 // spread_bounties drops what dead knowers knew, passes each local bounty to the members of its
 // faction the knower detects (the higher bounty wins), and makes it faction-wide when a guard of
@@ -269,7 +275,7 @@ crime_census :: proc(ws: ^World_State, db: ^gamedb.DB, faction: Form_ID) -> (liv
 		for _, m in ws.crime_members {delete(m)}
 		clear(&ws.crime_members)
 		add :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
-			f := crime_faction(ws, db, actor)
+			f := ws.crime_factions[actor] or_else gamedb.actor_crime_faction(db, record_of(ws, actor)) // no leveled roll for a census
 			if f == 0 {return}
 			if f not_in ws.crime_members {ws.crime_members[f] = make([dynamic]Form_ID)}
 			append(&ws.crime_members[f], actor)

@@ -23,11 +23,12 @@ CONFRONT_AGAIN :: f32(30) // seconds before a guard confronts again after asking
 confront :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, guard: Form_ID, feet: [3]f32, dt: f32) -> bool {
 	c := &a.confront
 	c.wait = max(c.wait - dt, 0)
-	if c.wait > 0 || !worldstate.in_faction(ws, db, guard, formid.IS_GUARD_FACTION) {return false}
+	if c.wait > 0 || len(ws.wanted) == 0 && len(ws.known_bounties) == 0 {return false}
+	if !worldstate.in_faction(ws, db, guard, formid.IS_GUARD_FACTION) {return false}
 	if !wanted_by(ws, db, guard, c.target) {
 		c.target = 0
 		best := max(f32)
-		for other in candidates(w) {
+		for other in w.present {
 			d := linalg.length(worldstate.ref_pos(ws, db, other).xy - feet.xy)
 			if d < best && wanted_by(ws, db, guard, other) {c.target, best = other, d}
 		}
