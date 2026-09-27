@@ -29,7 +29,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	32  = fn_get_in_same_cell,
 	35  = fn_get_disabled,
 	39  = fn_get_disease,
-	45  = fn_resting,
+	45  = fn_get_detected,
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
 	48  = fn_get_gold,
@@ -142,6 +142,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	605 = fn_loc_alias_is_location,
 	606 = fn_get_keyword_data_for_location,
 	610 = fn_loc_alias_has_keyword,
+	612 = fn_get_numeric_package_data,
 	616 = fn_get_lowest_relationship_rank,
 	624 = fn_get_in_container,
 	629 = fn_get_vm_quest_variable,
@@ -941,6 +942,26 @@ fn_get_distance :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32
 	other, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
 	return worldstate.ref_distance(ctx.ws, ctx.db, on, other), true
+}
+
+// GetNumericPackageData(index): the Bool, Int or Float in that data slot of the package the conditions belong to.
+@(private = "file")
+fn_get_numeric_package_data :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	in_, _ := gamedb.package_input(ctx.db, ctx.pack, u8(c.param1))
+	#partial switch v in in_.value {
+	case bool: return yes(v)
+	case i32:  return f32(v), true
+	case f32:  return v, true
+	}
+	return 0, false
+}
+
+// GetDetected(ref): `on` has detected the ref.
+@(private = "file")
+fn_get_detected :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	other, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(worldstate.detected(ctx.ws, on, other))
 }
 
 // GetLineOfSight(ref): `on` sees the ref, as Actor.HasLOS.

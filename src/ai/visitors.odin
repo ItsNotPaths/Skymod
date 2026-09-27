@@ -34,7 +34,7 @@ pull_visitor :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, act
 	a := agent_of(w, ws, db, actor)
 	feet := worldstate.ref_pos(ws, db, actor)
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, pack = pack, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
 	p, ok := destination(&c)
 	if !ok || p.cell not_in w.loaded {return}
 	spots := nav.dry_points_near(&w.mesh, p.center, max(p.radius, SANDBOX_RADIUS))

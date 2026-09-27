@@ -1,8 +1,9 @@
 package sight
 
-// Line of sight (CK wiki HasLOS, GetLineOfSight, RegisterForLOS; build/out/wsQ/wiki/). The player
-// sees through the camera: three picks at the target's top, middle and bottom, each inside the view
-// and unblocked. An NPC sees only actors.
+// What one ref sees of another, 0..1, at three levels (Mode). The player sees through the camera; an
+// NPC through its eyes, facing its heading. Line of sight (CK wiki HasLOS, GetLineOfSight,
+// RegisterForLOS; build/out/wsQ/wiki/) sits on top: three picks at the target's bottom, middle and
+// top, any clear one is enough, and an NPC sees only actors.
 
 import smath "../math"
 import "../formid"
@@ -21,24 +22,75 @@ View :: struct {
 
 view: View
 
+Mode :: enum u8 {
+	Raw, // the share of the target's picks with a clear ray from the eye
+	Cone, // Raw, counting only picks inside the view cone and range
+	Detect, // the viewer's awareness of the target (detection)
+}
+
 // NPC_EYE is how high an NPC's eye sits, as a part of its height.
 NPC_EYE :: f32(0.9)
 
-// (hole sight-modes :tags (query ai) :sev gap :needs (sight-occluders)) one mode only: an NPC casts one ray eye to middle, with no view cone. Wanted three levels, 0..1: Raw (rays; solid blocks, cutouts dim), Cone (Raw inside the viewer's view cone and range), Detect (the awareness store).
-// (hole light-at-point :tags (query ai) :sev gap) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light.
-has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
-	if view.space == nil || !worldstate.ref_3d_loaded(ws, db, target) {return false}
-	picks := target_picks(ws, db, target)
-	if viewer == formid.PLAYER {
-		for p in picks {
-			if in_view(p) && clear(viewer, target, view.eye, p) {return true}
-		}
-		return false
+// (hole view-cone-source :tags ai :sev polish) unsourced: the NPC view cone is 190 degrees from memory (fDetectionViewCone); Skyrim.esm has no such GMST (build/out/wsW/gmst.txt).
+VIEW_CONE :: f32(190)
+
+level :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, mode: Mode) -> f32 {
+	switch mode {
+	case .Raw:    return seen(ws, db, viewer, target, false)
+	case .Cone:   return seen(ws, db, viewer, target, true)
+	case .Detect: return worldstate.awareness(ws, viewer, target).level
 	}
-	if !is_actor(ws, db, target) || !worldstate.ref_3d_loaded(ws, db, viewer) {return false}
-	box := worldstate.actor_box(ws, db, viewer)
-	eye := worldstate.ref_pos(ws, db, viewer) + {0, 0, box[1].z * NPC_EYE}
-	return clear(viewer, target, eye, picks[1])
+	return 0
+}
+
+has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
+	if viewer != formid.PLAYER && !is_actor(ws, db, target) {return false}
+	return seen(ws, db, viewer, target, viewer == formid.PLAYER) > 0
+}
+
+// range is how far an NPC sees: fSneakMaxDistance, times fSneakExteriorDistanceMult outdoors.
+range :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID) -> f32 {
+	r := gamedb.setting_float(db, "fSneakMaxDistance", 2500)
+	if c, ok := gamedb.cell_by_formid(db, worldstate.ref_cell(ws, db, viewer)); ok && !c.interior {
+		r *= gamedb.setting_float(db, "fSneakExteriorDistanceMult", 2.1)
+	}
+	return r
+}
+
+// (hole light-at-point :tags (query ai) :sev gap) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit.
+// light_at is how lit a point is, 0 dark .. 1 fully lit.
+light_at :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, p: smath.Vec3) -> f32 {
+	return 1
+}
+
+// seen is the share of the target's picks the viewer has a clear ray to; `cone` counts only picks
+// inside its view.
+@(private)
+seen :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, cone: bool) -> f32 {
+	if view.space == nil || !worldstate.ref_3d_loaded(ws, db, target) {return 0}
+	eye := view.eye
+	if viewer != formid.PLAYER {
+		if !worldstate.ref_3d_loaded(ws, db, viewer) {return 0}
+		eye = worldstate.ref_pos(ws, db, viewer) + {0, 0, worldstate.actor_box(ws, db, viewer)[1].z * NPC_EYE}
+	}
+	reach := range(ws, db, viewer)
+	n := 0
+	for p in target_picks(ws, db, target) {
+		if cone && !in_cone(ws, db, viewer, eye, p, reach) {continue}
+		if clear(viewer, target, eye, p) {n += 1}
+	}
+	return f32(n) / 3
+}
+
+@(private)
+in_cone :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID, eye, p: smath.Vec3, reach: f32) -> bool {
+	if viewer == formid.PLAYER {
+		c := view.vp * [4]f32{p.x, p.y, p.z, 1}
+		return c.w > 0 && abs(c.x) <= c.w && abs(c.y) <= c.w
+	}
+	d := p - eye
+	if smath.length3(d) > reach {return false}
+	return abs(worldstate.turn_to(ws, db, viewer, d)) <= VIEW_CONE / 2
 }
 
 // target_picks are the target's bottom, middle and top, inside its bounds.
@@ -65,12 +117,6 @@ clear :: proc(viewer, target: Form_ID, from, to: smath.Vec3) -> bool {
 		return h.owner == u64(target)
 	}
 	return true
-}
-
-@(private)
-in_view :: proc(p: smath.Vec3) -> bool {
-	c := view.vp * [4]f32{p.x, p.y, p.z, 1}
-	return c.w > 0 && abs(c.x) <= c.w && abs(c.y) <= c.w
 }
 
 @(private)

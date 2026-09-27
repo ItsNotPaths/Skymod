@@ -936,3 +936,25 @@ test_condition_tail_queries :: proc(t: ^testing.T) {
 	worldstate.rel_set(&ws, &db, ACTOR, formid.PLAYER, 1)
 	testing.expect(t, holds(&ctx, 638, 1), "a friend")
 }
+
+// Package data parameters read the package the conditions belong to (ForceGreet's "Player must be
+// detected" branches): GetDetected(<data slot ref>) and GetNumericPackageData(<slot>).
+@(test)
+test_conditions_package_data :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0xA1)
+	PACK :: gamedb.Form_ID(0xB1)
+	db: gamedb.DB
+	db.packages = make(map[gamedb.Form_ID]gamedb.Package, context.temp_allocator)
+	db.packages[PACK] = {inputs = {{index = 0x11, value = gamedb.Package_Target{kind = .SpecificRef, form = formid.PLAYER}}, {index = 0x4f, value = true}}}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	ctx := conditions.Context{db = &db, ws = &ws, subject = NPC, pack = PACK}
+
+	detected := []gamedb.Condition{{function = 45, op = .Equal, value = 1, flags = {.Use_Pack_Data}, param1 = 0x11}}
+	must := []gamedb.Condition{{function = 612, op = .Equal, value = 1, param1 = 0x4f}}
+	testing.expect(t, !conditions.all(&ctx, detected), "the player is not detected yet")
+	testing.expect(t, conditions.all(&ctx, must), "the Bool slot reads 1")
+	worldstate.set_awareness(&ws, NPC, formid.PLAYER, {1, true})
+	testing.expect(t, conditions.all(&ctx, detected), "detected through the data slot")
+}

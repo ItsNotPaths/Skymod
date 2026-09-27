@@ -90,7 +90,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		combat_goal(ws, db, a, feet)
 	} else if a.pack != 0 {
 		c := Proc_Context {
-			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars},
+			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars},
 			agent = a,
 			w     = w,
 			feet  = feet,
@@ -266,7 +266,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 @(private = "file")
 plan_trip :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
 	a.planned = true
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
 	points, found := nav.trip(&w.routes, db, worldstate.ref_grid_cell(ws, db, actor), feet, p.cell, p.center, context.temp_allocator)
@@ -363,7 +363,7 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 // place when that is loaded, else straight into the place's cell.
 @(private = "file")
 jump_to_destination :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, placed: Placement) {
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
 	spot, found := [3]f32{}, false

@@ -27,6 +27,7 @@ import "core:thread"
 
 import "../ai"
 import "../assetdb"
+import "../detection"
 import "../formid"
 import "../gamedb"
 import "../input"
@@ -186,6 +187,7 @@ Game :: struct {
 	char_ok:  bool,
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
 	agents:       ai.World, // every actor's running package
+	detection:    detection.State, // who has seen whom
 	actor_mesh:   render.Mesh, // last frame's NPC capsule mesh, released at the next draw
 	hover_actor:  Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
 	actor_grab:   Actor_Grab, // the dev carry (hold DevGrabActor)
@@ -612,6 +614,7 @@ game_teardown :: proc(g: ^Game) {
 	actor_bodies_clear(g)
 	delete(g.actor_bodies)
 	ai.destroy(&g.agents)
+	detection.destroy(&g.detection)
 	render.release_mesh(&g.r, g.actor_mesh)
 	delete(g.drops)
 	delete(g.talk.choices)

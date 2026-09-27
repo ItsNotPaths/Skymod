@@ -36,7 +36,7 @@ select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a
 	for p in defaults {append(&list, Candidate{pack = p})}
 	for c in list {
 		p := gamedb.package_of(db, c.pack) or_continue
-		ctx := conditions.Context{db = db, ws = ws, subject = actor, quest = p.owner_quest if p.owner_quest != 0 else c.quest, quest_vars = w.quest_vars}
+		ctx := conditions.Context{db = db, ws = ws, subject = actor, quest = p.owner_quest if p.owner_quest != 0 else c.quest, pack = c.pack, quest_vars = w.quest_vars}
 		if schedule_open(ws, p.schedule) && !worldstate.done_today(ws, actor, c.pack) && conditions.all(&ctx, p.conditions) {return c.pack, ctx.quest}
 	}
 	return 0, 0
@@ -451,15 +451,7 @@ input_value :: proc(c: ^Proc_Context, k: int, $T: typeid) -> (v: T, ok: bool) {
 input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	t, ok := input_value(c, k, gamedb.Package_Target)
 	if !ok {return 0}
-	#partial switch t.kind {
-	case .SpecificRef: return t.form
-	case .LinkedRef:
-		ref, _ := gamedb.linked_ref(c.cond.db, c.cond.subject, t.form)
-		return ref
-	case .RefAlias: return worldstate.alias_ref(c.cond.ws, c.cond.quest, t.value)
-	case .Self: return c.cond.subject
-	}
-	return 0
+	return worldstate.package_target_ref(c.cond.ws, c.cond.db, t, c.cond.subject, c.cond.quest)
 }
 
 // (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.

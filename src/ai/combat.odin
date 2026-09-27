@@ -23,9 +23,7 @@ Combat :: struct {
 	warned: f32, // seconds inside the warn/attack radius
 }
 
-// (hole detection-store :tags (ai combat) :sev gap :needs (sight-modes)) an aggressive actor attacks anyone within DETECT_RADIUS, through walls. Wanted: a saved awareness 0..1 per viewer and target, with gained/lost events, read by combat start, GetDetected, IsDetectedBy, OnGainLOS, the stealth meter and the sneak attack bonus. Our model is a stub (Cone above 0 in range = aware at once); sneak-detection replaces it.
-DETECT_RADIUS :: f32(2048)
-COMBAT_LEAVE :: f32(1.5) // combat ends past this times the radius that started it (guess)
+COMBAT_LEAVE :: f32(1.5) // combat ends when the player is lost and past this times the aggro radius (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
 combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
@@ -44,7 +42,7 @@ next_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID,
 	case .Flee:
 		return .Flee if d <= flee_distance(ws, db, actor) else .None
 	case .Combat:
-		return .Combat if d <= max(DETECT_RADIUS, aggro.warn_attack, aggro.attack) * COMBAT_LEAVE else .None
+		return .Combat if worldstate.detected(ws, actor, formid.PLAYER) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE else .None
 	case .None, .Warn:
 	}
 	if !starts_combat(ws, db, actor, aggro, d, c, dt) {
@@ -53,13 +51,13 @@ next_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID,
 	return .Flee if worldstate.av_current(ws, db, actor, "Confidence") == 0 else .Combat // Cowardly
 }
 
-// starts_combat: Aggressive attacks Enemies on sight, Very Aggressive Neutrals too, Frenzied anyone;
+// starts_combat: Aggressive attacks Enemies it has detected, Very Aggressive Neutrals too, Frenzied anyone;
 // the aggro radii start it whatever the aggression.
 @(private = "file")
 starts_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, aggro: esm.Aggro, d: f32, c: ^Combat, dt: f32) -> bool {
 	aggression := worldstate.av_current(ws, db, actor, "Aggression")
 	enemy := worldstate.faction_relation(ws, db, actor, formid.PLAYER) == .Enemy
-	if d <= DETECT_RADIUS && (aggression >= 2 || (aggression >= 1 && enemy)) {return true}
+	if worldstate.detected(ws, actor, formid.PLAYER) && (aggression >= 2 || (aggression >= 1 && enemy)) {return true}
 	if !aggro.on {return false}
 	if d > aggro.warn_attack {c.warned = 0}
 	if d <= aggro.warn_attack {c.warned += dt}

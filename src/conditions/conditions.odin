@@ -29,6 +29,7 @@ Context :: struct {
 	subject:    Form_ID, // the actor or object the question is about — usually the player
 	target:     Form_ID,
 	quest:      Form_ID, // the quest that owns the conditions: run-on Quest Alias and alias parameters read it
+	pack:       Form_ID, // the package that owns the conditions: package data parameters read it
 	event:      ^worldstate.Story_Event, // the story event being run: run-on Event Data reads it
 	quest_vars: Quest_Vars,
 	// warned guards the log-once for unimplemented functions, exactly as the native registry does.
@@ -116,11 +117,17 @@ run_on_form :: proc(ctx: ^Context, c: gamedb.Condition) -> (Form_ID, bool) {
 	return 0, false
 }
 
-// param_ref reads a Ref parameter (0 or 1): a reference, or with Use_Aliases an alias of the quest.
+// param_ref reads a Ref parameter (0 or 1): a reference, with Use_Aliases an alias of the quest,
+// with Use_Pack_Data the target in that package data slot.
 @(private)
 param_ref :: proc(ctx: ^Context, c: gamedb.Condition, i: int) -> (Form_ID, bool) {
 	raw := c.param1 if i == 0 else c.param2
-	if .Use_Pack_Data in c.flags {return 0, false}
+	if .Use_Pack_Data in c.flags {
+		in_, _ := gamedb.package_input(ctx.db, ctx.pack, u8(raw))
+		t, ok := in_.value.(gamedb.Package_Target)
+		if !ok {return 0, false}
+		return worldstate.package_target_ref(ctx.ws, ctx.db, t, ctx.subject, ctx.quest), true
+	}
 	if .Use_Aliases in c.flags {return alias_ref(ctx, i32(raw))}
 	return Form_ID(raw), true
 }

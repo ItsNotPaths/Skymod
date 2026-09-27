@@ -384,7 +384,11 @@ ref_distance :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
 
 // heading_angle is the turn from a's facing to b, in degrees, -180 to 180; positive is clockwise.
 heading_angle :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> f32 {
-	d := ref_pos(ws, db, b) - ref_pos(ws, db, a)
+	return turn_to(ws, db, a, ref_pos(ws, db, b) - ref_pos(ws, db, a))
+}
+
+// turn_to is the turn from a's facing to the direction d, in degrees, -180 to 180; positive is clockwise.
+turn_to :: proc(ws: ^World_State, db: ^gamedb.DB, a: Form_ID, d: [3]f32) -> f32 {
 	turn := math.to_degrees(math.atan2(d.x, d.y) - ref_rot(ws, db, a).z)
 	return math.mod(math.mod(turn, 360) + 540, 360) - 180
 }

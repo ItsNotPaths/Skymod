@@ -137,6 +137,11 @@ Saved_Said :: struct {
 	hour:          f64,
 }
 
+Saved_Awareness :: struct {
+	viewer, target: Form_ID,
+	awareness:      Awareness,
+}
+
 Saved_Quest_Event :: struct {
 	quest: Form_ID,
 	event: Story_Event,
@@ -314,6 +319,7 @@ Save_Body :: struct {
 	courier_waits: []Courier_Remove,
 	scenes:        []Saved_Scene,
 	packages_done: []Saved_Said,    // speaker = the actor, info = the package
+	awareness:     []Saved_Awareness,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	los_regs:      []Los_Reg,
@@ -486,6 +492,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, hour in ws.infos_said {append(&said, Saved_Said{k[0], k[1], hour})}
 	packages_done := make([dynamic]Saved_Said, 0, len(ws.packages_done), context.temp_allocator)
 	for k, hour in ws.packages_done {append(&packages_done, Saved_Said{k[0], k[1], hour})}
+	awareness := make([dynamic]Saved_Awareness, 0, len(ws.awareness), context.temp_allocator)
+	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
 	random_said := make([dynamic]Saved_Alias, 0, len(ws.random_said), context.temp_allocator)
 	for k in ws.random_said {append(&random_said, Saved_Alias{k[0], k[1]})}
 	exclusive := make([dynamic]Saved_Alias, 0, len(ws.exclusive), context.temp_allocator)
@@ -558,6 +566,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		courier_waits = ws.courier_waits[:],
 		scenes        = scenes[:],
 		packages_done = packages_done[:],
+		awareness     = awareness[:],
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		los_regs      = ws.los_regs[:],
@@ -783,6 +792,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		pack, pok := rf(remap, have_remap, r.info)
 		if aok && pok {ws.packages_done[{actor, pack}] = r.hour}
 	}
+	for r in body.awareness {
+		viewer, vok := rf(remap, have_remap, r.viewer)
+		target, tok := rf(remap, have_remap, r.target)
+		if vok && tok {ws.awareness[{viewer, target}] = r.awareness}
+	}
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -1000,6 +1014,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker);add_slot(&seen, a.pack)}
 	}
 	for r in body.packages_done {add_slot(&seen, r.speaker);add_slot(&seen, r.info)}
+	for r in body.awareness {add_slot(&seen, r.viewer);add_slot(&seen, r.target)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

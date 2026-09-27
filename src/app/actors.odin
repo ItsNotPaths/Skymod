@@ -9,6 +9,7 @@ import "core:math/linalg"
 import imgui "../../vendor/odin-imgui"
 import "../ai"
 import "../assetdb"
+import "../detection"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
@@ -66,6 +67,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
 		}
 	}
+	detection.tick(&g.detection, &g.ws, &g.db, seen, TICK_DT) // before combat reads it
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {

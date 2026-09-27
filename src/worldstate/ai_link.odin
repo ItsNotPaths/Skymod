@@ -36,6 +36,20 @@ set_package_done :: proc(ws: ^World_State, db: ^gamedb.DB, actor, pack: Form_ID)
 	if p, ok := gamedb.package_of(db, pack); ok && p.flags & gamedb.PACK_ONCE_PER_DAY != 0 {ws.packages_done[{actor, pack}] = ws.clock.hours}
 }
 
+// package_target_ref is the ref a package's target data names for `subject`: a SpecificRef, its
+// linked ref, an alias's ref (of `quest`), or itself.
+package_target_ref :: proc(ws: ^World_State, db: ^gamedb.DB, t: gamedb.Package_Target, subject, quest: Form_ID) -> Form_ID {
+	#partial switch t.kind {
+	case .SpecificRef: return t.form
+	case .LinkedRef:
+		ref, _ := gamedb.linked_ref(db, subject, t.form)
+		return ref
+	case .RefAlias: return alias_ref(ws, quest, t.value)
+	case .Self: return subject
+	}
+	return 0
+}
+
 // done_today is whether the actor finished this OncePerDay package on the current game day.
 done_today :: proc(ws: ^World_State, actor, pack: Form_ID) -> bool {
 	hour, ok := ws.packages_done[{actor, pack}]

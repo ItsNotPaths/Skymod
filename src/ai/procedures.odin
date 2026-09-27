@@ -164,7 +164,6 @@ proc_activate :: proc(c: ^Proc_Context) -> Status {
 	return .Done if st.child >= max(input_value(c, 1, i32) or_else 1, 1) else .Running
 }
 
-// (hole force-greet-detected :tags (ai dialogue) :sev gap :needs detection-store) ForceGreet ignores "Player must be detected?" and "Forcegreet if player on horseback?": it greets an unseen player, and there are no horses.
 // proc_force_greet asks the app for a conversation once the player is inside the node's location
 // (ForceGreetLoc; the tree's Travel has walked the actor up already), and is done when it opens.
 proc_force_greet :: proc(c: ^Proc_Context) -> Status {
