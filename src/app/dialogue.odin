@@ -71,6 +71,10 @@ start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0) {
 // dialogue_menu draws the conversation: the subtitle while a line plays, else the choices.
 dialogue_menu :: proc(g: ^Game) {
 	t := &g.talk
+	if worldstate.is_dead(&g.ws, t.speaker) {
+		close_dialogue(g)
+		return
+	}
 	imgui.TextUnformatted(fmt.ctprintf("%s", worldstate.display_name(&g.ws, &g.db, t.speaker)))
 	imgui.Separator()
 	if t.info != 0 {

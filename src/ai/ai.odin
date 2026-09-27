@@ -66,7 +66,7 @@ World :: struct {
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
 tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
 	a := agent_of(w, ws, db, actor)
-	if worldstate.is_dead(ws, actor) {return stop_dead(w, ws, actor, a)}
+	if worldstate.is_dead(ws, actor) {return stop_dead(w, actor, a)}
 	clear(&a.trip)
 	a.planned = false
 	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
@@ -120,14 +120,12 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	return vel
 }
 
-// stop_dead leaves a dead actor where it fell: no package, no goal, no seat.
+// stop_dead leaves a dead actor where it fell: no package, goal, seat or fight. Its world state
+// flags went when it died (worldstate.stop_doing).
 @(private)
-stop_dead :: proc(w: ^World, ws: ^worldstate.World_State, actor: Form_ID, a: ^Agent) -> [2]f32 {
+stop_dead :: proc(w: ^World, actor: Form_ID, a: ^Agent) -> [2]f32 {
 	if a.pack != 0 {interrupt(w, actor)}
-	a.pack, a.quest, a.scene = 0, 0, false
-	ws.ai.packages[actor] = 0
-	worldstate.set_in_set(&ws.ai.moving, actor, false)
-	worldstate.set_in_set(&ws.ai.sitting, actor, false)
+	a.pack, a.quest, a.scene, a.combat = 0, 0, false, {}
 	return {}
 }
 

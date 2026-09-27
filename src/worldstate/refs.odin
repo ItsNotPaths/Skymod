@@ -268,6 +268,20 @@ set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 	d.dead = dead
 }
 
+// stop_doing ends whatever a dying actor was doing or holding a pose for.
+stop_doing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+	set_sleeping(ws, db, actor, false)
+	set_sneaking(ws, actor, false)
+	for s in ([]^Form_Set{&ws.ai.moving, &ws.ai.sitting, &ws.ai.evaluate, &ws.ai.to_package}) {delete_key(s, actor)}
+	delete_key(&ws.ai.paths, actor)
+	delete_key(&ws.ai.offsets, actor)
+	delete_key(&ws.ai.packages, actor)
+	for i := len(ws.barks) - 1; i >= 0; i -= 1 {
+		if ws.barks[i].speaker == actor {ordered_remove(&ws.barks, i)}
+	}
+	if ws.force_greet.speaker == actor {ws.force_greet = {}}
+}
+
 // Death is an actor that died since the VM last looked, for OnDying and OnDeath.
 Death :: struct {
 	actor, killer: Form_ID,

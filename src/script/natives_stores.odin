@@ -52,6 +52,7 @@ kill :: proc(c: ^Call, actor, killer: Form_ID) {
 	append(&c.ws.deaths, worldstate.Death{actor, killer})
 	c.ws.killers[actor] = killer
 	worldstate.set_dead(c.ws, actor, worldstate.ref_cell(c.ws, c.db, actor), true)
+	worldstate.stop_doing(c.ws, c.db, actor)
 	worldstate.mark_scene_dirty(c.ws, actor)
 	boss_died(c, actor)
 	worldstate.queue_story_event(c.ws, {
