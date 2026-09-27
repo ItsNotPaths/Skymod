@@ -8,7 +8,6 @@ import script ".."
 import "../../formats/esm"
 import "../../formid"
 import "../../gamedb"
-import smath "../../math"
 import "../../worldstate"
 
 // tick_triggers sends OnTriggerEnter / OnTriggerLeave(actor) for each enabled trigger in the
@@ -29,7 +28,7 @@ tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 				live[key] = true
 				feet := worldstate.ref_pos(ws, db, actor)
 				box := worldstate.actor_box(ws, db, actor)
-				inside := segment_in(shape, pos, rot, scale, feet, feet + {0, 0, box[1].z - box[0].z})
+				inside := worldstate.segment_in_primitive(shape, pos, rot, scale, feet, feet + {0, 0, box[1].z - box[0].z})
 				if inside == (key in ws.in_triggers) {continue}
 				if inside {
 					ws.in_triggers[key] = true
@@ -46,30 +45,4 @@ tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 		if key not_in live {append(&gone, key)}
 	}
 	for key in gone {delete_key(&ws.in_triggers, key)}
-}
-
-// segment_in reports whether the segment a..b touches a primitive placed at pos/rot/scale.
-@(private = "file")
-segment_in :: proc(shape: esm.Primitive, pos, rot: smath.Vec3, scale: f32, a, b: smath.Vec3) -> bool {
-	to_local := smath.rotate_z(rot.z) * smath.rotate_y(rot.y) * smath.rotate_x(rot.x) // the inverse of trs's rotation
-	local :: proc(m: smath.Mat4, v: smath.Vec3) -> smath.Vec3 {return (m * [4]f32{v.x, v.y, v.z, 0}).xyz}
-	la, lb := local(to_local, (a - pos) / scale), local(to_local, (b - pos) / scale)
-	if shape.kind == .Sphere {
-		d := lb - la
-		t := clamp(smath.dot3(-la, d) / max(smath.dot3(d, d), 1e-6), 0, 1)
-		return smath.length3(la + d * t) <= shape.half.x
-	}
-	// Slab clip of the segment against the box.
-	t0, t1: f32 = 0, 1
-	for i in 0 ..< 3 {
-		d := lb[i] - la[i]
-		if abs(d) < 1e-6 {
-			if abs(la[i]) > shape.half[i] {return false}
-			continue
-		}
-		u, v := (-shape.half[i] - la[i]) / d, (shape.half[i] - la[i]) / d
-		t0, t1 = max(t0, min(u, v)), min(t1, max(u, v))
-		if t0 > t1 {return false}
-	}
-	return true
 }

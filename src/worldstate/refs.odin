@@ -2,6 +2,7 @@ package worldstate
 
 import "core:math"
 import "core:slice"
+import "../formats/esm"
 import smath "../math"
 import "../gamedb"
 
@@ -441,4 +442,29 @@ ref_enabled :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, depth := 0)
 	if r.disabled {return false}
 	if _, known := gamedb.ref_by_formid(db, r.enable_parent); !known || depth > 16 {return true}
 	return ref_enabled(ws, db, r.enable_parent, depth + 1) != r.enable_opposite
+}
+
+// segment_in_primitive reports whether the segment a..b touches a primitive placed at pos/rot/scale.
+segment_in_primitive :: proc(shape: esm.Primitive, pos, rot: smath.Vec3, scale: f32, a, b: smath.Vec3) -> bool {
+	to_local := smath.rotate_z(rot.z) * smath.rotate_y(rot.y) * smath.rotate_x(rot.x) // the inverse of trs's rotation
+	local :: proc(m: smath.Mat4, v: smath.Vec3) -> smath.Vec3 {return (m * [4]f32{v.x, v.y, v.z, 0}).xyz}
+	la, lb := local(to_local, (a - pos) / scale), local(to_local, (b - pos) / scale)
+	if shape.kind == .Sphere {
+		d := lb - la
+		t := clamp(smath.dot3(-la, d) / max(smath.dot3(d, d), 1e-6), 0, 1)
+		return smath.length3(la + d * t) <= shape.half.x
+	}
+	// Slab clip of the segment against the box.
+	t0, t1: f32 = 0, 1
+	for i in 0 ..< 3 {
+		d := lb[i] - la[i]
+		if abs(d) < 1e-6 {
+			if abs(la[i]) > shape.half[i] {return false}
+			continue
+		}
+		u, v := (-shape.half[i] - la[i]) / d, (shape.half[i] - la[i]) / d
+		t0, t1 = max(t0, min(u, v)), min(t1, max(u, v))
+		if t0 > t1 {return false}
+	}
+	return true
 }

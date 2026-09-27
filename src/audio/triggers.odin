@@ -12,11 +12,11 @@ import "../worldstate"
 // HEAD_Z is how far above an actor's origin its voice comes from, game units.
 HEAD_Z :: 110
 
-// (hole music-events :tags (audio quest) :sev gap) no event music: discovering a location, clearing a dungeon, levelling up, succeeding and dying (DOBJ DFMS, DCMS, LUMS, SCMS, DTMS) push no music type.
+// (hole music-events :tags (audio quest) :sev gap) no success or death music: completing a quest (DOBJ SCMS) and the player dying (DTMS) push no music type. Levelling up (LUMS) and clearing a dungeon (DCMS) do.
 
 // Music plays the wanted music type's tracks, one after another. The wanted type is the one with
 // the lowest priority number among those scripts added, battle music while the player is in
-// combat (DOBJ BTMS), and the player's cell's type, else its worldspace's.
+// combat (DOBJ BTMS), and the player's cell's type, else its worldspace's, else the default (DFMS).
 Music :: struct {
 	current: formid.Form_ID, // the type playing
 	track:   Handle,
@@ -69,19 +69,22 @@ wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_
 	for t in music_wanted(a) {consider(db, t, &best, &best_priority)}
 	if in_combat {consider(db, gamedb.default_object(db, "BTMS"), &best, &best_priority)}
 	cell := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)]
-	consider(db, cell.music if cell.music != 0 else db.world_music[cell.world_form_id], &best, &best_priority)
+	place := cell.music if cell.music != 0 else db.world_music[cell.world_form_id]
+	consider(db, place if place != 0 else gamedb.default_object(db, "DFMS"), &best, &best_priority)
 	return best
 }
 
 // (hole region-sounds :tags (audio world) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
-// (hole acoustic-boxes :tags (audio world) :sev gap) placed acoustic spaces (125 ASPC refs, a box each) are not entered: only a cell's own space (XCAS) plays, and no space's reverb (RDAT) applies.
+// (hole acoustic-reverb :tags (audio world) :sev gap) no acoustic space's reverb (ASPC RDAT, a REVB) applies: sounds play dry in caves and halls alike.
 
 // Ambient is what plays because of where the listener is: the looping sound markers, activators and
-// lights in earshot, and the loop of the player's cell's acoustic space.
+// lights in earshot, and the loop of the acoustic space the player is in: a placed one whose box
+// holds the player, else the cell's own (XCAS).
 Ambient :: struct {
 	markers: map[formid.Form_ID]Handle, // placed SOUN refs playing now
 	space:   formid.Form_ID, // the acoustic space whose loop plays
 	loop:    Handle,
+	box:     formid.Form_ID, // the placed acoustic space holding the player, from the last scan
 	frame:   int,
 }
 
@@ -90,15 +93,22 @@ MARKER_SCAN_FRAMES :: 10
 
 ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	if a.device == 0 {return}
-	if space := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)].acoustic; space != am.space {
+	space := am.box if am.box != 0 else db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)].acoustic
+	if space != am.space {
 		stop(a, am.loop)
 		am.space, am.loop = space, play_descriptor(a, v, db, db.acoustic_loops[space])
 	}
 	am.frame += 1
 	if am.frame % MARKER_SCAN_FRAMES != 0 {return}
 	want := make(map[formid.Form_ID]bool, context.temp_allocator)
+	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
+	am.box = 0
 	for cell in ws.attached {
 		for r in db.cell_refs[cell] {
+			if shape, is_box := db.triggers[r.form_id]; is_box && r.base in db.acoustic_loops && worldstate.ref_enabled(ws, db, r.form_id) {
+				pos, rot, scale := worldstate.ref_pos(ws, db, r.form_id), worldstate.ref_rot(ws, db, r.form_id), worldstate.ref_scale(ws, db, r.form_id)
+				if worldstate.segment_in_primitive(shape, pos, rot, scale, feet, feet + {0, 0, HEAD_Z}) {am.box = r.base}
+			}
 			sndr := db.sound_markers[r.base] or_else db.base_sounds[r.base].loop // a marker, else an activator's or light's loop
 			d := db.sounds[sndr]
 			if sndr == 0 || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) || !allowed(db, ws, d.conditions, r.form_id) {continue}
