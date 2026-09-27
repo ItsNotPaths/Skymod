@@ -26,9 +26,10 @@ import "../worldstate"
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
 Actor_Body :: struct {
-	char:    physics.Character,
-	placed:  smath.Vec3,
-	capsule: Capsule,
+	char:      physics.Character,
+	placed:    smath.Vec3,
+	capsule:   Capsule,
+	seat_pack: Form_ID, // nonzero: pinned on its furniture, no gravity or push-out, while this package runs
 }
 
 Capsule :: struct {
@@ -68,6 +69,8 @@ tick_actor_bodies :: proc(g: ^Game) {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
+			if pack := g.agents.agents[form].pack; b.seat_pack != 0 && (pack == 0 || pack == b.seat_pack) {continue} // 0: not selected yet
+			b.seat_pack = 0
 			physics.character_move(phys, &b.char, vel, false, TICK_DT)
 			if vel != {} {actor_publish(g, form, &b, vel)}
 		} else {
@@ -144,14 +147,18 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
-	case .Stay:
-	case .Here: start = p
-	case .Away: return // it went on to its place in a cell that is not loaded
+	furniture, pack := ai.seat(&g.agents, &g.ws, &g.db, form, pos)
+	if furniture == 0 {
+		pack = 0
+		switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
+		case .Stay:
+		case .Here: start = p
+		case .Away: return // it went on to its place in a cell that is not loaded
+		}
+		start = free_spot(g, phys, start, capsule)
 	}
-	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
-		g.actor_bodies[form] = {ch, pos, capsule}
+		g.actor_bodies[form] = {ch, pos, capsule, pack}
 		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
 	} else {
 		delete_key(&g.actor_bodies, form)
@@ -229,6 +236,7 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 }
 
 NAMETAG_RANGE :: f32(3000)
+NAMETAG_PAD :: imgui.Vec2{4, 2}
 
 // draw_actor_nametags floats each nearby actor's name above its capsule. Call before the frame
 // renders, while the imgui frame is open.
@@ -246,9 +254,22 @@ draw_actor_nametags :: proc(g: ^Game) {
 		name := fmt.ctprintf("%s (DEAD)" if dead else "%s", worldstate.display_name(&g.ws, &g.db, f))
 		size := imgui.CalcTextSize(name)
 		at := imgui.Vec2{(clip.x / clip.w * 0.5 + 0.5) * w - size.x / 2, (0.5 - clip.y / clip.w * 0.5) * h - size.y}
-		imgui.DrawList_AddText(dl, at + 1, 0xFF00_0000, name)
+		imgui.DrawList_AddRectFilled(dl, at - NAMETAG_PAD, at + size + NAMETAG_PAD, 0xC000_0000, 3)
 		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(g, f)), name)
+		#partial switch ai.combat_state(&g.agents, f) {
+		case .Combat: combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_20E0)
+		case .Flee:   combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_D0F0)
+		}
 	}
+}
+
+// combat_marker is a downward triangle whose tip sits at `tip`: red in combat, yellow fleeing.
+@(private = "file")
+combat_marker :: proc(dl: ^imgui.DrawList, tip: imgui.Vec2, color: u32) {
+	W, H :: 16, 26
+	a, b := tip + {-W, -H}, tip + {W, -H}
+	imgui.DrawList_AddTriangleFilled(dl, a, b, tip, color)
+	imgui.DrawList_AddTriangle(dl, a, b, tip, 0xFF00_0000, 2)
 }
 
 // actor_color is a bright colour hashed from the form ID, so an actor keeps it across frames. The
