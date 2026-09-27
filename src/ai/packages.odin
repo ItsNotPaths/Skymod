@@ -181,6 +181,18 @@ gait :: proc(c: ^Proc_Context) -> Gait {
 	return p.speed if p.flags & gamedb.PACK_PREFERRED_SPEED != 0 else .Walk
 }
 
+// travel_radius is how near Travel goes: to the point itself, whatever the package radius (a guard
+// post's is up to 1000, and it would stop at the edge), except to be anywhere in a cell.
+@(private)
+travel_radius :: proc(c: ^Proc_Context, p: Place) -> f32 {
+	tree := gamedb.package_tree(c.cond.db, c.agent.pack)
+	for idx in tree[c.node].inputs {
+		in_ := gamedb.package_input(c.cond.db, c.agent.pack, idx) or_continue
+		if l, is := in_.value.(gamedb.Package_Location); is && l.kind == .InCell {return p.radius}
+	}
+	return TRAVEL_RADIUS
+}
+
 // (hole package-radius-min :tags ai :sev polish) a radius of 0 (2,800 packages) becomes TRAVEL_RADIUS or SANDBOX_RADIUS; unsourced.
 TRAVEL_RADIUS :: f32(64)
 SANDBOX_RADIUS :: f32(256)
@@ -259,7 +271,7 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 proc_travel :: proc(c: ^Proc_Context) -> Status {
 	p, ok := location(c)
 	if !ok {return .Failed}
-	p.radius = max(p.radius, TRAVEL_RADIUS)
+	p.radius = travel_radius(c, p)
 	if reached(c, p) {
 		c.agent.mover.goal = {}
 		return .Done
@@ -330,6 +342,16 @@ proc_patrol :: proc(c: ^Proc_Context) -> Status {
 	}
 	c.agent.mover.goal = {active = true, point = at, radius = radius, gait = gait(c), cell = worldstate.ref_grid_cell(ws, db, st.target)}
 	return .Running
+}
+
+// patrol_place is where a Patrol starts: its PathStart marker, or the nearest of the chain.
+@(private)
+patrol_place :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
+	ws, db := c.cond.ws, c.cond.db
+	start := input_target(c, 0)
+	if input_value(c, 3, bool) or_else false {start = nearest_marker(ws, db, start, c.feet)}
+	if start == 0 {return}
+	return {worldstate.ref_pos(ws, db, start), TRAVEL_RADIUS, worldstate.ref_grid_cell(ws, db, start)}, true
 }
 
 // nearest_marker is the marker of the chain from `start` nearest p.

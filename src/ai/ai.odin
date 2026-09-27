@@ -192,14 +192,19 @@ walk_trip :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor:
 	worldstate.set_moved(ws, actor, cell, smath.trs(pos, {0, 0, heading}, 1), pos)
 }
 
-// destination is where an actor's package wants it: the first procedure location that resolves.
+// destination is where an actor's package wants it: the first procedure location that resolves, or
+// a Patrol's first marker.
 @(private = "file")
 destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	for n, i in gamedb.package_tree(c.cond.db, c.agent.pack) {
 		if n.branch != .Procedure {continue}
 		c.node = i
+		if n.procedure == "Patrol" {
+			p = patrol_place(c) or_continue
+			return p, true
+		}
 		p = location(c) or_continue
-		p.radius = max(p.radius, TRAVEL_RADIUS)
+		p.radius = travel_radius(c, p)
 		return p, true
 	}
 	return
@@ -225,7 +230,7 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
 	if p.cell in w.mesh.cells {
-		spots := nav.dry_points_near(&w.mesh, p.center, p.radius)
+		spots := nav.dry_points_near(&w.mesh, p.center, max(p.radius, SANDBOX_RADIUS)) // a place's centre can sit off the mesh
 		if len(spots) == 0 {return}
 		a.start_pos = spots[0]
 		return spots[0], .Here

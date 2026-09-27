@@ -45,6 +45,7 @@ destroy :: proc(m: ^Path_Mesh) {
 	delete(m.by_form)
 }
 
+// (hole natural-paths :tags ai :sev wish) A* plus the funnel gives every actor the same optimal racing line, hugging each inside corner; wanted: paths that wander a little and differ per actor (noise on costs, corners taken wide, a preference for the middle of a road).
 // find_path writes the corners from `from` to `to` into `out`. Both ends snap to the nearest
 // triangle, so an actor a little off the mesh still paths; the last corner is the point of the
 // goal's triangle nearest `to` (a marker can stand off the mesh).
@@ -107,7 +108,7 @@ astar :: proc(m: ^Path_Mesh, start, goal: Tri) -> (came: map[Tri]Tri, ok: bool) 
 		at := center(m, cur)
 		next, _, n := neighbors(m, cur)
 		for nb in next[:n] {
-			c := cost[cur] + linalg.distance(at, center(m, nb)) * (WATER_COST if water(m, nb) else 1)
+			c := cost[cur] + linalg.distance(at, center(m, nb)) * step_cost(m, nb)
 			if old, seen := cost[nb]; seen && old <= c {continue}
 			cost[nb] = c
 			came[nb] = cur
@@ -118,10 +119,14 @@ astar :: proc(m: ^Path_Mesh, start, goal: Tri) -> (came: map[Tri]Tri, ok: bool) 
 }
 
 WATER_COST :: f32(8) // a path wades only where the dry way is much longer
+OFF_ROAD_COST :: f32(1.5) // a path keeps to roads and paths (preferred triangles) unless leaving them saves a third
 
+// step_cost is what walking a unit across a triangle costs: roads 1, open ground more, water most.
 @(private)
-water :: proc(m: ^Path_Mesh, t: Tri) -> bool {
-	return m.meshes[t.x].tris[t.y].flags & esm.NAV_TRI_WATER != 0
+step_cost :: proc(m: ^Path_Mesh, t: Tri) -> f32 {
+	flags := m.meshes[t.x].tris[t.y].flags
+	if flags & esm.NAV_TRI_WATER != 0 {return WATER_COST}
+	return 1 if flags & esm.NAV_TRI_PREFERRED != 0 else OFF_ROAD_COST
 }
 
 // portal is the edge from `a` into `b` as (left, right), seen walking out of `a`.
@@ -368,7 +373,8 @@ coarse_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: 
 			d, _ := gamedb.ref_by_formid(db, hops[i].door)
 			append(&steps, Route_Step{a.cell, d.pos, hops[i].door})
 		} else if a.cell != b.cell {
-			append(&steps, Route_Step{a.cell, b.center, 0})
+			exit := on_mesh(db, hops[i].mesh, b.center) or_else b.center // a NAVI centre can lie off its mesh
+			append(&steps, Route_Step{a.cell, exit, 0})
 		}
 	}
 	append(&steps, Route_Step{to_cell, to, 0})
@@ -453,6 +459,19 @@ dry_points_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32, allocator := cont
 		return linalg.distance(a, p) < linalg.distance(b, p)
 	})
 	return out[:]
+}
+
+// on_mesh is the centre of a navmesh's dry triangle nearest p.
+@(private)
+on_mesh :: proc(db: ^gamedb.DB, navmesh: Form_ID, p: [3]f32) -> (best: [3]f32, ok: bool) {
+	nm := gamedb.navmesh_of(db, navmesh) or_return
+	best_d := max(f32)
+	for t in nm.tris {
+		if t.flags & esm.NAV_TRI_WATER != 0 {continue}
+		c := (nm.verts[t.verts[0]] + nm.verts[t.verts[1]] + nm.verts[t.verts[2]]) / 3
+		if d := linalg.distance(c, p); d < best_d {best, best_d, ok = c, d, true}
+	}
+	return
 }
 
 // dry_point_in_cell is the centre of the dry triangle of a cell's navmeshes nearest p.

@@ -725,7 +725,7 @@ JUMP_SPEED :: f32(440)
 // old plain Update, read as endless micro-sliding); STEP_UP lets it climb small ledges/stairs. Tune
 // to feel.
 STICK_DOWN :: f32(35) // ~0.5 m: max downward floor snap after a move
-STEP_UP :: f32(40) // step-up height (Skyrim steps are chunky)
+STEP_UP :: f32(10) // step-up height
 STEP_FWD_MIN :: f32(2)
 STEP_FWD_TEST :: f32(12)
 STEP_FWD_COS :: f32(0.26) // ≈ cos(75°); unitless
