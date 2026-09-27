@@ -20,7 +20,7 @@ init :: proc() -> bool {
 	return false
 }
 
-// (hole audio-decode :tags audio :sev gap) nothing decodes a sound. A record's path names .wav, .xwm or .fuz; open must find <base>.wav or <base>.ogg; when both exist, the higher-priority mount wins, so a mod's .wav overrides the vanilla .ogg.
+// (hole audio-decode :tags audio :sev gap) nothing decodes a sound. A record's path names .wav, .xwm or .fuz; open must find <base>.wav or <base>.ogg; when both exist, the higher-priority mount wins, so a mod's .wav overrides the vanilla .ogg. The game mounts only the mesh, texture and interface archives and plugin archives (game_archive_names), so Skyrim - Sounds.bsa, which holds the WAVs, is not mounted.
 
 // open resolves a sound path to <base>.wav or <base>.ogg, whatever extension it names, and decodes it.
 open :: proc(v: ^vfs.VFS, path: string) -> (s: Sound, ok: bool) {

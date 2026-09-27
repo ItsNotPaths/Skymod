@@ -28,7 +28,7 @@ SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>
 AUDIO_MOD      :: "baseaudio"    // <base>/content/baseaudio — the content mod holding converted game audio
 BETHASSETS_DIR :: "bethassets"   // a content mod's VFS-mounted asset root
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
-FORMAT_VERSION :: 3 // bump when converted output changes, so an older install re-runs
+FORMAT_VERSION :: 4 // bump when converted output changes, so an older install re-runs
 
 // content_ready reports whether <base>/content holds a finished install of this format. The
 // boot gate: true => launch the game, false => run the installer, so a stale install re-runs.
@@ -104,7 +104,7 @@ install :: proc(source, base: string) -> bool {
 	// the plugin list the gamedb will load. Textures/meshes/plugins are read live
 	// through these — `content/` stays an index, not a copy of the game.
 	//
-	// (hole load-order-files :tags mods :sev gap) the installer lists plugins and orders script archives masters-then-plugins by name; plugins.txt and loadorder.txt are not read, so an existing install's order is not imported into the mod list.
+	// (hole load-order-files :tags mods :sev gap) the installer lists plugins and orders archives masters-then-plugins by name; plugins.txt and loadorder.txt are not read, so an existing install's order is not imported into the mod list.
 	data := data_path(source)
 	defer delete(data)
 	archives := list_by_ext(data, ".bsa")
@@ -112,19 +112,16 @@ install :: proc(source, base: string) -> bool {
 	esps := list_by_ext(data, ".esp")
 	esls := list_by_ext(data, ".esl")
 
+	ordered := archive_order(data, archives, {esms, esls, esps})
 	scripts_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
-	sst, sok := converters.convert_scripts(script_archives(data, archives, {esms, esls, esps}), scripts_dir)
+	sst, sok := converters.convert_scripts(ordered, scripts_dir)
 	if !sok {
 		return false
 	}
 	log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
 
-	archive_paths := make([]string, len(archives), context.temp_allocator)
-	for a, i in archives {
-		archive_paths[i], _ = filepath.join({data, a}, context.temp_allocator)
-	}
 	audio_dir, _ := filepath.join({content, AUDIO_MOD, BETHASSETS_DIR}, context.temp_allocator)
-	ast, aok := converters.convert_audio(archive_paths, audio_dir)
+	ast, aok := converters.convert_audio(ordered, audio_dir)
 	if !aok {
 		return false
 	}
@@ -155,27 +152,42 @@ install :: proc(source, base: string) -> bool {
 	return true
 }
 
-// script_archives orders the archives that hold scripts, later winning: the base game's Misc,
-// then each plugin's own archive in plugin order. Plugin order carries the load-order HOLE above;
-// on LE it hands HearthFires' copy of byohrelationshipadoptableaccessor the win over Dragonborn's.
+// IMPLICIT_MASTERS load first, in this order, whatever else the load order says.
+IMPLICIT_MASTERS :: [?]string{"skyrim", "update", "dawnguard", "hearthfires", "dragonborn"}
+
+// archive_order lists the archives in mount order, later winning: those of no plugin name-sorted,
+// then each plugin's ("<plugin>.bsa", "<plugin> - *.bsa") in plugin order, the implicit masters
+// first. Plugin order carries the load-order HOLE above; on LE it hands HearthFires' copy of
+// byohrelationshipadoptableaccessor the win over Dragonborn's, and Dragonborn's 14 voice lines
+// the win over Skyrim - Voices.
 @(private)
-script_archives :: proc(data: string, archives: []string, plugin_groups: [][]string) -> []string {
-	out := make([dynamic]string, 0, 8, context.temp_allocator)
-	add :: proc(out: ^[dynamic]string, data: string, archives: []string, name: string) {
-		for a in archives {
-			if strings.equal_fold(a, name) {
-				p, _ := filepath.join({data, a}, context.temp_allocator)
-				append(out, p)
-			}
-		}
-	}
-	add(&out, data, archives, "Skyrim - Misc.bsa")
+archive_order :: proc(data: string, archives: []string, plugin_groups: [][]string) -> []string {
+	plugins := make([dynamic]string, 0, 16, context.temp_allocator)
+	for m in IMPLICIT_MASTERS {append(&plugins, m)}
 	for group in plugin_groups {
 		for p in group {
-			add(&out, data, archives, strings.concatenate({filepath.stem(p), ".bsa"}, context.temp_allocator))
+			stem := strings.to_lower(filepath.stem(p), context.temp_allocator)
+			if !slice.contains(plugins[:len(IMPLICIT_MASTERS)], stem) {append(&plugins, stem)}
 		}
 	}
-	return out[:]
+	Ranked :: struct {rank: int, name: string}
+	ranked := make([dynamic]Ranked, 0, len(archives), context.temp_allocator)
+	for a in archives {
+		name := strings.to_lower(filepath.stem(a), context.temp_allocator)
+		rank := 0
+		for p, i in plugins {
+			if name == p || strings.has_prefix(name, strings.concatenate({p, " - "}, context.temp_allocator)) {rank = i + 1}
+		}
+		append(&ranked, Ranked{rank, a})
+	}
+	slice.sort_by(ranked[:], proc(x, y: Ranked) -> bool {
+		return x.rank < y.rank if x.rank != y.rank else x.name < y.name
+	})
+	out := make([]string, len(ranked), context.temp_allocator)
+	for r, i in ranked {
+		out[i], _ = filepath.join({data, r.name}, context.temp_allocator)
+	}
+	return out
 }
 
 @(private)
