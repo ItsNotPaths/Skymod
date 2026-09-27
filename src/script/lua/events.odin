@@ -240,7 +240,10 @@ tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	for form in ws.level_listeners {append(&listeners, form)}
 	slice.sort(listeners[:])
 	for l in ws.level_ups {
-		if l.actor == formid.PLAYER && vm.ctx.audio != nil {audio.ui_sound(vm.ctx.audio, vm.ctx.vfs, vm.ctx.db, "UILevelUpSD")}
+		if l.actor == formid.PLAYER && vm.ctx.audio != nil {
+			audio.ui_sound(vm.ctx.audio, vm.ctx.vfs, vm.ctx.db, "UILevelUpSD")
+			audio.music_add(vm.ctx.audio, gamedb.default_object(vm.ctx.db, "LUMS"))
+		}
 		for form in listeners {send_own(vm, form, "OnLevelUp", l.actor, l.level, l.choice)}
 		delete(l.choice)
 	}

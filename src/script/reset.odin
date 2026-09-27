@@ -4,6 +4,7 @@ package script
 // when its location is cleared) resets, unless its encounter zone never resets. Cell.Reset asks
 // for a reset at the next entry, whatever the zone, and drops the cell's created refs too.
 
+import "../audio"
 import "../formid"
 import "../gamedb"
 import "../worldstate"
@@ -120,7 +121,9 @@ boss_died :: proc(c: ^Call, ref: Form_ID) {
 		for boss in gamedb.location_special_refs(c.db, loc, formid.LOC_REF_BOSS) {
 			if !worldstate.is_dead(c.ws, boss) {all_dead = false}
 		}
-		if all_dead {c.ws.cleared[loc] = true}
+		if !all_dead || c.ws.cleared[loc] {continue}
+		c.ws.cleared[loc] = true
+		if c.audio != nil {audio.music_add(c.audio, gamedb.default_object(c.db, "DCMS"))}
 	}
 }
 
