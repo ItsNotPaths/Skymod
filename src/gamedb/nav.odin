@@ -17,6 +17,15 @@ navmeshes_in :: proc(db: ^DB, cell: Form_ID) -> []Navmesh {
 	return db.navmeshes[cell][:] if cell in db.navmeshes else nil
 }
 
+// navmesh_of is a navmesh by its form.
+navmesh_of :: proc(db: ^DB, form: Form_ID) -> (m: Navmesh, ok: bool) {
+	cell := db.navmesh_cell[form] or_return
+	for n in db.navmeshes[cell] {
+		if n.form == form {return n, true}
+	}
+	return
+}
+
 // nav_index_entry is a navmesh's index entry, merged over every plugin's NAVI. Its `cell` is
 // resolved for exterior entries too.
 nav_index_entry :: proc(db: ^DB, navmesh: Form_ID) -> (n: Nav_Info, ok: bool) {

@@ -189,16 +189,108 @@ nearest_tri :: proc(m: ^Path_Mesh, p: [3]f32) -> (best: Tri, ok: bool) {
 	return
 }
 
-// Route_Step is one cell of a coarse route: the actor stays in `cell` until it can leave at `exit`.
+// Route_Step is one cell of a coarse route: the actor crosses `cell` and leaves it at `exit`,
+// through `door` when that is set. The last step ends at the destination.
 Route_Step :: struct {
 	cell: Form_ID,
 	exit: [3]f32,
+	door: Form_ID,
 }
 
-// (hole coarse-route :tags ai :sev gap) no cell-to-cell route: wanted A* over NAVI entries (edge links across cell borders, door links into interiors).
-// coarse_route is the cells from one place to another, each with the point where it is left.
-coarse_route :: proc(db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> []Route_Step {
-	return nil
+// Route_Index maps each load door to the navmesh it stands on. Built once.
+Route_Index :: struct {
+	door_mesh: map[Form_ID]Form_ID,
+}
+
+route_index_destroy :: proc(r: ^Route_Index) {
+	delete(r.door_mesh)
+}
+
+DOOR_COST :: f32(512) // a door crossing, in units walked
+
+// coarse_route is the cells from one place to another over the navmesh graph (Dijkstra): NAVM
+// portal links between navmeshes, and load doors to the navmesh their destination door stands on.
+// Nodes sit at their NAVI centre; NAVI's own link lists are sparse. Exterior places take their grid cell.
+coarse_route :: proc(r: ^Route_Index, db: ^gamedb.DB, from_cell: Form_ID, from: [3]f32, to_cell: Form_ID, to: [3]f32, allocator := context.allocator) -> (route: []Route_Step, ok: bool) {
+	if len(r.door_mesh) == 0 {
+		for _, list in db.navmeshes {
+			for m in list {
+				for d in m.door_links {r.door_mesh[d.door] = m.form}
+			}
+		}
+	}
+	start := navmesh_near(db, from_cell, from) or_return
+	goal := navmesh_near(db, to_cell, to) or_return
+	Hop :: struct {
+		prev, door: Form_ID,
+	}
+	Open :: struct {
+		mesh: Form_ID,
+		cost: f32,
+	}
+	came := make(map[Form_ID]Hop, context.temp_allocator)
+	cost := make(map[Form_ID]f32, context.temp_allocator)
+	open: pq.Priority_Queue(Open)
+	pq.init(&open, proc(a, b: Open) -> bool {return a.cost < b.cost}, pq.default_swap_proc(Open), allocator = context.temp_allocator)
+	cost[start] = 0
+	pq.push(&open, Open{start, 0})
+	relax :: proc(open: ^pq.Priority_Queue(Open), cost: ^map[Form_ID]f32, came: ^map[Form_ID]Hop, next: Form_ID, c: f32, hop: Hop) {
+		if old, seen := cost[next]; seen && old <= c {return}
+		cost[next] = c
+		came[next] = hop
+		pq.push(open, Open{next, c})
+	}
+	for pq.len(open) > 0 {
+		cur := pq.pop(&open)
+		if cur.mesh == goal {break}
+		if cur.cost > cost[cur.mesh] {continue}
+		n := gamedb.nav_index_entry(db, cur.mesh) or_continue
+		geo := gamedb.navmesh_of(db, cur.mesh) or_continue
+		for e in geo.edge_links {
+			if e.kind != .Portal {continue}
+			m := gamedb.nav_index_entry(db, e.navmesh) or_continue
+			relax(&open, &cost, &came, e.navmesh, cur.cost + linalg.distance(n.center, m.center), {cur.mesh, 0})
+		}
+		for dl in geo.door_links {
+			d := dl.door
+			door := gamedb.ref_by_formid(db, d) or_continue
+			dest := gamedb.ref_by_formid(db, door.teleport.door) or_continue
+			other := r.door_mesh[dest.form_id] or_continue
+			m := gamedb.nav_index_entry(db, other) or_continue
+			c := cur.cost + linalg.distance(n.center, door.pos) + DOOR_COST + linalg.distance(dest.pos, m.center)
+			relax(&open, &cost, &came, other, c, {cur.mesh, d})
+		}
+	}
+	if goal != start && goal not_in came {return}
+	chain := make([dynamic]Form_ID, context.temp_allocator)
+	for m := goal; m != start; m = came[m].prev {append(&chain, m)}
+	append(&chain, start)
+	slice.reverse(chain[:])
+	steps := make([dynamic]Route_Step, allocator)
+	for i in 1 ..< len(chain) {
+		a, _ := gamedb.nav_index_entry(db, chain[i - 1])
+		b, _ := gamedb.nav_index_entry(db, chain[i])
+		door := came[chain[i]].door
+		if door != 0 {
+			d, _ := gamedb.ref_by_formid(db, door)
+			append(&steps, Route_Step{a.cell, d.pos, door})
+		} else if a.cell != b.cell {
+			append(&steps, Route_Step{a.cell, (a.center + b.center) / 2, 0})
+		}
+	}
+	append(&steps, Route_Step{to_cell, to, 0})
+	return steps[:], true
+}
+
+// navmesh_near is the navmesh of a cell whose centre is nearest p.
+@(private)
+navmesh_near :: proc(db: ^gamedb.DB, cell: Form_ID, p: [3]f32) -> (best: Form_ID, ok: bool) {
+	best_d := max(f32)
+	for m in gamedb.navmeshes_in(db, cell) {
+		n := gamedb.nav_index_entry(db, m.form) or_continue
+		if d := linalg.distance(n.center, p); d < best_d {best, best_d, ok = m.form, d, true}
+	}
+	return
 }
 
 // random_point_near is the centre of a random triangle whose centre lies within radius of p.

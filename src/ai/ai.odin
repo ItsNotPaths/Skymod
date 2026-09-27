@@ -6,6 +6,7 @@ package ai
 import "core:math/linalg"
 import "core:math/rand"
 import "../conditions"
+import smath "../math"
 import "../gamedb"
 import "../nav"
 import "../worldstate"
@@ -24,12 +25,14 @@ Agent :: struct {
 	eval_in:   f32, // seconds to the next selection
 	nodes:     [dynamic]Node_State, // one per tree node
 	mover:     Mover,
-	route:     []nav.Route_Step, // while unloaded and travelling
+	route:     []nav.Route_Step, // to a place outside the loaded cells
+	route_to:  Form_ID, // the cell `route` leads to
 }
 
 World :: struct {
 	agents:     map[Form_ID]Agent,
 	mesh:       nav.Path_Mesh,
+	routes:     nav.Route_Index,
 	quest_vars: conditions.Quest_Vars, // GetVMQuestVariable reads the script VM
 }
 
@@ -46,14 +49,15 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		c := Proc_Context {
 			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars},
 			agent = a,
-			mesh  = &w.mesh,
-			feet  = feet,
+			mesh   = &w.mesh,
+			routes = &w.routes,
+			feet   = feet,
 			dt    = dt,
 		}
 		run_tree(&c)
 	}
 	vel := mover_step(&a.mover, &w.mesh, feet, touching, dt)
-	if a.mover.door != 0 {cross_load_door(ws, db, actor, a.mover.door)}
+	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
 	return vel
 }
 
@@ -65,11 +69,20 @@ start_package :: proc(a: ^Agent, db: ^gamedb.DB, pack, quest: Form_ID, now: f64,
 	a.mover.goal = {}
 }
 
-// (hole actor-load-doors :tags ai :sev gap ) an NPC that walks into a load door stays on this side: wanted move it to the door's teleport marker, into the other cell.
-cross_load_door :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor, door: Form_ID) {
+// cross_load_door puts the actor at the door's teleport marker, in the destination door's cell.
+// If that cell is not loaded, the actor leaves the loaded world there.
+@(private = "file")
+cross_load_door :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor, door: Form_ID) {
+	d, ok := gamedb.ref_by_formid(db, door)
+	dest, dok := gamedb.ref_by_formid(db, d.teleport.door)
+	if !ok || !dok {return}
+	to := d.teleport.pos
+	worldstate.set_moved(ws, actor, gamedb.grid_cell(db, dest.cell_form_id, to), smath.trs(to, d.teleport.rot, 1), to)
+	clear(&a.mover.path)
+	a.mover.goal = {}
 }
 
-// (hole offscreen-travel :tags ai :sev gap :needs coarse-route) an unloaded actor never moves; decided: one whose package sends it elsewhere steps cell to cell along its coarse route, staying (distance across / speed) in each, and snaps to the next cell's exit; everyone else waits. Its cell and position are its Moved delta.
+// (hole offscreen-travel :tags ai :sev gap) an unloaded actor never moves; decided: one whose package sends it elsewhere steps cell to cell along its coarse route, staying (distance across / speed) in each, and snaps to the next cell's exit; everyone else waits. Its cell and position are its Moved delta.
 // tick_unloaded runs the actors in unloaded cells: package selection, and travel cell by cell.
 tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool) {
 }
@@ -82,14 +95,14 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 	if actor not_in w.agents {w.agents[actor] = {}}
 	a := &w.agents[actor]
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, feet = feet}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
 	for n, i in gamedb.package_tree(db, pack) {
 		if n.branch != .Procedure {continue}
 		c.node = i
-		center, radius := location(&c) or_continue
-		radius = max(radius, TRAVEL_RADIUS)
-		if linalg.length(feet.xy - center.xy) <= radius {return}
-		at = nav.random_point_near(&w.mesh, center, radius) or_return
+		p := location(&c) or_continue
+		p.radius = max(p.radius, TRAVEL_RADIUS)
+		if reached(&c, p) || p.cell not_in w.mesh.cells {return}
+		at = nav.random_point_near(&w.mesh, p.center, p.radius) or_return
 		a.start_pos = at
 		return at, true
 	}
@@ -104,4 +117,5 @@ destroy :: proc(w: ^World) {
 	}
 	delete(w.agents)
 	nav.destroy(&w.mesh)
+	nav.route_index_destroy(&w.routes)
 }

@@ -87,7 +87,8 @@ Node_State :: struct {
 Proc_Context :: struct {
 	cond:  conditions.Context,
 	agent: ^Agent,
-	mesh:  ^nav.Path_Mesh,
+	mesh:   ^nav.Path_Mesh,
+	routes: ^nav.Route_Index,
 	feet:  [3]f32,
 	dt:    f32,
 	node:  int,
@@ -179,10 +180,17 @@ gait :: proc(c: ^Proc_Context) -> Gait {
 TRAVEL_RADIUS :: f32(64)
 SANDBOX_RADIUS :: f32(256)
 
-// location is the place a procedure's location input names: a centre and a radius. Object and
-// package-location kinds are not resolved.
+// Place is where a location input points: a centre, a radius and the (grid) cell it is in.
+Place :: struct {
+	center: [3]f32,
+	radius: f32,
+	cell:   Form_ID,
+}
+
+// location is the place a procedure's location input names. Object and package-location kinds
+// are not resolved.
 @(private)
-location :: proc(c: ^Proc_Context) -> (center: [3]f32, radius: f32, ok: bool) {
+location :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	db, ws, actor := c.cond.db, c.cond.ws, c.cond.subject
 	tree := gamedb.package_tree(db, c.agent.pack)
 	loc: gamedb.Package_Location
@@ -192,35 +200,48 @@ location :: proc(c: ^Proc_Context) -> (center: [3]f32, radius: f32, ok: bool) {
 		if l, is := in_.value.(gamedb.Package_Location); is {loc, found = l, true; break}
 	}
 	if !found {return}
-	radius = f32(loc.radius)
+	p.radius = f32(loc.radius)
+	ref: Form_ID
 	#partial switch loc.kind {
 	case .NearRef:
-		center = worldstate.ref_pos(ws, db, loc.form)
+		ref = loc.form
 	case .NearLinkedRef:
-		ref := gamedb.linked_ref(db, actor, loc.form) or_return
-		center = worldstate.ref_pos(ws, db, ref)
+		ref = gamedb.linked_ref(db, actor, loc.form) or_return
+	case .AliasRef:
+		ref = worldstate.alias_ref(ws, c.cond.quest, loc.value)
 	case .NearEditorLoc:
 		r := gamedb.ref_by_formid(db, actor) or_return
-		center = r.pos
+		p.center, p.cell = r.pos, gamedb.grid_cell(db, r.cell_form_id, r.pos)
 	case .NearPackageStart:
-		center = c.agent.start_pos
+		p.center, p.cell = c.agent.start_pos, worldstate.ref_grid_cell(ws, db, actor)
 	case .NearSelf:
-		center = c.feet
-	case .AliasRef:
-		ref := worldstate.alias_ref(ws, c.cond.quest, loc.value)
-		if ref == 0 {return}
-		center = worldstate.ref_pos(ws, db, ref)
+		p.center, p.cell = c.feet, worldstate.ref_grid_cell(ws, db, actor)
 	case .InCell:
 		lo, hi := [3]f32{max(f32), max(f32), max(f32)}, [3]f32{min(f32), min(f32), min(f32)}
 		for m in gamedb.navmeshes_in(db, loc.form) {
 			for v in m.verts {lo, hi = linalg.min(lo, v), linalg.max(hi, v)}
 		}
 		if lo.x > hi.x {return}
-		center, radius = (lo + hi) / 2, linalg.length(hi.xy - lo.xy) / 2
+		p.center, p.radius, p.cell = (lo + hi) / 2, linalg.length(hi.xy - lo.xy) / 2, loc.form
 	case:
 		return
 	}
-	return center, radius, true
+	if ref != 0 {p.center, p.cell = worldstate.ref_pos(ws, db, ref), worldstate.ref_grid_cell(ws, db, ref)}
+	return p, p.cell != 0 || ref != 0
+}
+
+// reached is whether the actor stands inside a place: same interior or worldspace, within its radius.
+@(private)
+reached :: proc(c: ^Proc_Context, p: Place) -> bool {
+	db := c.cond.db
+	here := worldstate.ref_grid_cell(c.cond.ws, db, c.cond.subject)
+	return space(db, here) == space(db, p.cell) && linalg.length(c.feet.xy - p.center.xy) <= p.radius
+}
+
+@(private = "file")
+space :: proc(db: ^gamedb.DB, cell: Form_ID) -> Form_ID {
+	cl, _ := gamedb.cell_by_formid(db, cell)
+	return cell if cl.interior else cl.world_form_id
 }
 
 // (hole lua-procedures :tags (ai script) :sev gap) a procedure the engine does not know fails; decided: a mod can define one in Lua by its PNAM name. Also the other vanilla leaves (Follow, Escort, ForceGreet, Guard, KeepAnEyeOn, UseWeapon, ...) land here until their own holes build them.
@@ -228,25 +249,56 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Failed
 }
 
-// proc_travel walks to the package location and ends there. A moving target (the player) is re-aimed each tick.
+// proc_travel walks to the package location and ends there. A moving target (the player) is
+// re-aimed each tick. A place outside the loaded cells is reached along the coarse route.
 proc_travel :: proc(c: ^Proc_Context) -> Status {
-	center, radius, ok := location(c)
+	p, ok := location(c)
 	if !ok {return .Failed}
-	radius = max(radius, TRAVEL_RADIUS)
-	if linalg.length(c.feet.xy - center.xy) <= radius {
+	p.radius = max(p.radius, TRAVEL_RADIUS)
+	if reached(c, p) {
 		c.agent.mover.goal = {}
 		return .Done
 	}
-	c.agent.mover.goal = {active = true, point = center, radius = radius, gait = gait(c)}
+	goal := ai_goal(p.center, p.radius, gait(c))
+	if p.cell not_in c.mesh.cells {goal = route_goal(c, p, goal)}
+	c.agent.mover.goal = goal
 	return .Running
+}
+
+@(private = "file")
+ai_goal :: proc(point: [3]f32, radius: f32, g: Gait) -> Goal {
+	return {active = true, point = point, radius = radius, gait = g}
+}
+
+DOOR_RADIUS :: f32(96) // a door stands in its wall, off the navmesh
+
+// route_goal aims at the exit of the actor's cell on the coarse route to `p`: its next cell, or its
+// load door. The route is made again when the place moves to another cell or the actor leaves it.
+@(private = "file")
+route_goal :: proc(c: ^Proc_Context, p: Place, final: Goal) -> Goal {
+	a, db := c.agent, c.cond.db
+	here := worldstate.ref_grid_cell(c.cond.ws, db, c.cond.subject)
+	at := -1
+	for s, i in a.route {if s.cell == here {at = i}}
+	if a.route_to != p.cell || at < 0 {
+		delete(a.route)
+		a.route, _ = nav.coarse_route(c.routes, db, here, c.feet, p.cell, p.center)
+		a.route_to = p.cell
+		at = 0
+	}
+	if at >= len(a.route) - 1 {return final}
+	s := a.route[at]
+	if s.door == 0 {return ai_goal(s.exit, ARRIVED, final.gait)}
+	g := ai_goal(s.exit, DOOR_RADIUS, final.gait)
+	g.door = s.door
+	return g
 }
 
 // (hole proc-sandbox :tags ai :sev blocker) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
-	center, radius, ok := location(c)
-	if !ok {center = c.feet}
-	radius = max(radius, SANDBOX_RADIUS)
+	p, ok := location(c)
+	center, radius := p.center if ok else c.feet, max(p.radius, SANDBOX_RADIUS)
 	if !st.started || (arrived(c, st.point) && st.timer <= 0) {
 		st.point = nav.random_point_near(c.mesh, center, radius) or_else center
 		st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
