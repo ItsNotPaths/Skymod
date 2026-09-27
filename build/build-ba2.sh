@@ -29,4 +29,5 @@ cargo build --release --offline --locked --quiet \
     --config "source.vendored.directory='$DEST/crates'"
 mkdir -p "$DEST/lib"
 cp "$DEST/target/release/libskybsa.a" "$LIB"
+strip --strip-debug "$LIB" # Rust std ships with debug info
 echo "  done: vendor/ba2/lib/libskybsa.a"

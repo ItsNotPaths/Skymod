@@ -43,7 +43,7 @@ if [ ! -f "$LIB/libavformat.a" ] || [ "$0" -nt "$LIB/libavformat.a" ]; then
             --enable-static --disable-shared --enable-pic \
             --extra-cflags="-ffunction-sections -fdata-sections" \
             --disable-programs --disable-doc --disable-network --disable-autodetect \
-            --disable-x86asm \
+            --disable-x86asm --disable-debug \
             --disable-avdevice --disable-avfilter --disable-swscale \
             --disable-everything \
             --enable-libopus \
@@ -60,7 +60,7 @@ fi
 
 if [ ! -f "$LIB/libskyff.a" ] || [ "$ROOT/build/ffmpeg_glue.c" -nt "$LIB/libskyff.a" ]; then
     echo "==> building ffmpeg glue"
-    cc -std=c11 -O2 -fPIC -ffunction-sections -fdata-sections -I"$DEST/include" \
+    cc -std=c11 -Wall -Wextra -O2 -fPIC -ffunction-sections -fdata-sections -I"$DEST/include" \
         -c "$ROOT/build/ffmpeg_glue.c" -o "$LIB/ffmpeg_glue.o"
     rm -f "$LIB/libskyff.a"
     ar rcs "$LIB/libskyff.a" "$LIB/ffmpeg_glue.o"
