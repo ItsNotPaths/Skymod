@@ -419,6 +419,12 @@ Faction :: struct {
 	crime:     esm.Crime_Values, // CRVA bounty table
 	has_crime: bool, // false when the faction carries no CRVA (crime values read as zero)
 	vendor:    Vendor, // VENV and the vendor conditions, for a FACT_VENDOR faction
+	jail:          Form_ID, // JAIL: the exterior jail marker ref
+	follower_wait: Form_ID, // WAIT: where followers wait while the player is jailed
+	stolen_chest:  Form_ID, // STOL: the ref jail takes stolen goods to
+	player_chest:  Form_ID, // PLCN: the ref jail takes everything else to
+	crime_group:   Form_ID, // CRGR: an FLST of the factions that share its bounties
+	jail_outfit:   Form_ID, // JOUT
 }
 
 // Vendor is when a vendor faction's members trade (FACT VENV, xEdit).

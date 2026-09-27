@@ -2040,6 +2040,9 @@ test_gamedb_faction :: proc(t: ^testing.T) {
 	put_u16(crva[:], 16, 100) // escape
 	put_u16(crva[:], 18, 1000) // werewolf
 	field(&fact, "CRVA", crva[:])
+	field(&fact, "JAIL", u32_bytes(0x0000_0520))
+	field(&fact, "STOL", u32_bytes(0x0000_0521))
+	field(&fact, "CRGR", u32_bytes(0x0000_0522))
 	field(&fact, "RNAM", u32_bytes(0))
 	field(&fact, "MNAM", transmute([]u8)string("Novice\x00"))
 	field(&fact, "RNAM", u32_bytes(1))
@@ -2052,6 +2055,7 @@ test_gamedb_faction :: proc(t: ^testing.T) {
 	npc := make([dynamic]u8, 0, 64);defer delete(npc)
 	snam: [8]u8;put_u32(snam[:], 0, 0x0000_0501);snam[4] = 1
 	field(&npc, "SNAM", snam[:])
+	field(&npc, "CRIF", u32_bytes(0x0000_0501))
 	npcs := make([dynamic]u8, 0, 96);defer delete(npcs)
 	record(&npcs, "NPC_", 0, 0x0000_0510, npc[:])
 
@@ -2077,6 +2081,11 @@ test_gamedb_faction :: proc(t: ^testing.T) {
 	testing.expect_value(t, f.crime.werewolf, u16(1000))
 	testing.expect(t, f.crime.arrest, "arrests rather than attacking")
 	testing.expect(t, !f.crime.attack_on_detect, "does not attack on detect")
+	testing.expect_value(t, f.jail, gamedb.Form_ID(0x0000_0520))
+	testing.expect_value(t, f.stolen_chest, gamedb.Form_ID(0x0000_0521))
+	testing.expect_value(t, f.crime_group, gamedb.Form_ID(0x0000_0522))
+	testing.expect_value(t, f.player_chest, gamedb.Form_ID(0))
+	testing.expect_value(t, gamedb.actor_crime_faction(&db, 0x0000_0510), gamedb.Form_ID(0x0000_0501))
 
 	reaction, modifier, rok := gamedb.faction_reaction(&db, 0x0000_0501, 0x0000_0502)
 	testing.expect(t, rok, "relation authored")

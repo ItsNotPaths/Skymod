@@ -62,6 +62,6 @@ is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool
 }
 
 // send_to_jail serves `actor`'s bounty with `faction`.
-// (hole jail :tags (combat world player) :sev gap :needs (crime-store fact-crime-fields time-skip)) nobody goes to jail: wanted the move to the jail marker, the items to PLCN and stolen ones to STOL, the JOUT outfit, bounty/100 days at most 7 (UESP), skill progress lost (more skills for longer sentences, UESP), the bounty cleared and the JAIL event; SendPlayerToJail and ClearPrison are its natives. The vanilla scripts only watch; the engine does it all.
+// (hole jail :tags (combat world player) :sev gap :needs (crime-store time-skip)) nobody goes to jail: wanted the move to the jail marker, the items to PLCN and stolen ones to STOL, the JOUT outfit, bounty/100 days at most 7 (UESP), skill progress lost (more skills for longer sentences, UESP), the bounty cleared and the JAIL event; SendPlayerToJail and ClearPrison are its natives. The vanilla scripts only watch; the engine does it all.
 send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) {
 }

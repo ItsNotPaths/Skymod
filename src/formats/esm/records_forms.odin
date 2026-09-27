@@ -244,28 +244,28 @@ Crime_Values :: struct {
 	werewolf:         u16, // bounty for being seen transformed
 }
 
-// faction_crime reads a FACT's CRVA crime values (20 bytes): arrest u8@0, attack-on-detect u8@1,
-// murder u16@2, assault u16@4, trespass u16@6, pickpocket u16@8, unused u16@10, steal multiplier
-// f32@12, escape u16@16, werewolf u16@18. ok=false when absent/short. (Validated vs
-// CrimeFactionWhiterun: 1000 / 40 / 5 / 25 gold, ×0.5 steal, 100 escape, 1000 werewolf —
-// Skyrim's canonical hold bounties.)
+// faction_crime reads a FACT's CRVA crime values: arrest u8@0, attack-on-detect u8@1, murder
+// u16@2, assault u16@4, trespass u16@6, pickpocket u16@8, unused u16@10, steal multiplier f32@12,
+// escape u16@16, werewolf u16@18. Older forms stop at 12 or 16 bytes (114 vanilla factions, none
+// tracking crime); the missing tail reads 0. (Validated vs CrimeFactionWhiterun: 1000 / 40 / 5 /
+// 25 gold, x0.5 steal, 100 escape, 1000 werewolf.)
 faction_crime :: proc(fields: []Field) -> (cv: Crime_Values, ok: bool) {
 	f, fok := find_field(fields, "CRVA")
-	if !fok || len(f.data) < 20 {
+	if !fok || len(f.data) < 12 {
 		return {}, false
 	}
-	return Crime_Values {
-			arrest           = f.data[0] != 0,
-			attack_on_detect = f.data[1] != 0,
-			murder           = rd16(f.data, 2),
-			assault          = rd16(f.data, 4),
-			trespass         = rd16(f.data, 6),
-			pickpocket       = rd16(f.data, 8),
-			steal_multiplier = rf32(f.data, 12),
-			escape           = rd16(f.data, 16),
-			werewolf         = rd16(f.data, 18),
-		},
-		true
+	d := f.data
+	cv = {
+		arrest           = d[0] != 0,
+		attack_on_detect = d[1] != 0,
+		murder           = rd16(d, 2),
+		assault          = rd16(d, 4),
+		trespass         = rd16(d, 6),
+		pickpocket       = rd16(d, 8),
+	}
+	if len(d) >= 16 {cv.steal_multiplier = rf32(d, 12)}
+	if len(d) >= 20 {cv.escape, cv.werewolf = rd16(d, 16), rd16(d, 18)}
+	return cv, true
 }
 
 // --- magic: SPEL / SCRL / ENCH / MGEF ---------------------------------------------------
