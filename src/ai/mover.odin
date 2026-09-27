@@ -30,9 +30,14 @@ Mover :: struct {
 	door:    Form_ID, // a load door reached this tick
 	closest: f32, // nearest it has been to the next corner
 	stalled: f32, // seconds since it got nearer
+	dodge:   f32, // seconds of sidestep left
+	dodges:  int, // sidesteps so far; they alternate sides
 }
 
-CORNER_REACHED :: f32(16)
+CORNER_REACHED :: f32(32)
+DODGE_AFTER :: f32(0.5) // seconds without progress before a sidestep
+DODGE_FOR :: f32(0.6)
+DODGE_ANGLE :: f32(1) // radians off the way ahead
 STUCK_AFTER :: f32(2)
 BUMP_TURN :: f32(0.35) // radians clockwise while touching another actor
 
@@ -58,7 +63,7 @@ mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool
 		return {}
 	}
 	if len(m.path) == 0 || flat_dist(m.aimed, m.goal.point) > m.goal.radius {repath(m, mesh, feet)}
-	for len(m.path) > 1 && flat_dist(feet, m.path[0]) < CORNER_REACHED {
+	for len(m.path) > 1 && (flat_dist(feet, m.path[0]) < CORNER_REACHED || passed(feet, m.path[0], m.path[1])) {
 		ordered_remove(&m.path, 0)
 		m.closest = max(f32)
 	}
@@ -68,6 +73,10 @@ mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool
 		m.closest, m.stalled, m.stuck = d, 0, false
 	} else {
 		m.stalled += dt
+		if m.stalled > DODGE_AFTER && m.dodge <= 0 {
+			m.dodge = DODGE_FOR
+			m.dodges += 1
+		}
 		if m.stalled > STUCK_AFTER {
 			m.stuck = true
 			repath(m, mesh, feet)
@@ -76,6 +85,10 @@ mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool
 	if d < 0.001 {return {}}
 	dir := [2]f32{to.x, to.y} / d
 	if touching {dir = rotate(dir, -BUMP_TURN)}
+	if m.dodge > 0 {
+		m.dodge -= dt
+		dir = rotate(dir, DODGE_ANGLE if m.dodges % 2 == 0 else -DODGE_ANGLE)
+	}
 	m.heading = math.atan2(dir.y, dir.x)
 	return dir * gait_speed(m.goal.gait)
 }
@@ -87,6 +100,13 @@ repath :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32) {
 		append(&m.path, m.goal.point)
 	}
 	m.aimed, m.closest, m.stalled = m.goal.point, max(f32), 0
+}
+
+// passed is whether a near corner already lies behind the feet, seen along the leg after it (a far
+// one may be a U-turn round a pillar).
+@(private = "file")
+passed :: proc(feet, corner, next: [3]f32) -> bool {
+	return flat_dist(feet, corner) < 3 * CORNER_REACHED && linalg.dot(corner.xy - feet.xy, next.xy - corner.xy) < 0
 }
 
 @(private = "file")

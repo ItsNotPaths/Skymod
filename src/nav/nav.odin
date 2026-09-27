@@ -136,7 +136,7 @@ portal :: proc(m: ^Path_Mesh, a, b: Tri) -> [2][3]f32 {
 	return {p1, p0} if area2(nm.verts[tri.verts[0]], nm.verts[tri.verts[1]], nm.verts[tri.verts[2]]) > 0 else {p0, p1}
 }
 
-CLEARANCE :: f32(24) // a path keeps this far from a portal's ends, so a capsule clears corners
+CLEARANCE :: f32(32) // a path keeps this far from a portal's ends, so a capsule (human r 18) clears corners
 
 // narrow pulls a portal's ends in by CLEARANCE; a portal narrower than twice that becomes its middle.
 @(private)
