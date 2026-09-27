@@ -44,6 +44,8 @@ typedef struct {
 	AVFrame *frame, *chunk;
 	int stream;
 	int64_t pts;
+	enum AVSampleFormat fmt; // what resample writes to the fifo
+	int channels;
 } Job;
 
 static int drain(Job *j) {
@@ -83,7 +85,7 @@ static int resample(Job *j, const AVFrame *f) {
 	int cap = swr_get_out_samples(j->swr, in);
 	if (cap <= 0) return 0;
 	uint8_t **buf = NULL;
-	int r = av_samples_alloc_array_and_samples(&buf, NULL, j->enc->ch_layout.nb_channels, cap, j->enc->sample_fmt, 0);
+	int r = av_samples_alloc_array_and_samples(&buf, NULL, j->channels, cap, j->fmt, 0);
 	if (r < 0) return r;
 	int n = swr_convert(j->swr, buf, cap, f ? (const uint8_t **)f->extended_data : NULL, in);
 	if (n > 0 && av_audio_fifo_write(j->fifo, (void **)buf, n) < n) n = AVERROR(ENOMEM);
@@ -92,15 +94,32 @@ static int resample(Job *j, const AVFrame *f) {
 	return n < 0 ? n : 0;
 }
 
+// decode sends one packet (NULL: flush) and resamples every frame it yields into the fifo.
 static int decode(Job *j, const AVPacket *p) {
 	int r = avcodec_send_packet(j->dec, p);
 	if (r < 0 && r != AVERROR_EOF) return r;
 	while ((r = avcodec_receive_frame(j->dec, j->frame)) >= 0) {
 		r = resample(j, j->frame);
 		av_frame_unref(j->frame);
-		if (r < 0 || (r = encode(j, 0)) < 0) return r;
+		if (r < 0) return r;
 	}
 	return r == AVERROR(EAGAIN) || r == AVERROR_EOF ? 0 : r;
+}
+
+// read_all decodes the input's audio stream to its end, calling encode after each packet when set.
+static int read_all(Job *j, int encoding) {
+	int r;
+	while ((r = av_read_frame(j->in, j->pkt)) >= 0) {
+		if (j->pkt->stream_index == j->stream) {
+			r = decode(j, j->pkt);
+			if (r >= 0 && encoding) r = encode(j, 0);
+		}
+		av_packet_unref(j->pkt);
+		if (r < 0) return r;
+	}
+	if (r != AVERROR_EOF) return r;
+	if ((r = decode(j, NULL)) < 0) return r;
+	return resample(j, NULL);
 }
 
 static int open_in(Job *j, Mem *m) {
@@ -145,8 +164,9 @@ static int open_out(Job *j, int bitrate) {
 	                             &j->dec->ch_layout, j->dec->sample_fmt, j->dec->sample_rate, 0, NULL)) < 0)
 		return r;
 	if ((r = swr_init(j->swr)) < 0) return r;
-	if (!(j->fifo = av_audio_fifo_alloc(j->enc->sample_fmt, j->enc->ch_layout.nb_channels, j->enc->frame_size)))
-		return AVERROR(ENOMEM);
+	j->fmt = j->enc->sample_fmt;
+	j->channels = j->enc->ch_layout.nb_channels;
+	if (!(j->fifo = av_audio_fifo_alloc(j->fmt, j->channels, j->enc->frame_size))) return AVERROR(ENOMEM);
 	return 0;
 }
 
@@ -165,13 +185,7 @@ int skyff_to_ogg(const uint8_t *in, int64_t size, int bitrate, uint8_t **out, in
 	}
 	if ((r = open_in(&j, &m)) < 0 || (r = open_out(&j, bitrate * j.dec->ch_layout.nb_channels)) < 0) goto done;
 
-	while ((r = av_read_frame(j.in, j.pkt)) >= 0) {
-		if (j.pkt->stream_index == j.stream) r = decode(&j, j.pkt);
-		av_packet_unref(j.pkt);
-		if (r < 0) goto done;
-	}
-	if (r != AVERROR_EOF) goto done;
-	if ((r = decode(&j, NULL)) < 0 || (r = resample(&j, NULL)) < 0 || (r = encode(&j, 1)) < 0) goto done;
+	if ((r = read_all(&j, 1)) < 0 || (r = encode(&j, 1)) < 0) goto done;
 	if ((r = avcodec_send_frame(j.enc, NULL)) < 0 || (r = drain(&j)) < 0) goto done;
 	if ((r = av_write_trailer(j.out)) < 0) goto done;
 	*out_size = avio_close_dyn_buf(j.out->pb, out);
@@ -197,6 +211,56 @@ done:
 	av_packet_free(&j.pkt);
 	av_frame_free(&j.frame);
 	av_frame_free(&j.chunk);
+	return r;
+}
+
+// skyff_decode decodes one audio file in memory to interleaved float samples at its own rate.
+// On success *out holds frames * channels floats; free it with skyff_free.
+int skyff_decode(const uint8_t *in, int64_t size, float **out, int64_t *frames, int *rate, int *channels) {
+	Mem m = {in, size, 0};
+	Job j = {0};
+	int r;
+	*out = NULL;
+	*frames = 0;
+	av_log_set_level(AV_LOG_QUIET);
+	if (!(j.pkt = av_packet_alloc()) || !(j.frame = av_frame_alloc())) {
+		r = AVERROR(ENOMEM);
+		goto done;
+	}
+	if ((r = open_in(&j, &m)) < 0) goto done;
+	j.fmt = AV_SAMPLE_FMT_FLT;
+	j.channels = j.dec->ch_layout.nb_channels;
+	if ((r = swr_alloc_set_opts2(&j.swr, &j.dec->ch_layout, j.fmt, j.dec->sample_rate,
+	                             &j.dec->ch_layout, j.dec->sample_fmt, j.dec->sample_rate, 0, NULL)) < 0 ||
+	    (r = swr_init(j.swr)) < 0)
+		goto done;
+	if (!(j.fifo = av_audio_fifo_alloc(j.fmt, j.channels, 4096))) {
+		r = AVERROR(ENOMEM);
+		goto done;
+	}
+	if ((r = read_all(&j, 0)) < 0) goto done;
+
+	int n = av_audio_fifo_size(j.fifo);
+	if (!(*out = av_malloc((size_t)n * j.channels * sizeof(float)))) {
+		r = AVERROR(ENOMEM);
+		goto done;
+	}
+	void *planes[1] = {*out};
+	av_audio_fifo_read(j.fifo, planes, n);
+	*frames = n;
+	*rate = j.dec->sample_rate;
+	*channels = j.channels;
+	r = 0;
+
+done:
+	avformat_close_input(&j.in);
+	if (j.in_io) av_freep(&j.in_io->buffer);
+	avio_context_free(&j.in_io);
+	avcodec_free_context(&j.dec);
+	swr_free(&j.swr);
+	if (j.fifo) av_audio_fifo_free(j.fifo);
+	av_packet_free(&j.pkt);
+	av_frame_free(&j.frame);
 	return r;
 }
 

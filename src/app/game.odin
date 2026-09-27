@@ -25,6 +25,7 @@ import "core:sync"
 import "core:sys/info"
 import "core:thread"
 
+import "../audio"
 import "../ai"
 import "../assetdb"
 import "../detection"
@@ -62,7 +63,7 @@ SNEAK_SPEED :: f32(222) // MOVT NPC_Sneaking_MT forward run
 // documented order — a partial setup (early Quit, failed init) tears down only what exists.
 // Subsystems with their own liveness flag (phys_ok, char_ok, repl_ok, interiors_on) use it.
 Game_Up :: struct {
-	platform, render, ui, loadui, hud, profile, vfs, db, scene, lights, ws, formtable, traversal,
+	platform, render, ui, audio, loadui, hud, profile, vfs, db, scene, lights, ws, formtable, traversal,
 	console, marker, sreg: bool,
 }
 
@@ -136,6 +137,7 @@ Game :: struct {
 	// platform + renderer
 	p: platform.Platform,
 	r: render.Renderer,
+	audio: audio.Audio,
 
 	// input: rebindable action manager (src/input). Driven each frame from the SDL
 	// device state; the frame_* helpers query it (input.fired/held/axis3).
@@ -274,6 +276,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	render.ui_init(&g.r)
 	g.up.ui = true
 	g.p.on_event = render.ui_process_event
+
+	audio.init(&g.audio) // no device: the game runs silent
+	g.up.audio = true
 
 	// Section F: STREAM Tamriel around Riverwood. VFS over the install's archives →
 	// gamedb from Skyrim.esm → a Streamer keeps a window of cells loaded around the
@@ -643,6 +648,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.loadui {loadui_destroy(g)} // releases the atlas/UI textures — before render.shutdown (device alive)
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
+	if g.up.audio {audio.shutdown(&g.audio)}
 	input.destroy(&g.imgr) // leaf; safe on a zero-value manager
 	if g.cfg_overlaid {settings.destroy(&g.cfg_overlay)} // frees only its own overrides, not the root
 	if g.up.platform {platform.shutdown(&g.p)}

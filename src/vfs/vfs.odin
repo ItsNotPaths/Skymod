@@ -83,6 +83,18 @@ exists :: proc(v: ^VFS, path: string) -> bool {
 	return found
 }
 
+// rank orders the mounts `path` resolves in, higher winning as in read: every loose root above
+// every archive, the first loose root highest, the last archive highest among archives.
+rank :: proc(v: ^VFS, path: string) -> (r: int, ok: bool) {
+	rel, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+	for root, i in v.loose_roots {
+		candidate, _ := filepath.join({root, rel}, context.temp_allocator)
+		if os.exists(candidate) {return len(v.archives) + len(v.loose_roots) - i, true}
+	}
+	loc, found := v.index[normalize_path(path, context.temp_allocator)]
+	return loc.archive, found
+}
+
 destroy :: proc(v: ^VFS) {
 	for &arc in v.archives {
 		bsa.close(&arc)

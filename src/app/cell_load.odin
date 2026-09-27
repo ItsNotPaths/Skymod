@@ -46,7 +46,8 @@ sort_names :: proc(names: []string) {
 // (cc*.esl + cc*.bsa, _ResourcePack) keeps its meshes/textures AND its STRINGS; without
 // these, all CC records stay nameless and its assets invisible. Families sort first (base
 // precedence), then plugin archives — later mounts win, matching the real engine.
-// Deliberately still excluded: Sounds/Voices/Animations/Misc/Shaders.
+// Sounds holds the WAVs; the voices and music it and Voices held in xWMA are converted into the
+// content/baseaudio archives. Deliberately still excluded: Voices/Animations/Misc/Shaders.
 game_archive_names :: proc(data_dir: string, allocator := context.allocator) -> []string {
 	bsas := files_with_suffix(data_dir, {".bsa"}, context.temp_allocator)
 	by_lower := make(map[string]string, len(bsas), context.temp_allocator) // lower name -> on-disk name
@@ -60,7 +61,8 @@ game_archive_names :: proc(data_dir: string, allocator := context.allocator) -> 
 		lower := strings.to_lower(b, context.temp_allocator)
 		if strings.has_prefix(lower, "skyrim - meshes") ||
 		   strings.has_prefix(lower, "skyrim - textures") ||
-		   strings.has_prefix(lower, "skyrim - interface") {
+		   strings.has_prefix(lower, "skyrim - interface") ||
+		   strings.has_prefix(lower, "skyrim - sounds") {
 			append(&fams, b)
 			added[lower] = true
 		}

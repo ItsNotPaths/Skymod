@@ -1,7 +1,7 @@
 -- pex: onload 7ff43ecf
 -- OnLoad looped while `on`: roll an effect and a 10-30 s wait, wait, play the effect. Effect 1
 -- is three steps 0.5 s and 3 s apart. The loop is now OnTick in the running state.
--- (hole dust-drop-effect :tags (vfx unclaimed) :sev gap :needs (particles animation audio-output)) a cosmetic loop run as a saved script. It belongs in the effect itself, with no script state and nothing saved.
+-- (hole dust-drop-effect :tags (vfx unclaimed) :sev gap :needs (particles animation)) a cosmetic loop run as a saved script. It belongs in the effect itself, with no script state and nothing saved.
 local rt = require('skymod.rt')
 
 return function(C)

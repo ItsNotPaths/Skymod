@@ -10,7 +10,7 @@ package script
 import "core:log"
 import "../gamedb"
 import smath "../math"
-// (hole sound-natives :tags audio :sev blocker :needs (audio-output audio-decode sound-records)) Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
+// (hole sound-natives :tags audio :sev blocker :needs (sound-records)) Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
 // (hole sound-natives :tags audio :sev blocker) the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
 // (hole vfx-natives :tags (vfx unclaimed) :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
