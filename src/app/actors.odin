@@ -61,7 +61,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen)} // moved in by a script
 		}
 	}
-	// (hole ai-agent :tags ai :sev blocker :needs proc-sandbox) no NPC walks: actors stand where they were placed.
+	// (hole ai-agent :tags ai :sev blocker) NPCs select packages and walk (travel, sandbox wander, load doors), but nobody has watched it in game yet.
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {

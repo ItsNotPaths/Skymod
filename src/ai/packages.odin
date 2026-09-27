@@ -294,7 +294,7 @@ route_goal :: proc(c: ^Proc_Context, p: Place, final: Goal) -> Goal {
 	return g
 }
 
-// (hole proc-sandbox :tags ai :sev blocker) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
+// (hole proc-sandbox :tags ai :sev gap :needs proc-furniture) Sandbox only wanders: it never sits, eats, sleeps or uses an idle marker (IDLM is not decoded), whatever the package flags allow.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
 	p, ok := location(c)
