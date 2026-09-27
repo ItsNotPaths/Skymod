@@ -158,6 +158,7 @@ Runtime :: struct {
 	hits:            [dynamic]Hit,          // hits since the VM last looked: OnHit
 	struck:          map[Form_ID]Form_ID,   // victim -> who last hit it, until its combat looks (projectiles.odin); not saved
 	alarmed:         map[Form_ID]Form_ID,   // actor -> whom it fights or confronts, as the AI set it (GetAlarmed); not saved
+	trespass_warnings: map[[2]Form_ID]Trespass_Warning, // {warner, trespasser} -> its warnings so far (crime.odin); not saved
 	story_events:    [dynamic]Story_Event,  // engine events since the VM last looked: the story manager
 	story_quests:    [dynamic]Form_ID,      // quests an event started since the VM last looked: their OnStory handler
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
@@ -212,6 +213,7 @@ init :: proc(ws: ^World_State) {
 	ws.hits = make([dynamic]Hit)
 	ws.struck = make(map[Form_ID]Form_ID)
 	ws.alarmed = make(map[Form_ID]Form_ID)
+	ws.trespass_warnings = make(map[[2]Form_ID]Trespass_Warning)
 	ws.story_events = make([dynamic]Story_Event)
 	ws.barks = make([dynamic]Bark)
 	ws.story_quests = make([dynamic]Form_ID)
@@ -243,6 +245,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.hits)
 	delete(ws.struck)
 	delete(ws.alarmed)
+	delete(ws.trespass_warnings)
 	delete(ws.in_triggers)
 	delete(ws.story_events)
 	delete(ws.barks)

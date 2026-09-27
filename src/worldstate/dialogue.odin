@@ -24,6 +24,7 @@ Force_Greet :: struct {
 // Bark subtypes the engine says itself (DIAL SNAM).
 SUBTYPE_HIT :: [4]u8{'H', 'I', 'T', '_'}
 SUBTYPE_DEATH :: [4]u8{'D', 'E', 'T', 'H'}
+SUBTYPE_TRESPASS :: [4]u8{'T', 'R', 'E', 'S'}
 
 Bark :: struct {
 	speaker, to: Form_ID,

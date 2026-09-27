@@ -20,9 +20,14 @@ owner :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> Form_ID {
 robbed :: proc(ws: ^World_State, db: ^gamedb.DB, taker, form: Form_ID) -> Form_ID {
 	o := owner(ws, db, form)
 	if o == 0 && !gamedb.is_actor(db, ref_base(ws, db, form)) {o = owner(ws, db, ref_cell(ws, db, form))}
-	if o == 0 || o == ref_base(ws, db, taker) {return 0}
-	if _, is_faction := faction(ws, db, o); is_faction && in_faction(ws, db, taker, o) {return 0}
-	return o
+	return 0 if o == 0 || owns(ws, db, taker, o) else o
+}
+
+// owns: what `owner` owns is `actor`'s to use: the owner is its own base, or a faction it is in.
+owns :: proc(ws: ^World_State, db: ^gamedb.DB, actor, owner: Form_ID) -> bool {
+	if owner == ref_base(ws, db, actor) {return true}
+	_, is_faction := faction(ws, db, owner)
+	return is_faction && in_faction(ws, db, actor, owner)
 }
 
 // (hole stolen-owner :tags (combat player) :sev gap) a stolen mark does not remember whose the item was: dropped, it lands clean (vanilla keeps the victim as its owner), handing it back does not clear it, and GetStolenItemValue(Crime/NoCrime) cannot split by faction.

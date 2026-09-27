@@ -11,6 +11,7 @@ import "core:math"
 
 // CELL DATA flags (first byte). 0x01 = interior cell.
 CELL_INTERIOR :: 0x01
+CELL_PUBLIC :: 0x20 // a public area: its owner's stay-out rules do not apply (xEdit's name; 152 vanilla cells)
 
 // Placement is a REFR's base reference + world transform. rot is XYZ euler radians;
 // scale defaults to 1 when no XSCL field is present, count (an item stack) to 1 without XCNT.
@@ -667,10 +668,13 @@ leveled_list :: proc(
 
 // cell_is_interior reports whether a CELL's DATA flags mark it interior.
 cell_is_interior :: proc(fields: []Field) -> bool {
-	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 1 {
-		return f.data[0] & CELL_INTERIOR != 0
-	}
-	return false
+	return cell_flags(fields) & CELL_INTERIOR != 0
+}
+
+// cell_flags is a CELL's DATA flags byte (CELL_*); 0 without DATA.
+cell_flags :: proc(fields: []Field) -> u8 {
+	if f, ok := find_field(fields, "DATA"); ok && len(f.data) >= 1 {return f.data[0]}
+	return 0
 }
 
 // cell_grid reads an exterior CELL's XCLC grid coordinates (X i32, Y i32 — each cell

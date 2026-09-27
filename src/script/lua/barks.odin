@@ -1,6 +1,7 @@
 package script_lua
 
 import "../../dialogue"
+import "../../formid"
 import "../../worldstate"
 
 // tick_barks plays the lines actors say outside conversations and scenes: a new one picks its
@@ -24,7 +25,7 @@ play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
 	death := b.subtype == worldstate.SUBTYPE_DEATH // said by the dead, over anything else
 	if b.info == 0 {
 		if !death && bark_busy(vm, b.speaker) {return false}
-		b.info = dialogue.pick(c, b.speaker, b.topic) if b.topic != 0 else dialogue.pick_subtype(c, b.speaker, string(b.subtype[:]))
+		b.info = dialogue.pick(c, b.speaker, b.topic) if b.topic != 0 else dialogue.pick_subtype(c, b.speaker, string(b.subtype[:]), b.to if b.to != 0 else formid.PLAYER)
 		if b.info == 0 {return false}
 		dialogue.said(c, b.speaker, b.info)
 		b.response, b.left = -1, 0

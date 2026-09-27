@@ -134,11 +134,11 @@ pick :: proc(c: ^script.Call, speaker, topic: Form_ID) -> Form_ID {
 // starts a pile that grows until a valid info that is not Random, or is Random End; one of the pile
 // is said. With Do All Before Repeating, the pile skips what was said this round.
 @(private)
-pick_from :: proc(c: ^script.Call, speaker: Form_ID, infos: []Form_ID, do_all: bool) -> Form_ID {
+pick_from :: proc(c: ^script.Call, speaker: Form_ID, infos: []Form_ID, do_all: bool, to := formid.PLAYER) -> Form_ID {
 	pile := make([dynamic]Form_ID, context.temp_allocator)
 	for id in infos {
 		info := c.db.infos[id]
-		if !can_say(c, speaker, id, info) {continue}
+		if !can_say(c, speaker, id, info, to) {continue}
 		append(&pile, id)
 		if info.flags & gamedb.INFO_RANDOM == 0 || info.flags & gamedb.INFO_RANDOM_END != 0 {break}
 	}
@@ -158,14 +158,14 @@ pick_from :: proc(c: ^script.Call, speaker: Form_ID, infos: []Form_ID, do_all: b
 // can_say: the info's quest runs, its quest's dialogue conditions and its own pass, and Say Once
 // and Hours Until Reset allow it.
 @(private)
-can_say :: proc(c: ^script.Call, speaker, id: Form_ID, info: gamedb.Info) -> bool {
+can_say :: proc(c: ^script.Call, speaker, id: Form_ID, info: gamedb.Info, to := formid.PLAYER) -> bool {
 	quest := c.db.topics[info.topic].quest
 	if quest != 0 && !worldstate.quest_running(c.ws, c.db, quest) {return false}
 	if at, said := worldstate.info_said_at(c.ws, speaker, id); said {
 		if info.flags & gamedb.INFO_SAY_ONCE != 0 {return false}
 		if f64(info.reset_hours) > c.ws.clock.hours - at {return false}
 	}
-	ctx := script.condition_context(c, speaker, formid.PLAYER, quest)
+	ctx := script.condition_context(c, speaker, to, quest)
 	qb, _ := gamedb.quest_baseline_of(c.db, quest)
 	return conditions.all(&ctx, qb.dialogue_conditions) && conditions.all(&ctx, info.conditions)
 }
@@ -213,9 +213,10 @@ line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
 	return worldstate.fill_tags(c.ws, c.db, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
 }
 
-// pick_subtype is the line `speaker` says from every topic of one subtype (Hellos, Idle); 0 when none.
-pick_subtype :: proc(c: ^script.Call, speaker: Form_ID, subtype: string) -> Form_ID {
-	return pick_from(c, speaker, stack(c.db, subtype), false)
+// pick_subtype is the line `speaker` says to `to` from every topic of one subtype (Hellos, Idle); 0
+// when none.
+pick_subtype :: proc(c: ^script.Call, speaker: Form_ID, subtype: string, to := formid.PLAYER) -> Form_ID {
+	return pick_from(c, speaker, stack(c.db, subtype), false, to)
 }
 
 // stack joins the infos of every topic of one subtype (Hellos, Rumors), which stack across

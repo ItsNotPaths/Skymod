@@ -60,8 +60,8 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	131 = fn_get_pc_is_sex,
 	132 = fn_get_pc_in_faction,
 	136 = fn_get_is_reference,
-	144 = fn_resting,
-	145 = fn_resting,
+	144 = fn_get_trespass_warning_level,
+	145 = fn_is_trespassing,
 	149 = fn_resting,
 	157 = fn_get_open_state,
 	159 = fn_get_sitting,
@@ -263,6 +263,17 @@ fn_can_pay_crime_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 	return yes(worldstate.inv_count(ctx.ws, ctx.db, ctx.target, formid.GOLD) >= worldstate.total(b))
 }
 
+@(private = "file")
+fn_is_trespassing :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.is_trespassing(ctx.ws, ctx.db, on))
+}
+
+// GetTrespassWarningLevel: the warning `on` is on with the actor it talks to.
+@(private = "file")
+fn_get_trespass_warning_level :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.trespass_warning(ctx.ws, on, ctx.target)), true
+}
+
 // GetAlarmed: the actor fights someone, or a guard confronts someone.
 @(private = "file")
 fn_get_alarmed :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
@@ -354,7 +365,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
-// (hole crime-conditions :tags (combat quest) :sev gap :needs (trespass)) IsTrespassing, GetTrespassWarningLevel, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
+// (hole crime-conditions :tags (combat quest) :sev gap) GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: nothing answers them yet (the confront and the jail sentence hold the data).
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.

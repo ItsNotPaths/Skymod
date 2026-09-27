@@ -28,6 +28,7 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Game", "ServeTime", n_serve_time)
 	register(reg, "Actor", "SendAssaultAlarm", n_send_assault_alarm)
 	register(reg, "Actor", "SetPlayerResistingArrest", n_set_player_resisting_arrest)
+	register(reg, "Actor", "IsTrespassing", n_is_trespassing)
 	register(reg, "ObjectReference", "SendStealAlarm", n_send_steal_alarm)
 }
 
@@ -187,4 +188,8 @@ n_set_player_resisting_arrest :: proc(c: ^Call, args: []Value) -> Value {
 	w.enemy = true
 	worldstate.set_wanted(c.ws, formid.PLAYER, faction, w)
 	return nil
+}
+
+n_is_trespassing :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.is_trespassing(c.ws, c.db, c.self)
 }

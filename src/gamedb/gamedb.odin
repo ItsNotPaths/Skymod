@@ -168,6 +168,7 @@ Cell :: struct {
 	form_id:       Form_ID,
 	editor_id:     string, // owned by the DB
 	interior:      bool,
+	public:        bool, // CELL DATA public area
 	world_form_id: Form_ID, // owning WRLD (0 for interiors)
 	gx, gy:        i32, // exterior grid coordinates
 	has_grid:      bool, // false for interiors / the worldspace persistent cell
@@ -1977,6 +1978,7 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		form_id       = rec.form_id,
 		editor_id     = strings.clone(edid, db.allocator),
 		interior      = esm.cell_is_interior(fl),
+		public        = esm.cell_flags(fl) & esm.CELL_PUBLIC != 0,
 		world_form_id = ctx.world_form_id,
 		water_height  = esm.WATER_NONE,
 	}

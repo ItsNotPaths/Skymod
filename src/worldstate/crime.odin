@@ -157,9 +157,7 @@ report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID
 @(private = "file")
 witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kind: Crime_Kind, value: i32) -> bool {
 	if knower == offender || is_dead(ws, db, knower) {return false}
-	crime := crime_faction(ws, db, knower)
-	f, ok := faction(ws, db, crime)
-	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & (esm.FACT_DO_NOT_REPORT_CRIMES | IGNORES[kind]) != 0 {return false}
+	f := counts(ws, db, knower, kind) or_return
 	add: i32
 	switch kind {
 	case .Steal:      add = i32(f32(value) * f.crime.steal_multiplier)
@@ -175,6 +173,15 @@ witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kin
 	if kind in VIOLENT_CRIMES {b.violent += add} else {b.nonviolent += add}
 	learn_bounty(ws, db, knower, offender, b)
 	return true
+}
+
+// counts is the crime faction `knower` reports `kind` to, if it tracks crime, reports and does not
+// ignore that crime.
+@(private = "file")
+counts :: proc(ws: ^World_State, db: ^gamedb.DB, knower: Form_ID, kind: Crime_Kind) -> (gamedb.Faction, bool) {
+	f, ok := faction(ws, db, crime_faction(ws, db, knower))
+	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & (esm.FACT_DO_NOT_REPORT_CRIMES | IGNORES[kind]) != 0 {return {}, false}
+	return f, true
 }
 
 // IGNORES is the FACT flag that makes a faction ignore each crime.
@@ -197,6 +204,7 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		witness(ws, db, w.victim, w.offender, w.kind, 0)
 		ordered_remove(&ws.victim_waits, i)
 	}
+	warn_trespassers(ws, db, dt)
 	ws.spread_in -= dt
 	if ws.spread_in <= 0 {
 		ws.spread_in = SPREAD_EVERY
@@ -305,10 +313,71 @@ crime_census :: proc(ws: ^World_State, db: ^gamedb.DB, faction: Form_ID) -> (liv
 	return
 }
 
-// is_trespassing: the actor stands where its owner forbids it.
-// (hole trespass :tags (combat world) :sev gap) nobody trespasses: no check of owned cells (254, all interior) against the public flag (CELL DATA 0x20, 152) and locked doors, no warnings (iGuardWarnings 2, fAITrespassWarningTimer 5), no Trespass crime.
+// is_trespassing: the actor is in an owned interior that is not its to use and not public, while
+// its owner has the load doors locked (LockDoors); a prisoner in its cell is not.
+// (hole trespass-rule-source :tags (combat world) :sev polish) unsourced: trespass as "owned, not public, a load door locked" is read off the data (254 owned cells, all interior; the LockDoors procedure); the CK names no rule.
 is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool {
+	cell := ref_cell(ws, db, actor)
+	c, ok := gamedb.cell_by_formid(db, cell)
+	if !ok || !c.interior || c.public || actor in ws.jailed {return false}
+	o := owner(ws, db, cell)
+	if o == 0 || owns(ws, db, actor, o) {return false}
+	for r in gamedb.refs_of(db, cell) {
+		if r.teleport.door != 0 && gamedb.is_door(db, r.base) && is_locked(ws, db, r.form_id) {return true}
+	}
 	return false
+}
+
+// Trespass_Warning is how far `warner` has got warning a trespasser away.
+Trespass_Warning :: struct {
+	level:    i32, // GetTrespassWarningLevel: the warning it is on
+	wait:     f32, // seconds to the next warning
+	started:  bool,
+	reported: bool,
+}
+
+// warn_trespassers has each actor that counts trespass warn the trespassers it detects: a TRES line
+// every fAITrespassWarningTimer, iGuardWarnings times, then the Trespass crime. Leaving ends it.
+@(private = "file")
+warn_trespassers :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
+	trespassing := make(map[Form_ID]bool, context.temp_allocator)
+	still := make(map[[2]Form_ID]bool, context.temp_allocator)
+	for k, a in ws.awareness {
+		warner, target := k[0], k[1]
+		if !a.detected || is_dead(ws, db, warner) {continue}
+		t, cached := trespassing[target]
+		if !cached {
+			t = is_trespassing(ws, db, target)
+			trespassing[target] = t
+		}
+		if !t {continue}
+		if _, ok := counts(ws, db, warner, .Trespass); !ok || hostile(ws, db, warner, target) {continue}
+		still[k] = true
+		w := ws.trespass_warnings[k]
+		w.wait -= dt
+		if w.wait <= 0 {
+			w.wait = gamedb.setting_float(db, "fAITrespassWarningTimer", 5)
+			if w.started {w.level += 1}
+			w.started = true
+			if w.level <= i32(gamedb.setting_int(db, "iGuardWarnings", 2)) {
+				append(&ws.barks, Bark{speaker = warner, to = target, subtype = SUBTYPE_TRESPASS})
+			} else if !w.reported {
+				w.reported = true
+				report_crime(ws, db, target, owner(ws, db, ref_cell(ws, db, target)), .Trespass, 0)
+			}
+		}
+		ws.trespass_warnings[k] = w
+	}
+	gone := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k in ws.trespass_warnings {
+		if k not_in still {append(&gone, k)}
+	}
+	for k in gone {delete_key(&ws.trespass_warnings, k)}
+}
+
+// trespass_warning is GetTrespassWarningLevel: the warning `warner` is on with `target`.
+trespass_warning :: proc(ws: ^World_State, warner, target: Form_ID) -> i32 {
+	return ws.trespass_warnings[{warner, target}].level
 }
 
 // Jailed is an actor serving a sentence. Its gear waits in the faction's evidence chest.

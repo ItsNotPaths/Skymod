@@ -270,3 +270,41 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	script.move_items(&c, {base = AXE, from = THIEF, count = 5, stolen = true}) // nothing stolen left to take
 	testing.expect_value(t, ws.inv_count(&s, &db, THIEF, AXE), 1)
 }
+
+// An owned interior that is not public is off limits while its owner has a load door locked. A
+// witness warns the trespasser iGuardWarnings (2) times, fAITrespassWarningTimer (5 s) apart, then
+// reports the trespass.
+@(test)
+test_trespass :: proc(t: ^testing.T) {
+	HOUSE, DOOR, DOOR_BASE, OWNER_BASE :: gamedb.Form_ID(0x000F0001), gamedb.Form_ID(0x000F0002), gamedb.Form_ID(0x000F0003), gamedb.Form_ID(0x000F0004)
+	db: gamedb.DB
+	defer {delete(db.cells);delete(db.doors);delete(db.owners);delete(db.factions);for _, r in db.cell_refs {delete(r)};delete(db.cell_refs)}
+	db.cells[HOUSE] = {form_id = HOUSE, interior = true}
+	db.doors[DOOR_BASE] = true
+	db.cell_refs[HOUSE] = make([dynamic]gamedb.Ref)
+	append(&db.cell_refs[HOUSE], gamedb.Ref{form_id = DOOR, base = DOOR_BASE, cell_form_id = HOUSE, teleport = {door = 0x000F0009}})
+	db.owners[HOUSE] = OWNER_BASE
+	db.factions[CRIME_TOWN] = {flags = esm.FACT_TRACK_CRIME, has_crime = true, crime = {trespass = 5}}
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.relocate(&s, CRIME_THIEF, HOUSE, {}, {})
+	testing.expect(t, !ws.is_trespassing(&s, &db, CRIME_THIEF), "the door is open")
+	ws.set_locked(&s, DOOR, HOUSE, true)
+	testing.expect(t, ws.is_trespassing(&s, &db, CRIME_THIEF), "locked in an owned house")
+
+	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
+	ws.set_awareness(&s, CRIME_GUARD, CRIME_THIEF, {level = 1, detected = true})
+	for level in 0 ..= 2 {
+		ws.tick_crime(&s, &db, 5)
+		testing.expect_value(t, ws.trespass_warning(&s, CRIME_GUARD, CRIME_THIEF), i32(level))
+	}
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_GUARD, CRIME_THIEF), ws.Bounty{})
+	ws.tick_crime(&s, &db, 5)
+	testing.expect_value(t, ws.bounty(&s, &db, CRIME_GUARD, CRIME_THIEF), ws.Bounty{nonviolent = 5})
+
+	db.cells[HOUSE] = {form_id = HOUSE, interior = true, public = true}
+	testing.expect(t, !ws.is_trespassing(&s, &db, CRIME_THIEF), "a public place")
+	ws.tick_crime(&s, &db, 1)
+	testing.expect_value(t, len(s.trespass_warnings), 0)
+}
