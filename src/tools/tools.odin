@@ -396,6 +396,35 @@ installer_screen :: proc(buf: []u8, valid: bool) -> Installer_Action {
 	return action
 }
 
+// installer_progress_screen draws a running install: the step, a bar of done/total, a spinner
+// that shows the window is alive, and the item a worker is on.
+installer_progress_screen :: proc(step, item: string, done, total: int) {
+	vp := imgui.GetMainViewport()
+	center := imgui.Vec2{vp.WorkPos.x + vp.WorkSize.x * 0.5, vp.WorkPos.y + vp.WorkSize.y * 0.5}
+	imgui.SetNextWindowPos(center, .Appearing, {0.5, 0.5})
+	imgui.SetNextWindowSize({560, 0}, .Appearing)
+
+	if imgui.Begin("Install SkyMod", nil, {.NoCollapse, .NoResize}) {
+		imgui.TextUnformatted(fmt.ctprintf("%s %s", step if step != "" else "Starting", spinner(imgui.GetTime())))
+		fraction := f32(done) / f32(total) if total > 0 else 0
+		imgui.ProgressBar(fraction, {-1, 0}, fmt.ctprintf("%d / %d", done, total))
+		imgui.TextColored({0.55, 0.58, 0.62, 1}, fmt.ctprintf("%s", item))
+	}
+	imgui.End()
+}
+
+// spinner is a "|---=----|" whose = runs back and forth once every two seconds.
+@(private = "file")
+spinner :: proc(t: f64) -> string {
+	WIDTH :: 16
+	phase := math.mod(t, 2) // 0..2
+	pos := int((phase if phase < 1 else 2 - phase) * (WIDTH - 1))
+	b: [WIDTH + 2]u8
+	b[0], b[WIDTH + 1] = '|', '|'
+	for i in 0 ..< WIDTH {b[i + 1] = '=' if i == pos else '-'}
+	return strings.clone(string(b[:]), context.temp_allocator)
+}
+
 // Menu_Action is what the main-menu boot screen reported this frame.
 Menu_Action :: enum {
 	None,

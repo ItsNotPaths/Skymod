@@ -30,7 +30,7 @@ Audio_Stats :: struct {
 // convert_audio converts every .xwm and .fuz in `archives`, which are in mount order: a later
 // archive's copy of a sound wins, so the output holds each sound once and its mount order cannot
 // matter. An archive that will not open is skipped with a warning.
-convert_audio :: proc(archives: []string, out_dir: string) -> (st: Audio_Stats, ok: bool) {
+convert_audio :: proc(archives: []string, out_dir: string, progress: ^Progress = nil) -> (st: Audio_Stats, ok: bool) {
 	os.make_directory_all(out_dir)
 	if !os.is_dir(out_dir) {
 		log.errorf("audio: could not create %q", out_dir)
@@ -65,6 +65,7 @@ convert_audio :: proc(archives: []string, out_dir: string) -> (st: Audio_Stats, 
 		}
 	}
 
+	progress_step(progress, "Converting sounds", len(winner))
 	for &a, ai in opened {
 		todo := make([dynamic]int, context.temp_allocator)
 		for _, s in winner {
@@ -72,7 +73,7 @@ convert_audio :: proc(archives: []string, out_dir: string) -> (st: Audio_Stats, 
 		}
 		if len(todo) == 0 {continue}
 		out, _ := filepath.join({out_dir, filepath.base(a.path)}, context.temp_allocator)
-		ast := convert_archive(&a, todo[:], out) or_return
+		ast := convert_archive(&a, todo[:], out, progress) or_return
 		st.converted += ast.converted
 		st.failed += ast.failed
 	}
@@ -88,13 +89,14 @@ Audio_Job :: struct {
 	spool:   ^os.File,
 	end:     u64,
 	entries: [dynamic]bsa.Pack_Entry,
-	stats:   Audio_Stats,
+	stats:    Audio_Stats,
+	progress: ^Progress,
 }
 
 // convert_archive converts the entries `todo` of one archive into a BSA at out, through a spool
 // file beside it that pack reads memory-mapped.
 @(private = "file")
-convert_archive :: proc(arc: ^bsa.Archive, todo: []int, out: string) -> (st: Audio_Stats, ok: bool) {
+convert_archive :: proc(arc: ^bsa.Archive, todo: []int, out: string, progress: ^Progress) -> (st: Audio_Stats, ok: bool) {
 	spool_path := strings.concatenate({out, ".spool"}, context.temp_allocator)
 	spool, err := os.open(spool_path, {.Write, .Create, .Trunc})
 	if err != nil {
@@ -103,7 +105,7 @@ convert_archive :: proc(arc: ^bsa.Archive, todo: []int, out: string) -> (st: Aud
 	}
 	defer os.remove(spool_path)
 
-	j := Audio_Job{arc = arc, todo = todo, spool = spool}
+	j := Audio_Job{arc = arc, todo = todo, spool = spool, progress = progress}
 	defer {
 		for e in j.entries {delete(e.path)}
 		delete(j.entries)
@@ -118,6 +120,7 @@ convert_archive :: proc(arc: ^bsa.Archive, todo: []int, out: string) -> (st: Aud
 	}
 	os.close(spool)
 
+	progress_note(progress, strings.concatenate({"packing ", filepath.base(out)}, context.temp_allocator))
 	if !bsa.pack(out, spool_path, j.entries[:]) {
 		log.errorf("audio: could not pack %q", out)
 		return j.stats, false
@@ -132,11 +135,13 @@ audio_worker :: proc(j: ^Audio_Job) {
 		k := sync.atomic_add(&j.next, 1)
 		if k >= len(j.todo) {return}
 		e := j.arc.entries[j.todo[k]]
+		progress_note(j.progress, e.path)
 		data, ok := bsa.extract(j.arc, e)
 		if ok {ok = convert_sound(j, e.path, data)}
 		delete(data)
 		sync.guard(&j.mu)
 		if ok {j.stats.converted += 1} else {j.stats.failed += 1}
+		progress_done(j.progress)
 		free_all(context.temp_allocator)
 	}
 }

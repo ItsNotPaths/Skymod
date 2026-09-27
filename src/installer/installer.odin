@@ -28,6 +28,8 @@ SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>
 AUDIO_MOD      :: "baseaudio"    // <base>/content/baseaudio — the content mod holding converted game audio
 BETHASSETS_DIR :: "bethassets"   // a content mod's VFS-mounted asset root
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
+Progress       :: converters.Progress
+progress_read  :: converters.progress_read
 FORMAT_VERSION :: 4 // bump when converted output changes, so an older install re-runs
 
 // content_ready reports whether <base>/content holds a finished install of this format. The
@@ -86,7 +88,7 @@ valid_source :: proc(path: string) -> bool {
 // install converts a validated Skyrim install at `source` into <base>/content,
 // then writes the manifest that content_ready() looks for. Returns false (after
 // logging) on a bad source or any IO failure.
-install :: proc(source, base: string) -> bool {
+install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 	if !valid_source(source) {
 		log.errorf("installer: %q is not a Skyrim install (no Data/Skyrim.esm)", source)
 		return false
@@ -114,14 +116,14 @@ install :: proc(source, base: string) -> bool {
 
 	ordered := archive_order(data, archives, {esms, esls, esps})
 	scripts_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
-	sst, sok := converters.convert_scripts(ordered, scripts_dir)
+	sst, sok := converters.convert_scripts(ordered, scripts_dir, progress)
 	if !sok {
 		return false
 	}
 	log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
 
 	audio_dir, _ := filepath.join({content, AUDIO_MOD, BETHASSETS_DIR}, context.temp_allocator)
-	ast, aok := converters.convert_audio(ordered, audio_dir)
+	ast, aok := converters.convert_audio(ordered, audio_dir, progress)
 	if !aok {
 		return false
 	}

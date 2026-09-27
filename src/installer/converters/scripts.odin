@@ -52,7 +52,7 @@ rewrites_hash :: proc() -> u64 {
 // lowercased. `archives` is in mount order and a later archive's copy wins, the VFS rule: the
 // LE DLC archives ship 73 patched copies of base scripts. An archive that will not open is
 // skipped with a warning.
-convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stats, ok: bool) {
+convert_scripts :: proc(archives: []string, out_dir: string, progress: ^Progress = nil) -> (st: Script_Stats, ok: bool) {
 	os.make_directory_all(out_dir)
 	if !os.is_dir(out_dir) {
 		log.errorf("scripts: could not create %q", out_dir)
@@ -104,7 +104,10 @@ convert_scripts :: proc(archives: []string, out_dir: string) -> (st: Script_Stat
 		}
 		delete(opt.split)
 	}
+	progress_step(progress, "Converting scripts", len(winner))
 	for stem, src in winner {
+		progress_note(progress, stem)
+		defer progress_done(progress)
 		defer virtual.arena_free_all(&scratch)
 		a := &opened[src.arc]
 		data, xok := bsa.extract(a, a.entries[src.entry], context.temp_allocator)

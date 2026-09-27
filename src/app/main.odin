@@ -15,6 +15,7 @@ import "core:log"
 import "core:mem"
 import "core:os"
 import "core:slice"
+import "core:thread"
 
 import "../installer"
 import "../platform"
@@ -196,18 +197,39 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 
 	log.info("no content installed — showing the installer")
 
+	// The install runs on its own thread; the window shows its progress meanwhile.
+	Install_Job :: struct {
+		source, base: string,
+		progress:     installer.Progress,
+		ok:           bool,
+	}
+	job := Install_Job{base = base}
+	worker: ^thread.Thread
+
 	for platform.pump(&p) {
 		render.ui_new_frame(&r)
 
-		path := string(cstring(raw_data(buf[:])))
-		valid := installer.valid_source(path)
-		action := tools.installer_screen(buf[:], valid)
+		action := tools.Installer_Action.None
+		if worker != nil {
+			step, item, done, total := installer.progress_read(&job.progress)
+			tools.installer_progress_screen(step, item, done, total)
+		} else {
+			path := string(cstring(raw_data(buf[:])))
+			action = tools.installer_screen(buf[:], installer.valid_source(path))
+		}
 
 		// The installer is the whole frame — just clear behind the UI.
 		if render.begin_frame(&r, {0.07, 0.08, 0.10, 1.0}) {
 			render.end_frame(&r)
 		}
 		free_all(context.temp_allocator)
+
+		if worker != nil && thread.is_done(worker) {
+			thread.destroy(worker) // joins
+			worker = nil
+			if job.ok {return true}
+			log.error("install failed; leaving the installer open to retry")
+		}
 
 		#partial switch action {
 		case .Install:
@@ -230,11 +252,11 @@ run_installer :: proc(base: string, cfg: ^settings.Config) -> bool {
 				settings.set(cfg, "source_game", latest)
 			}
 			_ = settings.save(cfg)
-			// (hole installer-progress :tags (ui assets) :sev polish) install() runs on the window's thread: the installer freezes for the whole install (scripts, then minutes of audio) and shows no progress.
-			if installer.install(latest, base) {
-				return true
-			}
-			log.error("install failed; leaving the installer open to retry")
+			job.source = latest // buf is not edited while the install runs
+			job.progress = {}
+			worker = thread.create_and_start_with_poly_data(&job, proc(j: ^Install_Job) {
+				j.ok = installer.install(j.source, j.base, &j.progress)
+			}, init_context = context)
 		case .Quit:
 			return false
 		}
