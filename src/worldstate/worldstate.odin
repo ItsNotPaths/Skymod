@@ -106,6 +106,7 @@ Overlay :: struct {
 	owners:          map[Form_ID]Form_ID,          // ref or cell -> the owner a script set; 0 = none (ownership.odin)
 	crime_factions:  map[Form_ID]Form_ID,          // actor -> the crime faction a script set; 0 = none (crime.odin)
 	faction_relations: map[[2]Form_ID]gamedb.Faction_Relation, // {faction, other} -> a script's relation (factions.odin)
+	script_factions: map[Form_ID]Script_Faction,  // the factions scripts made (factions.odin)
 	wanted:          map[[2]Form_ID]Wanted,        // {offender, crime faction} -> the faction-wide bounty (crime.odin)
 	known_bounties:  map[[2]Form_ID]Known_Bounty,  // {knower, offender} -> a bounty only the knower holds (crime.odin)
 	victim_waits:    [dynamic]Victim_Wait,         // victims about to turn witness (crime.odin)
@@ -328,6 +329,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.wanted = make(map[[2]Form_ID]Wanted)
 	o.jailed = make(map[Form_ID]Jailed)
 	o.faction_relations = make(map[[2]Form_ID]gamedb.Faction_Relation)
+	o.script_factions = make(map[Form_ID]Script_Faction)
 	o.known_bounties = make(map[[2]Form_ID]Known_Bounty)
 	o.killers = make(map[Form_ID]Form_ID)
 	o.display_names = make(map[Form_ID]string)
@@ -426,6 +428,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.crime_factions)
 	delete(o.wanted)
 	delete(o.faction_relations)
+	for _, s in o.script_factions {delete(s.name);free_ranks(s.data.ranks)}
+	delete(o.script_factions)
 	delete(o.known_bounties)
 	delete(o.killers)
 	for _, n in o.display_names {delete(n)}

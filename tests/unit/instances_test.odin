@@ -1527,3 +1527,43 @@ test_trigger_events :: proc(t: ^testing.T) {
 	at(&f, {1000, 400, 0})
 	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log); assert(__who === ref(0x800))`), "a loaded NPC enters too")
 }
+
+// A script makes factions at runtime: rt.faction gets or creates by name, the faction reads like a
+// record's through worldstate.faction, its relations are relation deltas (mutual by default), and a
+// save keeps it whole.
+@(test)
+test_script_factions :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_factions", {})
+	defer fixture_destroy(&f)
+	testing.expect(t, slua.do_string(&f.vm, `local rt = require('skymod.rt')
+		local red = rt.faction("Red Hand", {flags = {"track_crime"}, crime = {assault = 40, murder = 1000, arrest = true}, ranks = {"Thug", "Boss"}})
+		local blue = rt.faction("Blue", {relations = {{faction = red, reaction = "enemy", modifier = -20}}})
+		assert(rt.faction("red hand") == red, "get by name")
+		assert(red ~= blue)`), "rt.faction")
+	find :: proc(ws: ^worldstate.World_State, name: string) -> gamedb.Form_ID {
+		for id, s in ws.script_factions {if s.name == name {return id}}
+		return 0
+	}
+	red, blue := find(&f.ws, "Red Hand"), find(&f.ws, "Blue")
+	testing.expect_value(t, len(f.ws.script_factions), 2)
+	testing.expect_value(t, gamedb.form_kind(&f.db, red), gamedb.Form_Kind.Faction)
+
+	check :: proc(t: ^testing.T, ws: ^worldstate.World_State, db: ^gamedb.DB, red, blue: gamedb.Form_ID) {
+		rf, ok := worldstate.faction(ws, db, red)
+		testing.expect(t, ok && rf.flags == esm.FACT_TRACK_CRIME && rf.crime.assault == 40 && rf.crime.murder == 1000 && rf.crime.arrest, "crime data")
+		testing.expect(t, len(rf.ranks) == 2 && rf.ranks[1].male_title == "Boss", "ranks")
+		r, _ := worldstate.relation(ws, db, blue, red)
+		testing.expect(t, r.combat == .Enemy && r.modifier == -20, "blue hates red")
+		back, _ := worldstate.relation(ws, db, red, blue)
+		testing.expect_value(t, back.combat, esm.Combat_Reaction.Enemy)
+	}
+	check(t, &f.ws, &f.db, red, blue)
+
+	path := "/tmp/skymod_script_factions.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&f.ws, path, {save_number = 1}), "save")
+	_, loaded := worldstate.load_from_file(&f.ws, path)
+	testing.expect(t, loaded, "load")
+	check(t, &f.ws, &f.db, red, blue)
+}

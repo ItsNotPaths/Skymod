@@ -1715,6 +1715,7 @@ form_kind :: proc(db: ^DB, form: Form_ID) -> Form_Kind {
 		return .Location_Alias if a.location else .Ref_Alias
 	}
 	if formid.is_effect(form) {return .Active_Effect}
+	if formid.is_script_faction(form) {return .Faction}
 	return db.form_kinds[form] // absent → zero value == .Unknown
 }
 

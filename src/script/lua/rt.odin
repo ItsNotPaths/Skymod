@@ -6,9 +6,11 @@ package script_lua
 import "core:c"
 import "core:log"
 import "core:reflect"
+import "core:slice"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
+import "../../formats/esm"
 import "../../gamedb"
 import "../../worldstate"
 
@@ -41,6 +43,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__level_up_choice", rt_level_up_choice},
 		{"__effect_class", rt_effect_class},
 		{"__seed_spell", rt_seed_spell},
+		{"__faction", rt_faction},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -106,6 +109,116 @@ rt_seed_spell :: proc "c" (L: ^lua.State) -> c.int {
 	spell, _ := ref_form(L, 2)
 	worldstate.seed_spell(vm.ctx.ws, owner, spell, i32(lua.tointeger(L, 3)))
 	return 0
+}
+
+// __faction(name, def) is rt.faction's engine half: the script faction called `name`, made from
+// `def` if there is none (flags, crime, the jail and chest refs, crime_group, ranks, relations).
+@(private)
+rt_faction :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	ws := vm.ctx.ws
+	f: gamedb.Faction
+	number :: proc(L: ^lua.State, t: c.int, key: cstring) -> f64 {
+		lua.getfield(L, t, key)
+		defer lua.pop(L, 1)
+		return f64(lua.tonumber(L, -1))
+	}
+	form :: proc(L: ^lua.State, t: c.int, key: cstring) -> script.Form_ID {
+		lua.getfield(L, t, key)
+		defer lua.pop(L, 1)
+		f, _ := ref_form(L, -1)
+		return f
+	}
+	if lua.getfield(L, 2, "flags") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {
+			name := to_string(L, -1)
+			if bit, ok := faction_flag(name); ok {f.flags |= bit} else {log.warnf("script: rt.faction(%q): no flag %q", to_string(L, 1), name)}
+			lua.pop(L, 1)
+		}
+	}
+	lua.pop(L, 1)
+	if lua.getfield(L, 2, "crime") == i32(lua.TTABLE) {
+		t := lua.gettop(L)
+		f.has_crime = true
+		f.crime = {
+			murder           = u16(number(L, t, "murder")),
+			assault          = u16(number(L, t, "assault")),
+			trespass         = u16(number(L, t, "trespass")),
+			pickpocket       = u16(number(L, t, "pickpocket")),
+			steal_multiplier = f32(number(L, t, "steal_multiplier")),
+			escape           = u16(number(L, t, "escape")),
+			werewolf         = u16(number(L, t, "werewolf")),
+		}
+		lua.getfield(L, t, "arrest");f.crime.arrest = bool(lua.toboolean(L, -1));lua.pop(L, 1)
+		lua.getfield(L, t, "attack_on_detect");f.crime.attack_on_detect = bool(lua.toboolean(L, -1));lua.pop(L, 1)
+	}
+	lua.pop(L, 1)
+	f.jail, f.follower_wait = form(L, 2, "jail"), form(L, 2, "follower_wait")
+	f.stolen_chest, f.player_chest = form(L, 2, "stolen_chest"), form(L, 2, "player_chest")
+	f.crime_group, f.jail_outfit = form(L, 2, "crime_group"), form(L, 2, "jail_outfit")
+	ranks := make([dynamic]gamedb.Faction_Rank)
+	if lua.getfield(L, 2, "ranks") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {
+			append(&ranks, gamedb.Faction_Rank{index = u32(lua.tointeger(L, -2)), male_title = to_string(L, -1, context.allocator)})
+			lua.pop(L, 1)
+		}
+	}
+	lua.pop(L, 1)
+	slice.sort_by(ranks[:], proc(a, b: gamedb.Faction_Rank) -> bool {return a.index < b.index})
+	f.ranks = ranks[:]
+	id, made := worldstate.make_faction(ws, to_string(L, 1), f)
+	if made && lua.getfield(L, 2, "relations") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {
+			r := lua.gettop(L)
+			other := form(L, r, "faction")
+			lua.getfield(L, r, "reaction")
+			combat, ok := reflect.enum_from_name(esm.Combat_Reaction, strings.to_pascal_case(to_string(L, -1), context.temp_allocator))
+			lua.pop(L, 1)
+			lua.getfield(L, r, "mutual")
+			mutual := lua.isnil(L, -1) || bool(lua.toboolean(L, -1))
+			lua.pop(L, 1)
+			if other != 0 && ok {
+				rel := gamedb.Faction_Relation{combat = combat, modifier = i32(number(L, r, "modifier"))}
+				worldstate.set_relation(ws, id, other, rel)
+				if mutual {worldstate.set_relation(ws, other, id, rel)}
+			}
+			lua.pop(L, 1)
+		}
+	}
+	lua.settop(L, 2)
+	push_ref(L, id)
+	return 1
+}
+
+// FACTION_FLAGS are rt.faction's flag names for the FACT DATA bits.
+@(private = "file")
+FACTION_FLAGS := [?]struct {
+	name: string,
+	bit:  u32,
+}{
+	{"hidden", esm.FACT_HIDDEN_FROM_PC},
+	{"special_combat", esm.FACT_SPECIAL_COMBAT},
+	{"track_crime", esm.FACT_TRACK_CRIME},
+	{"ignore_murder", esm.FACT_IGNORE_MURDER},
+	{"ignore_assault", esm.FACT_IGNORE_ASSAULT},
+	{"ignore_stealing", esm.FACT_IGNORE_STEALING},
+	{"ignore_trespass", esm.FACT_IGNORE_TRESPASS},
+	{"ignore_pickpocket", esm.FACT_IGNORE_PICKPOCKET},
+	{"ignore_werewolf", esm.FACT_IGNORE_WEREWOLF},
+	{"do_not_report", esm.FACT_DO_NOT_REPORT_CRIMES},
+	{"vendor", esm.FACT_VENDOR},
+}
+
+@(private = "file")
+faction_flag :: proc(name: string) -> (u32, bool) {
+	for f in FACTION_FLAGS {
+		if f.name == name {return f.bit, true}
+	}
+	return 0, false
 }
 
 // __effect_class(class, __effect, claims, pure) hands a class's __effect table to the engine when

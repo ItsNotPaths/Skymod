@@ -26,6 +26,7 @@ import "core:os"
 import "core:reflect"
 import "core:strings"
 import "../formid"
+import "../formats/esm"
 import "../gamedb"
 
 MAGIC :: "SKYSAVE\x00"
@@ -147,6 +148,22 @@ Saved_Bounty :: struct {
 Saved_Relation :: struct {
 	from:     Form_ID,
 	relation: gamedb.Faction_Relation,
+}
+
+// Saved_Faction_Def is a script faction whole: its data, with its rank titles.
+Saved_Faction_Def :: struct {
+	id:                                                                        Form_ID,
+	name:                                                                      string,
+	flags:                                                                     u32,
+	crime:                                                                     esm.Crime_Values,
+	has_crime:                                                                 bool,
+	jail, follower_wait, stolen_chest, player_chest, crime_group, jail_outfit: Form_ID,
+	ranks:                                                                     []Saved_Rank,
+}
+
+Saved_Rank :: struct {
+	index:      u32,
+	male, female: string,
 }
 
 Saved_Jailed :: struct {
@@ -343,6 +360,7 @@ Save_Body :: struct {
 	bounties:      []Saved_Bounty,
 	relations:     []Saved_Relation,
 	jailed:        []Saved_Jailed,
+	faction_defs:  []Saved_Faction_Def,
 	unreported:    []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -521,6 +539,13 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
 	relations := make([dynamic]Saved_Relation, 0, len(ws.faction_relations), context.temp_allocator)
 	for k, r in ws.faction_relations {append(&relations, Saved_Relation{k[0], r})}
+	faction_defs := make([dynamic]Saved_Faction_Def, 0, len(ws.script_factions), context.temp_allocator)
+	for id, sf in ws.script_factions {
+		f := sf.data
+		ranks := make([]Saved_Rank, len(f.ranks), context.temp_allocator)
+		for r, i in f.ranks {ranks[i] = {r.index, r.male_title, r.female_title}}
+		append(&faction_defs, Saved_Faction_Def{id, sf.name, f.flags, f.crime, f.has_crime, f.jail, f.follower_wait, f.stolen_chest, f.player_chest, f.crime_group, f.jail_outfit, ranks})
+	}
 	jailed := make([dynamic]Saved_Jailed, 0, len(ws.jailed), context.temp_allocator)
 	for a, j in ws.jailed {append(&jailed, Saved_Jailed{a, j})}
 	bounties := make([dynamic]Saved_Bounty, 0, len(ws.wanted) + len(ws.known_bounties), context.temp_allocator)
@@ -605,6 +630,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		bounties      = bounties[:],
 		relations     = relations[:],
 		jailed        = jailed[:],
+		faction_defs  = faction_defs[:],
 		unreported    = save_set(ws.unreported),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -679,7 +705,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
 	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
-		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) {return fid, true}
+		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) || formid.is_script_faction(fid) {return fid, true}
 		quest, id, is_alias := formid.alias_key(fid)
 		src := quest if is_alias else fid
 		ns, rok := remap[u32(src >> 32)]
@@ -854,6 +880,20 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		}
 	}
 	load_set(&ws.unreported, body.unreported, remap, have_remap, rf)
+	for d in body.faction_defs {
+		ref :: proc(remap: map[u32]u32, on: bool, rf: proc(map[u32]u32, bool, Form_ID) -> (Form_ID, bool), id: Form_ID) -> Form_ID {
+			r, _ := rf(remap, on, id)
+			return r
+		}
+		ranks := make([]gamedb.Faction_Rank, len(d.ranks))
+		for r, i in d.ranks {ranks[i] = {r.index, strings.clone(r.male), strings.clone(r.female)}}
+		ws.script_factions[d.id] = {strings.clone(d.name), gamedb.Faction {
+			flags = d.flags, crime = d.crime, has_crime = d.has_crime, ranks = ranks,
+			jail = ref(remap, have_remap, rf, d.jail), follower_wait = ref(remap, have_remap, rf, d.follower_wait),
+			stolen_chest = ref(remap, have_remap, rf, d.stolen_chest), player_chest = ref(remap, have_remap, rf, d.player_chest),
+			crime_group = ref(remap, have_remap, rf, d.crime_group), jail_outfit = ref(remap, have_remap, rf, d.jail_outfit),
+		}}
+	}
 	for r in body.jailed {
 		a, aok := rf(remap, have_remap, r.actor)
 		f, fok := rf(remap, have_remap, r.jailed.faction)
@@ -1099,6 +1139,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.awareness {add_slot(&seen, r.viewer);add_slot(&seen, r.target)}
 	for r in body.bounties {add_slot(&seen, r.offender);add_slot(&seen, r.knower);add_slot(&seen, r.faction)}
 	for a in body.unreported {add_slot(&seen, a)}
+	for d in body.faction_defs {add_slot(&seen, d.jail);add_slot(&seen, d.follower_wait);add_slot(&seen, d.stolen_chest);add_slot(&seen, d.player_chest);add_slot(&seen, d.crime_group);add_slot(&seen, d.jail_outfit)}
 	for r in body.jailed {add_slot(&seen, r.actor);add_slot(&seen, r.jailed.faction);add_slot(&seen, r.jailed.cell);add_slot(&seen, r.jailed.outfit)}
 	for r in body.relations {add_slot(&seen, r.from);add_slot(&seen, r.relation.faction)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
@@ -1170,7 +1211,7 @@ add_slot :: proc(seen: ^map[u32]bool, fid: Form_ID) {
 	if fid == 0 {return}
 	quest, _, is_alias := formid.alias_key(fid)
 	s := u32((quest if is_alias else fid) >> 32)
-	if s == formid.CREATED_SLOT || s == formid.EFFECT_SLOT {return}
+	if s == formid.CREATED_SLOT || s == formid.EFFECT_SLOT || s == formid.SCRIPT_FACTION_SLOT {return}
 	seen[s] = true
 }
 

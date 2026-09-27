@@ -19,6 +19,14 @@ effect_handle :: proc(n: u32) -> Form_ID {return Form_ID(EFFECT_SLOT) << 32 | Fo
 
 is_effect :: proc(h: Form_ID) -> bool {return u32(h >> 32) == EFFECT_SLOT}
 
+// A script faction is a faction a script made (rt.faction): high word SCRIPT_FACTION_SLOT, low word
+// a counter. No load order reaches the slot, so a save passes it through.
+SCRIPT_FACTION_SLOT :: u32(0x8000_0001)
+
+script_faction :: proc(n: u32) -> Form_ID {return Form_ID(SCRIPT_FACTION_SLOT) << 32 | Form_ID(n)}
+
+is_script_faction :: proc(f: Form_ID) -> bool {return u32(f >> 32) == SCRIPT_FACTION_SLOT}
+
 // An alias handle addresses one quest alias as a form, so its scripts, registrations and filters key
 // like any other form's. High word ALIAS_TAG | alias id << 16 | the quest's slot, low word the quest's
 // local id: the slot stays where a save's remap finds it.

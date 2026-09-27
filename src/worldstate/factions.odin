@@ -1,12 +1,43 @@
 package worldstate
 
+import "core:strings"
+import "../formid"
 import "../gamedb"
 
 // faction is a faction's data now. Every reader outside gamedb goes through here, so a faction a
-// mod made and a relation a script changed count everywhere a record's would.
-// (hole script-factions :tags (mods script save combat) :sev gap) a mod cannot make a faction: wanted rt.faction from OnGameLoaded, get-or-create by name like rt.actor_value, a minted 0xFF form saved by name, with flags, ranks, relations and a crime table, so it can hold bounties, own things and have guards.
+// script made and a relation a script changed count everywhere a record's would.
 faction :: proc(ws: ^World_State, db: ^gamedb.DB, id: Form_ID) -> (gamedb.Faction, bool) {
+	if s, ok := ws.script_factions[id]; ok {return s.data, true}
 	return gamedb.faction_of(db, id)
+}
+
+// Script_Faction is a faction a script made at runtime (rt.faction). It is game state: saved whole,
+// its relations kept as relation deltas like any faction's.
+Script_Faction :: struct {
+	name: string, // owned
+	data: gamedb.Faction, // ranks owned; relations stay nil
+}
+
+// make_faction is the script faction called `name`, made from `f` when there is none yet; one that
+// exists comes back unchanged. `f`'s ranks become the store's.
+// (hole script-faction-crime-group :tags (mods combat) :sev polish) a script faction joins no record crime group (CRGR is an FLST in the records), and none shares its own.
+make_faction :: proc(ws: ^World_State, name: string, f: gamedb.Faction) -> (Form_ID, bool) {
+	n: u32
+	for id, s in ws.script_factions {
+		if strings.equal_fold(s.name, name) {
+			free_ranks(f.ranks)
+			return id, false
+		}
+		n = max(n, u32(id))
+	}
+	id := formid.script_faction(n + 1)
+	ws.script_factions[id] = {strings.clone(name), f}
+	return id, true
+}
+
+free_ranks :: proc(ranks: []gamedb.Faction_Rank) {
+	for r in ranks {delete(r.male_title);delete(r.female_title)}
+	delete(ranks)
 }
 
 // relation is how faction `from` stands toward `to`: a script's change, else its XNAM row.

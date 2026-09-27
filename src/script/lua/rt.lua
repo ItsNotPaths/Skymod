@@ -1076,6 +1076,27 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
+-- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is
+-- game state from then on, saved whole; change it through the Faction natives. def may hold:
+--   flags = {"track_crime", "ignore_trespass", ...}
+--   crime = {murder =, assault =, trespass =, pickpocket =, steal_multiplier =, escape =,
+--            werewolf =, arrest = bool, attack_on_detect = bool}
+--   jail, follower_wait, stolen_chest, player_chest, crime_group, jail_outfit = forms
+--   ranks = {"Novice", "Master"}  -- rank 0 first (Lua here is 0-based)
+--   relations = {{faction =, reaction = "enemy" | "ally" | "friend" | "neutral", modifier =,
+--                 mutual = true}}  -- mutual (the default) sets the other faction's side too
+local FACTION_FORMS = { jail = true, follower_wait = true, stolen_chest = true, player_chest = true, crime_group = true, jail_outfit = true }
+function rt.faction(name, def)
+  local d = {}
+  for k, v in pairs(def or {}) do d[k] = FACTION_FORMS[k] and form_of(v) or v end
+  if d.relations then
+    local rs = {}
+    for i, r in pairs(d.relations) do rs[i] = { faction = form_of(r.faction), reaction = r.reaction, modifier = r.modifier, mutual = r.mutual } end
+    d.relations = rs
+  end
+  return __faction(name, d)
+end
+
 -- rt.level_up_choice(name, { AV = "formula", ... }) adds or replaces a level-up choice: each formula
 -- of `level` (the new level) goes onto that actor value's capacity for good. Only inside
 -- OnGameLoaded; the last one wins.
