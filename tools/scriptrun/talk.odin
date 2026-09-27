@@ -49,7 +49,7 @@ talk :: proc(vm: ^slua.VM, db: ^gamedb.DB, name: string) {
 	took = time.since(start)
 	fmt.printfln("  topics (%d, in %v):", len(topics), took)
 	for ch, i in topics {
-		fmt.printfln("  - %s  [topic 0x%08X info 0x%08X]", ch.prompt, u32(ch.topic), u32(ch.info))
+		fmt.printfln("  - %s  [topic 0x%08X info 0x%08X]", dialogue.prompt(&c, ch.info), u32(ch.topic), u32(ch.info))
 		if i < 2 {why(&c, speaker, ch.info)}
 	}
 }
