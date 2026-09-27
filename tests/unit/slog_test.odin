@@ -33,10 +33,9 @@ test_persist_run :: proc(t: ^testing.T) {
 
 	testing.expect(t, slog.persist_run(&lg), "persist_run succeeds")
 	testing.expect(t, lg.persisting, "now persisting")
-	context.logger = lg.logger // persist_run added a sink
 	testing.expect(t, !slog.persist_run(&lg), "second persist_run is a no-op")
 
-	log.info("POST_PERSIST_LINE")
+	log.info("POST_PERSIST_LINE") // through the logger installed before persist_run: it never changes
 
 	// Read both files (content is on disk — the file loggers write unbuffered).
 	primary_path, _ := filepath.join({dir, "skymod.log"}, context.allocator)

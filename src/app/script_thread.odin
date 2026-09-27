@@ -92,7 +92,6 @@ script_thread_proc :: proc(t: ^thread.Thread) {
 	for {
 		sync.sema_wait(&st.go)
 		if st.quit {return}
-		context.logger = g.logging.logger // the overlay may have rebuilt it since the last phase
 		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, st.loaded[:], st.attached[:], TICK_DT)
 		slua.tick_end(&g.repl.vm, TICK_DT)
 		free_all(context.temp_allocator)

@@ -310,15 +310,11 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 		return .Desktop
 	}
 	for {
-		// The overlay's persist toggle swaps a new sink into the logger and DESTROYS the old
-		// multi-logger — re-read it each iteration so pump + the frame log through the live one.
-		context.logger = g.logging.logger
 		if !platform.pump(&g.p) || g.quit != .Stay {
 			break
 		}
 		game_frame(&g)
 	}
-	context.logger = g.logging.logger // and once in THIS scope, for the line below + the deferred teardown
 	log.info("SkyMod shutting down")
 	return g.quit
 }

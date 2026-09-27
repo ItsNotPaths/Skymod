@@ -10,17 +10,20 @@ package slog
 // then writes to BOTH files (the dev-UI "Persist this run's log" button).
 //
 // Call init() once at startup and pass the result to shutdown() before exit.
-// Everywhere else just uses core:log — log.infof, log.errorf, etc.
+// Everywhere else just uses core:log — log.infof, log.errorf, etc. The logger never
+// changes after init, so a thread may keep the copy its context started with.
 
 import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
 import "core:time"
 
 Logging :: struct {
-	logger:         log.Logger, // composed; the CALLER must assign context.logger = this
+	logger:         log.Logger, // the CALLER must assign context.logger = this; it never changes
+	sinks:          ^Sinks,
 	console:        log.Logger,
 	file:           log.Logger,
 	handle:         ^os.File,
@@ -34,6 +37,16 @@ Logging :: struct {
 	persist_handle: ^os.File,
 	persist_path:   string,
 	persisting:     bool,
+}
+
+// Sinks is what the logger writes to. It is heap-owned, so the logger's data pointer
+// survives a copy of Logging, and locked, because persist_run adds a sink while other
+// threads log.
+@(private)
+Sinks :: struct {
+	mu:   sync.Mutex,
+	list: [3]log.Logger,
+	n:    int,
 }
 
 // init builds the logger and returns its state. `dir` is the directory to put the
@@ -70,14 +83,18 @@ init :: proc(dir: string, persist: bool, lowest := log.Level.Debug) -> (lg: Logg
 		log.warnf("slog: could not open log file %q: %v (console only)", path, err)
 	}
 
-	rebuild(&lg)
+	lg.sinks = new(Sinks)
+	add_sink(lg.sinks, lg.console)
+	if lg.handle != nil {
+		add_sink(lg.sinks, lg.file)
+	}
+	lg.logger = log.Logger{sinks_proc, lg.sinks, log.Level.Debug, nil}
 	return
 }
 
 // persist_run forks the current run's log into a fresh logs/skymod-<ts>.log: it
 // copies everything written so far, then writes to BOTH that file and the primary
 // one. No-op (returns false) if already persisting or if file logging is off.
-// The CALLER must reassign `context.logger = lg.logger` afterward.
 persist_run :: proc(lg: ^Logging) -> bool {
 	if lg.persisting || lg.handle == nil {
 		return false
@@ -88,23 +105,25 @@ persist_run :: proc(lg: ^Logging) -> bool {
 		log.errorf("slog: persist_run could not open %q: %v", path, err)
 		return false
 	}
-	// Seed it with the run so far (the primary file is on disk — the file logger
-	// writes unbuffered), then keep appending.
-	if data, derr := os.read_entire_file(lg.path, context.temp_allocator); derr == nil {
-		_, _ = os.write(h, data)
-	}
-
 	lg.persist_handle = h
 	lg.persist = log.create_file_logger(h, lg.lowest)
 	lg.persist_path = strings.clone(path)
 	lg.persisting = true
-	rebuild(lg)
+	{
+		// Seed it with the run so far (the primary file is on disk — the file logger
+		// writes unbuffered), then keep appending. Locked, so no line falls between.
+		sync.guard(&lg.sinks.mu)
+		if data, derr := os.read_entire_file(lg.path, context.temp_allocator); derr == nil {
+			_, _ = os.write(h, data)
+		}
+		add_sink(lg.sinks, lg.persist)
+	}
 	log.infof("slog: now persisting this run's log -> %s", lg.persist_path)
 	return true
 }
 
 shutdown :: proc(lg: ^Logging) {
-	log.destroy_multi_logger(lg.logger)
+	free(lg.sinks)
 	if lg.persist_handle != nil {
 		log.destroy_file_logger(lg.persist)
 		os.close(lg.persist_handle)
@@ -118,22 +137,21 @@ shutdown :: proc(lg: ^Logging) {
 	log.destroy_console_logger(lg.console)
 }
 
-// rebuild recomposes the multi-logger from the live sinks (console + primary file
-// + optional persist file). Called on init and whenever a sink is added.
 @(private)
-rebuild :: proc(lg: ^Logging) {
-	if lg.logger.data != nil {
-		log.destroy_multi_logger(lg.logger)
+add_sink :: proc(s: ^Sinks, l: log.Logger) {
+	s.list[s.n] = l
+	s.n += 1
+}
+
+@(private)
+sinks_proc :: proc(data: rawptr, level: log.Level, text: string, options: log.Options, location := #caller_location) {
+	s := (^Sinks)(data)
+	sync.guard(&s.mu)
+	for l in s.list[:s.n] {
+		if level >= l.lowest_level {
+			l.procedure(l.data, level, text, l.options, location)
+		}
 	}
-	sinks := make([dynamic]log.Logger, 0, 3, context.temp_allocator)
-	append(&sinks, lg.console)
-	if lg.handle != nil {
-		append(&sinks, lg.file)
-	}
-	if lg.persist_handle != nil {
-		append(&sinks, lg.persist)
-	}
-	lg.logger = log.create_multi_logger(..sinks[:])
 }
 
 // new_run_path returns <dir>/logs/skymod-<timestamp>.log (creating logs/), in the
