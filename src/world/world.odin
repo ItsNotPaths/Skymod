@@ -5,9 +5,6 @@ package world
 // units. Lighting, water and collision have since landed; navmesh and actors have not
 // (see the HOLEs below). Markers and disabled refs are skipped.
 //
-// (hole story-actor-dialogue :tags (quest ai) :sev gap) no NPC starts a conversation with another: no ADIA story event (163 SMQN, NPC-to-NPC scene quests).
-// (hole story-dead-body :tags (quest ai) :sev polish) finding a body queues no DEAD story event (DA02DeadBody, WIDeadBody01).
-//
 // A Scene is a MAP of CHUNKS keyed by cell formID, one per loaded cell. An interior is
 // a single chunk; a bounded exterior (WhiterunWorld) loads them all up front; the
 // open world (Tamriel) streams them in/out around the player (see stream.odin). The

@@ -213,6 +213,11 @@ line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
 	return worldstate.fill_tags(c.ws, c.db, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
 }
 
+// pick_subtype is the line `speaker` says from every topic of one subtype (Hellos, Idle); 0 when none.
+pick_subtype :: proc(c: ^script.Call, speaker: Form_ID, subtype: string) -> Form_ID {
+	return pick_from(c, speaker, stack(c.db, subtype), false)
+}
+
 // stack joins the infos of every topic of one subtype (Hellos, Rumors), which stack across
 // quests: the higher quest priority first, then load order.
 @(private)

@@ -12,6 +12,31 @@ Courier_Remove :: struct {
 	to_player:                       bool,
 }
 
+// Force_Greet is an NPC waiting to start a conversation with the player: the AI asks, the app opens it. Not saved.
+Force_Greet :: struct {
+	speaker, topic: Form_ID, // topic 0: the speaker's usual greeting
+}
+
+// Bark is a line an actor says outside a conversation or a scene (a Hello, idle chatter, the Say
+// procedure). The AI asks with `info` 0 and a topic or a subtype stack; the script tick picks the
+// line and plays it response by response. Not saved.
+Bark :: struct {
+	speaker, to: Form_ID,
+	topic:       Form_ID, // 0: say from the `subtype` stack
+	subtype:     [4]u8,
+	info:        Form_ID,
+	response:    i32,
+	left:        f32,
+}
+
+// speaking: the actor has a line asked for or playing.
+speaking :: proc(ws: ^World_State, actor: Form_ID) -> bool {
+	for b in ws.barks {
+		if b.speaker == actor {return true}
+	}
+	return false
+}
+
 // Info_Run is a topic info fragment to run on the script thread: begin when a line starts, end
 // when its last response is done.
 Info_Run :: struct {

@@ -12,8 +12,6 @@ import "../gamedb"
 import "../script"
 import "../worldstate"
 
-// (hole dialogue-barks :tags (dialogue ai) :sev gap) NPCs say nothing unless the player starts a conversation: no Hello as the player passes, no idle chatter, no combat or detection lines (HELO, IDLE, combat and detection topics).
-// (hole force-greet :tags (dialogue ai quest) :sev gap) no ForceGreet package walks an NPC to the player to start a conversation, so a quest that waits for one stalls until the player talks to that NPC.
 
 // The topic list takes milliseconds to build, so it is rebuilt this often, not every frame: often
 // enough to show what an end fragment's stage opened.
@@ -42,9 +40,24 @@ open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
 		log.infof("%s is busy", worldstate.display_name(&g.ws, &g.db, speaker))
 		return
 	}
+	start_dialogue(g, speaker)
+}
+
+// frame_force_greet opens the conversation an NPC's ForceGreet asked for, once no menu is open.
+frame_force_greet :: proc(g: ^Game) {
+	fg := g.ws.force_greet
+	if fg.speaker == 0 || g.menu != .None {return}
+	g.ws.force_greet = {}
+	if !worldstate.is_dead(&g.ws, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic)}
+}
+
+// start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`.
+@(private = "file")
+start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0) {
 	g.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)
-	greet, ok := dialogue.greeting(&c, speaker)
+	greet, ok := dialogue.Greeting{info = dialogue.pick(&c, speaker, topic)}, true
+	if topic == 0 {greet, ok = dialogue.greeting(&c, speaker)}
 	if !ok {
 		g.ws.talking = 0
 		return
@@ -169,18 +182,20 @@ line_done :: proc(g: ^Game) {
 }
 
 // (hole scene-subtitles :tags (ui dialogue) :sev gap) scene lines show in an ImGui box for every speaker in an attached cell, however far away; Skyrim shows them near the player unless the line forces its subtitle, and the real screen is dialogue-screen.
-// frame_subtitles shows the lines scenes are saying now.
+// frame_subtitles shows the lines scenes and barks are saying now.
 frame_subtitles :: proc(g: ^Game) {
 	lines := make([dynamic]cstring, context.temp_allocator)
-	for _, run in g.ws.scenes {
-		for a in run.actions {
-			if a.info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, a.speaker) not_in g.ws.attached {continue}
-			c := dialogue_call(g)
-			if line := dialogue.line_text(&c, a.info, int(a.response)); line != "" {
-				append(&lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, a.speaker), line))
-			}
+	subtitle :: proc(g: ^Game, lines: ^[dynamic]cstring, speaker, info: Form_ID, response: i32) {
+		if info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, speaker) not_in g.ws.attached {return}
+		c := dialogue_call(g)
+		if line := dialogue.line_text(&c, info, int(response)); line != "" {
+			append(lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, speaker), line))
 		}
 	}
+	for _, run in g.ws.scenes {
+		for a in run.actions {subtitle(g, &lines, a.speaker, a.info, a.response)}
+	}
+	for b in g.ws.barks {subtitle(g, &lines, b.speaker, b.info, b.response)}
 	if len(lines) == 0 {return}
 	w, h := ui_screen_size()
 	imgui.SetNextWindowPos({w * 0.5, h - 40}, .Always, {0.5, 1})

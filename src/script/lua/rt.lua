@@ -893,12 +893,15 @@ local function over_budget() error("instruction budget exceeded", 2) end
 
 -- rt.event runs a handler if the instance has one, isolated: an error or a runaway loop ends this
 -- handler only, with a warning. Missing handlers are the norm, so they are silent.
+local function unhook(hook, mask, count, ...)
+  if hook then sethook(hook, mask, count) else sethook() end
+  return ...
+end
+
 local function budgeted(f, ...)
   local hook, mask, count = gethook()
   sethook(over_budget, "", BUDGET)
-  local ok, err = pcall(f, ...)
-  if hook then sethook(hook, mask, count) else sethook() end
-  return ok, err
+  return unhook(hook, mask, count, pcall(f, ...))
 end
 
 function rt.event(inst, name, ...)
@@ -923,6 +926,24 @@ function rt.guard(label, f, ...)
   local ok, err = budgeted(f, ...)
   if not ok then warn(label .. ": " .. tostring(err)) end
   return ok
+end
+
+-- rt.procedure runs one tick of a package procedure a mod wrote: `Procedure(actor, dt, ...inputs)` on
+-- the class named like the PNAM. It returns "running", "done" or "failed", then where to walk (a
+-- ref or a vec3, or nothing to stand) and a gait ("walk", "jog", "run", "fastwalk").
+function rt.procedure(name, actor, dt, ...)
+  local cls = rt.load(name)
+  local f = cls and lookup(cls, nil, "procedure")
+  if not f then
+    warn_once("proc:" .. low(name), "no package procedure '" .. name .. "'")
+    return "failed"
+  end
+  local ok, status, goal, gait = budgeted(f, actor, dt, ...)
+  if not ok then
+    warn("procedure " .. name .. ": " .. tostring(status))
+    return "failed"
+  end
+  return status, goal, gait
 end
 
 -- rt.send queues an event for every script on `form`, and reports whether `form` has any; rt.drain

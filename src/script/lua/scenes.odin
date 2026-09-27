@@ -15,8 +15,6 @@ import "../../formid"
 import "../../gamedb"
 import "../../worldstate"
 
-// (hole scene-packages :tags (quest ai) :sev gap) a package action is done the moment it starts: nobody walks, sits or waits where a scene sends them, so the scene talks on from wherever its actors stand.
-
 tick_scenes :: proc(vm: ^VM, dt: f32) {
 	ws := vm.ctx.ws
 	scenes := make([dynamic]script.Form_ID, 0, len(ws.scenes), context.temp_allocator)
@@ -116,7 +114,10 @@ enter_phase :: proc(vm: ^VM, scene: script.Form_ID, from: i32) {
 		run := &ws.scenes[scene]
 		run.phase = p
 		for &ar in run.actions {
-			if action_of(s, ar.index).end < u32(p) {cut_line(vm, &ar)}
+			if action_of(s, ar.index).end < u32(p) {
+				cut_line(vm, &ar)
+				ar.pack = 0
+			}
 		}
 		record_fragment(vm, scene, u16(p), esm.PHASE_ON_START)
 		for a in s.actions {
@@ -163,12 +164,25 @@ start_action :: proc(vm: ^VM, scene: script.Form_ID, s: gamedb.Scene, a: gamedb.
 	case a.kind == .Timer:
 		ar.left = a.seconds
 	case a.kind == .Package:
-		ar.done = true
+		ar.pack = first_package(vm, ref, s.quest, a.packages)
+		ar.done = ar.pack == 0
 	case:
 		ar.done = !speak(vm, &ar, a.topic)
 	}
 	run := &ws.scenes[scene]
 	append(&run.actions, ar)
+}
+
+// first_package is the first package of an action's stack whose conditions pass; they are checked
+// only when the action starts (CK Scenes Tab). The AI runs it and marks the action done.
+@(private = "file")
+first_package :: proc(vm: ^VM, actor, quest: script.Form_ID, stack: []script.Form_ID) -> script.Form_ID {
+	for pack in stack {
+		p := gamedb.package_of(vm.ctx.db, pack) or_continue
+		ctx := script.condition_context(&vm.ctx, actor, 0, p.owner_quest if p.owner_quest != 0 else quest)
+		if conditions.all(&ctx, p.conditions) {return pack}
+	}
+	return 0
 }
 
 // advance_actions moves the actions of the running phase on by `dt`: timers run down, lines go

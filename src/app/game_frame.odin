@@ -92,6 +92,7 @@ game_frame :: proc(g: ^Game) {
 		game_tick(g)
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
+	frame_force_greet(g)
 	if g.cur_phys != nil {physics.set_render_alpha(g.cur_phys, g.tick.alpha)}
 
 	frame_camera(g)

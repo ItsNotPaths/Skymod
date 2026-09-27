@@ -35,6 +35,9 @@ Agent :: struct {
 	speed:     f32,
 	planned:   bool, // the trip was planned for this package (it may have found none)
 	combat:    Combat, // toward the player; the package waits while it is not None
+	scene:     bool, // `pack` came from a scene's package action
+	social_in: f32, // seconds to the next look around (social.odin)
+	greeted:   bool, // said Hello to the player, who has not walked off since
 }
 
 World :: struct {
@@ -45,6 +48,9 @@ World :: struct {
 	quest_vars: conditions.Quest_Vars, // GetVMQuestVariable reads the script VM
 	loaded:     map[Form_ID]bool, // the loaded cells, as of the last track_cells
 	visitors:   map[Form_ID][dynamic]Form_ID, // cell -> actors placed elsewhere whose packages can send them there
+	lua:        Lua_Hook,
+	chatter_in: f32, // seconds to the next idle line
+	found:      map[[2]Form_ID]bool, // (finder, body): bodies already reported
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
@@ -53,10 +59,12 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	a := &w.agents[actor]
 	clear(&a.trip)
 	a.planned = false
+	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
 	a.eval_in -= dt
-	if a.eval_in <= 0 {
-		a.eval_in += EVAL_EVERY
+	if a.eval_in <= 0 || scene_pack != a.pack && (scene_pack != 0 || a.scene) { // a scene takes and gives back the actor at once
+		a.eval_in = max(a.eval_in + EVAL_EVERY, 0)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
+		a.scene = scene_pack != 0
 	}
 	was := a.combat.state
 	a.combat.state = next_combat(ws, db, actor, feet, &a.combat, dt)
@@ -71,8 +79,9 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 			routes = &w.routes,
 			feet   = feet,
 			dt    = dt,
+			lua    = &w.lua,
 		}
-		run_tree(&c)
+		if run_tree(&c) != .Running && action != nil && a.scene {action.done = true}
 	}
 	if g := a.mover.goal; g.active && g.cell != 0 && g.cell not_in w.mesh.cells {
 		a.mover.goal = route_goal(w, ws, db, a, actor, feet, g)
@@ -155,6 +164,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 	}
 	if a.pack != 0 && !a.planned {plan_trip(w, ws, db, a, actor, feet)}
 	walk_trip(ws, db, a, actor, feet, dt)
+	if _, _, action := worldstate.scene_package(ws, db, actor); action != nil && action.pack == a.pack && a.trip_at >= len(a.trip) {action.done = true}
 }
 
 // plan_trip lays the walk to the package's destination, once per package.
@@ -262,6 +272,7 @@ destroy :: proc(w: ^World) {
 	delete(w.loaded)
 	for _, list in w.visitors {delete(list)}
 	delete(w.visitors)
+	delete(w.found)
 	nav.destroy(&w.mesh)
 	nav.route_index_destroy(&w.routes)
 }

@@ -79,6 +79,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
+	ai.tick_social(&g.agents, &g.ws, &g.db, seen, TICK_DT)
 	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen, TICK_DT)
 }
 

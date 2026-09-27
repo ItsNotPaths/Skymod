@@ -758,6 +758,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 			a := a
 			a.info, _ = rf(remap, have_remap, a.info)
 			a.speaker, _ = rf(remap, have_remap, a.speaker)
+			a.pack, _ = rf(remap, have_remap, a.pack)
 			append(&run.actions, a)
 		}
 		ws.scenes[scene] = run
@@ -965,11 +966,11 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for f in body.actor_flags {add_slot(&seen, f.form)}
 	for r in body.owners {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
-	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for n in body.display_names {add_slot(&seen, n.form)}
+	for w in body.courier_waits {add_slot(&seen, w.courier);add_slot(&seen, w.container);add_slot(&seen, w.item);add_slot(&seen, w.count)}
 	for r in body.scenes {
 		add_slot(&seen, r.scene)
-		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker)}
+		for a in r.actions {add_slot(&seen, a.info);add_slot(&seen, a.speaker);add_slot(&seen, a.pack)}
 	}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}

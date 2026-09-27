@@ -256,6 +256,9 @@ STORY_HANDLERS := []Story_Handler {
 	{worldstate.STORY_REMOVE_ITEM, "OnStoryRemoveFromPlayer", {"R1", "R2", "L1", "O1", "V1"}},
 	{worldstate.STORY_RELATIONSHIP, "OnStoryRelationshipChange", {"R1", "R2", "V1", "V2"}},
 	{worldstate.STORY_VOICE_POWER, "OnStoryNewVoicePower", {"R1", "F1"}},
+	{worldstate.STORY_DIALOGUE, "OnStoryDialogue", {"L1", "R1", "R2"}},
+	{worldstate.STORY_HELLO, "OnStoryHello", {"L1", "R1", "R2"}},
+	{worldstate.STORY_DEAD_BODY, "OnStoryDiscoverDeadBody", {"R1", "R2", "L1"}},
 }
 
 // tick_story_events runs the engine's story events through the story manager, in the order they
@@ -360,6 +363,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_level_ups(vm, ws)
 	tick_story_events(vm, ws)
 	tick_scenes(vm, dt)
+	tick_barks(vm, dt)
 	tick_info_fragments(vm)
 	script.tick_courier(&vm.ctx)
 }

@@ -141,6 +141,8 @@ Runtime :: struct {
 	quest_steps:     [dynamic]Quest_Step,   // stages set and quests stopped since the VM last looked: their fragments run
 	info_runs:       [dynamic]Info_Run,     // topic info fragments the dialogue asked for since the last tick
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
+	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
+	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
 	in_triggers:     Form_Set,              // trigger volumes the player is inside (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
@@ -183,6 +185,7 @@ init :: proc(ws: ^World_State) {
 	ws.level_ups = make([dynamic]Level_Up)
 	ws.deaths = make([dynamic]Death)
 	ws.story_events = make([dynamic]Story_Event)
+	ws.barks = make([dynamic]Bark)
 	ws.story_quests = make([dynamic]Form_ID)
 	ws.quest_steps = make([dynamic]Quest_Step)
 	ws.info_runs = make([dynamic]Info_Run)
@@ -209,6 +212,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.deaths)
 	delete(ws.in_triggers)
 	delete(ws.story_events)
+	delete(ws.barks)
 	delete(ws.story_quests)
 	delete(ws.quest_steps)
 	delete(ws.info_runs)
@@ -277,11 +281,11 @@ init_overlay :: proc(o: ^Overlay) {
 	o.actor_flags = make(map[Form_ID]Flag_Override)
 	o.owners = make(map[Form_ID]Form_ID)
 	o.killers = make(map[Form_ID]Form_ID)
+	o.display_names = make(map[Form_ID]string)
 	o.scenes = make(map[Form_ID]Scene_Run)
 	o.item_filters = make(map[Form_ID][dynamic]Form_ID)
 	o.aliases = make(map[Form_ID]Form_ID)
 	o.alias_holders = make(map[Form_ID][dynamic]Form_ID)
-	o.display_names = make(map[Form_ID]string)
 	o.script_state = make(map[Form_ID][dynamic]Script_Var)
 	o.list_adds = make(map[Form_ID][dynamic]Form_ID)
 	o.keyword_data = make(map[Keyword_Key]f32)
@@ -363,12 +367,12 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.actor_flags)
 	delete(o.owners)
 	delete(o.killers)
+	for _, n in o.display_names {delete(n)}
+	delete(o.display_names)
 	delete(o.courier_waits)
 	free_scene_runs(&o.scenes)
 	delete(o.scenes)
 	delete(o.item_filters)
-	for _, n in o.display_names {delete(n)}
-	delete(o.display_names)
 	delete(o.aliases)
 	delete(o.alias_holders)
 	delete(o.script_state)

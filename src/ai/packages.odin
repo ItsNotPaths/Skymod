@@ -13,10 +13,11 @@ import "../gamedb"
 import "../nav"
 import "../worldstate"
 
-// select_package is the package an actor runs now, and the quest whose alias gave it: alias
-// packages by quest priority, then its own list, then its default list; the first whose schedule
-// and conditions pass. Scene packages are `scene-packages`.
+// select_package is the package an actor runs now, and the quest whose alias gave it: a scene's
+// package action, else alias packages by quest priority, then its own list, then its default list;
+// the first whose schedule and conditions pass.
 select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> (pack, quest: Form_ID) {
+	if p, q, _ := worldstate.scene_package(ws, db, actor); p != 0 {return p, q}
 	Candidate :: struct {
 		pack, quest: Form_ID,
 		priority:    u8,
@@ -93,6 +94,7 @@ Proc_Context :: struct {
 	feet:  [3]f32,
 	dt:    f32,
 	node:  int,
+	lua:   ^Lua_Hook, // nil where procedures do not run
 }
 
 // run_tree runs one tick of the agent's package. The root done, the actor stands until another package is selected.
@@ -169,6 +171,19 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Guard":                         return proc_guard(c)
 	case "Wander":                        return proc_wander(c)
 	case "LockDoors", "UnlockDoors":      return proc_doors(c, name == "LockDoors")
+	case "ForceGreet":                    return proc_force_greet(c)
+	case "Follow":                        return proc_follow(c, 0)
+	case "FollowTo":                      return proc_follow(c, 1)
+	case "Escort":                        return proc_escort(c)
+	case "Flee":                          return proc_flee(c)
+	case "KeepAnEyeOn":                   return proc_keep_an_eye_on(c)
+	case "Activate":                      return proc_activate(c)
+	case "Say":                           return proc_say(c)
+	case "DialogueActivate":              return proc_dialogue_activate(c)
+	// (hole proc-combat :tags (ai combat) :sev gap :needs combat-brain) UseWeapon, UseMagic and Shout fail: a package cannot make an actor attack, cast or shout at a target (CW battles, archers, dragons).
+	case "UseWeapon", "UseMagic", "Shout": return .Failed
+	// (hole flight :tags (ai combat) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
+	case "Hover", "Orbit", "FlightGrab":  return .Failed
 	}
 	return lua_procedure(c, name)
 }
@@ -204,19 +219,28 @@ Place :: struct {
 	cell:   Form_ID,
 }
 
-// location is the place a procedure's location input names. Object and package-location kinds
-// are not resolved.
+// location is the place a procedure's first location input names.
 @(private)
 location :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
-	db, ws, actor := c.cond.db, c.cond.ws, c.cond.subject
-	tree := gamedb.package_tree(db, c.agent.pack)
-	loc: gamedb.Package_Location
-	found := false
+	tree := gamedb.package_tree(c.cond.db, c.agent.pack)
 	for idx in tree[c.node].inputs {
-		in_ := gamedb.package_input(db, c.agent.pack, idx) or_continue
-		if l, is := in_.value.(gamedb.Package_Location); is {loc, found = l, true; break}
+		in_ := gamedb.package_input(c.cond.db, c.agent.pack, idx) or_continue
+		if l, is := in_.value.(gamedb.Package_Location); is {return place_of(c, l)}
 	}
-	if !found {return}
+	return
+}
+
+// input_place is the place the node's k-th input names.
+@(private)
+input_place :: proc(c: ^Proc_Context, k: int) -> (p: Place, ok: bool) {
+	loc := input_value(c, k, gamedb.Package_Location) or_return
+	return place_of(c, loc)
+}
+
+// place_of is the place a location input names. Object and package-location kinds are not resolved.
+@(private)
+place_of :: proc(c: ^Proc_Context, loc: gamedb.Package_Location) -> (p: Place, ok: bool) {
+	db, ws, actor := c.cond.db, c.cond.ws, c.cond.subject
 	p.radius = f32(loc.radius)
 	ref: Form_ID
 	#partial switch loc.kind {
@@ -247,23 +271,24 @@ location :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	return p, p.cell != 0 || ref != 0
 }
 
-// reached is whether the actor stands inside a place: same interior or worldspace, within its radius.
+// reached is whether the actor stands inside a place.
 @(private)
 reached :: proc(c: ^Proc_Context, p: Place) -> bool {
-	db := c.cond.db
-	here := worldstate.ref_grid_cell(c.cond.ws, db, c.cond.subject)
-	return space(db, here) == space(db, p.cell) && linalg.length(c.feet.xy - p.center.xy) <= p.radius
+	return inside(c, c.cond.subject, c.feet, p)
 }
 
-@(private = "file")
+// inside is whether a ref at `pos` is inside a place: same interior or worldspace, within its radius.
+@(private)
+inside :: proc(c: ^Proc_Context, ref: Form_ID, pos: [3]f32, p: Place) -> bool {
+	db := c.cond.db
+	here := worldstate.ref_grid_cell(c.cond.ws, db, ref)
+	return space(db, here) == space(db, p.cell) && linalg.length(pos.xy - p.center.xy) <= p.radius
+}
+
+@(private)
 space :: proc(db: ^gamedb.DB, cell: Form_ID) -> Form_ID {
 	cl, _ := gamedb.cell_by_formid(db, cell)
 	return cell if cl.interior else cl.world_form_id
-}
-
-// (hole lua-procedures :tags (ai script) :sev gap) a procedure the engine does not know fails; decided: a mod can define one in Lua by its PNAM name. Also the other vanilla leaves (Follow, Escort, ForceGreet, Guard, KeepAnEyeOn, UseWeapon, ...) land here until their own holes build them.
-lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
-	return .Failed
 }
 
 // proc_travel walks to the package location and ends there. A moving target (the player) is
@@ -387,7 +412,7 @@ nearest_marker :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, start: Form_
 }
 
 // input_value is the node's k-th input (its PKC2 slot), when it holds a T.
-@(private = "file")
+@(private)
 input_value :: proc(c: ^Proc_Context, k: int, $T: typeid) -> (v: T, ok: bool) {
 	tree := gamedb.package_tree(c.cond.db, c.agent.pack)
 	ins := tree[c.node].inputs
@@ -397,7 +422,7 @@ input_value :: proc(c: ^Proc_Context, k: int, $T: typeid) -> (v: T, ok: bool) {
 }
 
 // input_target is the ref the node's k-th input names (SpecificRef, or the actor's linked ref).
-@(private = "file")
+@(private)
 input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	t, ok := input_value(c, k, gamedb.Package_Target)
 	if !ok {return 0}

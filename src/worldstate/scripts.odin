@@ -206,6 +206,9 @@ STORY_ADD_ITEM :: Story_Type{'A', 'I', 'P', 'L'}
 STORY_REMOVE_ITEM :: Story_Type{'R', 'E', 'M', 'P'}
 STORY_RELATIONSHIP :: Story_Type{'C', 'H', 'R', 'R'}
 STORY_VOICE_POWER :: Story_Type{'N', 'V', 'P', 'E'}
+STORY_DIALOGUE :: Story_Type{'A', 'D', 'I', 'A'}
+STORY_HELLO :: Story_Type{'A', 'H', 'E', 'L'}
+STORY_DEAD_BODY :: Story_Type{'D', 'E', 'A', 'D'}
 
 // queue_story_event keeps an engine event for the next tick's story manager.
 queue_story_event :: proc(ws: ^World_State, e: Story_Event) {
@@ -252,9 +255,6 @@ holder_aliases :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> []gam
 	return out[:]
 }
 
-// fill_alias puts `form` in `alias`, replacing what it held.
-fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
-	clear_alias(ws, alias)
 // alias_flags ORs the esm.ALIAS_* flags of the aliases that hold `form` now.
 alias_flags :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> (flags: u32) {
 	for a in holder_aliases(ws, db, form) {flags |= a.flags}
@@ -293,6 +293,9 @@ quest_object_quests :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> [
 	return out[:]
 }
 
+// fill_alias puts `form` in `alias`, replacing what it held.
+fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
+	clear_alias(ws, alias)
 	if form == 0 {return}
 	ws.aliases[alias] = form
 	if form not_in ws.alias_holders {ws.alias_holders[form] = make([dynamic]Form_ID)}

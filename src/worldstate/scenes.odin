@@ -14,7 +14,8 @@ Scene_Run :: struct {
 }
 
 // Action_Run is one action of a playing scene. A dialogue action says `info`, response by
-// response; a looping one waits `left` seconds with no info between lines.
+// response; a looping one waits `left` seconds with no info between lines. A package action runs
+// `pack` on the speaker until its end phase.
 Action_Run :: struct {
 	index:    u32, // the action's INAM
 	done:     bool, // IsActionComplete
@@ -22,6 +23,7 @@ Action_Run :: struct {
 	info:     Form_ID,
 	response: i32,
 	speaker:  Form_ID,
+	pack:     Form_ID,
 }
 
 scene_playing :: proc(ws: ^World_State, scene: Form_ID) -> bool {
@@ -49,6 +51,17 @@ scene_of_actor :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> Form_I
 		}
 	}
 	return 0
+}
+
+// scene_package is the package a scene gives `actor` now, the scene's quest, and its action; 0 when none.
+scene_package :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> (pack, quest: Form_ID, action: ^Action_Run) {
+	scene := scene_of_actor(ws, db, actor)
+	if scene == 0 {return}
+	run := &ws.scenes[scene]
+	for &a in run.actions {
+		if a.speaker == actor && a.pack != 0 {return a.pack, db.scenes[scene].quest, &a}
+	}
+	return
 }
 
 @(private)
