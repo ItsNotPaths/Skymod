@@ -94,9 +94,8 @@ Block_Info :: struct {
 	inline_geom:    bool,  // SSE BSTriShape family: geometry is packed inside the shape block itself
 }
 
-// (hole hkx-reader :tags (animation unclaimed) :sev blocker) no .hkx reader exists (src/formats has none), so even with a skeleton there is no clip data to sample.
-// (hole idle-graph :tags (animation unclaimed) :sev gap :needs (hkx-reader)) IDLE and ANIO are decoded by nothing — no idle graph, so nothing could choose which clip to play.
-// (hole animation :tags (animation unclaimed) :sev blocker :needs (hkx-reader skinned-pipeline)) node transforms are read once and baked — no skeleton, no clip sampling, nothing plays a .hkx. Actors T-pose and every animated prop is frozen.
+// (hole idle-graph :tags (animation unclaimed) :sev gap :needs (actor-states)) IDLE and ANIO are decoded by nothing, so no idle or furniture action can be chosen.
+// (hole animation :tags (animation unclaimed) :sev blocker :needs (hkx-porter skinned-pipeline)) node transforms are read once and baked — no skeleton, no clip sampling, nothing plays a .hkx. Actors T-pose and every animated prop is frozen.
 @(private)
 walk_node :: proc(
 	infos: []Block_Info,

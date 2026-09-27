@@ -13,8 +13,8 @@ import smath "../math"
 // (hole sound-natives :tags audio :sev blocker :needs (audio-output sound-records)) Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
 // (hole sound-natives :tags audio :sev blocker) the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
 // (hole vfx-natives :tags (vfx unclaimed) :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
-// (hole anim-natives :tags animation :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
-// (hole anim-natives :tags animation :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
+// (hole anim-natives :tags (animation unclaimed) :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
+// (hole anim-natives :tags (animation unclaimed) :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
@@ -25,7 +25,7 @@ import smath "../math"
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags (render unclaimed) :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
-// (hole sit-rotation-read :tags animation :sev gap :needs (animation)) no read for SetSittingRotation.
+// (hole sit-rotation-read :tags (animation unclaimed) :sev gap :needs (animation)) no read for SetSittingRotation.
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
 // (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).
 // (hole ui-reads :tags ui :sev gap) no read for SetInChargen, AddAchievement, Quest.UpdateCurrentInstanceGlobal.
@@ -320,7 +320,7 @@ n_is_in_menu_mode :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
 
-// (hole anim-natives :tags animation :sev blocker) IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
+// (hole anim-natives :tags (animation unclaimed) :sev blocker) IsAnimRunning(asAnim) reads false; no behaviour graph plays, so a rewritten animation wait ends at once.
 n_is_anim_running :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }

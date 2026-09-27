@@ -171,6 +171,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		harvest(g, form, base, by)
 	case .Container:
 		if by == formid.PLAYER {open_container(g, form)}
+	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != formid.PLAYER {break}
 		if worldstate.is_dead(&g.ws, form) {open_container(g, form)} else {open_dialogue(g, form)}

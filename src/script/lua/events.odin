@@ -71,6 +71,7 @@ send_own :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) -> b
 	return bool(lua.toboolean(L, -1))
 }
 
+// (hole anim-graph-names :tags (animation script unclaimed) :sev gap :needs (actor-states)) only Lua drivers send animation events. Scripts name Havok graph events and variables (SendAnimationEvent, Get/SetAnimationVariable*, PlayIdle, IsInKillMove); the new model needs a table that maps those names to its states.
 // send_anim_event delivers an animation event from `sender` to each form that registered for it,
 // and to no one else (CK: "will not be relayed to attached aliases or effects"). When `sender`
 // itself did not register, its scripts that handle OnAnimationEvent get a one-time warning.
