@@ -341,6 +341,24 @@ escape_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
 	queue_story_event(ws, {type = STORY_ESCAPE_JAIL, location1 = ref_location(ws, db, actor), form = f.crime_group})
 }
 
+// Jail_Spot is a place a jail puts an actor.
+Jail_Spot :: struct {
+	cell:     Form_ID,
+	pos, rot: [3]f32,
+}
+
+// jail_spots are a faction's jail cell and its way out. Its two PrisonMarkers link to each other
+// like load doors, and as with a door each spot is the arrival the partner marker's link sets.
+jail_spots :: proc(ws: ^World_State, db: ^gamedb.DB, crime: Form_ID) -> (inside, outside: Jail_Spot, ok: bool) {
+	f, _ := faction(ws, db, crime)
+	out_marker := gamedb.ref_by_formid(db, f.jail) or_return
+	in_marker := gamedb.ref_by_formid(db, out_marker.teleport.door) or_return
+	if !out_marker.has_tp || !in_marker.has_tp {return}
+	inside = {ref_cell(ws, db, in_marker.form_id), out_marker.teleport.pos, out_marker.teleport.rot}
+	outside = {ref_cell(ws, db, out_marker.form_id), in_marker.teleport.pos, in_marker.teleport.rot}
+	return inside, outside, true
+}
+
 // jail_days is the sentence for a bounty: 1 day per 100 gold, at most 7 (UESP).
 jail_days :: proc(b: Bounty) -> i32 {
 	return clamp(total(b) / 100, 1, 7)

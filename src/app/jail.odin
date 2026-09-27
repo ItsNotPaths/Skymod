@@ -13,19 +13,18 @@ tick_jail :: proc(g: ^Game) {
 	c := script.Call{ws = &g.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	for o in g.ws.jail_orders {
 		f, _ := worldstate.faction(&g.ws, &g.db, o.faction)
-		outside, ok := gamedb.ref_by_formid(&g.db, f.jail)
-		if !ok || !outside.has_tp {continue}
-		if o.release {release(g, &c, o, f, outside)} else {imprison(g, &c, o, f, outside)}
+		inside, outside, ok := worldstate.jail_spots(&g.ws, &g.db, o.faction)
+		if !ok {continue}
+		if o.release {release(g, &c, o, f, outside)} else {imprison(g, &c, o, f, inside)}
 	}
 	clear(&g.ws.jail_orders)
 }
 
 @(private = "file")
-imprison :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, outside: gamedb.Ref) {
-	inside := outside.teleport
+imprison :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, inside: worldstate.Jail_Spot) {
 	bounty := worldstate.wanted(&g.ws, o.actor, o.faction).bounty
 	days := worldstate.jail_days(bounty)
-	cell := worldstate.ref_cell(&g.ws, &g.db, inside.door)
+	cell := inside.cell
 	worldstate.relocate(&g.ws, o.actor, cell, inside.pos, inside.rot)
 	give_all(c, o.actor, f.player_chest)
 	before := g.ws.outfits[o.actor]
@@ -35,16 +34,16 @@ imprison :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.
 		type      = worldstate.STORY_JAIL,
 		ref1      = o.guard,
 		form      = f.crime_group,
-		location1 = worldstate.ref_location(&g.ws, &g.db, inside.door),
+		location1 = worldstate.ref_location(&g.ws, &g.db, f.jail),
 		value1    = worldstate.total(bounty),
 	})
 }
 
 @(private = "file")
-release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, outside: gamedb.Ref) {
+release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, outside: worldstate.Jail_Spot) {
 	j := g.ws.jailed[o.actor]
 	delete_key(&g.ws.jailed, o.actor)
-	worldstate.relocate(&g.ws, o.actor, outside.cell_form_id, outside.pos, outside.rot)
+	worldstate.relocate(&g.ws, o.actor, outside.cell, outside.pos, outside.rot)
 	if f.jail_outfit != 0 {worldstate.restore_outfit(&g.ws, &g.db, o.actor, j.outfit)}
 	take_all(c, o.actor, f.player_chest)
 	worldstate.lose_skill_progress(&g.ws, o.actor, worldstate.jail_days(worldstate.wanted(&g.ws, o.actor, o.faction).bounty))

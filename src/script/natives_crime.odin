@@ -126,9 +126,8 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	move_items(c, {base = formid.GOLD, from = formid.PLAYER, count = worldstate.total(player_bounty(c))})
 	worldstate.pay_bounty(c.ws, formid.PLAYER, c.self)
-	f, _ := worldstate.faction(c.ws, c.db, c.self)
-	if outside, ok := gamedb.ref_by_formid(c.db, f.jail); ok && arg_bool(args, 1, true) {
-		worldstate.relocate(c.ws, formid.PLAYER, outside.cell_form_id, outside.pos, outside.rot)
+	if _, outside, ok := worldstate.jail_spots(c.ws, c.db, c.self); ok && arg_bool(args, 1, true) {
+		worldstate.relocate(c.ws, formid.PLAYER, outside.cell, outside.pos, outside.rot)
 	}
 	return nil
 }
