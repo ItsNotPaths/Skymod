@@ -78,7 +78,7 @@ neighbors :: proc(m: ^Path_Mesh, t: Tri) -> (out: [3]Tri, edge: [3]int, n: int) 
 		}
 		link := nm.edge_links[a]
 		other, loaded := m.by_form[link.navmesh]
-		if !loaded || link.kind != .Portal {continue}
+		if !loaded || link.kind != .Portal || int(link.tri) >= len(m.meshes[other].tris) {continue} // 36 vanilla links outlived an override
 		out[n], edge[n] = {i32(other), i32(link.tri)}, e
 		n += 1
 	}
