@@ -1,6 +1,6 @@
 package ai
 
-// Out-of-combat AI: every actor runs a package. A loaded actor walks its capsule with a mover.
+// AI: every actor runs a package, unless it is warning, fighting or fleeing the player. A loaded actor walks its capsule with a mover.
 // An unloaded actor that travels steps cell to cell; any other waits and is placed when its cell loads.
 
 import "core:fmt"
@@ -34,6 +34,7 @@ Agent :: struct {
 	trip_at:   int, // the next point
 	speed:     f32,
 	planned:   bool, // the trip was planned for this package (it may have found none)
+	combat:    Combat, // toward the player; the package waits while it is not None
 }
 
 World :: struct {
@@ -57,7 +58,12 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		a.eval_in += EVAL_EVERY
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 	}
-	if a.pack != 0 {
+	was := a.combat.state
+	a.combat.state = next_combat(ws, db, actor, feet, &a.combat, dt)
+	if was != .None && a.combat.state == .None {interrupt(w, actor)}
+	if a.combat.state != .None {
+		combat_goal(ws, db, a, feet)
+	} else if a.pack != 0 {
 		c := Proc_Context {
 			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars},
 			agent = a,
