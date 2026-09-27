@@ -255,7 +255,7 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 }
 
 // proc_travel walks to the package location and ends there. A moving target (the player) is
-// re-aimed each tick. A place outside the loaded cells is reached along the coarse route.
+// re-aimed each tick.
 proc_travel :: proc(c: ^Proc_Context) -> Status {
 	p, ok := location(c)
 	if !ok {return .Failed}
@@ -264,39 +264,8 @@ proc_travel :: proc(c: ^Proc_Context) -> Status {
 		c.agent.mover.goal = {}
 		return .Done
 	}
-	goal := ai_goal(p.center, p.radius, gait(c))
-	if p.cell not_in c.mesh.cells {goal = route_goal(c, p, goal)}
-	c.agent.mover.goal = goal
+	c.agent.mover.goal = {active = true, point = p.center, radius = p.radius, gait = gait(c), cell = p.cell}
 	return .Running
-}
-
-@(private = "file")
-ai_goal :: proc(point: [3]f32, radius: f32, g: Gait) -> Goal {
-	return {active = true, point = point, radius = radius, gait = g}
-}
-
-DOOR_RADIUS :: f32(96) // a door stands in its wall, off the navmesh
-
-// route_goal aims at the exit of the actor's cell on the coarse route to `p`: its next cell, or its
-// load door. The route is made again when the place moves to another cell or the actor leaves it.
-@(private = "file")
-route_goal :: proc(c: ^Proc_Context, p: Place, final: Goal) -> Goal {
-	a, db := c.agent, c.cond.db
-	here := worldstate.ref_grid_cell(c.cond.ws, db, c.cond.subject)
-	at := -1
-	for s, i in a.route {if s.cell == here {at = i}}
-	if a.route_to != p.cell || at < 0 {
-		delete(a.route)
-		a.route, _ = nav.coarse_route(c.routes, db, here, c.feet, p.cell, p.center)
-		a.route_to = p.cell
-		at = 0
-	}
-	if at >= len(a.route) - 1 {return final}
-	s := a.route[at]
-	if s.door == 0 {return ai_goal(s.exit, ARRIVED, final.gait)}
-	g := ai_goal(s.exit, DOOR_RADIUS, final.gait)
-	g.door = s.door
-	return g
 }
 
 // (hole proc-sandbox :tags ai :sev gap :needs proc-furniture) Sandbox only wanders: it never sits, eats, sleeps or uses an idle marker (IDLM is not decoded), whatever the package flags allow.
@@ -304,6 +273,10 @@ proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
 	p, ok := location(c)
 	center, radius := p.center if ok else c.feet, max(p.radius, SANDBOX_RADIUS)
+	if ok && p.cell not_in c.mesh.cells { // walk there first; spots are picked on the loaded navmesh
+		c.agent.mover.goal = {active = true, point = center, radius = radius, gait = .Walk, cell = p.cell}
+		return .Running
+	}
 	if !st.started || (arrived(c, st.point) && st.timer <= 0) {
 		st.point = nav.random_point_near(c.mesh, center, radius) or_else center
 		st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
@@ -355,7 +328,7 @@ proc_patrol :: proc(c: ^Proc_Context) -> Status {
 		st.target = next
 		at = worldstate.ref_pos(ws, db, next)
 	}
-	c.agent.mover.goal = {active = true, point = at, radius = radius, gait = gait(c)}
+	c.agent.mover.goal = {active = true, point = at, radius = radius, gait = gait(c), cell = worldstate.ref_grid_cell(ws, db, st.target)}
 	return .Running
 }
 

@@ -66,6 +66,9 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		}
 		run_tree(&c)
 	}
+	if g := a.mover.goal; g.active && g.cell != 0 && g.cell not_in w.mesh.cells {
+		a.mover.goal = route_goal(w, ws, db, a, actor, feet, g)
+	}
 	vel := mover_step(&a.mover, &w.mesh, feet, touching, dt)
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
 	return vel
@@ -79,6 +82,28 @@ start_package :: proc(a: ^Agent, db: ^gamedb.DB, pack, quest: Form_ID, now: f64,
 	resize(&a.nodes, len(gamedb.package_tree(db, pack)))
 	for &n in a.nodes {n = {}}
 	a.mover.goal = {}
+}
+
+DOOR_RADIUS :: f32(96) // a door stands in its wall, off the navmesh
+
+// route_goal is the step toward a goal outside the loaded cells: the next cell of the coarse route
+// to it, or the load door out. The route is made again when the goal changes cell or the actor
+// leaves the route. Without a route the actor stands: a goal in another space would walk it into a wall.
+@(private = "file")
+route_goal :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32, final: Goal) -> Goal {
+	here := worldstate.ref_grid_cell(ws, db, actor)
+	at := -1
+	for s, i in a.route {if s.cell == here {at = i}}
+	if a.route_to != final.cell || at < 0 {
+		delete(a.route)
+		a.route, _ = nav.coarse_route(&w.routes, db, here, feet, final.cell, final.point)
+		a.route_to = final.cell
+		at = 0
+	}
+	if len(a.route) == 0 {return {}}
+	if at >= len(a.route) - 1 {return final}
+	s := a.route[at]
+	return {active = true, point = s.exit, radius = DOOR_RADIUS if s.door != 0 else ARRIVED, gait = final.gait, door = s.door}
 }
 
 // cross_load_door puts the actor at the door's teleport marker, in the destination door's cell.
@@ -180,21 +205,36 @@ destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	return
 }
 
-// place_on_load is where an actor stands when its cell loads: the dry spot nearest the place its
-// package names, if it is not there already. The package starts there.
-place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, ok: bool) {
+Placement :: enum u8 {
+	Stay, // where it stands
+	Here, // at `at`, in the loaded cells
+	Away, // moved into a cell that is not loaded; no capsule now
+}
+
+// place_on_load is where an actor goes when its cell loads: nothing, if it is where its package
+// wants it or partway through an unloaded trip; the dry spot nearest the package's place when that
+// is loaded; else straight into the place's cell, as if it had already walked there.
+place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, placed: Placement) {
+	if a, ok := w.agents[actor]; ok && a.trip_at < len(a.trip) {return}
 	pack, quest := select_package(w, ws, db, actor)
 	if pack == 0 {return}
 	if actor not_in w.agents {w.agents[actor] = {}}
 	a := &w.agents[actor]
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
 	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
-	p := destination(&c) or_return
-	if reached(&c, p) || p.cell not_in w.mesh.cells {return}
-	spots := nav.dry_points_near(&w.mesh, p.center, p.radius)
-	if len(spots) == 0 {return}
-	a.start_pos = spots[0]
-	return spots[0], true
+	p, ok := destination(&c)
+	if !ok || reached(&c, p) {return}
+	if p.cell in w.mesh.cells {
+		spots := nav.dry_points_near(&w.mesh, p.center, p.radius)
+		if len(spots) == 0 {return}
+		a.start_pos = spots[0]
+		return spots[0], .Here
+	}
+	spot, found := nav.dry_point_in_cell(db, p.cell, p.center)
+	if !found {return}
+	worldstate.set_moved(ws, actor, p.cell, smath.trs(spot, {}, 1), spot)
+	a.start_pos = spot
+	return spot, .Away
 }
 
 destroy :: proc(w: ^World) {

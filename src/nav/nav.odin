@@ -426,15 +426,15 @@ leg :: proc(db: ^gamedb.DB, hops: []Hop, from, to: [3]f32, jump: bool, out: ^[dy
 	for p in corners {append(out, Trip_Point{p, at(db, cell, p), false})}
 }
 
-// navmesh_near is the navmesh of a cell whose centre is nearest p.
-@(private)
+// navmesh_near is the navmesh of a cell with the triangle under p, or failing that nearest it. A
+// cell can hold small separate pieces (a roof, a ledge) whose centres lie nearer than the main mesh's.
 navmesh_near :: proc(db: ^gamedb.DB, cell: Form_ID, p: [3]f32) -> (best: Form_ID, ok: bool) {
-	best_d := max(f32)
-	for m in gamedb.navmeshes_in(db, cell) {
-		n := gamedb.nav_index_entry(db, m.form) or_continue
-		if d := linalg.distance(n.center, p); d < best_d {best, best_d, ok = m.form, d, true}
+	m := Path_Mesh {
+		meshes = make([dynamic]gamedb.Navmesh, context.temp_allocator),
 	}
-	return
+	append(&m.meshes, ..gamedb.navmeshes_in(db, cell))
+	t := nearest_tri(&m, p) or_return
+	return m.meshes[t.x].form, true
 }
 
 // dry_points_near are the centres of the dry triangles within radius of p, nearest first.
@@ -453,6 +453,19 @@ dry_points_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32, allocator := cont
 		return linalg.distance(a, p) < linalg.distance(b, p)
 	})
 	return out[:]
+}
+
+// dry_point_in_cell is the centre of the dry triangle of a cell's navmeshes nearest p.
+dry_point_in_cell :: proc(db: ^gamedb.DB, cell: Form_ID, p: [3]f32) -> (best: [3]f32, ok: bool) {
+	best_d := max(f32)
+	for nm in gamedb.navmeshes_in(db, cell) {
+		for t in nm.tris {
+			if t.flags & esm.NAV_TRI_WATER != 0 {continue}
+			c := (nm.verts[t.verts[0]] + nm.verts[t.verts[1]] + nm.verts[t.verts[2]]) / 3
+			if d := linalg.distance(c, p); d < best_d {best, best_d, ok = c, d, true}
+		}
+	}
+	return
 }
 
 // random_point_near is the centre of a random dry triangle whose centre lies within radius of p,

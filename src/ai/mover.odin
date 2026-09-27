@@ -18,6 +18,7 @@ Goal :: struct {
 	radius: f32, // arrived inside this distance
 	gait:   Gait,
 	door:   Form_ID, // a load door to go through on arrival
+	cell:   Form_ID, // the cell `point` is in; outside the loaded cells the goal is reached through the route
 }
 
 Mover :: struct {

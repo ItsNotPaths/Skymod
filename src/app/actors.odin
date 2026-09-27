@@ -142,7 +142,11 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {start = p}
+	switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
+	case .Stay:
+	case .Here: start = p
+	case .Away: return // it went on to its place in a cell that is not loaded
+	}
 	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
