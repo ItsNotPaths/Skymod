@@ -35,7 +35,7 @@ Capsule :: struct {
 	radius, half_h: f32,
 }
 
-// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the OBND box (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
+// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the race skeleton's BBX box, else the NPC_ OBND (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
 // actor_capsule fits an upright capsule to an actor's bounds at its scale.
 actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 	box := worldstate.actor_box(&g.ws, &g.db, form)
@@ -124,7 +124,7 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	b.placed = feet
 }
 
-SPAWN_LIFT :: f32(24) // a walk between navmesh corners can dip under a hill; the capsule settles
+SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit under the ground; the capsule settles
 
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
@@ -142,11 +142,7 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {
-		start = p
-	} else if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {
-		start.z += SPAWN_LIFT
-	}
+	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {start = p}
 	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
@@ -156,17 +152,18 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 	}
 }
 
-// free_spot is where a capsule can appear without overlapping anything: `feet`, else the nearest
-// dry navmesh spot that fits. An overlap would be resolved by pushing the capsule out, often up onto
+// free_spot is where a capsule can appear without overlapping anything, lifted SPAWN_LIFT to settle:
+// `feet`, else the nearest dry navmesh spot that fits. An overlap would be resolved by pushing the capsule out, often up onto
 // the furniture it clipped.
 @(private = "file")
 free_spot :: proc(g: ^Game, phys: ^physics.World, feet: smath.Vec3, c: Capsule) -> smath.Vec3 {
 	SEARCH :: 256
-	if physics.capsule_fits(phys, feet, c.radius, c.half_h) {return feet}
+	lift := smath.Vec3{0, 0, SPAWN_LIFT}
+	if physics.capsule_fits(phys, feet + lift, c.radius, c.half_h) {return feet + lift}
 	for p in nav.dry_points_near(&g.agents.mesh, feet, SEARCH) {
-		if physics.capsule_fits(phys, p, c.radius, c.half_h) {return p}
+		if physics.capsule_fits(phys, p + lift, c.radius, c.half_h) {return p + lift}
 	}
-	return feet
+	return feet + lift
 }
 
 @(private = "file")

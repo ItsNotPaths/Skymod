@@ -205,8 +205,8 @@ actor_bounds :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> [2][3]f32 {
 	npc, ok := db.actors[base]
 	if !ok {return HUMAN_BOUNDS}
 	part := template_part(db, base, esm.ACBS_TEMPLATE_TRAITS, pick)
-	if part.bounds != {} {return part.bounds}
-	return db.race_bounds[part.race] or_else HUMAN_BOUNDS
+	if b, has := db.race_bounds[part.race]; has {return b} // an NPC_ OBND can be an editor box (GuardWhiterunImperialGate: 82 x 97 x 86)
+	return part.bounds if part.bounds != {} else HUMAN_BOUNDS
 }
 
 // set_race_bounds gives a race its skeleton's BBX box: center ± half extents.
