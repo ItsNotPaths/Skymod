@@ -20,7 +20,7 @@ import "../world"
 import "../worldstate"
 
 // (hole actor-hitboxes :tags combat :sev gap :needs (animation)) a hit can only land on the one capsule; combat wants the race skeleton's per-bone colliders, posed each tick, with the weapon swept through them (Precision-style, the default).
-// (hole actor-fall-through :tags physics :sev gap) seen 2026-09-25: one NPC capsule fell through the world and could not be picked; the cause is unknown and nothing catches a falling actor.
+// (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
 // (hole actor-ragdoll :tags (combat physics) :sev gap) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
@@ -55,12 +55,13 @@ tick_actor_bodies :: proc(g: ^Game) {
 	ai.track_cells(&g.agents, &g.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
+		ready := chunk.phys_done // a capsule made before its ground's collision falls through it
 		for form in chunk.actors {
-			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen)}
+			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, ready)}
 		}
-		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen)}
+		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen, ready)}
 		for form in worldstate.refs_in(&g.ws, cell) {
-			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen)} // moved in by a script
+			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, ready)} // moved in by a script
 		}
 	}
 	// (hole ai-agent :tags ai :sev blocker) NPCs select packages and walk (travel, sandbox wander, load doors), but nobody has watched it in game yet.
@@ -128,9 +129,10 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit under the ground; the capsule settles
 
 @(private = "file")
-actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool) {
+actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, ready: bool) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.ws, &g.db, form) {return}
 	seen[form] = true
+	if form not_in g.actor_bodies && !ready {return} // loaded, waiting for its cell's collision
 	pos := worldstate.ref_pos(&g.ws, &g.db, form)
 	capsule := actor_capsule(g, form)
 	if b, ok := &g.actor_bodies[form]; ok && b.capsule == capsule {
