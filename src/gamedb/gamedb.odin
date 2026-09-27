@@ -2068,6 +2068,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	index_ref_ties(db, rec.form_id, fl, ctx.fm)
 	index_name(db, rec.form_id, fl) // a uniquely-named actor placement may carry a FULL override
 	index_edid(db, rec.form_id, fl)
+	index_linked_refs(db, rec.form_id, fl, ctx.fm) // XLKR: patrol routes, package targets, family links
 }
 
 // index_ref_levels records a placement's own encounter zone (XEZN) and leveled difficulty (XLCM); an
