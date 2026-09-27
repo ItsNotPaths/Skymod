@@ -5,6 +5,8 @@ package esm
 
 // Nav_Tri flag bit i marks edge i as leading to another navmesh: its `adj` is then an index into
 // `edge_links`, not a triangle.
+NAV_TRI_WATER :: 0x200 // 98% of these lie under their cell's water plane, 7% of the rest
+
 Nav_Tri :: struct {
 	verts: [3]u16,
 	adj:   [3]i16, // the triangle across each edge; -1 = open border

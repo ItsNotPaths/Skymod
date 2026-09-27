@@ -7,6 +7,7 @@ import pq "core:container/priority_queue"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:slice"
+import "../formats/esm"
 import "../gamedb"
 
 Form_ID :: gamedb.Form_ID
@@ -104,7 +105,7 @@ astar :: proc(m: ^Path_Mesh, start, goal: Tri) -> (came: map[Tri]Tri, ok: bool) 
 		at := center(m, cur)
 		next, _, n := neighbors(m, cur)
 		for nb in next[:n] {
-			c := cost[cur] + linalg.distance(at, center(m, nb))
+			c := cost[cur] + linalg.distance(at, center(m, nb)) * (WATER_COST if water(m, nb) else 1)
 			if old, seen := cost[nb]; seen && old <= c {continue}
 			cost[nb] = c
 			came[nb] = cur
@@ -112,6 +113,13 @@ astar :: proc(m: ^Path_Mesh, start, goal: Tri) -> (came: map[Tri]Tri, ok: bool) 
 		}
 	}
 	return came, false
+}
+
+WATER_COST :: f32(8) // a path wades only where the dry way is much longer
+
+@(private)
+water :: proc(m: ^Path_Mesh, t: Tri) -> bool {
+	return m.meshes[t.x].tris[t.y].flags & esm.NAV_TRI_WATER != 0
 }
 
 // portal is the edge from `a` into `b` as (left, right), seen walking out of `a`.
@@ -387,13 +395,13 @@ navmesh_near :: proc(db: ^gamedb.DB, cell: Form_ID, p: [3]f32) -> (best: Form_ID
 	return
 }
 
-// random_point_near is the centre of a random triangle whose centre lies within radius of p.
+// random_point_near is the centre of a random dry triangle whose centre lies within radius of p.
 random_point_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32) -> (point: [3]f32, ok: bool) {
 	seen := 0
 	for &nm, mi in m.meshes {
-		for _, ti in nm.tris {
+		for tri, ti in nm.tris {
 			c := center(m, {i32(mi), i32(ti)})
-			if linalg.length(c.xy - p.xy) > radius {continue}
+			if tri.flags & esm.NAV_TRI_WATER != 0 || linalg.length(c.xy - p.xy) > radius {continue}
 			seen += 1
 			if rand.int_max(seen) == 0 {point, ok = c, true} // reservoir pick
 		}

@@ -766,6 +766,7 @@ character_destroy :: proc(c: ^Character) {
 	c^ = {}
 }
 
+// (hole swimming :tags (physics player ai) :sev gap) no actor swims: a capsule in water sinks to the bed and walks it, so a steep bank traps it (seen: Alvor in the Riverwood river), and IsSwimming has no state.
 // character_move advances the character one fixed tick: `horiz` = desired world XY velocity
 // (units/s), `jump` requests a hop when grounded; gravity is integrated internally. The
 // CharacterVirtual collides-and-slides against the world (incl. its own sweep, so no
