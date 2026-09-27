@@ -615,6 +615,7 @@ Ray_Hit :: struct {
 	fraction: f32,
 }
 
+// (hole sight-occluders :tags (physics query) :sev gap) cutout shapes (leaves, grass, fences: nif alpha_cutoff) have no bodies, so sight rays pass through them. Wanted: bodies on a sight-only layer that nothing collides with, each hit carrying its coverage.
 // ray_hits returns every body the segment from→to crosses, nearest first. Mesh back faces count, so a
 // one-sided wall blocks from both sides. Safe from any thread while the world does not step.
 ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocator) -> []Ray_Hit {

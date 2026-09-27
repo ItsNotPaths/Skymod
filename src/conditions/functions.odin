@@ -318,7 +318,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap) GetIsCurrentPackage, GetSleeping, GetSitting, GetDetected, IsSmallBump, GetGroupMemberCount and IsMoving read 0 and GetAllowWorldInteractions 1: no actor runs a package, walks, uses furniture, bumps or looks for anyone.
+// (hole package-conditions :tags ai :sev gap) GetIsCurrentPackage, GetSleeping, GetSitting, IsSmallBump, GetGroupMemberCount and IsMoving read 0 and GetAllowWorldInteractions 1: no actor runs a package, walks, uses furniture, bumps or looks for anyone.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (ai combat) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.

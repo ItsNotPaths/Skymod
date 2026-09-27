@@ -3,6 +3,8 @@ package ai
 // Combat state toward the player: when an actor warns, attacks or flees, and where it moves. No
 // attacks land yet.
 
+// (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage)) the brain is a stand-in: close, swing in reach, flee on low confidence. Wanted: real tactics (block, dodge, ranged, spells, groups) behind the same seam, from someone who knows combat AI.
+
 import "core:math/linalg"
 import "../formats/esm"
 import "../formid"
@@ -21,7 +23,7 @@ Combat :: struct {
 	warned: f32, // seconds inside the warn/attack radius
 }
 
-// (hole detect-radius :tags (ai combat) :sev gap :needs (sneak-detection)) an aggressive actor attacks anyone within DETECT_RADIUS, through walls: the range is a guess standing in for detection (LOS, light, sneak).
+// (hole detection-store :tags (ai combat) :sev gap :needs (sight-modes)) an aggressive actor attacks anyone within DETECT_RADIUS, through walls. Wanted: a saved awareness 0..1 per viewer and target, with gained/lost events, read by combat start, GetDetected, IsDetectedBy, OnGainLOS, the stealth meter and the sneak attack bonus. Our model is a stub (Cone above 0 in range = aware at once); sneak-detection replaces it.
 DETECT_RADIUS :: f32(2048)
 COMBAT_LEAVE :: f32(1.5) // combat ends past this times the radius that started it (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs

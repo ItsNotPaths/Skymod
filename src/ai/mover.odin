@@ -42,6 +42,7 @@ DODGE_ANGLE :: f32(1) // radians off the way ahead
 STUCK_AFTER :: f32(2)
 BUMP_TURN :: f32(0.35) // radians clockwise while touching another actor
 
+// (hole noise-events :tags (ai audio) :sev gap) moving makes no noise: no footstep, combat or spell noise event with a loudness that detection can hear.
 // (hole movement-speeds :tags ai :sev gap) gait speeds are constants; Skyrim reads them from the race's movement types (MOVT), which are not decoded.
 gait_speed :: proc(g: Gait) -> f32 {
 	switch g {

@@ -12,7 +12,7 @@ import "../gamedb"
 import smath "../math"
 // (hole sound-natives :tags audio :sev blocker :needs (audio-output sound-records)) Sound.Play/PlayAndWait, SoundCategory — no audio subsystem. 587 closure sites.
 // (hole sound-natives :tags audio :sev blocker) the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
-// (hole vfx-natives :tags vfx :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
+// (hole vfx-natives :tags (vfx unclaimed) :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // (hole anim-natives :tags animation :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
 // (hole anim-natives :tags animation :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 // (hole ai-natives :tags ai :sev blocker) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
@@ -26,7 +26,7 @@ import smath "../math"
 // (hole ai-reads :tags ai :sev gap) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
-// (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
+// (hole camera-reads :tags (render unclaimed) :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.
 // (hole sit-rotation-read :tags animation :sev gap :needs (animation)) no read for SetSittingRotation.
 // (hole save-request-read :tags save :sev gap) no read for RequestSave/RequestAutoSave (queued; nothing says the save ran).
 // (hole model-request-read :tags assets :sev gap) no read for RequestModel (queued; nothing says the model loaded).

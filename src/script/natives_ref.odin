@@ -58,6 +58,7 @@ n_get_distance :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.ref_distance(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
+// (hole sight-script :tags (script query) :sev gap :needs (sight-modes)) scripts get HasLOS only; wanted one script call that takes Raw, Cone or Detect and returns 0..1.
 n_has_los :: proc(c: ^Call, args: []Value) -> Value {
 	return sight.has_los(c.ws, c.db, c.self, arg_form(args, 0))
 }

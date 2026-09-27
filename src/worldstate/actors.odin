@@ -412,7 +412,7 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
-// (hole sneak-detection :tags (ai player) :sev gap) sneaking only slows an actor: nobody detects anyone, so there is no stealth meter, no Sneak XP and no sneak attack bonus.
+// (hole sneak-detection :tags (ai player unclaimed) :sev gap :needs (detection-store light-at-point noise-events)) the real detection model: awareness that grows and decays with view direction, distance, movement, sneak, light, noise and cutout cover. It replaces the stub in detection-store behind the same awareness read.
 // set_sneaking puts an actor in or out of sneak mode.
 set_sneaking :: proc(ws: ^World_State, actor: Form_ID, on: bool) {
 	set_in_set(&ws.sneaking, actor, on)
