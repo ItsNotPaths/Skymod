@@ -593,6 +593,19 @@ actor_ai :: proc(fields: []Field) -> (ai: [6]u8, ok: bool) {
 	return ai, true
 }
 
+// Aggro is the AIDT aggro radius behavior (bytes 6 and 8..19): inside `warn` the actor warns,
+// inside `warn_attack` it attacks after a warning timer, inside `attack` at once.
+Aggro :: struct {
+	on:                         bool,
+	warn, warn_attack, attack: f32,
+}
+
+actor_aggro :: proc(fields: []Field) -> (a: Aggro, ok: bool) {
+	f, fok := find_field(fields, "AIDT")
+	if !fok || len(f.data) < 20 {return}
+	return {f.data[6] != 0, f32(rd32(f.data, 8)), f32(rd32(f.data, 12)), f32(rd32(f.data, 16))}, true
+}
+
 // LVLI (leveled-list) LVLF flag bits. CALC_FROM_ALL_LEVELS = "calculate from all levels ≤ the
 // player's" (else only entries at the highest level ≤ it qualify); CALC_FOR_EACH = roll the list
 // independently for each unit of the requested count (else roll once and multiply); USE_ALL = every
