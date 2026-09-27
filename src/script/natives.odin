@@ -325,7 +325,7 @@ n_is_anim_running :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
 
-// (hole video-player :tags ui :sev gap) IsVideoPlaying(asFile) reads false; there is no video player, so a wait on a Bink ends at once.
+// (hole video-player :tags ui :sev gap :needs video-converter) IsVideoPlaying(asFile) reads false; there is no video player, so a wait on a Bink ends at once.
 n_is_video_playing :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }
