@@ -554,7 +554,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
 	script.init(&g.sreg)
 	g.up.sreg = true
-	g.repl_ok = console_repl_init(&g.repl, &g.sreg, &g.ws, &g.db, &g.noclip)
+	g.repl_ok = console_repl_init(&g.repl, &g.sreg, &g.ws, &g.db, &g.audio, &g.v, &g.noclip)
 	if g.repl_ok {
 		g.agents.quest_vars = g.repl.vm.ctx.quest_vars
 		g.agents.lua = {&g.repl.vm, slua.run_procedure}

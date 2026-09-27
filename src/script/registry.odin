@@ -19,8 +19,10 @@ package script
 import "base:runtime"
 import "core:log"
 import "core:strings"
+import "../audio"
 import "../conditions"
 import "../gamedb"
+import "../vfs"
 import "../worldstate"
 
 Form_ID :: gamedb.Form_ID
@@ -58,6 +60,8 @@ Call :: struct {
 	db:         ^gamedb.DB,              // baseline, for read-through
 	reg:        ^Registry,
 	quest_vars: conditions.Quest_Vars,   // quest script members for conditions; set by the VM
+	audio:      ^audio.Audio,            // nil: every sound native is silent
+	vfs:        ^vfs.VFS,                // where sounds are read from
 }
 
 // condition_context asks conditions about `subject` and `target`, with this call's stores.

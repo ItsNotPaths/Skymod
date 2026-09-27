@@ -13,9 +13,11 @@ import "core:c"
 import "core:strings"
 import lua "../../vendor/lua"
 import "../ai"
+import "../audio"
 import "../gamedb"
 import "../script"
 import slua "../script/lua"
+import "../vfs"
 import "../worldstate"
 
 // console_repl_init builds the gameplay REPL for the console panel and registers the
@@ -26,9 +28,11 @@ console_repl_init :: proc(
 	reg: ^script.Registry,
 	ws: ^worldstate.World_State,
 	db: ^gamedb.DB,
+	a: ^audio.Audio,
+	v: ^vfs.VFS,
 	noclip: ^bool,
 ) -> bool {
-	if !slua.repl_init(repl, reg, script.Call{ws = ws, db = db}) {
+	if !slua.repl_init(repl, reg, script.Call{ws = ws, db = db, audio = a, vfs = v}) {
 		return false
 	}
 	// noclip toggles a bool the frame loop owns; the pointer rides as the closure's

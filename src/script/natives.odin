@@ -10,8 +10,6 @@ package script
 import "core:log"
 import "../gamedb"
 import smath "../math"
-// (hole sound-natives :tags audio :sev blocker) Sound.Play/PlayAndWait, SoundCategory are stubs. 587 closure sites.
-// (hole sound-natives :tags audio :sev blocker) the script side rides this subsystem — whether a sound's completion is OBSERVABLE (can a guard test it?) and whether Play finishes inside one tick are answerable only once audio exists. Rewriting the scripts that use it waits on the same landing. See docs/script-rewrite.md step 2.
 // (hole vfx-natives :tags (vfx unclaimed) :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
@@ -85,6 +83,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Game", "IsVideoPlaying", n_is_video_playing)
 
 	register_math(reg) // Math.* — pure callstatic leaves
+	register_sound(reg) // Sound / SoundCategory — the audio device
 	register_quest(reg) // Quest.* — the quest-state store
 	register_story(reg) // Keyword.SendStoryEvent — the story manager
 	register_dialogue(reg) // who talks to the player, a topic info's quest

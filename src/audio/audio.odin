@@ -41,21 +41,33 @@ Voice :: struct {
 	sound:   Sound, // owned; read by feed
 	handle:  Handle,
 	gain:    f32, // before placement
+	volume:  f32, // a script's (SetInstanceVolume)
+	ratio:   f32, // speed and pitch, before its categories'
+	chain:   [4]gamedb.Form_ID, // its category and that category's parents
 	at:      Maybe(Placement), // nil: flat, as for UI sounds and the player's own voice
 	// Shared with feed on SDL's audio thread, which alone moves cursor.
 	cursor:  int,
 	looping: bool, // atomic: stop clears it, and the tail past the loop region plays out
+	paused:  bool, // atomic: its category is paused; feed holds the cursor
 	done:    bool, // atomic: feed gave the last sample
 	gains:   [2]u32, // atomic f32 bits: the left and right level
 }
 
+// Category_State is what scripts set on a sound category (SoundCategory natives). It applies to
+// the category's sounds and to its child categories'.
+Category_State :: struct {
+	volume, frequency: f32,
+	muted, paused:     bool,
+}
+
 Audio :: struct {
-	device:   sdl.AudioDeviceID, // 0: no output, every play is silent
-	spec:     sdl.AudioSpec, // the device's format, every stream's output
-	mu:       sync.Mutex, // voices, last, listener
-	voices:   [dynamic]^Voice,
-	last:     Handle,
-	listener: [2][3]f32, // position, right
+	device:     sdl.AudioDeviceID, // 0: no output, every play is silent
+	spec:       sdl.AudioSpec, // the device's format, every stream's output
+	mu:         sync.Mutex, // voices, last, listener, categories
+	voices:     [dynamic]^Voice,
+	last:       Handle,
+	listener:   [2][3]f32, // position, right
+	categories: map[gamedb.Form_ID]Category_State,
 }
 
 // init opens the default output device. Without one the game runs silent.
@@ -77,6 +89,7 @@ init :: proc(a: ^Audio) -> bool {
 shutdown :: proc(a: ^Audio) {
 	for v in a.voices {release(v)}
 	delete(a.voices)
+	delete(a.categories)
 	if a.device != 0 {sdl.CloseAudioDevice(a.device)}
 	sdl.QuitSubSystem({.AUDIO})
 	a^ = {}
@@ -84,7 +97,7 @@ shutdown :: proc(a: ^Audio) {
 
 // play starts s, which it owns from now; 0 when there is no device. ratio scales its speed and
 // pitch. A looping sound plays up to its loop end, then repeats the loop region until stopped.
-play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, at: Maybe(Placement) = nil) -> Handle {
+play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, at: Maybe(Placement) = nil, chain: [4]gamedb.Form_ID = {}) -> Handle {
 	if a.device == 0 || len(s.samples) == 0 {
 		delete(s.samples)
 		return 0
@@ -97,10 +110,10 @@ play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, 
 		return 0
 	}
 	v := new(Voice)
-	v^ = {stream = st, sound = s, gain = gain, at = at, looping = loop}
+	v^ = {stream = st, sound = s, gain = gain, volume = 1, ratio = ratio, chain = chain, at = at, looping = loop}
 	sync.guard(&a.mu)
 	store_gains(v, levels(a, v))
-	sdl.SetAudioStreamFrequencyRatio(st, ratio)
+	sdl.SetAudioStreamFrequencyRatio(st, ratio * frequency(a, v))
 	sdl.SetAudioStreamGetCallback(st, feed, v)
 	a.last += 1
 	v.handle = a.last
@@ -125,7 +138,9 @@ play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.For
 	ratio := 1 + d.freq_shift + (rand.float32() * 2 - 1) * d.freq_variance
 	place: Maybe(Placement)
 	if pos, placed := at.?; placed {place = Placement{pos, db.sound_outputs[d.output]}}
-	return play(a, s, gain, max(ratio, 0.01), d.loop != .None, place)
+	chain: [4]gamedb.Form_ID
+	for c, i := d.category, 0; c != 0 && i < len(chain); c, i = db.sound_categories[c].parent, i + 1 {chain[i] = c}
+	return play(a, s, gain, max(ratio, 0.01), d.loop != .None, place, chain)
 }
 
 playing :: proc(a: ^Audio, h: Handle) -> bool {
@@ -134,6 +149,25 @@ playing :: proc(a: ^Audio, h: Handle) -> bool {
 		if v.handle == h {return true}
 	}
 	return false
+}
+
+// set_volume sets a playing sound's script volume (Sound.SetInstanceVolume), 0..1.
+set_volume :: proc(a: ^Audio, h: Handle, volume: f32) {
+	sync.guard(&a.mu)
+	for v in a.voices {
+		if v.handle == h {v.volume = clamp(volume, 0, 1)}
+	}
+}
+
+// category_set changes the given parts of a sound category's script state (SoundCategory natives).
+category_set :: proc(a: ^Audio, c: gamedb.Form_ID, volume: Maybe(f32) = nil, frequency: Maybe(f32) = nil, muted: Maybe(bool) = nil, paused: Maybe(bool) = nil) {
+	sync.guard(&a.mu)
+	st := a.categories[c] or_else Category_State{volume = 1, frequency = 1}
+	st.volume = volume.? or_else st.volume
+	st.frequency = frequency.? or_else st.frequency
+	st.muted = muted.? or_else st.muted
+	st.paused = paused.? or_else st.paused
+	a.categories[c] = st
 }
 
 // stop ends a sound: at once, or for a looping one with a loop region, after its tail (the part
@@ -170,19 +204,39 @@ update :: proc(a: ^Audio, pos, forward: [3]f32) {
 				continue
 			}
 			store_gains(v, levels(a, v))
+			sdl.SetAudioStreamFrequencyRatio(v.stream, v.ratio * frequency(a, v))
 		}
 	}
 	for v in gone {release(v)}
+}
+
+// frequency is the product of a voice's categories' script frequencies.
+@(private = "file")
+frequency :: proc(a: ^Audio, v: ^Voice) -> f32 {
+	f := f32(1)
+	for c in v.chain {
+		if st, ok := a.categories[c]; ok && c != 0 {f *= st.frequency}
+	}
+	return f
 }
 
 // levels are a voice's left and right levels now: its gain, times its output model's level at its
 // distance from the listener, panned by which side of the listener it is on when the model pans.
 @(private = "file")
 levels :: proc(a: ^Audio, v: ^Voice) -> [2]f32 {
+	g := v.gain * v.volume
+	paused := false
+	for c in v.chain {
+		st, ok := a.categories[c]
+		if !ok || c == 0 {continue}
+		g *= 0 if st.muted else st.volume
+		paused ||= st.paused
+	}
+	sync.atomic_store(&v.paused, paused)
 	at, placed := v.at.?
-	if !placed {return v.gain}
+	if !placed {return g}
 	to := at.pos - a.listener[0]
-	g := v.gain * gamedb.output_level(at.output, linalg.length(to))
+	g *= gamedb.output_level(at.output, linalg.length(to))
 	if !at.output.pans {return g}
 	p := linalg.dot(linalg.normalize0(to), a.listener[1]) // -1 left .. 1 right
 	return {g * min(1, 1 - p), g * min(1, 1 + p)}
@@ -217,6 +271,7 @@ feed :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total:
 	ch := max(s.channels, 1)
 	gl := transmute(f32)sync.atomic_load(&v.gains[0])
 	gr := transmute(f32)sync.atomic_load(&v.gains[1])
+	if sync.atomic_load(&v.paused) {return}
 	buf: [2048]f32
 	need := int(additional) / (2 * size_of(f32)) + 1
 	for need > 0 && !sync.atomic_load(&v.done) {
