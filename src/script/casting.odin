@@ -2,7 +2,7 @@ package script
 
 // Casting: an actor uses the spell in one of its hands. Rudimentary for now: the spell lands at
 // once, its cost is paid up front, a Self spell hits the caster and any other hits `target`.
-// (hole spell-casting :tags (combat magic ai) :sev gap) casting is instant: no charge time, no concentration (hold, drain and reapply each second), no projectile or area, no dual cast, no cost perks, and NPCs never cast.
+// (hole spell-casting :tags (combat magic ai) :sev gap :needs (animation actor-states combat-damage)) casting is instant: no charge time, no concentration (hold, drain and reapply each second), no projectile or area, no dual cast, no cost perks, and NPCs never cast.
 
 import "../audio"
 import "../gamedb"
