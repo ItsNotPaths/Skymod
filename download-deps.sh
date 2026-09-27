@@ -75,8 +75,9 @@ build_sdl3() {
     curl -fsSL "https://github.com/libsdl-org/SDL/releases/download/release-${SDL3_VERSION}/SDL3-${SDL3_VERSION}.tar.gz" \
         | tar xz --strip-components=1 -C "$work"
 
-    # We need window + mouse/keyboard + the GPU (Vulkan) backend. Audio/camera are
-    # off to keep the static archive self-contained. X11 extensions: XINPUT is
+    # We need window + mouse/keyboard + the GPU (Vulkan) backend + audio. Audio's
+    # backends (PipeWire, PulseAudio, ALSA) are dlopened like the windowing ones, so
+    # their headers must be present at BUILD time only. Camera is off. X11 extensions: XINPUT is
     # REQUIRED (SDL's X11 relative mouse mode = pointer lock is XInput2-only —
     # without it mouse-look on an Xorg session is a hard "not supported"); XFIXES
     # confines the locked pointer; XRANDR reads real display modes. Their headers
@@ -92,7 +93,10 @@ build_sdl3() {
         -DSDL_TEST_LIBRARY=OFF \
         -DSDL_EXAMPLES=OFF \
         -DSDL_INSTALL=ON \
-        -DSDL_AUDIO=OFF \
+        -DSDL_AUDIO=ON \
+        -DSDL_PIPEWIRE=ON \
+        -DSDL_PULSEAUDIO=ON \
+        -DSDL_ALSA=ON \
         -DSDL_CAMERA=OFF \
         -DSDL_X11_XCURSOR=OFF \
         -DSDL_X11_XDBE=OFF \
