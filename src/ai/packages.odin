@@ -219,6 +219,7 @@ Place :: struct {
 	center: [3]f32,
 	radius: f32,
 	cell:   Form_ID,
+	ref:    Form_ID, // the ref it is near, 0 for a fixed place
 }
 
 // location is the place a procedure's first location input names.
@@ -269,7 +270,7 @@ place_of :: proc(c: ^Proc_Context, loc: gamedb.Package_Location) -> (p: Place, o
 	case:
 		return
 	}
-	if ref != 0 {p.center, p.cell = worldstate.ref_pos(ws, db, ref), worldstate.ref_grid_cell(ws, db, ref)}
+	if ref != 0 {p.center, p.cell, p.ref = worldstate.ref_pos(ws, db, ref), worldstate.ref_grid_cell(ws, db, ref), ref}
 	return p, p.cell != 0 || ref != 0
 }
 
@@ -421,7 +422,7 @@ patrol_place :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	start := input_target(c, 0)
 	if input_value(c, 3, bool) or_else false {start = nearest_marker(ws, db, start, c.feet)}
 	if start == 0 {return}
-	return {worldstate.ref_pos(ws, db, start), TRAVEL_RADIUS, worldstate.ref_grid_cell(ws, db, start)}, true
+	return {worldstate.ref_pos(ws, db, start), TRAVEL_RADIUS, worldstate.ref_grid_cell(ws, db, start), start}, true
 }
 
 // nearest_marker is the marker of the chain from `start` nearest p.

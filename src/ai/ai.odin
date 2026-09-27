@@ -342,6 +342,7 @@ walk_trip :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor:
 
 // destination is where an actor's package wants it: the first procedure location that resolves, or
 // a Patrol's first marker.
+// (hole offscreen-player-places :tags ai :sev polish) unsourced: whether vanilla ever moves an unloaded actor toward the player; its package places at the player (ForceGreet zones, NearRef player 5000) are skipped, which is what stops every forcegreeter in Skyrim walking to the player during a long wait.
 @(private)
 destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	for n, i in gamedb.package_tree(c.cond.db, c.agent.pack) {
@@ -352,6 +353,7 @@ destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 			return p, true
 		}
 		p = location(c) or_continue
+		if p.ref == formid.PLAYER {continue} // a ForceGreet's trigger zone, or a walk up to the player once near: no trip across the world
 		p.radius = travel_radius(c, p)
 		return p, true
 	}
