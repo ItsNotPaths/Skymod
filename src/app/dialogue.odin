@@ -70,8 +70,8 @@ dialogue_menu :: proc(g: ^Game) {
 	}
 	if t.top_level && g.tick.total - t.listed_at >= LIST_REFRESH_TICKS {list_topics(g)}
 	for ch, i in t.choices {
-		if !imgui.Button(fmt.ctprintf("%s##%d", ch.prompt, i)) {continue}
 		c := dialogue_call(g)
+		if !imgui.Button(fmt.ctprintf("%s##%d", dialogue.prompt(&c, ch.info), i)) {continue}
 		info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
 		if info != 0 {say(g, info)}
 		return
