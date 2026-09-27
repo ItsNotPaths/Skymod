@@ -180,7 +180,7 @@ destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 	return
 }
 
-// place_on_load is where an actor stands when its cell loads: somewhere inside the place its
+// place_on_load is where an actor stands when its cell loads: the dry spot nearest the place its
 // package names, if it is not there already. The package starts there.
 place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, ok: bool) {
 	pack, quest := select_package(w, ws, db, actor)
@@ -191,9 +191,10 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
 	p := destination(&c) or_return
 	if reached(&c, p) || p.cell not_in w.mesh.cells {return}
-	at = nav.random_point_near(&w.mesh, p.center, p.radius) or_return
-	a.start_pos = at
-	return at, true
+	spots := nav.dry_points_near(&w.mesh, p.center, p.radius)
+	if len(spots) == 0 {return}
+	a.start_pos = spots[0]
+	return spots[0], true
 }
 
 destroy :: proc(w: ^World) {
@@ -207,6 +208,16 @@ destroy :: proc(w: ^World) {
 	delete(w.persistent)
 	nav.destroy(&w.mesh)
 	nav.route_index_destroy(&w.routes)
+}
+
+// interrupt drops an actor's path and trip, so it plans again from where it stands (a script or a
+// dev grab moved it).
+interrupt :: proc(w: ^World, actor: Form_ID) {
+	a, ok := &w.agents[actor]
+	if !ok {return}
+	clear(&a.mover.path)
+	clear(&a.trip)
+	a.planned = false
 }
 
 // describe is an actor's AI state as console text: its package, each tree node, its mover and trip.

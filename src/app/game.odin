@@ -188,6 +188,7 @@ Game :: struct {
 	agents:       ai.World, // every actor's running package
 	actor_mesh:   render.Mesh, // last frame's NPC capsule mesh, released at the next draw
 	hover_actor:  Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
+	actor_grab:   Actor_Grab, // the dev carry (hold DevGrabActor)
 	noclip:   bool,
 	// The physics world the `character` capsule currently lives in. The player walks the
 	// EXTERIOR `phys` until a load door swaps the active scene to an interior (its own

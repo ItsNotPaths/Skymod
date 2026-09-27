@@ -99,6 +99,7 @@ game_frame :: proc(g: ^Game) {
 	frame_stream(g)
 	frame_inspect(g)
 	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
+	frame_actor_grab(g)
 	frame_cast(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
 	draw_actor_nametags(g)

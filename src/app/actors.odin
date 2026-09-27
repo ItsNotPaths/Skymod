@@ -10,6 +10,7 @@ import imgui "../../vendor/odin-imgui"
 import "../ai"
 import "../formid"
 import "../gamedb"
+import "../input"
 import "../nav"
 import smath "../math"
 import "../physics"
@@ -76,6 +77,36 @@ tick_actor_bodies :: proc(g: ^Game) {
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
 	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen, TICK_DT)
+}
+
+// Actor_Grab is the dev carry: hold DevGrabActor on an actor to carry its capsule at the crosshair,
+// the wheel sets the reach, release drops it where it is.
+Actor_Grab :: struct {
+	actor: Form_ID,
+	dist:  f32,
+}
+
+frame_actor_grab :: proc(g: ^Game) {
+	if !input.held(&g.imgr, "DevGrabActor") || g.fr.kb_cap {
+		if g.actor_grab.actor != 0 {ai.interrupt(&g.agents, g.actor_grab.actor)}
+		g.actor_grab = {}
+		return
+	}
+	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	if g.actor_grab.actor == 0 {
+		form, dist, ok := pick_actor(g, ro, rd)
+		if !ok {return}
+		g.actor_grab = {form, clamp(dist, GRAB_MIN_DIST, GRAB_MAX_DIST)}
+	}
+	grab := &g.actor_grab
+	grab.dist = clamp(grab.dist + g.p.input.scroll * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
+	b, ok := &g.actor_bodies[grab.actor]
+	if !ok {
+		g.actor_grab = {}
+		return
+	}
+	physics.character_set_position(&b.char, ro + rd * grab.dist - {0, 0, b.capsule.half_h + b.capsule.radius})
+	actor_publish(g, grab.actor, b, {})
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell

@@ -318,9 +318,10 @@ arrived :: proc(c: ^Proc_Context, p: [3]f32) -> bool {
 	return linalg.length(c.feet.xy - p.xy) <= ARRIVED
 }
 
-// (hole proc-furniture :tags ai :sev gap) Find, Sit, Sleep, Eat and Acquire do nothing: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
+// (hole proc-furniture :tags ai :sev gap) Find, Sit, Sleep, Eat and Acquire never finish: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
+// proc_furniture keeps looking, so a Simultaneous beside it (Travel, Sandbox) does the moving.
 proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
-	return .Done
+	return .Running
 }
 
 // (hole proc-patrol :tags ai :sev gap ) Patrol does nothing: wanted walk the linked-ref chain of patrol markers, waiting at each.
