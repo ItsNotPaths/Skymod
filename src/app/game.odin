@@ -522,8 +522,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	tools.console_init(&g.console)
 	g.up.console = true
 
-	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. On by default.
-	g.show_overlay = true
+	// Dev overlay visibility — toggled by the ` (backtick/tilde) key. Off at start.
+	g.show_overlay = false
 
 	// Physics drop-test (B5): press G to spawn a falling ball at the camera; it's rendered
 	// as a small box marker at its live body position so you can watch it land on the
