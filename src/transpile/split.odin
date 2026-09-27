@@ -235,28 +235,12 @@ emit_split_ticks :: proc(e: ^Emitter, o: ^pex.Object, splits: []Split) {
 	sbprint(e, ".__fn[\"ontick\"] = function(self)\n")
 	for s in splits {sbprintf(e, "\t__tick%d(self)\n", s.n)}
 	// A subclass's OnTick hides its parent's, so it runs the parent's split functions too.
-	chains := o.parent != "" && parent_splits(e, o.parent)
-	if chains {
+	if o.parent != "" && parent_splits(e, o.parent) {
 		sbprint(e, "\trt.parent(self, ")
 		write_lua_string(e, o.name)
 		sbprint(e, ", \"OnTick\")\n")
 	}
 	sbprint(e, "end\n")
-
-	// The timers its guards test, so the tick can skip it while none has run out.
-	sbprint(e, "rt.waits(")
-	write_mangled(e, o.name)
-	sbprint(e, ".__fn[\"ontick\"], {")
-	for &s, i in splits {
-		sbprint(e, ", " if i > 0 else " ")
-		write_key(e, fmt.tprintf("%s.t", s.key))
-	}
-	sbprint(e, " }")
-	if chains {
-		sbprint(e, ", ")
-		write_lua_string(e, o.name)
-	}
-	sbprint(e, ")\n")
 }
 
 @(private)

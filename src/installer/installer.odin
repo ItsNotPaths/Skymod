@@ -26,7 +26,7 @@ CONTENT_DIR    :: "content"      // <base>/content — the installed data root
 SCRIPTS_MOD    :: "basescripts"  // <base>/content/basescripts — the content mod holding the base game's scripts
 SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>.lua and <name>.patch.lua
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
-FORMAT_VERSION :: 4 // bump when converted output changes, so an older install re-runs
+FORMAT_VERSION :: 3 // bump when converted output changes, so an older install re-runs
 
 // content_ready reports whether <base>/content holds a finished install of this format. The
 // boot gate: true => launch the game, false => run the installer, so a stale install re-runs.

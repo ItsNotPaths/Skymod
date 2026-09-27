@@ -1009,23 +1009,6 @@ function rt.advance(dt, game_dt)
   step(clocks.gamestopwatch, game_dt)
 end
 
--- A generated OnTick (transpile/split.odin) only runs a wait's code once that wait's timer has run
--- out, so the tick skips it while none has, and with it the handler call. `chained`: it also runs
--- its parent class's OnTick.
-local waits = setmetatable({}, { __mode = "k" }) -- generated OnTick -> { keys = timer fields, chained = class }
-function rt.waits(f, keys, chained) waits[f] = { keys = keys, chained = chained } end
-
-local function due(inst, f)
-  local w = f and waits[f]
-  if not w then return f ~= nil end
-  for i = 0, #w.keys - 1 do
-    local t = inst.vars[w.keys[i]]
-    if t ~= None and t <= 0 then return true end
-  end
-  local up = w.chained and parent_of(rt.load(w.chained))
-  return up ~= nil and due(inst, lookup(up, state_of(inst), "ontick"))
-end
-
 -- rt.tick calls OnTick on the instances due this tick, once per tick after the queue drains: group
 -- by group in the order they were made, each slot in the order its instances were made.
 function rt.tick(dt)
@@ -1038,10 +1021,7 @@ function rt.tick(dt)
     end
     local list = g.slots[ticks % g.every]
     if list then
-      for j = 0, #list - 1 do
-        local inst = list[j]
-        if due(inst, lookup(inst.class, state_of(inst), "ontick")) then rt.event(inst, "OnTick") end
-      end
+      for j = 0, #list - 1 do rt.event(list[j], "OnTick") end
     end
   end
   ticks = ticks + 1
