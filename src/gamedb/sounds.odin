@@ -63,9 +63,13 @@ sound_volume :: proc(db: ^DB, category: Form_ID) -> f32 {
 // Base_Sounds are the sounds a base form plays when used (a door or container opens, an
 // activator is used, a plant harvested, an item picked up) and when done with (a door or container
 // closes, an item is put down). A zero sound falls back to the DOBJ default named in `defaults`.
+// An item also has sounds for going on and coming off (a weapon's, a potion's drink); a placed
+// activator or light, a loop that plays while it is in earshot.
 Base_Sounds :: struct {
-	use, done: Form_ID,
-	defaults:  [2]string, // DOBJ keys ("PUSW", "PDSW"), literals
+	use, done:     Form_ID,
+	defaults:      [2]string, // DOBJ keys ("PUSW", "PDSW"), literals
+	equip, unequip: Form_ID,
+	loop:          Form_ID,
 }
 
 // base_sound is the sound a base plays when used, or with done when done with; 0 for none.
@@ -74,6 +78,14 @@ base_sound :: proc(db: ^DB, base: Form_ID, done := false) -> Form_ID {
 	if !ok {return 0}
 	s := bs.done if done else bs.use
 	return s if s != 0 else default_object(db, bs.defaults[1 if done else 0])
+}
+
+// equip_sound is the sound an item makes going on (or, with on false, coming off): its own, else
+// its pickup (put-down) sound.
+equip_sound :: proc(db: ^DB, base: Form_ID, on: bool) -> Form_ID {
+	bs := db.base_sounds[base]
+	s := bs.equip if on else bs.unequip
+	return s if s != 0 else base_sound(db, base, done = !on)
 }
 
 // index_base_sounds reads the sounds of a DOOR, CONT, ACTI, FLOR or item base. An item's own
@@ -88,13 +100,17 @@ index_base_sounds :: proc(db: ^DB, rec: esm.Record, fl: []esm.Field, fm: ^esm.Fo
 	switch rec.type {
 	case "DOOR": bs = {use = sound(fl, fm, "SNAM"), done = sound(fl, fm, "ANAM")}
 	case "CONT": bs = {use = sound(fl, fm, "SNAM"), done = sound(fl, fm, "QNAM")}
-	case "ACTI": bs = {use = sound(fl, fm, "VNAM")}
+	case "ACTI": bs = {use = sound(fl, fm, "VNAM"), loop = sound(fl, fm, "SNAM")}
+	case "LIGH": bs = {loop = sound(fl, fm, "SNAM")}
 	case "FLOR": bs = {use = sound(fl, fm, "SNAM")}
-	case "WEAP": bs = {defaults = {"PUSW", "PDSW"}}
+	case "WEAP": bs = {defaults = {"PUSW", "PDSW"}, equip = sound(fl, fm, "NAM9"), unequip = sound(fl, fm, "NAM8")}
 	case "ARMO": bs = {defaults = {"PUSA", "PDSA"}}
 	case "BOOK": bs = {defaults = {"PUSB", "PDSB"}}
 	case "INGR": bs = {defaults = {"PUSI", "PDSI"}}
-	case "MISC", "ALCH", "KEYM", "AMMO", "SLGM", "SCRL": bs = {defaults = {"PUSG", "PDSG"}}
+	case "ALCH":
+		bs = {defaults = {"PUSG", "PDSG"}}
+		if f, has := esm.find_field(fl, "ENIT"); has && len(f.data) >= 20 {bs.equip = esm.remap_form(fm, u32((^u32le)(&f.data[16])^))} // its drink
+	case "MISC", "KEYM", "AMMO", "SLGM", "SCRL": bs = {defaults = {"PUSG", "PDSG"}}
 	case: return
 	}
 	if bs.defaults[0] != "" {bs.use, bs.done = sound(fl, fm, "YNAM"), sound(fl, fm, "ZNAM")}

@@ -74,8 +74,8 @@ wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_
 // (hole region-sounds :tags (audio world) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
 // (hole acoustic-boxes :tags (audio world) :sev gap) placed acoustic spaces (125 ASPC refs, a box each) are not entered: only a cell's own space (XCAS) plays, and no space's reverb (RDAT) applies.
 
-// Ambient is what plays because of where the listener is: the looping sound markers in earshot
-// and the loop of the player's cell's acoustic space.
+// Ambient is what plays because of where the listener is: the looping sound markers, activators and
+// lights in earshot, and the loop of the player's cell's acoustic space.
 Ambient :: struct {
 	markers: map[formid.Form_ID]Handle, // placed SOUN refs playing now
 	space:   formid.Form_ID, // the acoustic space whose loop plays
@@ -97,9 +97,9 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 	want := make(map[formid.Form_ID]bool, context.temp_allocator)
 	for cell in ws.attached {
 		for r in db.cell_refs[cell] {
-			sndr, is_marker := db.sound_markers[r.base]
+			sndr := db.sound_markers[r.base] or_else db.base_sounds[r.base].loop // a marker, else an activator's or light's loop
 			d := db.sounds[sndr]
-			if !is_marker || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) {continue}
+			if sndr == 0 || d.loop == .None || !worldstate.ref_enabled(ws, db, r.form_id) {continue}
 			out := db.sound_outputs[d.output]
 			dist := distance(a, r.pos)
 			_, playing := am.markers[r.form_id]
@@ -123,7 +123,7 @@ ambient_destroy :: proc(am: ^Ambient) {
 	delete(am.markers)
 }
 
-// (hole form-sounds :tags audio :sev gap) equipping, drinking and putting an item down make no sound, and an activator's or light's loop sound (ACTI, LIGH SNAM) does not play.
+// (hole drop-sounds :tags (audio ui) :sev gap) putting an item down makes no sound: nothing drops an item into the world yet.
 // activate_sound plays the sound of a ref's base where the ref is, when it is used (a door or
 // container opens, an item is picked up), or with done when done with (a container closes).
 activate_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, ref: formid.Form_ID, done := false) {

@@ -11,6 +11,7 @@ import "core:slice"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
+import "../../audio"
 import "../../gamedb"
 import "../../sight"
 import "../../worldstate"
@@ -222,6 +223,10 @@ tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	for e, i in changes {refs[i] = script.item_stack(&c, e.actor, e.item)}
 	sync_refs(vm)
 	for e, i in changes {
+		// Only the player's: NPCs put their outfits on as they load, and their draws are animation.
+		if e.actor == formid.PLAYER && c.audio != nil {
+			audio.play_descriptor(c.audio, c.vfs, c.db, gamedb.equip_sound(c.db, e.item, e.on), worldstate.ref_pos(c.ws, c.db, e.actor))
+		}
 		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, refs[i])
 		if refs[i] != 0 {send(vm, refs[i], "OnEquipped" if e.on else "OnUnequipped", e.actor)}
 	}
