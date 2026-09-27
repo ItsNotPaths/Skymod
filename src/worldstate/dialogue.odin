@@ -20,6 +20,10 @@ Force_Greet :: struct {
 // Bark is a line an actor says outside a conversation or a scene (a Hello, idle chatter, the Say
 // procedure). The AI asks with `info` 0 and a topic or a subtype stack; the script tick picks the
 // line and plays it response by response. Not saved.
+// Bark subtypes the engine says itself (DIAL SNAM).
+SUBTYPE_HIT :: [4]u8{'H', 'I', 'T', '_'}
+SUBTYPE_DEATH :: [4]u8{'D', 'E', 'T', 'H'}
+
 Bark :: struct {
 	speaker, to: Form_ID,
 	topic:       Form_ID, // 0: say from the `subtype` stack

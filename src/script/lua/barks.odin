@@ -21,8 +21,9 @@ tick_barks :: proc(vm: ^VM, dt: f32) {
 @(private = "file")
 play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
 	c := &vm.ctx
+	death := b.subtype == worldstate.SUBTYPE_DEATH // said by the dead, over anything else
 	if b.info == 0 {
-		if bark_busy(vm, b.speaker) {return false}
+		if !death && bark_busy(vm, b.speaker) {return false}
 		b.info = dialogue.pick(c, b.speaker, b.topic) if b.topic != 0 else dialogue.pick_subtype(c, b.speaker, string(b.subtype[:]))
 		if b.info == 0 {return false}
 		dialogue.said(c, b.speaker, b.info)
@@ -32,7 +33,7 @@ play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
 	if b.left > 0 {return true}
 	b.response += 1
 	lines := dialogue.responses(c.db, b.info)
-	if int(b.response) < len(lines) && !worldstate.is_dead(c.ws, b.speaker) {
+	if int(b.response) < len(lines) && (death || !worldstate.is_dead(c.ws, b.speaker)) {
 		b.left = say_line(vm, b.speaker, b.info, int(b.response))
 		return true
 	}

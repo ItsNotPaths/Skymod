@@ -39,8 +39,8 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── Actor life-state ───────────────────────────────────────────────────────────
 
-// Kill(akKiller) -> None: the Dead flag, OnDying and OnDeath, cleared boss locations and the KILL
-// story event. A dead actor does not die again.
+// Kill(akKiller) -> None: the Dead flag, the death cry (a DETH bark), OnDying and OnDeath, cleared
+// boss locations and the KILL story event. A dead actor does not die again.
 // (hole kill-essential :tags combat :sev polish) Kill does not read IsEssential (worldstate.actor_flag); unsourced whether Skyrim refuses, or sends the actor to bleedout.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	kill(c, c.self, arg_form(args, 0))
@@ -52,6 +52,11 @@ kill :: proc(c: ^Call, actor, killer: Form_ID) {
 	append(&c.ws.deaths, worldstate.Death{actor, killer})
 	c.ws.killers[actor] = killer
 	worldstate.set_dead(c.ws, actor, worldstate.ref_cell(c.ws, c.db, actor), true)
+	// The death cry replaces whatever the actor was about to say.
+	#reverse for b, i in c.ws.barks {
+		if b.speaker == actor {ordered_remove(&c.ws.barks, i)}
+	}
+	append(&c.ws.barks, worldstate.Bark{speaker = actor, subtype = worldstate.SUBTYPE_DEATH})
 	worldstate.stop_doing(c.ws, c.db, actor)
 	worldstate.mark_scene_dirty(c.ws, actor)
 	boss_died(c, actor)
