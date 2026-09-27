@@ -8,7 +8,6 @@ package esm
 
 // Records the base game ships that nothing here decodes into their content.
 //
-// (hole package-records :tags (records ai) :sev blocker) PACK bodies are never decoded — an NPC_'s PKID list resolves to empty Package forms, so an actor has no behaviour to run, and GetIsCurrentPackage has no body.
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
 // (hole sound-records :tags records :sev gap) SOUN and SNDR are never decoded — no sound descriptor exists for anything to play.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
@@ -401,13 +400,6 @@ Effect_Item :: struct {
 potion_is_poison :: proc(fields: []Field) -> bool {
 	f, ok := find_field(fields, "ENIT")
 	return ok && len(f.data) >= 8 && rd32(f.data, 4) & 0x20000 != 0
-}
-
-// package_template reads a PACK's PKCU (data input count u32@0, template PACK u32@4, version u32@8).
-package_template :: proc(fields: []Field) -> (u32, bool) {
-	f, ok := find_field(fields, "PKCU")
-	if !ok || len(f.data) < 8 {return 0, false}
-	return rd32(f.data, 4), rd32(f.data, 4) != 0
 }
 
 // activate_parents reads a placement's XAPR entries (parent ref u32@0, delay f32@4), one per subrecord.

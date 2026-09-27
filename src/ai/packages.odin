@@ -6,7 +6,7 @@ package ai
 import "../gamedb"
 import "../worldstate"
 
-// (hole package-select :tags ai :sev blocker :needs (package-records alias-data)) nothing picks a package: wanted the first of alias packages (quest priority), scene packages, own PKID list, then the default package list (DPLT, not read), whose schedule and conditions pass. Schedules: day of week only, hours in minutes, 265 cross midnight.
+// (hole package-select :tags ai :sev blocker) nothing picks a package: wanted the first of alias packages (quest priority), scene packages, own PKID list, then the default package list (gamedb.actor_packages), whose schedule and conditions pass. Schedules: day of week only, hours in minutes, 265 cross midnight.
 // select_package is the package an actor runs now; 0 is none.
 select_package :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> Form_ID {
 	return 0

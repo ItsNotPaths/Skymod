@@ -509,9 +509,11 @@ ACBS_TEMPLATE_STATS :: 0x0002 // level, auto-calc, skills, offsets, speed, class
 ACBS_TEMPLATE_FACTIONS :: 0x0004
 ACBS_TEMPLATE_SPELLS :: 0x0008 // spell list (UESP Mod File Format/NPC_)
 ACBS_TEMPLATE_AI_DATA :: 0x0010
+ACBS_TEMPLATE_AI_PACKAGES :: 0x0020 // PKID (UESP Mod File Format/NPC_)
 ACBS_TEMPLATE_BASE_DATA :: 0x0080 // name, short name, flags
 ACBS_TEMPLATE_INVENTORY :: 0x0100
 ACBS_TEMPLATE_SCRIPT :: 0x0200
+ACBS_TEMPLATE_DEF_PACK_LIST :: 0x0400 // DPLT (UESP Mod File Format/NPC_)
 
 // Actor_Config is an NPC_'s ACBS block (24 bytes): base disposition flags + level band + the
 // magicka/stamina/health OFFSETS added on top of the DNAM base attributes. `level` is absolute

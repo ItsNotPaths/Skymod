@@ -546,6 +546,7 @@ index_quest_aliases :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Qu
 			conditions   = index_conditions(db, a.match, fm),
 			factions     = remapped_list(db, esm.formid_list(a.body, "ALFC"), fm),
 			keywords     = remapped_list(db, esm.keywords(a.body), fm),
+			packages     = remapped_list(db, esm.formid_list(a.body, "ALPC"), fm),
 			name         = strings.clone(a.name, db.allocator),
 		}
 	}

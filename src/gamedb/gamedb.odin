@@ -252,7 +252,7 @@ DB :: struct {
 	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
 	owners:                map[Form_ID]Form_ID, // REFR/ACHR/CELL -> its XOWN owner, an NPC_ or a FACT (queries.odin)
 	activate_parents:      map[Form_ID][]Form_ID, // REFR/ACHR -> its XAPR activate parents (owned)
-	package_templates:     map[Form_ID]Form_ID, // PACK -> the PKCU template it was made from
+	packages:              map[Form_ID]Package, // PACK -> its decoded package (packages.odin)
 	ingredients:           map[Form_ID][]Magic_Effect_Ref, // INGR -> its effects (owned)
 	load_slots:            [dynamic]u32,        // load-order index -> that plugin's slot (Papyrus form ids)
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
@@ -355,6 +355,7 @@ Actor_Base :: struct {
 	spells:        []Form_ID, // SPLO (owned)
 	perks:         []Form_ID, // PRKR (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
+	default_packages: Form_ID, // DPLT: an FLST of packages
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
 	factions:      []Faction_Membership, // SNAM baseline faction ranks (owned; the overlay diverges from these)
 }
@@ -458,7 +459,7 @@ Linked_Ref :: struct {
 	ref:     Form_ID,
 }
 
-// (hole alias-data :tags (quest ai) :sev gap) an alias applies only its factions and keywords while filled: the Essential, Protected and Quest Object flags, spells (ALSP), package data (ALPC) and override lists, display name (ALDN, with SetDisplayName) and inventory (CNTO) are not decoded.
+// (hole alias-data :tags (quest ai) :sev gap) an alias applies only its factions and keywords while filled: the Essential, Protected and Quest Object flags, spells (ALSP), override package lists, display name (ALDN, with SetDisplayName) and inventory (CNTO) are not decoded.
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
 // (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
 // the quest engine fills it at start. `name` and `conditions` are owned by the DB.
@@ -476,6 +477,7 @@ Quest_Alias :: struct {
 	conditions:   []Condition, // the Match Conditions (owned)
 	factions:     []Form_ID, // ALFC: the holder counts as a member while in the alias (owned)
 	keywords:     []Form_ID, // KWDA: the holder has these keywords while in the alias (owned)
+	packages:     []Form_ID, // ALPC: the holder may run these while in the alias (owned)
 	name:         string, // owned
 }
 
@@ -801,7 +803,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		level_mods            = make(map[Form_ID]u8, 1024, allocator),
 		owners                = make(map[Form_ID]Form_ID, 4096, allocator),
 		activate_parents      = make(map[Form_ID][]Form_ID, 1024, allocator),
-		package_templates     = make(map[Form_ID]Form_ID, 512, allocator),
+		packages              = make(map[Form_ID]Package, 8192, allocator),
 		ingredients           = make(map[Form_ID][]Magic_Effect_Ref, 128, allocator),
 		load_slots            = make([dynamic]u32, allocator),
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
@@ -1057,7 +1059,8 @@ destroy :: proc(db: ^DB) {
 	for _, types in db.ref_types {delete(types)}
 	delete(db.ref_types)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
-	free_query_indexes(db) // owners, activate parents, package templates, ingredients
+	free_query_indexes(db) // owners, activate parents, ingredients
+	free_packages(db)
 	free_nav_indexes(db)
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}
@@ -1091,6 +1094,7 @@ free_quest_baseline :: proc(db: ^DB, qb: Quest_Baseline) {
 		free_conditions(db, a.conditions)
 		delete(a.factions, db.allocator)
 		delete(a.keywords, db.allocator)
+		delete(a.packages, db.allocator)
 	}
 	delete(qb.aliases, db.allocator)
 	free_conditions(db, qb.dialogue_conditions)
@@ -1554,7 +1558,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "NPC_":
 		index_npc(db, rec, ctx.fm) // actor base identity (stats, links, inventory, name)
 	case s == "PACK":
-		index_package(db, rec, ctx.fm) // its PKCU template
+		index_package(db, rec, ctx.fm)
 	case s == "INGR":
 		index_base(db, rec, ctx.fm)
 		index_ingredient(db, rec, ctx.fm)
@@ -1564,7 +1568,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	return true
 }
 
-// index_edid names a quest, an NPC_ or a placed ref for the console.
+// index_edid names a quest, an NPC_, a package or a placed ref for the console.
 @(private)
 index_edid :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
 	edid := esm.editor_id(fl)
@@ -2640,6 +2644,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if o, ook := esm.subrecord_formid(fl, "DOFT"); ook {a.outfit = esm.remap_form(fm, o)}
 	if g, gok := esm.subrecord_formid(fl, "GNAM"); gok {a.gift_filter = esm.remap_form(fm, g)}
 	if t, tok := esm.subrecord_formid(fl, "TPLT"); tok {a.template = esm.remap_form(fm, t)}
+	if d, dok := esm.subrecord_formid(fl, "DPLT"); dok {a.default_packages = esm.remap_form(fm, d)}
 
 	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.
 	a.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)

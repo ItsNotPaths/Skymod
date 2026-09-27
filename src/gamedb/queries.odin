@@ -1,6 +1,6 @@
 package gamedb
 
-// Records behind the query natives (Workstream L): ownership, activate parents, package templates,
+// Records behind the query natives (Workstream L): ownership, activate parents,
 // ingredient effects and Papyrus load-order form ids.
 
 import "../formats/esm"
@@ -33,19 +33,6 @@ index_owner :: proc(db: ^DB, id: Form_ID, fl: []esm.Field, fm: ^esm.Form_Map) {
 	}
 }
 
-@(private)
-index_package :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
-	fl, backing, ok := esm.fields(rec)
-	if !ok {return}
-	defer delete(fl)
-	defer if backing != nil {delete(backing)}
-	if t, has := esm.package_template(fl); has {
-		db.package_templates[rec.form_id] = esm.remap_form(fm, t)
-	} else {
-		delete_key(&db.package_templates, rec.form_id)
-	}
-}
-
 // index_ingredient keeps an INGR's effects apart from the potions: eating one applies only its first.
 @(private)
 index_ingredient :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
@@ -62,7 +49,6 @@ free_query_indexes :: proc(db: ^DB) {
 	delete(db.owners)
 	for _, p in db.activate_parents {delete(p, db.allocator)}
 	delete(db.activate_parents)
-	delete(db.package_templates)
 	for _, e in db.ingredients {free_effects(db, e)}
 	delete(db.ingredients)
 	delete(db.load_slots)
@@ -79,10 +65,6 @@ is_activate_child :: proc(db: ^DB, parent, child: Form_ID) -> bool {
 		if p == parent {return true}
 	}
 	return false
-}
-
-package_template_of :: proc(db: ^DB, pack: Form_ID) -> Form_ID {
-	return db.package_templates[pack]
 }
 
 ingredient_effects :: proc(db: ^DB, ingredient: Form_ID) -> []Magic_Effect_Ref {
