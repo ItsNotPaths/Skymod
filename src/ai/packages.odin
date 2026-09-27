@@ -314,6 +314,26 @@ proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Running
 }
 
+SEAT_RADIUS :: f32(256) // placed this near its furniture ref, an actor is already on the seat
+
+// seat is the furniture ref the actor's package sits or sleeps it in, when it is placed there.
+seat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (furniture, pack: Form_ID) {
+	quest: Form_ID
+	pack, quest = select_package(w, ws, db, actor)
+	if pack == 0 {return}
+	a := Agent{pack = pack}
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = &a, feet = feet}
+	for n, i in gamedb.package_tree(db, pack) {
+		if n.branch != .Procedure || (n.procedure != "Sit" && n.procedure != "Sleep") {continue}
+		c.node = i
+		for k in 0 ..< len(n.inputs) {
+			ref := input_target(&c, k)
+			if ref != 0 && linalg.length(worldstate.ref_pos(ws, db, ref).xy - feet.xy) <= SEAT_RADIUS {return ref, pack}
+		}
+	}
+	return 0, pack
+}
+
 // (hole patrol-marker-idle :tags ai :sev gap) a patrol never pauses at a marker: the marker's patrol data (REFR XPRD idle time, idle, topic) is not decoded.
 // proc_patrol walks the linked-ref chain of markers from the PathStart input, starting at the
 // nearest one when asked; a repeatable patrol starts over at the end of the chain.
