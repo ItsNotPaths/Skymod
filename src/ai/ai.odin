@@ -427,7 +427,7 @@ describe :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: 
 		fmt.sbprint(&b, "no agent (never selected a package)")
 		return strings.to_string(b)
 	}
-	fmt.sbprintfln(&b, "package %s, quest %s, since %.2fh", name(db, a.pack) if a.pack != 0 else "none", name(db, a.quest) if a.quest != 0 else "-", a.started)
+	fmt.sbprintfln(&b, "package %s, quest %s, since %.2fh, scene %v, combat %v", name(db, a.pack) if a.pack != 0 else "none", name(db, a.quest) if a.quest != 0 else "-", a.started, a.scene, a.combat.state)
 	for n, i in gamedb.package_tree(db, a.pack) {
 		st := a.nodes[i] if i < len(a.nodes) else {}
 		fmt.sbprintfln(&b, "  node %d %v %s done %v child %d timer %.1f point %v", i, n.branch, n.procedure, st.done, st.child, st.timer, st.point)
