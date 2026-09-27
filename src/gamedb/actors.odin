@@ -90,29 +90,11 @@ index_movement :: proc(db: ^DB, rec: esm.Record) {
 	db.movement[rec.form_id] = {f32((^f32le)(&sped.data[16])^), f32((^f32le)(&sped.data[20])^)}
 }
 
-// index_default_movement keeps the DOBJ default walk and run movement types (DNAM DMWL, DMRN).
-@(private)
-index_default_movement :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
-	fl, backing, ok := esm.fields(rec)
-	if !ok {return}
-	defer delete(fl)
-	defer if backing != nil {delete(backing)}
-	dnam, has := esm.find_field(fl, "DNAM")
-	if !has {return}
-	for i := 0; i + 8 <= len(dnam.data); i += 8 {
-		form := esm.remap_form(fm, u32((^u32le)(&dnam.data[i + 4])^))
-		switch string(dnam.data[i:i + 4]) {
-		case "DMWL": db.default_move[0] = form
-		case "DMRN": db.default_move[1] = form
-		}
-	}
-}
-
 // gait_speeds is how fast a race walks and runs forward: its movement types, else the defaults.
 gait_speeds :: proc(db: ^DB, race: Form_ID) -> (walk, run: f32, ok: bool) {
 	r, _ := db.races[race]
-	walk_type := r.walk if r.walk != 0 else db.default_move[0]
-	run_type := r.run if r.run != 0 else db.default_move[1]
+	walk_type := r.walk if r.walk != 0 else default_object(db, "DMWL")
+	run_type := r.run if r.run != 0 else default_object(db, "DMRN")
 	w, wok := db.movement[walk_type]
 	rn, rok := db.movement[run_type]
 	return w[0], rn[1], wok && rok

@@ -200,7 +200,11 @@ DB :: struct {
 	weathers:      map[Form_ID]Weather, // WTHR formID -> its authored sky look (colours/fog/imagespaces)
 	races:         map[Form_ID]Race, // RACE formID -> identity + skill bonuses + body scale (owned description)
 	movement:      map[Form_ID][2]f32, // MOVT formID -> forward walk and run speed
-	default_move:  [2]Form_ID, // DOBJ: the walk and run MOVT of races without their own
+	defaults:      map[[4]u8]Form_ID, // DOBJ: engine key ("DMWL", "PUSG") -> its form; read with default_object
+	sounds:           map[Form_ID]Sound_Descriptor, // SNDR formID -> its files and play values (owned)
+	sound_markers:    map[Form_ID]Form_ID, // SOUN formID -> its SNDR
+	sound_categories: map[Form_ID]Sound_Category, // SNCT formID -> its parent and volume
+	base_sounds:      map[Form_ID]Base_Sounds, // DOOR/CONT/ACTI/FLOR/item base -> its use and done sounds
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
 	voice_edids:   map[Form_ID]string, // QUST, DIAL and VTYP formID -> lowercased editor id: the parts of a voice file's path (owned)
@@ -771,6 +775,11 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		classes       = make(map[Form_ID]Class, 256, allocator),
 		voice_types   = make(map[Form_ID]u8, 256, allocator),
 		voice_edids   = make(map[Form_ID]string, 32768, allocator),
+		defaults         = make(map[[4]u8]Form_ID, 512, allocator),
+		sounds           = make(map[Form_ID]Sound_Descriptor, 4096, allocator),
+		sound_markers    = make(map[Form_ID]Form_ID, 2048, allocator),
+		sound_categories = make(map[Form_ID]Sound_Category, 32, allocator),
+		base_sounds      = make(map[Form_ID]Base_Sounds, 8192, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
 		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
@@ -1090,6 +1099,7 @@ destroy :: proc(db: ^DB) {
 	free_packages(db)
 	free_nav_indexes(db)
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
+	free_sound_indexes(db) // descriptors, markers, categories, DOBJ defaults
 	db^ = {}
 }
 
@@ -1571,7 +1581,13 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "MOVT":
 		index_movement(db, rec)
 	case s == "DOBJ":
-		index_default_movement(db, rec, ctx.fm)
+		index_default_objects(db, rec, ctx.fm)
+	case s == "SNDR":
+		index_sound_descriptor(db, rec, ctx.fm)
+	case s == "SOUN":
+		index_sound_marker(db, rec, ctx.fm)
+	case s == "SNCT":
+		index_sound_category(db, rec, ctx.fm)
 	case s == "CLAS":
 		index_class(db, rec)
 	case s == "VTYP":
@@ -2793,6 +2809,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	}
 	index_name(db, rec.form_id, fl) // FULL display name (localized id or inline)
 	index_keywords(db, rec.form_id, fl, fm) // KWDA tag set (VendorItem*, ArmorHeavy, …)
+	index_base_sounds(db, rec, fl, fm)
 	// Prebaked distant-LOD meshes (STAT MNAM): clone the populated slots so the LOD rings load
 	// Skyrim's own low-poly meshes instead of decimating at runtime.
 	if lods, n := esm.lod_model_paths(fl); n > 0 {
