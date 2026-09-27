@@ -45,8 +45,9 @@ destroy :: proc(m: ^Path_Mesh) {
 	delete(m.by_form)
 }
 
-// find_path writes the corners from `from` to `to` into `out`, `to` last. Both ends snap to the
-// nearest triangle, so an actor a little off the mesh still paths.
+// find_path writes the corners from `from` to `to` into `out`. Both ends snap to the nearest
+// triangle, so an actor a little off the mesh still paths; the last corner is the point of the
+// goal's triangle nearest `to` (a marker can stand off the mesh).
 find_path :: proc(m: ^Path_Mesh, from, to: [3]f32, out: ^[dynamic][3]f32) -> bool {
 	clear(out)
 	start := nearest_tri(m, from) or_return
@@ -59,7 +60,8 @@ find_path :: proc(m: ^Path_Mesh, from, to: [3]f32, out: ^[dynamic][3]f32) -> boo
 	append(&walk, start)
 	slice.reverse(walk[:])
 	for i in 1 ..< len(walk) {append(&portals, portal(m, walk[i - 1], walk[i]))}
-	append(&portals, [2][3]f32{to, to})
+	end := on_tri(m, goal, to)
+	append(&portals, [2][3]f32{end, end})
 	funnel(portals[:], out)
 	return true
 }
@@ -165,6 +167,31 @@ funnel :: proc(portals: [][2][3]f32, out: ^[dynamic][3]f32) {
 		}
 	}
 	append(out, portals[len(portals) - 1][0])
+}
+
+// on_tri is the point of a triangle nearest p across XY, at the triangle's height there.
+@(private)
+on_tri :: proc(m: ^Path_Mesh, t: Tri, p: [3]f32) -> [3]f32 {
+	nm := &m.meshes[t.x]
+	v := nm.tris[t.y].verts
+	a, b, c := nm.verts[v[0]], nm.verts[v[1]], nm.verts[v[2]]
+	s := area2(a, b, c)
+	if s == 0 {return a}
+	q := p
+	if area2(a, b, p) * s < 0 || area2(b, c, p) * s < 0 || area2(c, a, p) * s < 0 {
+		best := max(f32)
+		for e in ([3][2][3]f32{{a, b}, {b, c}, {c, a}}) {
+			d := e[1].xy - e[0].xy
+			k := clamp(linalg.dot(p.xy - e[0].xy, d) / max(linalg.dot(d, d), 1e-6), 0, 1)
+			on := e[0].xy + d * k
+			if dist := linalg.length(p.xy - on); dist < best {best, q.xy = dist, on}
+		}
+	}
+	// height from barycentric weights in XY
+	w1 := area2(q, b, c) / s
+	w2 := area2(a, q, c) / s
+	q.z = w1 * a.z + w2 * b.z + (1 - w1 - w2) * c.z
+	return q
 }
 
 // area2 is twice the signed XY area of abc: positive when c is left of a->b.

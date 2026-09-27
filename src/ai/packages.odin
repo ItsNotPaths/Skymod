@@ -30,7 +30,7 @@ select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a
 		for p in alias.packages {append(&list, Candidate{p, q, qb.priority})}
 	}
 	slice.stable_sort_by(list[:], proc(a, b: Candidate) -> bool {return a.priority > b.priority})
-	own, defaults := gamedb.actor_packages(db, worldstate.ref_base(ws, db, actor))
+	own, defaults := gamedb.actor_packages(db, worldstate.ref_base(ws, db, actor), worldstate.actor_pick(ws, db, actor))
 	for p in own {append(&list, Candidate{pack = p})}
 	for p in defaults {append(&list, Candidate{pack = p})}
 	for c in list {
@@ -162,6 +162,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Patrol":                        return proc_patrol(c)
 	case "UseIdleMarker":                 return proc_idle_marker(c)
 	case "Wait", "HoldPosition":          return proc_wait(c)
+	case "Guard":                         return proc_guard(c)
 	case "Wander":                        return proc_wander(c)
 	case "LockDoors", "UnlockDoors":      return proc_doors(c, name == "LockDoors")
 	}
@@ -330,6 +331,13 @@ proc_patrol :: proc(c: ^Proc_Context) -> Status {
 // (hole proc-idle-marker :tags ai :sev gap ) UseIdleMarker does nothing: wanted walk to the IDLM ref and play its idle (the idle itself is animation).
 proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
 	return .Done
+}
+
+// (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
+// proc_guard walks to the package location and holds it.
+proc_guard :: proc(c: ^Proc_Context) -> Status {
+	if proc_travel(c) == .Failed {return proc_wait(c)}
+	return .Running
 }
 
 // proc_wait stands until the package or its parent ends.
