@@ -210,11 +210,12 @@ destroy :: proc(w: ^World) {
 	nav.route_index_destroy(&w.routes)
 }
 
-// interrupt drops an actor's path and trip, so it plans again from where it stands (a script or a
-// dev grab moved it).
+// interrupt restarts an actor's package from where it stands (a script or a dev grab moved it).
 interrupt :: proc(w: ^World, actor: Form_ID) {
 	a, ok := &w.agents[actor]
 	if !ok {return}
+	for &n in a.nodes {n = {}}
+	a.mover.goal = {}
 	clear(&a.mover.path)
 	clear(&a.trip)
 	a.planned = false

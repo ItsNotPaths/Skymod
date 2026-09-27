@@ -59,7 +59,7 @@ find_path :: proc(m: ^Path_Mesh, from, to: [3]f32, out: ^[dynamic][3]f32) -> boo
 	for t := goal; t != start; t = came[t] {append(&walk, t)}
 	append(&walk, start)
 	slice.reverse(walk[:])
-	for i in 1 ..< len(walk) {append(&portals, portal(m, walk[i - 1], walk[i]))}
+	for i in 1 ..< len(walk) {append(&portals, narrow(portal(m, walk[i - 1], walk[i])))}
 	end := on_tri(m, goal, to)
 	append(&portals, [2][3]f32{end, end})
 	funnel(portals[:], out)
@@ -134,6 +134,21 @@ portal :: proc(m: ^Path_Mesh, a, b: Tri) -> [2][3]f32 {
 	tri := nm.tris[a.y]
 	p0, p1 := nm.verts[tri.verts[e]], nm.verts[tri.verts[(e + 1) % 3]]
 	return {p1, p0} if area2(nm.verts[tri.verts[0]], nm.verts[tri.verts[1]], nm.verts[tri.verts[2]]) > 0 else {p0, p1}
+}
+
+CLEARANCE :: f32(24) // a path keeps this far from a portal's ends, so a capsule clears corners
+
+// narrow pulls a portal's ends in by CLEARANCE; a portal narrower than twice that becomes its middle.
+@(private)
+narrow :: proc(p: [2][3]f32) -> [2][3]f32 {
+	d := p[1] - p[0]
+	w := linalg.length(d.xy)
+	if w <= 2 * CLEARANCE {
+		mid := (p[0] + p[1]) / 2
+		return {mid, mid}
+	}
+	step := d * (CLEARANCE / w)
+	return {p[0] + step, p[1] - step}
 }
 
 // funnel pulls the string through the portals (the simple stupid funnel algorithm).
@@ -440,15 +455,17 @@ dry_points_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32, allocator := cont
 	return out[:]
 }
 
-// random_point_near is the centre of a random dry triangle whose centre lies within radius of p.
+// random_point_near is the centre of a random dry triangle whose centre lies within radius of p,
+// picked by area, so open ground wins over the slivers behind stalls and furniture.
 random_point_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32) -> (point: [3]f32, ok: bool) {
-	seen := 0
+	total := f32(0)
 	for &nm, mi in m.meshes {
 		for tri, ti in nm.tris {
 			c := center(m, {i32(mi), i32(ti)})
 			if tri.flags & esm.NAV_TRI_WATER != 0 || linalg.length(c.xy - p.xy) > radius {continue}
-			seen += 1
-			if rand.int_max(seen) == 0 {point, ok = c, true} // reservoir pick
+			area := abs(area2(nm.verts[tri.verts[0]], nm.verts[tri.verts[1]], nm.verts[tri.verts[2]]))
+			total += area
+			if rand.float32() * total < area {point, ok = c, true} // weighted reservoir pick
 		}
 	}
 	return

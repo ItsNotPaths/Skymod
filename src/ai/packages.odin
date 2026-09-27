@@ -79,6 +79,7 @@ Node_State :: struct {
 	done:    bool,
 	started: bool,
 	point:   [3]f32, // a procedure's chosen spot
+	target:  Form_ID, // a procedure's chosen ref (Patrol: the next marker)
 	timer:   f32, // seconds
 }
 
@@ -129,12 +130,15 @@ run_node :: proc(c: ^Proc_Context, tree: []gamedb.Package_Node, i: int) -> Statu
 				break
 			}
 		}
-	case .Simultaneous: // done when its first child is
-		first := true
+	case .Simultaneous: // done when any child finishes; a failed child (a Guard with no post) is ignored
+		status = .Failed
 		for k := i + 1; k < int(n.end); k = int(tree[k].end) {
 			if !passes(c, tree[k]) {continue}
-			s := run_node(c, tree, k)
-			if first {status, first = s, false}
+			switch run_node(c, tree, k) {
+			case .Done:    status = .Done
+			case .Running: if status == .Failed {status = .Running}
+			case .Failed:
+			}
 		}
 	case .Random:
 		if st.child == 0 {
@@ -305,6 +309,7 @@ proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 		st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
 		st.started = true
 	}
+	if c.agent.mover.stuck {st.timer = 0}
 	if arrived(c, st.point) || c.agent.mover.stuck {st.timer -= c.dt}
 	c.agent.mover.goal = {active = true, point = st.point, radius = ARRIVED, gait = .Walk}
 	return .Running
@@ -324,9 +329,71 @@ proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Running
 }
 
-// (hole proc-patrol :tags ai :sev gap ) Patrol does nothing: wanted walk the linked-ref chain of patrol markers, waiting at each.
+// (hole patrol-marker-idle :tags ai :sev gap) a patrol never pauses at a marker: the marker's patrol data (REFR XPRD idle time, idle, topic) is not decoded.
+// proc_patrol walks the linked-ref chain of markers from the PathStart input, starting at the
+// nearest one when asked; a repeatable patrol starts over at the end of the chain.
 proc_patrol :: proc(c: ^Proc_Context) -> Status {
-	return .Done
+	PATROL_RADIUS :: f32(128)
+	db, ws := c.cond.db, c.cond.ws
+	st := &c.agent.nodes[c.node]
+	repeat := input_value(c, 2, bool) or_else true
+	if !st.started {
+		st.started = true
+		st.target = input_target(c, 0)
+		if input_value(c, 3, bool) or_else false {st.target = nearest_marker(ws, db, st.target, c.feet)}
+	}
+	if st.target == 0 {return .Failed}
+	at := worldstate.ref_pos(ws, db, st.target)
+	radius := max(input_value(c, 1, f32) or_else PATROL_RADIUS, ARRIVED)
+	if linalg.length(c.feet.xy - at.xy) <= radius {
+		next, _ := gamedb.linked_ref(db, st.target)
+		if next == 0 && repeat {next = input_target(c, 0)}
+		if next == 0 {
+			c.agent.mover.goal = {}
+			return .Done
+		}
+		st.target = next
+		at = worldstate.ref_pos(ws, db, next)
+	}
+	c.agent.mover.goal = {active = true, point = at, radius = radius, gait = gait(c)}
+	return .Running
+}
+
+// nearest_marker is the marker of the chain from `start` nearest p.
+@(private = "file")
+nearest_marker :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, start: Form_ID, p: [3]f32) -> Form_ID {
+	best, best_d := start, max(f32)
+	for m, n := start, 0; m != 0 && n < 256; n += 1 {
+		if d := linalg.length(worldstate.ref_pos(ws, db, m).xy - p.xy); d < best_d {best, best_d = m, d}
+		m, _ = gamedb.linked_ref(db, m)
+		if m == start {break}
+	}
+	return best
+}
+
+// input_value is the node's k-th input (its PKC2 slot), when it holds a T.
+@(private = "file")
+input_value :: proc(c: ^Proc_Context, k: int, $T: typeid) -> (v: T, ok: bool) {
+	tree := gamedb.package_tree(c.cond.db, c.agent.pack)
+	ins := tree[c.node].inputs
+	if k >= len(ins) {return}
+	in_ := gamedb.package_input(c.cond.db, c.agent.pack, ins[k]) or_return
+	return in_.value.(T)
+}
+
+// input_target is the ref the node's k-th input names (SpecificRef, or the actor's linked ref).
+@(private = "file")
+input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
+	t, ok := input_value(c, k, gamedb.Package_Target)
+	if !ok {return 0}
+	#partial switch t.kind {
+	case .SpecificRef: return t.form
+	case .LinkedRef:
+		ref, _ := gamedb.linked_ref(c.cond.db, c.cond.subject, t.form)
+		return ref
+	case .Self: return c.cond.subject
+	}
+	return 0
 }
 
 // (hole proc-idle-marker :tags ai :sev gap ) UseIdleMarker does nothing: wanted walk to the IDLM ref and play its idle (the idle itself is animation).
@@ -337,7 +404,7 @@ proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
 // (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
 // proc_guard walks to the package location and holds it.
 proc_guard :: proc(c: ^Proc_Context) -> Status {
-	if proc_travel(c) == .Failed {return proc_wait(c)}
+	if proc_travel(c) == .Failed {return .Failed}
 	return .Running
 }
 
