@@ -106,7 +106,7 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 @(private)
 attach_quest :: proc(vm: ^VM, db: ^gamedb.DB, q: script.Form_ID) -> int {
 	made := attach_known(vm, q, gamedb.form_scripts(db, q))
-	for a in db.form_scripts[q].aliases {
+	for a in (db.form_scripts[q] or_else {}).aliases {
 		if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {made += attach_known(vm, h, a.scripts)}
 	}
 	return made
@@ -214,7 +214,7 @@ sync_refs :: proc(vm: ^VM) {
 	clear(&ws.reset_quests)
 	for q in quests {
 		detach(vm, q)
-		for a in vm.ctx.db.form_scripts[q].aliases {
+		for a in (vm.ctx.db.form_scripts[q] or_else {}).aliases {
 			if h, ok := formid.alias_handle(q, u32(a.owner.alias)); ok {detach(vm, h)}
 		}
 		attach_quest(vm, vm.ctx.db, q)

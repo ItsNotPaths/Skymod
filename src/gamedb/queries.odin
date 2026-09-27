@@ -61,7 +61,7 @@ owner_of :: proc(db: ^DB, form: Form_ID) -> Form_ID {
 
 // is_activate_child: `child` names `parent` among its activate parents.
 is_activate_child :: proc(db: ^DB, parent, child: Form_ID) -> bool {
-	for p in db.activate_parents[child] {
+	for p in db.activate_parents[child] or_else nil {
 		if p == parent {return true}
 	}
 	return false

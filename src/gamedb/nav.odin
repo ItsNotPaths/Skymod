@@ -20,7 +20,7 @@ navmeshes_in :: proc(db: ^DB, cell: Form_ID) -> []Navmesh {
 // navmesh_of is a navmesh by its form.
 navmesh_of :: proc(db: ^DB, form: Form_ID) -> (m: Navmesh, ok: bool) {
 	cell := db.navmesh_cell[form] or_return
-	for n in db.navmeshes[cell] {
+	for n in db.navmeshes[cell] or_else nil {
 		if n.form == form {return n, true}
 	}
 	return

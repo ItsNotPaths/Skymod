@@ -171,7 +171,7 @@ reset_quest :: proc(c: ^Call, quest: Form_ID) -> bool {
 	if qb.run_once {return false}
 	worldstate.quest_reset(c.ws, quest)
 	worldstate.forget_scripts(c.ws, quest)
-	for a in c.db.form_scripts[quest].aliases {
+	for a in (c.db.form_scripts[quest] or_else {}).aliases {
 		if h, ok := formid.alias_handle(quest, u32(a.owner.alias)); ok {worldstate.forget_scripts(c.ws, h)}
 	}
 	append(&c.ws.reset_quests, quest)

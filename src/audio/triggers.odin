@@ -107,7 +107,7 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
 	am.box = 0
 	for cell in ws.attached {
-		for r in db.cell_refs[cell] {
+		for r in db.cell_refs[cell] or_else nil { // a missing key in `for x in m[k]` segfaults (odin-map-index-iteration)
 			if shape, is_box := db.triggers[r.form_id]; is_box && r.base in db.acoustic_loops && worldstate.ref_enabled(ws, db, r.form_id) {
 				pos, rot, scale := worldstate.ref_pos(ws, db, r.form_id), worldstate.ref_rot(ws, db, r.form_id), worldstate.ref_scale(ws, db, r.form_id)
 				if worldstate.segment_in_primitive(shape, pos, rot, scale, feet, feet + {0, 0, HEAD_Z}) {am.box = r.base}

@@ -1898,7 +1898,7 @@ quest_stage :: proc(db: ^DB, quest: Form_ID, stage: u16) -> (Quest_Stage, bool) 
 quest_stage_completes :: proc(db: ^DB, quest: Form_ID, stage: u16) -> bool {
 	qb, ok := quest_baseline_of(db, quest)
 	if !ok {return false}
-	for it in qb.stages[stage].items {
+	for it in (qb.stages[stage] or_else {}).items {
 		if it.flags & ITEM_COMPLETE_QUEST != 0 {return true}
 	}
 	return false

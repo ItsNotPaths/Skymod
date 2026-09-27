@@ -88,7 +88,7 @@ quest_alias_scripts :: proc(db: ^DB, quest: Form_ID, alias: i16) -> []esm.Script
 	if db == nil {
 		return nil
 	}
-	for a in db.form_scripts[quest].aliases {
+	for a in (db.form_scripts[quest] or_else {}).aliases {
 		if a.owner.alias == alias {
 			return a.scripts
 		}

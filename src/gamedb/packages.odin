@@ -390,7 +390,7 @@ package_input :: proc(db: ^DB, pack: Form_ID, index: u8) -> (Package_Input, bool
 	for input in p.inputs {
 		if input.index == index {return input, true}
 	}
-	for input in db.packages[p.template].inputs {
+	for input in (db.packages[p.template] or_else {}).inputs {
 		if input.index == index {return input, true}
 	}
 	return {}, false
