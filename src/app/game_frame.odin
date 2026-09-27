@@ -85,11 +85,10 @@ game_frame :: proc(g: ^Game) {
 
 	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
 	// hand the loop a backlog it would spend the next several frames grinding through. A menu that
-	// pauses the world stops it.
-	// (hole pause-catchup :tags (threading ui) :sev gap) world_paused is read once before the catch-up loop, so a menu a tick opens does not stop the rest of this frame's ticks.
+	// pauses the world stops it, even one a tick of this frame opens; the rest runs once it closes.
 	// (hole sim-clock :tags threading :sev gap :needs (snapshot-buffer)) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
 	g.tick.accum += 0 if world_paused(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
-	for g.tick.accum >= TICK_DT {
+	for g.tick.accum >= TICK_DT && !world_paused(g) {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1
 		g.prof.ticks += 1
@@ -147,7 +146,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (input-latch camera-from-sim sight-view-input command-queue activate-command cast-command grab-command console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts sim-temp-allocator logger-swap pause-catchup dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (input-latch camera-from-sim sight-view-input command-queue activate-command cast-command grab-command console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts sim-temp-allocator logger-swap dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	script_run_pending(g)
 	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
