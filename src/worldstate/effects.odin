@@ -45,7 +45,8 @@ end_effect :: proc(ws: ^World_State, h: Form_ID) {
 
 // advance_effect runs an effect's clock on by `dt`. Each amount term adds what its running total
 // gained since the last tick (all of it on the first); a timed effect ends at its duration.
-advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) {
+// `hurt`: it took Health from its target this tick.
+advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) -> (hurt: bool) {
 	e := &ws.effects[h]
 	if e.ended {return}
 	t0 := e.elapsed
@@ -56,9 +57,11 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) {
 		gain := term_value(db, term, e^, e.elapsed)
 		if e.applied {gain -= term_value(db, term, e^, t0)}
 		av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
+		hurt ||= !term.on_caster && av == "Health" && gain < 0
 	}
 	e.applied = true
 	if !e.lasts && e.elapsed >= e.duration + e.taper {end_effect(ws, h)}
+	return
 }
 
 // av_live is what the running effects on `actor` hold on `av`'s capacity now.
