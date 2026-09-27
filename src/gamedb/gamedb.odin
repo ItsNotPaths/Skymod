@@ -173,6 +173,7 @@ Cell :: struct {
 	location:      Form_ID, // XLCN location LCTN (0 = none; an exterior then falls back to its worldspace's)
 	zone:          Form_ID, // XEZN encounter zone ECZN (0 = none)
 	acoustic:      Form_ID, // XCAS acoustic space ASPC (0 = none)
+	music:         Form_ID, // XCMO music type MUSC (0 = none)
 }
 
 // DB is the in-memory record index. All strings / dynamic arrays are owned and freed
@@ -207,6 +208,9 @@ DB :: struct {
 	sound_categories: map[Form_ID]Sound_Category, // SNCT formID -> its parent and volume
 	sound_outputs:    map[Form_ID]Sound_Output, // SOPM formID -> its distance curve and panning
 	acoustic_loops:   map[Form_ID]Form_ID, // ASPC formID -> its ambient loop (SNAM, SNDR)
+	music_types:      map[Form_ID]Music_Type, // MUSC formID -> its priority and tracks
+	music_tracks:     map[Form_ID]Music_Track, // MUST formID -> its file, palette or silence
+	world_music:      map[Form_ID]Form_ID, // WRLD formID -> its music type (ZNAM)
 	base_sounds:      map[Form_ID]Base_Sounds, // DOOR/CONT/ACTI/FLOR/item base -> its use and done sounds
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
@@ -784,6 +788,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		sound_categories = make(map[Form_ID]Sound_Category, 32, allocator),
 		sound_outputs    = make(map[Form_ID]Sound_Output, 128, allocator),
 		acoustic_loops   = make(map[Form_ID]Form_ID, 64, allocator),
+		music_types      = make(map[Form_ID]Music_Type, 64, allocator),
+		music_tracks     = make(map[Form_ID]Music_Track, 512, allocator),
+		world_music      = make(map[Form_ID]Form_ID, 32, allocator),
 		base_sounds      = make(map[Form_ID]Base_Sounds, 8192, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
@@ -1105,6 +1112,7 @@ destroy :: proc(db: ^DB) {
 	free_nav_indexes(db)
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	free_sound_indexes(db) // descriptors, markers, categories, DOBJ defaults
+	free_music_indexes(db)
 	db^ = {}
 }
 
@@ -1597,6 +1605,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_sound_output(db, rec)
 	case s == "ASPC":
 		index_acoustic_space(db, rec, ctx.fm)
+	case s == "MUSC":
+		index_music_type(db, rec, ctx.fm)
+	case s == "MUST":
+		index_music_track(db, rec, ctx.fm)
 	case s == "CLAS":
 		index_class(db, rec)
 	case s == "VTYP":
@@ -1921,6 +1933,9 @@ index_world :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if l, lok := esm.subrecord_formid(fl, "XLCN"); lok {
 		db.world_location[rec.form_id] = esm.remap_form(fm, l)
 	}
+	if m, mok := esm.subrecord_formid(fl, "ZNAM"); mok {
+		db.world_music[rec.form_id] = esm.remap_form(fm, m)
+	}
 }
 
 @(private)
@@ -1964,6 +1979,9 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	}
 	if s, sok := esm.subrecord_formid(fl, "XCAS"); sok {
 		cell.acoustic = esm.remap_form(ctx.fm, s)
+	}
+	if m, mok := esm.subrecord_formid(fl, "XCMO"); mok {
+		cell.music = esm.remap_form(ctx.fm, m)
 	}
 	index_owner(db, rec.form_id, fl, ctx.fm)
 	if gx, gy, gok := esm.cell_grid(fl); gok {

@@ -102,6 +102,16 @@ index_base_sounds :: proc(db: ^DB, rec: esm.Record, fl: []esm.Field, fm: ^esm.Fo
 	db.base_sounds[rec.form_id] = bs
 }
 
+// asset_path reads a record's file name as an archive path under folder: "\Data\Sound\FX\x.wav",
+// "Data\Sound\FX\x.wav" and "FX\x.wav" all name sound\fx\x.wav. Lowercased.
+@(private)
+asset_path :: proc(f: esm.Field, folder: string, allocator := context.allocator) -> string {
+	name := strings.to_lower(strings.trim_right_null(string(f.data)), context.temp_allocator)
+	name = strings.trim_prefix(strings.trim_left(name, "\\"), "data\\")
+	if !strings.has_prefix(name, folder) {name = strings.concatenate({folder, name}, context.temp_allocator)}
+	return strings.clone(name, allocator)
+}
+
 // default_object is the form the DOBJ record names under an engine key ("PUSG", "DMWL").
 default_object :: proc(db: ^DB, key: string) -> Form_ID {
 	k: [4]u8
@@ -121,10 +131,7 @@ index_sound_descriptor :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	for f in fl {
 		switch f.type {
 		case "ANAM":
-			name := strings.to_lower(strings.trim_right_null(string(f.data)), context.temp_allocator)
-			name = strings.trim_prefix(strings.trim_left(name, "\\"), "data\\") // "\data\sound\fx\..." and "fx\..." both name sound\fx\...
-			if !strings.has_prefix(name, "sound\\") {name = strings.concatenate({"sound\\", name}, context.temp_allocator)}
-			append(&files, strings.clone(name, db.allocator))
+			append(&files, asset_path(f, "sound\\", db.allocator))
 		case "GNAM":
 			if v, vok := esm.field_u32(f); vok {s.category = esm.remap_form(fm, v)}
 		case "ONAM":

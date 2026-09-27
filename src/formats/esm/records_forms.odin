@@ -10,7 +10,6 @@ package esm
 //
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
 // (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
-// (hole music-records :tags records :sev gap) MUSC and MUST are never decoded — no music type can be selected.
 
 // --- keywords -------------------------------------------------------------------------
 
