@@ -1,7 +1,7 @@
 package main
 
-// Actor bodies: every loaded actor ref gets a capsule, as the player does. The only differences are
-// that nothing drives it yet and it is drawn.
+// Actor bodies: every loaded actor ref gets a capsule, as the player does. The AI drives it instead
+// of input, and it is drawn.
 
 import "core:fmt"
 import "core:math"
@@ -48,6 +48,9 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 tick_actor_bodies :: proc(g: ^Game) {
 	phys := g.fr.active_scene.phys
 	if phys == nil {return}
+	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
+	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
+	nav.rebuild(&g.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
 		for form in chunk.actors {
@@ -58,10 +61,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen)} // moved in by a script
 		}
 	}
-	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
-	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
-	nav.rebuild(&g.agents.mesh, &g.db, cells[:])
-	// (hole ai-agent :tags ai :sev blocker :needs (proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed.
+	// (hole ai-agent :tags ai :sev blocker :needs (proc-sandbox actor-load-doors)) no NPC walks: actors stand where they were placed.
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {
@@ -79,7 +79,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell
-// under it, so scripts and saves see where it is. A standing actor keeps its placement.
+// under it, so scripts and saves see where it is.
 @(private = "file")
 actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	feet := physics.character_position(&b.char)
@@ -87,7 +87,8 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	if c, ok := g.db.cells[cell]; ok && c.world_form_id != 0 {
 		if under := gamedb.cell_under(&g.db, c.world_form_id, feet); under != 0 {cell = under}
 	}
-	heading := math.PI / 2 - math.atan2(vel.y, vel.x)
+	heading := worldstate.ref_rot(&g.ws, &g.db, form).z
+	if vel != {} {heading = math.PI / 2 - math.atan2(vel.y, vel.x)}
 	worldstate.set_moved(&g.ws, form, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	b.placed = feet
 }
@@ -108,9 +109,10 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form); ok {start = p}
+	if p, ok := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); ok {start = p}
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
+		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
 	} else {
 		delete_key(&g.actor_bodies, form)
 	}

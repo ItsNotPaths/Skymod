@@ -181,7 +181,7 @@ SANDBOX_RADIUS :: f32(256)
 
 // location is the place a procedure's location input names: a centre and a radius. Object and
 // package-location kinds are not resolved.
-@(private = "file")
+@(private)
 location :: proc(c: ^Proc_Context) -> (center: [3]f32, radius: f32, ok: bool) {
 	db, ws, actor := c.cond.db, c.cond.ws, c.cond.subject
 	tree := gamedb.package_tree(db, c.agent.pack)

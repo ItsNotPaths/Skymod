@@ -3,6 +3,7 @@ package ai
 // Out-of-combat AI: every actor runs a package. A loaded actor walks its capsule with a mover.
 // An unloaded actor that travels steps cell to cell; any other waits and is placed when its cell loads.
 
+import "core:math/linalg"
 import "core:math/rand"
 import "../conditions"
 import "../gamedb"
@@ -73,9 +74,25 @@ cross_load_door :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor, door
 tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool) {
 }
 
-// (hole load-placement :tags ai :sev gap) an actor loads where it was last put; decided: when its cell loads it is placed where its package puts it (in bed at 2:00, at the stall at noon, along its route's line through the cell).
-// place_on_load is where an actor stands when its cell loads.
-place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> (feet: [3]f32, ok: bool) {
+// place_on_load is where an actor stands when its cell loads: somewhere inside the place its
+// package names, if it is not there already. The package starts there.
+place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, ok: bool) {
+	pack, quest := select_package(w, ws, db, actor)
+	if pack == 0 {return}
+	if actor not_in w.agents {w.agents[actor] = {}}
+	a := &w.agents[actor]
+	start_package(a, db, pack, quest, ws.clock.hours, feet)
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, feet = feet}
+	for n, i in gamedb.package_tree(db, pack) {
+		if n.branch != .Procedure {continue}
+		c.node = i
+		center, radius := location(&c) or_continue
+		radius = max(radius, TRAVEL_RADIUS)
+		if linalg.length(feet.xy - center.xy) <= radius {return}
+		at = nav.random_point_near(&w.mesh, center, radius) or_return
+		a.start_pos = at
+		return at, true
+	}
 	return
 }
 
