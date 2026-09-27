@@ -13,6 +13,7 @@ import "core:sync"
 
 import "../formats/esm"
 import "../formats/nif"
+import "../formid"
 import "../gamedb"
 import "../installer"
 import smath "../math"
@@ -899,7 +900,7 @@ gather_doors :: proc(t: ^Traversal, cells: []Form_ID, out: ^[dynamic]Door_Ref) {
 	clear(out)
 	for cid in cells {
 		for r in gamedb.refs_of(t.db, cid) {
-			if !r.has_tp || r.disabled {
+			if !r.has_tp || r.disabled || r.base == formid.PRISON_MARKER {
 				continue
 			}
 			model, _ := gamedb.model_of(t.db, r.base)
