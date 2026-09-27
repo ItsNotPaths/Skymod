@@ -15,7 +15,7 @@ import smath "../math"
 // (hole vfx-natives :tags vfx :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // (hole anim-natives :tags animation :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
 // (hole anim-natives :tags animation :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
-// (hole ai-natives :tags ai :sev blocker :needs (ai-agent)) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
+// (hole ai-natives :tags ai :sev blocker) Actor.EvaluatePackage (165), package and combat natives — await the actor phase.
 // (hole ai-natives :tags ai :sev blocker) the script side rides this subsystem — PathToReference needs an observable arrival fact, and pathing is the one native class whose completion time is genuinely not ours to choose.
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
@@ -23,7 +23,7 @@ import smath "../math"
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
 // (hole crime-reads :tags combat :sev gap) no read for Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime: there is no crime system.
 // (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-reads)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): there is no crime system.
-// (hole ai-reads :tags ai :sev gap :needs (ai-agent)) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
+// (hole ai-reads :tags ai :sev gap) no read for SetDontMove, SetRestrained, SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
 // (hole camera-reads :tags render :sev gap :needs (view-model)) no camera read for ForceFirstPerson/ForceThirdPerson, SetCameraTarget, ShowFirstPersonGeometry.

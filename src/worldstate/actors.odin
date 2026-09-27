@@ -264,7 +264,7 @@ av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 // ── regen ──
 // Damaged Health, Magicka and Stamina come back at max x Rate/100 x RateMult/100 per second of play,
 // on every actor, loaded or not (sources: build/out/wsP/formulas/regen_*). A rate of 0 is no regen.
-// (hole combat-regen :tags combat :sev gap :needs (combat-damage ai-agent)) regen never applies its combat multipliers (the CombatHealthRegenMult AV, which trolls and werewolves skip; fCombatMagickaRegenRateMult; fCombatStaminaRegenRateMult): nothing is in combat.
+// (hole combat-regen :tags combat :sev gap :needs (combat-damage)) regen never applies its combat multipliers (the CombatHealthRegenMult AV, which trolls and werewolves skip; fCombatMagickaRegenRateMult; fCombatStaminaRegenRateMult): nothing is in combat.
 
 Regen :: struct {
 	av, rate, mult:   string,
@@ -411,7 +411,7 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
-// (hole sneak-detection :tags (ai player) :sev gap :needs (ai-agent)) sneaking only slows an actor: nobody detects anyone, so there is no stealth meter, no Sneak XP and no sneak attack bonus.
+// (hole sneak-detection :tags (ai player) :sev gap) sneaking only slows an actor: nobody detects anyone, so there is no stealth meter, no Sneak XP and no sneak attack bonus.
 // set_sneaking puts an actor in or out of sneak mode.
 set_sneaking :: proc(ws: ^World_State, actor: Form_ID, on: bool) {
 	set_in_set(&ws.sneaking, actor, on)

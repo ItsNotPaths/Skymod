@@ -10,7 +10,7 @@ import "../../gamedb"
 import smath "../../math"
 import "../../worldstate"
 
-// (hole trigger-actors :tags (physics ai) :sev gap :needs (ai-agent)) only the player enters trigger volumes; an NPC does not, because nothing but a script moves one.
+// (hole trigger-actors :tags (physics ai) :sev gap) only the player enters trigger volumes; an NPC does not, because nothing but a script moves one.
 
 // tick_triggers sends OnTriggerEnter / OnTriggerLeave(player) for each enabled trigger in the
 // attached cells that the player's height went into or out of since the last tick. A trigger that

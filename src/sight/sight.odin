@@ -24,7 +24,7 @@ view: View
 // NPC_EYE is how high an NPC's eye sits, as a part of its height.
 NPC_EYE :: f32(0.9)
 
-// (hole los-detection :tags (query ai) :sev gap :needs (ai-agent)) an NPC's LOS is one ray from its eye to the target's middle; Skyrim asks the detection system (view cone, light, sneak).
+// (hole los-detection :tags (query ai) :sev gap) an NPC's LOS is one ray from its eye to the target's middle; Skyrim asks the detection system (view cone, light, sneak).
 has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
 	if view.space == nil || !worldstate.ref_3d_loaded(ws, db, target) {return false}
 	picks := target_picks(ws, db, target)

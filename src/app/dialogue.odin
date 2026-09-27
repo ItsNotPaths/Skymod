@@ -12,8 +12,8 @@ import "../gamedb"
 import "../script"
 import "../worldstate"
 
-// (hole dialogue-barks :tags (dialogue ai) :sev gap :needs (ai-agent)) NPCs say nothing unless the player starts a conversation: no Hello as the player passes, no idle chatter, no combat or detection lines (HELO, IDLE, combat and detection topics).
-// (hole force-greet :tags (dialogue ai quest) :sev gap :needs (ai-agent)) no ForceGreet package walks an NPC to the player to start a conversation, so a quest that waits for one stalls until the player talks to that NPC.
+// (hole dialogue-barks :tags (dialogue ai) :sev gap) NPCs say nothing unless the player starts a conversation: no Hello as the player passes, no idle chatter, no combat or detection lines (HELO, IDLE, combat and detection topics).
+// (hole force-greet :tags (dialogue ai quest) :sev gap) no ForceGreet package walks an NPC to the player to start a conversation, so a quest that waits for one stalls until the player talks to that NPC.
 
 // The topic list takes milliseconds to build, so it is rebuilt this often, not every frame: often
 // enough to show what an end fragment's stage opened.

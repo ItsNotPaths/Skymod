@@ -15,7 +15,7 @@ import "../../formid"
 import "../../gamedb"
 import "../../worldstate"
 
-// (hole scene-packages :tags (quest ai) :sev gap :needs (ai-agent)) a package action is done the moment it starts: nobody walks, sits or waits where a scene sends them, so the scene talks on from wherever its actors stand.
+// (hole scene-packages :tags (quest ai) :sev gap) a package action is done the moment it starts: nobody walks, sits or waits where a scene sends them, so the scene talks on from wherever its actors stand.
 
 tick_scenes :: proc(vm: ^VM, dt: f32) {
 	ws := vm.ctx.ws

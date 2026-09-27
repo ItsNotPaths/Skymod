@@ -28,7 +28,7 @@ transitions_destroy :: proc(t: ^Transitions) {
 	delete(t.persistent)
 }
 
-// (hole npc-change-location :tags (quest ai) :sev polish :needs (ai-agent)) only the player sends CLOC; 7 vanilla CLOC conditions run on actor 1, so an NPC's move may be meant to send it too (unsourced).
+// (hole npc-change-location :tags (quest ai) :sev polish) only the player sends CLOC; 7 vanilla CLOC conditions run on actor 1, so an NPC's move may be meant to send it too (unsourced).
 // tick_location sends OnLocationChange(old, new) to the player and its aliases, and queues a
 // Change Location story event (actor 1 the player, location 1 the old, location 2 the new), when
 // the player's location differs from the last tick's.
