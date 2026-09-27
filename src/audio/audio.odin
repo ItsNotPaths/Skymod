@@ -1,10 +1,11 @@
 package audio
 
 // Output device, voices and sound decode. The engine reads WAV and Ogg (Opus) only, either one in
-// any sound slot: the installer converts xWMA, and a mod ships whichever it likes. SDL mixes:
-// each playing sound is an audio stream bound to the one device, which SDL's audio thread asks for
-// stereo samples as it plays (feed). Any thread can play and stop; update, once a frame, places
-// the sounds around the listener and releases the finished ones.
+// any sound slot: the installer converts xWMA, and a mod ships whichever it likes. A play queues
+// the sound and returns its handle at once; the decode thread reads and decodes it, then starts
+// its stream. SDL mixes: each playing sound is an audio stream bound to the one device, which
+// SDL's audio thread asks for stereo samples as it plays (feed). Any thread can play and stop;
+// update, once a frame, places the sounds around the listener and releases the finished ones.
 
 import "base:runtime"
 import "core:c"
@@ -14,7 +15,9 @@ import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:slice"
+import "core:strings"
 import "core:sync"
+import "core:thread"
 import sdl "vendor:sdl3"
 import "../conditions"
 import "../formats/ffmpeg"
@@ -41,8 +44,9 @@ Placement :: struct {
 }
 
 Voice :: struct {
-	stream:  ^sdl.AudioStream,
+	stream:  ^sdl.AudioStream, // nil while it decodes
 	sound:   Sound, // owned; read by feed
+	cancelled: bool, // stopped while it decoded: the decode thread frees it
 	handle:  Handle,
 	gain:    f32, // before placement
 	volume:  f32, // a script's (SetInstanceVolume)
@@ -75,6 +79,24 @@ Audio :: struct {
 	listener:   [2][3]f32, // position, right
 	categories: map[gamedb.Form_ID]Category_State,
 	music:      [dynamic]gamedb.Form_ID, // the music types scripts added (MusicType.Add), oldest first
+	jobs:       [dynamic]Job, // sounds waiting for the decode thread
+	wake:       sync.Sema, // one post per job, and one to quit
+	quit:       bool,
+	decoder:    ^thread.Thread,
+}
+
+// Source is what a queued sound decodes from: a sound path, resolved to .wav or .ogg, or the bytes
+// of a file already read.
+Source :: union {
+	string,
+	[]u8,
+}
+
+// Job is one queued sound; its source is owned.
+Job :: struct {
+	voice: ^Voice,
+	vfs:   ^vfs.VFS,
+	src:   Source,
 }
 
 // init opens the default output device. Without one the game runs silent.
@@ -90,10 +112,21 @@ init :: proc(a: ^Audio) -> bool {
 		return false
 	}
 	log.infof("audio: %s, %d Hz, %d channel(s)", sdl.GetAudioDeviceName(a.device), a.spec.freq, a.spec.channels)
+	a.decoder = thread.create_and_start_with_poly_data(a, decode_loop, init_context = context)
 	return true
 }
 
 shutdown :: proc(a: ^Audio) {
+	if a.decoder != nil {
+		sync.atomic_store(&a.quit, true)
+		sync.sema_post(&a.wake)
+		thread.destroy(a.decoder) // joins
+	}
+	for j in a.jobs {
+		if j.voice.cancelled {free(j.voice)} // a queued voice still in the list is released below
+		free_source(j.src)
+	}
+	delete(a.jobs)
 	for v in a.voices {release(v)}
 	delete(a.voices)
 	delete(a.categories)
@@ -103,31 +136,91 @@ shutdown :: proc(a: ^Audio) {
 	a^ = {}
 }
 
-// play starts s, which it owns from now; 0 when there is no device. ratio scales its speed and
+// queue plays a sound from src, which it owns from now, and names it at once: the decode thread
+// reads and decodes it, then starts it. 0 when there is no device. ratio scales its speed and
 // pitch. A looping sound plays up to its loop end, then repeats the loop region until stopped.
-play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, at: Maybe(Placement) = nil, chain: [4]gamedb.Form_ID = {}) -> Handle {
-	if a.device == 0 || len(s.samples) == 0 {
-		delete(s.samples)
-		return 0
-	}
-	src := sdl.AudioSpec{format = .F32, channels = 2, freq = i32(s.rate)}
-	st := sdl.CreateAudioStream(&src, &a.spec)
-	if st == nil {
-		log.warnf("audio: %s", sdl.GetError())
-		delete(s.samples)
+queue :: proc(a: ^Audio, fs: ^vfs.VFS, src: Source, gain: f32 = 1, ratio: f32 = 1, loop := false, at: Maybe(Placement) = nil, chain: [4]gamedb.Form_ID = {}) -> Handle {
+	if a.device == 0 {
+		free_source(src)
 		return 0
 	}
 	v := new(Voice)
-	v^ = {stream = st, sound = s, gain = gain, volume = 1, ratio = ratio, chain = chain, at = at, looping = loop}
+	v^ = {gain = gain, volume = 1, ratio = ratio, chain = chain, at = at, looping = loop}
 	sync.guard(&a.mu)
-	store_gains(v, levels(a, v))
-	sdl.SetAudioStreamFrequencyRatio(st, ratio * frequency(a, v))
-	sdl.SetAudioStreamGetCallback(st, feed, v)
 	a.last += 1
 	v.handle = a.last
 	append(&a.voices, v)
-	sdl.BindAudioStream(a.device, st)
+	append(&a.jobs, Job{v, fs, src})
+	sync.sema_post(&a.wake)
 	return v.handle
+}
+
+// decode_loop is the decode thread: it takes each queued sound, reads and decodes it, and starts
+// it, until shutdown.
+@(private = "file")
+decode_loop :: proc(a: ^Audio) {
+	for {
+		sync.sema_wait(&a.wake)
+		if sync.atomic_load(&a.quit) {return}
+		job: Job
+		{
+			sync.guard(&a.mu)
+			if len(a.jobs) == 0 {continue}
+			job = pop_front(&a.jobs)
+		}
+		s: Sound
+		ok: bool
+		switch src in job.src {
+		case string: s, ok = open(job.vfs, src)
+		case []u8: s, ok = decode(src)
+		}
+		free_source(job.src)
+		start(a, job.voice, s, ok)
+		free_all(context.temp_allocator)
+	}
+}
+
+// start gives a decoded voice its stream and binds it; a voice stopped while it decoded, or one
+// that did not decode, is freed.
+@(private = "file")
+start :: proc(a: ^Audio, v: ^Voice, s: Sound, ok: bool) {
+	st: ^sdl.AudioStream
+	if ok && len(s.samples) > 0 {
+		src := sdl.AudioSpec{format = .F32, channels = 2, freq = i32(s.rate)}
+		st = sdl.CreateAudioStream(&src, &a.spec)
+		if st == nil {log.warnf("audio: %s", sdl.GetError())}
+	}
+	sync.guard(&a.mu)
+	if v.cancelled || st == nil {
+		if !v.cancelled {remove_voice(a, v)}
+		sdl.DestroyAudioStream(st)
+		delete(s.samples)
+		free(v)
+		return
+	}
+	v.sound, v.stream = s, st
+	store_gains(v, levels(a, v))
+	sdl.SetAudioStreamFrequencyRatio(st, v.ratio * frequency(a, v))
+	sdl.SetAudioStreamGetCallback(st, feed, v)
+	sdl.BindAudioStream(a.device, st)
+}
+
+@(private = "file")
+remove_voice :: proc(a: ^Audio, v: ^Voice) {
+	for w, i in a.voices {
+		if w == v {
+			ordered_remove(&a.voices, i)
+			return
+		}
+	}
+}
+
+@(private = "file")
+free_source :: proc(src: Source) {
+	switch s in src {
+	case string: delete(s)
+	case []u8: delete(s)
+	}
 }
 
 // play_descriptor plays one of a sound descriptor's files (SNDR) at its category's volume and
@@ -141,8 +234,6 @@ play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.For
 	if pos, placed := at.?; placed && d.loop == .None && gamedb.output_level(db.sound_outputs[d.output], distance(a, pos)) == 0 {
 		return 0 // out of earshot: a one-shot is never heard, so never decoded
 	}
-	s, found := open(v, rand.choice(d.files))
-	if !found {return 0}
 	down := d.attenuation + rand.float32() * d.db_variance
 	gain := gamedb.sound_volume(db, d.category) * math.pow(10, -down / 20)
 	ratio := 1 + d.freq_shift + (rand.float32() * 2 - 1) * d.freq_variance
@@ -150,7 +241,7 @@ play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.For
 	if pos, placed := at.?; placed {place = Placement{pos, db.sound_outputs[d.output]}}
 	chain: [4]gamedb.Form_ID
 	for c, i := d.category, 0; c != 0 && i < len(chain); c, i = db.sound_categories[c].parent, i + 1 {chain[i] = c}
-	return play(a, s, gain, max(ratio, 0.01), d.loop != .None, place, chain)
+	return queue(a, v, strings.clone(rand.choice(d.files)), gain, max(ratio, 0.01), d.loop != .None, place, chain)
 }
 
 playing :: proc(a: ^Audio, h: Handle) -> bool {
@@ -213,7 +304,10 @@ stop :: proc(a: ^Audio, h: Handle, fade: f32 = 0) {
 		sync.guard(&a.mu)
 		for v, i in a.voices {
 			if v.handle != h {continue}
-			if fade > 0 {
+			if v.stream == nil {
+				v.cancelled = true // the decode thread frees it
+				ordered_remove(&a.voices, i)
+			} else if fade > 0 {
 				v.fade = fade
 			} else if sync.atomic_load(&v.looping) && region(v.sound)[1] < len(v.sound.samples) {
 				sync.atomic_store(&v.looping, false)
@@ -235,6 +329,7 @@ update :: proc(a: ^Audio, pos, forward: [3]f32, dt: f32) {
 		sync.guard(&a.mu)
 		a.listener = {pos, linalg.normalize0(linalg.cross(forward, [3]f32{0, 0, 1}))}
 		#reverse for v, i in a.voices {
+			if v.stream == nil {continue} // decoding
 			if v.fade > 0 {v.faded += dt}
 			if v.fade > 0 && v.faded >= v.fade || sync.atomic_load(&v.done) && sdl.GetAudioStreamQueued(v.stream) == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
 				append(&gone, v)
@@ -295,7 +390,7 @@ store_gains :: proc(v: ^Voice, g: [2]f32) {
 
 @(private = "file")
 release :: proc(v: ^Voice) {
-	sdl.DestroyAudioStream(v.stream)
+	if v.stream != nil {sdl.DestroyAudioStream(v.stream)}
 	delete(v.sound.samples)
 	free(v)
 }
@@ -366,6 +461,25 @@ seconds :: proc(s: Sound) -> f32 {
 // decodes it. When both exist the higher-priority mount wins, so a mod's .wav overrides the
 // vanilla .ogg and a mod's .ogg the vanilla .wav.
 open :: proc(v: ^vfs.VFS, path: string, allocator := context.allocator) -> (s: Sound, ok: bool) {
+	found := resolve(v, path)
+	if found == "" {return}
+	data := vfs.read(v, found, context.temp_allocator) or_return
+	return decode(data, allocator)
+}
+
+// decode decodes a WAV or Ogg file's bytes, and reads a WAV's loop region.
+decode :: proc(data: []u8, allocator := context.allocator) -> (s: Sound, ok: bool) {
+	samples, rate, channels, err := ffmpeg.decode(data, allocator)
+	if err != "" {
+		log.warnf("audio: %s", err)
+		return
+	}
+	return {samples, rate, channels, wav_loop(data)}, true
+}
+
+// resolve is the file a sound path plays: <base>.wav or <base>.ogg, whichever the higher-priority
+// mount has; "" for neither. Temp-allocated.
+resolve :: proc(v: ^vfs.VFS, path: string) -> string {
 	base := path
 	for i := len(path) - 1; i >= 0 && path[i] != '\\' && path[i] != '/'; i -= 1 {
 		if path[i] == '.' {
@@ -378,14 +492,7 @@ open :: proc(v: ^vfs.VFS, path: string, allocator := context.allocator) -> (s: S
 		candidate := concat(base, ext)
 		if r, found := vfs.rank(v, candidate); found && r > best_rank {best, best_rank = candidate, r}
 	}
-	if best == "" {return}
-	data := vfs.read(v, best, context.temp_allocator) or_return
-	samples, rate, channels, err := ffmpeg.decode(data, allocator)
-	if err != "" {
-		log.warnf("audio: %s: %s", best, err)
-		return
-	}
-	return {samples, rate, channels, wav_loop(data)}, true
+	return best
 }
 
 @(private = "file")

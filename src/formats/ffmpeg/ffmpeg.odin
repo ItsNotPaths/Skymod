@@ -19,6 +19,7 @@ foreign import ff {
 foreign ff {
 	skyff_to_ogg :: proc(data: [^]u8, size: i64, bitrate: i32, out: ^[^]u8, out_size: ^i64) -> i32 ---
 	skyff_decode :: proc(data: [^]u8, size: i64, out: ^[^]f32, frames: ^i64, rate, channels: ^i32) -> i32 ---
+	skyff_probe :: proc(data: [^]u8, size: i64, seconds: ^f64) -> i32 ---
 	skyff_free :: proc(p: rawptr) ---
 	skyff_error :: proc(code: i32, buf: [^]u8, size: i64) ---
 }
@@ -33,6 +34,13 @@ decode :: proc(data: []u8, allocator := context.allocator) -> (samples: []f32, r
 	}
 	defer skyff_free(out)
 	return slice.clone(out[:frames * i64(ch)], allocator), int(r), int(ch), ""
+}
+
+// probe reads an audio file's length in seconds from its container, without decoding it.
+probe :: proc(data: []u8) -> (seconds: f32, ok: bool) {
+	s: f64
+	if skyff_probe(raw_data(data), i64(len(data)), &s) < 0 {return 0, false}
+	return f32(s), true
 }
 
 // to_ogg transcodes one audio file (xWMA, WAV, Ogg) to Ogg Opus at bitrate bits/s per channel.

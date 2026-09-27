@@ -4,7 +4,7 @@ package audio
 
 import "core:math/rand"
 import "core:strings"
-import "core:thread"
+import "../formats/ffmpeg"
 import "../formid"
 import "../gamedb"
 import "../vfs"
@@ -25,17 +25,6 @@ Music :: struct {
 	next:    int, // the type's next track, when it cycles
 	wait:    f32, // a silent track's seconds left
 	played:  bool, // a track of this type has started
-	loading: ^Music_Load, // a track decoding on a worker: minutes of Opus take ~300 ms
-}
-
-@(private = "file")
-Music_Load :: struct {
-	thread: ^thread.Thread,
-	v:      ^vfs.VFS,
-	file:   string, // the database's
-	kind:   formid.Form_ID, // the type it was picked for
-	sound:  Sound,
-	ok:     bool,
 }
 
 music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool, dt: f32) {
@@ -43,18 +32,7 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	if want := wanted_music(a, db, ws, in_combat); want != m.current {
 		t := db.music_types[want]
 		stop(a, m.track, 0 if t.flags & gamedb.MUSIC_ABRUPT != 0 else max(t.fade, 0.01))
-		m^ = {current = want, loading = m.loading}
-	}
-	if l := m.loading; l != nil {
-		if !thread.is_done(l.thread) {return}
-		thread.destroy(l.thread)
-		m.loading = nil
-		if l.ok && l.kind == m.current {
-			m.track = play(a, l.sound, gamedb.sound_volume(db, gamedb.default_object(db, "MDSC")))
-		} else {
-			delete(l.sound.samples)
-		}
-		free(l)
+		m^ = {current = want}
 	}
 	if m.current == 0 || playing(a, m.track) {return}
 	if m.wait > 0 {
@@ -79,10 +57,7 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	case .Silent:
 		m.wait = track.duration
 	case .Single:
-		l := new(Music_Load)
-		l^ = {v = v, file = track.file, kind = m.current}
-		l.thread = thread.create_and_start_with_poly_data(l, proc(l: ^Music_Load) {l.sound, l.ok = open(l.v, l.file)}, init_context = context)
-		m.loading = l
+		m.track = queue(a, v, strings.clone(track.file), gamedb.sound_volume(db, gamedb.default_object(db, "MDSC")))
 	case .Palette:
 	}
 }
@@ -158,14 +133,6 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 	}
 }
 
-music_destroy :: proc(m: ^Music) {
-	if l := m.loading; l != nil {
-		thread.destroy(l.thread) // joins
-		delete(l.sound.samples)
-		free(l)
-	}
-}
-
 ambient_destroy :: proc(am: ^Ambient) {
 	delete(am.markers)
 }
@@ -204,10 +171,17 @@ say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State,
 		if gamedb.output_level(p.output, distance(a, p.pos)) == 0 {return 0, 0} // out of earshot
 		at = p
 	}
+	// The line's length is needed now, so its (small) file is read and probed here; the decode
+	// thread decodes it.
 	voice := worldstate.actor_voice(ws, db, speaker)
-	s, ok := open(v, gamedb.voice_path(db, voice, info, number))
-	if shared := db.infos[info].shared; !ok && shared != 0 {s, ok = open(v, gamedb.voice_path(db, voice, shared, number))}
-	if !ok {return 0, 0}
-	secs := seconds(s)
-	return play(a, s, gamedb.sound_volume(db, gamedb.default_object(db, "DDSC")), at = at), secs
+	file := resolve(v, gamedb.voice_path(db, voice, info, number))
+	if shared := db.infos[info].shared; file == "" && shared != 0 {file = resolve(v, gamedb.voice_path(db, voice, shared, number))}
+	if file == "" {return 0, 0}
+	data, read := vfs.read(v, file)
+	secs, probed := ffmpeg.probe(data)
+	if !read || !probed {
+		delete(data)
+		return 0, 0
+	}
+	return queue(a, v, data, gamedb.sound_volume(db, gamedb.default_object(db, "DDSC")), at = at), secs
 }

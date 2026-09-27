@@ -122,6 +122,28 @@ static int read_all(Job *j, int encoding) {
 	return resample(j, NULL);
 }
 
+// finish frees whatever a job opened.
+static void finish(Job *j) {
+	if (j->out) {
+		if (j->out->pb) {
+			uint8_t *junk;
+			avio_close_dyn_buf(j->out->pb, &junk);
+			av_free(junk);
+		}
+		avformat_free_context(j->out);
+	}
+	avformat_close_input(&j->in);
+	if (j->in_io) av_freep(&j->in_io->buffer);
+	avio_context_free(&j->in_io);
+	avcodec_free_context(&j->dec);
+	avcodec_free_context(&j->enc);
+	swr_free(&j->swr);
+	if (j->fifo) av_audio_fifo_free(j->fifo);
+	av_packet_free(&j->pkt);
+	av_frame_free(&j->frame);
+	av_frame_free(&j->chunk);
+}
+
 static int open_in(Job *j, Mem *m) {
 	int r;
 	uint8_t *iobuf = av_malloc(4096);
@@ -193,24 +215,7 @@ int skyff_to_ogg(const uint8_t *in, int64_t size, int bitrate, uint8_t **out, in
 	r = 0;
 
 done:
-	if (j.out) {
-		if (j.out->pb) {
-			uint8_t *junk;
-			avio_close_dyn_buf(j.out->pb, &junk);
-			av_free(junk);
-		}
-		avformat_free_context(j.out);
-	}
-	avformat_close_input(&j.in);
-	if (j.in_io) av_freep(&j.in_io->buffer);
-	avio_context_free(&j.in_io);
-	avcodec_free_context(&j.dec);
-	avcodec_free_context(&j.enc);
-	swr_free(&j.swr);
-	if (j.fifo) av_audio_fifo_free(j.fifo);
-	av_packet_free(&j.pkt);
-	av_frame_free(&j.frame);
-	av_frame_free(&j.chunk);
+	finish(&j);
 	return r;
 }
 
@@ -253,14 +258,23 @@ int skyff_decode(const uint8_t *in, int64_t size, float **out, int64_t *frames, 
 	r = 0;
 
 done:
-	avformat_close_input(&j.in);
-	if (j.in_io) av_freep(&j.in_io->buffer);
-	avio_context_free(&j.in_io);
-	avcodec_free_context(&j.dec);
-	swr_free(&j.swr);
-	if (j.fifo) av_audio_fifo_free(j.fifo);
-	av_packet_free(&j.pkt);
-	av_frame_free(&j.frame);
+	finish(&j);
+	return r;
+}
+
+// skyff_probe reads an audio file's length in seconds from its container, without decoding it.
+int skyff_probe(const uint8_t *in, int64_t size, double *seconds) {
+	Mem m = {in, size, 0};
+	Job j = {0};
+	av_log_set_level(AV_LOG_QUIET);
+	int r = open_in(&j, &m);
+	if (r >= 0) {
+		AVStream *st = j.in->streams[j.stream];
+		if (st->duration != AV_NOPTS_VALUE) *seconds = st->duration * av_q2d(st->time_base);
+		else if (j.in->duration != AV_NOPTS_VALUE) *seconds = j.in->duration / (double)AV_TIME_BASE;
+		else r = AVERROR(EINVAL);
+	}
+	finish(&j);
 	return r;
 }
 

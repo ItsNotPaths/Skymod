@@ -651,7 +651,6 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
 	if g.up.audio {
-		audio.music_destroy(&g.music)
 		audio.ambient_destroy(&g.ambient)
 		audio.shutdown(&g.audio)
 	}
