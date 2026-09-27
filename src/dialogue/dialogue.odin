@@ -23,10 +23,10 @@ line_seconds :: proc(text: string) -> f32 {
 	return max(LINE_MIN_S, f32(len(text)) * LINE_S_PER_CHAR)
 }
 
-// Choice is a topic the player can pick, with the info it plays now.
+// Choice is a topic the player can pick, with the info it plays now. Its text is prompt(info),
+// built each frame: tags fill into temp memory.
 Choice :: struct {
 	topic, info: Form_ID,
-	prompt:      string,
 }
 
 // Greeting is what the speaker says when the player starts talking. `blocking` is its Blocking or
@@ -105,7 +105,7 @@ links :: proc(c: ^script.Call, speaker, info: Form_ID) -> []Choice {
 choice :: proc(c: ^script.Call, speaker, topic: Form_ID) -> (Choice, bool) {
 	info := pick(c, speaker, topic)
 	if info == 0 {return {}, false}
-	return {topic, info, prompt(c, info)}, true
+	return {topic, info}, true
 }
 
 @(private = "file")
