@@ -106,7 +106,7 @@ test_dialogue_greeting_and_topics :: proc(t: ^testing.T) {
 
 	topics := dialogue.topics(&tk.c, A)
 	if testing.expect_value(t, len(topics), 2) {
-		testing.expect(t, topics[0].prompt == "Ask B" && topics[1].prompt == "Ask A", "by topic priority, the silent topic left out")
+		testing.expect(t, dialogue.prompt(&tk.c, topics[0].info) == "Ask B" && dialogue.prompt(&tk.c, topics[1].info) == "Ask A", "by topic priority, the silent topic left out")
 	}
 	links := dialogue.links(&tk.c, A, 0x202)
 	testing.expect(t, len(links) == 1 && links[0].info == 0x203, "the hidden Walk Away topic is not a choice")
