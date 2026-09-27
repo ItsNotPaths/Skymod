@@ -28,11 +28,12 @@ import "../worldstate"
 
 // (hole anim-state-snapshot :tags (threading animation) :sev gap :needs (actor-view)) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
-// move teleports it and a fall does not.
+// move teleports it and a fall does not. `dead` is copied each tick, so drawing never reads worldstate.
 Actor_Body :: struct {
 	char:    physics.Character,
 	placed:  smath.Vec3,
 	capsule: Capsule,
+	dead:    bool,
 }
 
 Capsule :: struct {
@@ -78,6 +79,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
+			b.dead = worldstate.is_dead(&g.ws, &g.db, form)
 			if seat, heading, ok := ai.seated(&g.agents, &g.ws, &g.db, form); ok { // pinned: no gravity or push-out
 				if seat != b.placed {
 					physics.character_set_position(&b.char, seat)
@@ -174,7 +176,7 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 	}
 	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
-		g.actor_bodies[form] = {ch, pos, capsule}
+		g.actor_bodies[form] = {char = ch, placed = pos, capsule = capsule}
 		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
 	} else {
 		delete_key(&g.actor_bodies, form)
@@ -243,6 +245,7 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	Range :: struct {
 		form:        Form_ID,
 		first, count: u32,
+		dead:        bool,
 	}
 	verts := make([dynamic]render.Mesh_Vertex, context.temp_allocator)
 	idx := make([dynamic]u16, context.temp_allocator)
@@ -251,11 +254,11 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 		if len(verts) > 60000 {break}
 		first := u32(len(idx))
 		emit_capsule(&verts, &idx, physics.character_render_position(&b.char, g.tick.alpha), b.capsule)
-		append(&ranges, Range{f, first, u32(len(idx)) - first})
+		append(&ranges, Range{f, first, u32(len(idx)) - first, b.dead})
 	}
 	g.actor_mesh = render.upload_mesh(&g.r, verts[:], idx[:])
 	for rg in ranges {
-		color := actor_color(g, rg.form)
+		color := actor_color(rg.form, rg.dead)
 		color.a = 0.9 if rg.form == g.hover_actor else 0.6
 		render.draw_tint(&g.r, g.actor_mesh, vp, color, rg.first, rg.count)
 	}
@@ -276,12 +279,11 @@ draw_actor_nametags :: proc(g: ^Game) {
 		top := feet + {0, 0, 2 * (b.capsule.half_h + b.capsule.radius) + 12}
 		clip := vp * [4]f32{top.x, top.y, top.z, 1}
 		if clip.w <= 0 {continue}
-		dead := worldstate.is_dead(&g.ws, &g.db, f)
-		name := fmt.ctprintf("%s (DEAD)" if dead else "%s", worldstate.display_name(&g.ws, &g.db, f))
+		name := fmt.ctprintf("%s (DEAD)" if b.dead else "%s", worldstate.display_name(&g.ws, &g.db, f))
 		size := imgui.CalcTextSize(name)
 		at := imgui.Vec2{(clip.x / clip.w * 0.5 + 0.5) * w - size.x / 2, (0.5 - clip.y / clip.w * 0.5) * h - size.y}
 		imgui.DrawList_AddRectFilled(dl, at - NAMETAG_PAD, at + size + NAMETAG_PAD, 0xC000_0000, 3)
-		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(g, f)), name)
+		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(f, b.dead)), name)
 		#partial switch ai.combat_state(&g.agents, f) {
 		case .Combat: combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_20E0)
 		case .Flee:   combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_D0F0)
@@ -298,12 +300,11 @@ combat_marker :: proc(dl: ^imgui.DrawList, tip: imgui.Vec2, color: u32) {
 	imgui.DrawList_AddTriangle(dl, a, b, tip, 0xFF00_0000, 2)
 }
 
-// (hole actor-color-race :tags (threading render) :sev blocker) draw_actor_bodies runs in frame_render while the script thread owns worldstate; actor_color -> is_dead -> get -> assert_owner asserts in a debug build once an NPC capsule is drawn. Fix: the tick stores the dead flag on the Actor_Body.
 // actor_color is a bright colour hashed from the form ID, so an actor keeps it across frames. The
 // dead are grey.
 @(private = "file")
-actor_color :: proc(g: ^Game, form: Form_ID) -> [4]f32 {
-	if worldstate.is_dead(&g.ws, &g.db, form) {return {0.5, 0.5, 0.5, 1}}
+actor_color :: proc(form: Form_ID, dead: bool) -> [4]f32 {
+	if dead {return {0.5, 0.5, 0.5, 1}}
 	hue := f32((u32(form) * 2654435761) >> 8) / (1 << 24) * 6
 	x := 1 - abs(math.mod(hue, 2) - 1)
 	rgb: [3]f32
