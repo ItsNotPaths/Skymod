@@ -478,18 +478,18 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 // build_chunk gathers a cell's placeable refs into a chunk (instances + culling
 // bounds), WITHOUT resolving/uploading models (model stays nil). Cheap, main-thread:
 // no IO, no GPU. Shared by the sync loaders and the streamer.
-build_chunk :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
+build_chunk :: proc(db: ^gamedb.DB, cell_form_id: Form_ID, ws: ^worldstate.World_State = nil) -> Chunk {
 	chunk := chunk_meta(db, cell_form_id)
-	append_refs(&chunk, db, gamedb.refs_of(db, cell_form_id))
-	append_refs(&chunk, db, gamedb.actors_of(db, cell_form_id))
+	append_refs(&chunk, db, gamedb.refs_of(db, cell_form_id), ws)
+	append_refs(&chunk, db, gamedb.actors_of(db, cell_form_id), ws)
 	return chunk
 }
 
 // append_refs turns a slice of ESM refs into renderable/collidable Instances on `chunk`, skipping
-// disabled refs, marker base forms, and marker/sky/water meshes, and expanding the chunk's cull
+// disabled refs (live state when `ws` is given), marker base forms, and marker/sky/water meshes, and expanding the chunk's cull
 // bounds (CHUNK_MARGIN folded in per-ref so repeated calls accumulate correctly). Shared by
 // build_chunk (a cell's own refs) and merge_persistent (the persistent bucket for that grid cell).
-append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
+append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref, ws: ^worldstate.World_State = nil) {
 	m := smath.Vec3{CHUNK_MARGIN, CHUNK_MARGIN, CHUNK_MARGIN}
 	lo, hi := chunk.lo, chunk.hi
 	if len(chunk.instances) == 0 {
@@ -502,7 +502,7 @@ append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
 			append(&chunk.actors, r.form_id)
 			continue
 		}
-		if gamedb.ref_effective_disabled(db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
+		if !ref_built(ws, db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
 			continue
 		}
 		modl, ok := gamedb.model_of(db, r.base)
@@ -534,6 +534,15 @@ append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref) {
 	}
 }
 
+// ref_built is whether a ref gets an instance: it is enabled, or a script toggled it (built, then
+// shown or hidden by the overlay).
+@(private = "file")
+ref_built :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, r: gamedb.Ref) -> bool {
+	if ws == nil {return !gamedb.ref_effective_disabled(db, r)}
+	if d, ok := worldstate.get(ws, r.form_id); ok && .Disabled in d.live {return true}
+	return worldstate.ref_enabled(ws, db, r.form_id)
+}
+
 // merge_persistent appends the persistent-cell refs that spatially belong to this grid chunk (see
 // Scene.persistent_by_grid) as normal Instances — so persistent bridges/gates/quest set-dressing
 // load, collide, and unload with the grid cell instead of living in one always-resident chunk.
@@ -543,7 +552,7 @@ merge_persistent :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 		return
 	}
 	if bucket, ok := s.persistent_by_grid[{chunk.gx, chunk.gy}]; ok {
-		append_refs(chunk, db, bucket[:])
+		append_refs(chunk, db, bucket[:], s.ws)
 	}
 }
 
