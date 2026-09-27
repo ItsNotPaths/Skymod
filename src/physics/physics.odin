@@ -154,6 +154,7 @@ shutdown :: proc() {
 world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 	if !init() {return {}, false}
 
+	// (hole jolt-job-pool :tags (threading physics) :sev polish) each World makes its own Jolt pool of cores-1 threads; with two worlds, stream workers and a sim thread the cores are oversubscribed. Wanted: one pool all worlds share.
 	w.jobs = jolt.JobSystemThreadPool_Create(nil)
 
 	w.obj_pair = jolt.ObjectLayerPairFilterTable_Create(NUM_OBJECT_LAYERS)
@@ -712,6 +713,7 @@ deactivate :: proc(w: ^World, b: Body) {
 	jolt.BodyInterface_DeactivateBody(w.bodies, b)
 }
 
+// (hole body-pose-snapshot :tags (threading render physics) :sev gap :needs (snapshot-buffer)) render reads Jolt live, and the blend state (World.prev, awake, alpha) sits in physics. Wanted: moved and awake body poses by form ID in the snapshot; physics loses its render state.
 // body_transform returns a body's RENDER transform (position + orientation, no scale) as a
 // 4×4 matrix — translation in column 3, matching the engine's render matrices. Blended toward
 // the pose the last step started from by set_render_alpha, so a body drawn between fixed ticks

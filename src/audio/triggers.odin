@@ -28,6 +28,7 @@ Music :: struct {
 	played:  bool, // a track of this type has started
 }
 
+// (hole audio-triggers-on-sim :tags (threading audio) :sev gap :needs (audio-commands)) music_update and ambient_update run on main and read worldstate and ai.player_in_combat. Wanted: they run in the sim tick and send audio commands.
 music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool, dt: f32) {
 	if a.device == 0 {return}
 	if want := wanted_music(a, db, ws, in_combat); want != m.current {

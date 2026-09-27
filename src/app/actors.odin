@@ -26,6 +26,7 @@ import "../worldstate"
 // (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
 // (hole actor-ragdoll :tags (combat physics) :sev gap :needs (animation actor-states combat-damage)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
+// (hole anim-state-snapshot :tags (threading animation) :sev gap :needs (actor-view)) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
 Actor_Body :: struct {
@@ -47,6 +48,8 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 	return {radius, max(size.z / 2 - radius, 1)}
 }
 
+// (hole animation) Decided (user, 2026-09-27): the sim owns the animation clock. It advances each actor's (clip, t) per tick, fires the annotations, applies root motion and samples the bones combat hitboxes need; main samples the full skeleton for drawing from the same clips.
+// (hole actor-cell-lifecycle :tags (threading ai physics) :sev gap :needs (sim-cell)) actor capsules come from chunk.actors, nav.rebuild takes the chunk list and collision_ready_near reads phys_built, all from main's chunks; they must read sim cells.
 // tick_actor_bodies gives each actor in the active scene's loaded cells a capsule, moves it one
 // tick, and drops the capsules of actors that left or were disabled.
 tick_actor_bodies :: proc(g: ^Game) {
@@ -82,6 +85,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 				}
 				continue
 			}
+			// (hole root-motion-velocity :tags (animation ai physics) :sev gap :needs (animation)) actor movement is only the AI velocity. Wanted: a set point where the clip's root motion replaces or scales vel before character_move.
 			physics.character_move(phys, &b.char, vel, false, TICK_DT)
 			if vel != {} {actor_publish(g, form, &b, vel)}
 		} else {
@@ -103,6 +107,7 @@ Actor_Grab :: struct {
 	dist:  f32,
 }
 
+// (hole dev-verb-commands) the actor carry sets a Jolt character, calls ai.interrupt and writes worldstate from the frame.
 frame_actor_grab :: proc(g: ^Game) {
 	if !input.held(&g.imgr, "DevGrabActor") || g.fr.kb_cap {
 		if g.actor_grab.actor != 0 {ai.interrupt(&g.agents, g.actor_grab.actor)}
@@ -216,6 +221,7 @@ actor_box :: proc(g: ^Game, b: ^Actor_Body, grow: f32 = 0) -> [2]smath.Vec3 {
 	return {feet - {r, r, grow}, feet + {r, r, 2 * (b.capsule.half_h + b.capsule.radius) + grow}}
 }
 
+// (hole actor-pick :tags threading :sev gap :needs (actor-view)) pick_actor reads g.actor_bodies and Jolt characters; it must pick against the actor view.
 // pick_actor is the nearest actor box along a ray.
 pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f32, ok: bool) {
 	dist = max(f32)
@@ -228,6 +234,7 @@ pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f
 	return
 }
 
+// (hole actor-view :tags (threading render ai) :sev gap :needs (snapshot-buffer)) draw_actor_bodies and draw_actor_nametags walk g.actor_bodies, Jolt characters, worldstate (name, dead) and ai combat state on main. Wanted: an actor view in the snapshot (form, pose, capsule, name, dead, combat).
 // draw_actor_bodies draws each NPC capsule see-through in its own colour; the hovered one is near opaque.
 draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	render.release_mesh(&g.r, g.actor_mesh)
@@ -291,6 +298,7 @@ combat_marker :: proc(dl: ^imgui.DrawList, tip: imgui.Vec2, color: u32) {
 	imgui.DrawList_AddTriangle(dl, a, b, tip, 0xFF00_0000, 2)
 }
 
+// (hole actor-color-race :tags (threading render) :sev blocker) draw_actor_bodies runs in frame_render while the script thread owns worldstate; actor_color -> is_dead -> get -> assert_owner asserts in a debug build once an NPC capsule is drawn. Fix: the tick stores the dead flag on the Actor_Body.
 // actor_color is a bright colour hashed from the form ID, so an actor keeps it across frames. The
 // dead are grey.
 @(private = "file")

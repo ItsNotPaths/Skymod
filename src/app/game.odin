@@ -117,6 +117,7 @@ Frame_State :: struct {
 	mouse_cap, kb_cap:  bool, // ImGui owns the mouse/keyboard this frame
 }
 
+// (hole sim-struct :tags threading :sev gap) sim state (ws, repl VM, phys, character, actor_bodies, agents, detection, trav, trans, tick, published) and main state share one Game and one Frame_State (g.fr). Wanted: a Sim struct the sim thread owns.
 // Game is the whole session: everything that lives from setup to teardown. One instance,
 // on run_game's stack, always passed as ^Game — several subsystems hold pointers INTO it
 // (scene.phys → phys, scene.ws → ws, the REPL closure → noclip, save_bridge → save_ft),

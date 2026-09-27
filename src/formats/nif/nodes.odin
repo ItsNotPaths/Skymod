@@ -94,6 +94,7 @@ Block_Info :: struct {
 	inline_geom:    bool,  // SSE BSTriShape family: geometry is packed inside the shape block itself
 }
 
+// (hole prop-node-poses :tags (threading animation physics) :sev gap :needs (body-pose-snapshot animation)) a prop whose collision moves (gate, lever, drawbridge through PlayAnimation) needs node poses driven on the sim and published; body-pose-snapshot has whole-body poses only. A decorative loop (windmill, banner) may run on main alone.
 // (hole idle-graph :tags (animation unclaimed) :sev gap :needs (actor-states)) IDLE and ANIO are decoded by nothing, so no idle or furniture action can be chosen.
 // (hole animation :tags (animation unclaimed) :sev blocker :needs (hkx-porter skinned-pipeline)) node transforms are read once and baked — no skeleton, no clip sampling, nothing plays a .hkx. Actors T-pose and every animated prop is frozen.
 @(private)

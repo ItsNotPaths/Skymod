@@ -225,6 +225,7 @@ lock_ref :: proc(s: ^Scene, form_id, cell: Form_ID, locked: bool) -> bool {
 	return true
 }
 
+// (hole instance-events :tags (threading world render) :sev gap :needs (sim-cell render-chunk snapshot-buffer scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
 // apply_pending_scene_ops drains the worldstate deferred-apply queue and live-applies each change to
 // THIS scene (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write
 // the overlay synchronously (read-your-writes) but don't touch the live scene; this is what makes the
@@ -365,6 +366,7 @@ build_created_instance :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form
 		true
 }
 
+// (hole overlay-off-streamer :tags (threading world) :sev gap :needs (sim-cell instance-events)) build_overlaid_chunk, apply_overlay, ref_built and spawn_created read worldstate on main. Wanted: the sim applies the overlay to its cells and render gets the result as placements and instance events.
 // build_overlaid_chunk assembles a cell's instance layer as baseline ⊕ overlay in ONE step: the ESM
 // baseline (build_chunk) plus the runtime-created refs (spawn_created). Every cell-build path goes
 // through this — interior load_cell, the exterior streamer, the persistent cell, and the F9 rebuild —
@@ -441,6 +443,8 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 	}
 }
 
+// (hole rebuild-evict-reacquire :tags (assets world) :sev gap) the old models are released before the new ones are acquired, so with an eviction budget trim can evict a model the rebuilt chunk needs, and nothing loads it again: the ref stays invisible with no collision. Acquire first.
+// (hole release-from-tick :tags (threading assets) :sev gap :needs (instance-events)) model_release (and so trim and evict_model, which free GPU buffers) runs in the tick through scene ops. Wanted: all cache refcounting on main, driven by instance events.
 // rebuild_chunk_overlay rebuilds one resident chunk's instances as baseline ⊕ created refs ⊕ deltas.
 rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^Chunk) {
 	// Drop old object bodies (the terrain body stays in chunk.bodies) + old instances + their index.
@@ -464,6 +468,7 @@ rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^
 	chunk.phys_done = false // object collision rebuilds via sync_physics; terrain body untouched
 }
 
+// (hole scene-ops-gpu :tags (threading world assets) :sev gap) apply_pending_scene_ops runs in the tick and this decodes and uploads a model synchronously; the model resolve must move to main.
 // resolve_created_models synchronously resolves the model for every resident CREATED ref whose model
 // isn't loaded yet (created refs aren't enqueued by the streamer, so they'd never draw otherwise).
 // The GPU half of an overlay re-apply; kept separate from reconcile_overlay so that stays testable.

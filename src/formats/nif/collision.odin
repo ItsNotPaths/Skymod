@@ -96,6 +96,7 @@ Collision_Constraint :: struct {
 	max_friction: f32,
 }
 
+// (hole collision-blob-abi :tags (assets unclaimed) :sev wish :needs (collision-store)) Collision uses Odin slices and matrix[4,4]f32; a store filled from Rust needs a fixed C layout (flat arrays, stated column order).
 Collision :: struct {
 	shapes:      []Collision_Shape,
 	bodies:      []Collision_Body,

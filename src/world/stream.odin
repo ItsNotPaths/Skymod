@@ -252,6 +252,7 @@ stream_destroy :: proc(st: ^Streamer) {
 	st^ = {}
 }
 
+// (hole stream-requests :tags (threading world assets) :sev gap :needs (sim-cell)) the streamer picks cells from main's camera and builds everything itself. Decided (user, 2026-09-27): the streamer loads every asset kind (meshes, textures, collision, skeletons, clips) for every consumer; the sim requests what the live cells need and owns placement; the streamer picks visual-only distant LOD (terrain, object LOD, grass) from the camera itself.
 // stream_update is called every frame with the player's world position. It re-windows
 // only when the player changes cell (cheap early-out otherwise), then drains decoded
 // models into the GPU under the per-frame budget.
@@ -435,6 +436,7 @@ snap_to :: proc(v, step: i32) -> i32 {
 	return i32(math.round(f32(v) / f32(step))) * step
 }
 
+// (hole cell-handoff :tags (threading world physics) :sev gap :needs (sim-cell sim-drain stream-requests)) rewindow and load_streamed_cell pick the live cells and add and remove Jolt bodies on main. Decided (user, 2026-09-27): the sim decides which cells are live and builds their bodies; the streamer only delivers the collision blobs it asked for, and a drain leaves no request half-applied.
 // rewindow (cheap, on cell crossing) computes the desired cell→LOD set around the player,
 // unloads chunks that left the window or changed LOD, and REPLANS the pending load queue.
 // The actual building happens in drain_loads under LOAD_BUDGET — so a crossing never
@@ -462,6 +464,7 @@ rewindow :: proc(st: ^Streamer) {
 				d_snap := int(max(abs(cgx - snap_gx), abs(cgy - snap_gy)))
 				lod = max(lod_for(d_snap, st.full_radius), 1) // coarse rings: snap-anchored
 			}
+			// (hole gamedb-for-streamer :tags (assets unclaimed) :sev wish) the streamer queries gamedb (cell_at, refs_of, model_of, cell_terrain); a streamer in Rust needs a C-ABI read view of gamedb or its own index.
 			if cid, ok := gamedb.cell_at(st.db, st.world_fid, st.center_gx + dx, st.center_gy + dy);
 			   ok {
 				desired[cid] = {lod, d_player}

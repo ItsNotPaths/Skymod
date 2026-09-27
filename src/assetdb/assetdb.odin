@@ -144,7 +144,7 @@ capped_mips :: proc(mips: []render.Tex_Mip) -> []render.Tex_Mip {
 // budget is shared across every Cache, but each Cache trims only its own cold list.
 MODEL_CACHE_BYTES := 0
 
-// (hole cache-eviction :tags (assets unclaimed) :sev gap) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk.
+// (hole cache-eviction :tags (assets unclaimed) :sev gap :needs (rebuild-evict-reacquire release-from-tick collision-store)) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk.
 // TEXTURE_CACHE_BYTES is the texture eviction budget (bytes) — the same cold-LRU scheme as
 // MODEL_CACHE_BYTES but for the texture cache (D1 slice 2: textures are ~83% of a region's footprint).
 // 0 (default) = eviction OFF. Set from settings `texture_cache_mb`. Terrain-ground textures are PINNED
@@ -162,6 +162,7 @@ Tex_Entry :: struct {
 	pinned: bool,
 }
 
+// (hole model-id-intern :tags (threading assets) :sev gap :needs (collision-store)) models are keyed by lowercased path strings and held as ^Model. Wanted: a stable u32 model ID shared by placements, the collision store and render, so no string or pointer crosses the seam.
 // Cache owns every loaded model + unique texture and frees them on destroy. Mutated
 // only on the main thread (upload_cpu_model / get_model); the worker never touches it.
 Cache :: struct {
@@ -518,6 +519,7 @@ furniture_markers :: proc(c: ^Cache, modl: string) -> []nif.Furniture_Marker {
 	return markers
 }
 
+// (hole cache-mutation-from-tick :tags (threading assets) :sev gap :needs (collision-store)) projectile_node and furniture_markers (from the AI hook) write the GPU cache map from the tick; their data must come from the collision store.
 // projectile_node is where a model launches projectiles, in model space: its ProjectileNode, read once.
 // MAIN THREAD.
 projectile_node :: proc(c: ^Cache, modl: string) -> (matrix[4, 4]f32, bool) {

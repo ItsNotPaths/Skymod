@@ -52,6 +52,7 @@ script_start :: proc(g: ^Game) {
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
+	// (hole sight-view-input :tags (threading input) :sev gap :needs (input-latch)) sight.view is a package global main builds from g.cam, g.cur_phys and render.aspect; the sim must build it from the latched Sim_Input and its own physics world.
 	sight.view = {g.cur_phys, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r))}
 	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
 	clear(&g.loaded_cells)
@@ -74,6 +75,7 @@ script_join :: proc(g: ^Game) {
 	g.ws.script_phase = false
 }
 
+// (hole sim-drain :tags (threading save ui) :sev gap :needs (command-queue)) only the script phase can drain. Wanted: sim_drain finishes the tick and applies queued commands, then the sim is parked with nothing in flight and main may touch its state; sim_resume starts it.
 // script_run_pending runs a pending script phase to the end: a tick's scripts finish before the
 // next tick's sim.
 script_run_pending :: proc(g: ^Game) {

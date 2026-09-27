@@ -70,6 +70,7 @@ Interact :: struct {
 	dist:     f32, // current reach (wheel-adjusted)
 }
 
+// (hole activate-command :tags (threading input player) :sev gap) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: it appends to ws.activations like a script's Activate, with the target the sim resolved.
 // frame_interact resolves the crosshair target for this frame and drives the Activate action against
 // it. Runs after frame_traversal (auto doors) and frame_inspect, before frame_hud (which publishes
 // g.fr.act to the prompt and draws). A no-op'd target just leaves the reticle.
@@ -120,6 +121,7 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
+// (hole cast-command :tags (threading input magic) :sev gap :needs (command-queue)) casting and the sneak toggle call set_sneaking and script.cast_hand on main; they must be commands.
 // frame_cast casts the spell in a hand when its button fires, at what the crosshair is on, and
 // the Sneak key puts the player in or out of sneak mode.
 frame_cast :: proc(g: ^Game) {
@@ -176,6 +178,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		harvest(g, form, base, by)
 	case .Container:
 		if by == formid.PLAYER {open_container(g, form)}
+	// (hole mount-attach :tags (threading animation player) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != formid.PLAYER {break}
@@ -195,6 +198,7 @@ move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
 	worldstate.relocate(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), tp.pos, tp.rot)
 }
 
+// (hole command-queue :tags (threading input) :sev gap) ws.activations, ws.fires and ws.jail_orders are the only queues into the tick; everything else main does calls sim code directly. Wanted: one Sim_Command queue main fills and the tick drains first.
 // tick_activations runs the activations scripts requested since the last tick.
 tick_activations :: proc(g: ^Game) {
 	for a in g.ws.activations {activate(g, a.target, a.by, a.default_only)}
@@ -210,6 +214,7 @@ grab_begin :: proc(g: ^Game) {
 	log.infof("grab: holding 0x%08X — mouse to aim, wheel for reach, release to drop", u32(g.interact.press_form))
 }
 
+// (hole grab-command :tags (threading input physics) :sev gap :needs (command-queue)) telekinesis kicks a Jolt body from main every frame; the sim must hold the grab target and servo it each tick.
 // grab_update servos the held body toward the aim point (down the crosshair ray at the wheel-set
 // reach) each frame. Velocity-driven (not teleported) so it collides on the way and the clutter
 // clamps keep it stable; the body stays awake because we set its velocity every frame.

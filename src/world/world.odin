@@ -144,6 +144,7 @@ pretty_hidden :: proc(s: ^Scene, inst: ^Instance) -> bool {
 	return s.pretty && inst.model != nil && inst.model.untextured
 }
 
+// (hole body-pose-snapshot) every draw pass reaches Jolt through here (and draw's body_position for articulated items); they must read the published pose.
 // instance_world returns the instance's live render transform: its baked static placement, or —
 // for a movable-clutter instance carried by a dynamic body (Phase 3b) — that placement moved by
 // the body's pose. Derivation: a model vertex's world position is world·v; after the body moves
@@ -191,6 +192,7 @@ Instance_Vis :: enum u8 {
 // Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
 Form_ID :: gamedb.Form_ID
 
+// (hole sim-cell :tags (threading world physics) :sev gap :needs (collision-store)) Instance and Chunk mix render data, placement and Jolt bodies. Wanted: a sim cell (placements, bodies, actors, overlay, resident index) keyed by form ID and owned by the sim.
 // Instance is one placed reference: its model (shared, nil until uploaded) referenced
 // by path, the raw REFR placement, and a door teleport if this is a load door.
 Instance :: struct {
@@ -326,6 +328,7 @@ scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Scene {
 	}
 }
 
+// (hole render-chunk :tags (threading render) :sev gap :needs (sim-cell)) cull_begin keeps ^Chunk pointers the tick can invalidate, and the draw passes write inst.model, hover, sel and dyn_debug into shared structs. Wanted: render chunks main owns.
 // cull_begin rebuilds the per-frame flat chunk list (s.frame_chunks) from the chunk map — one
 // map walk that every subsequent draw/shadow pass reuses instead of walking the map itself. Call
 // ONCE per frame for a scene, AFTER all streaming/loading mutations and BEFORE its first draw
@@ -473,6 +476,7 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	return chunk
 }
 
+// (hole render-cell-populate :tags (threading world render) :sev gap :needs (sim-cell model-id-intern)) render chunks are built beside the sim data in one struct. Wanted: when a cell goes live the sim sends render its visible placements (form, model ID, transform), and instance events after that.
 // build_chunk gathers a cell's placeable refs into a chunk (instances + culling
 // bounds), WITHOUT resolving/uploading models (model stays nil). Cheap, main-thread:
 // no IO, no GPU. Shared by the sync loaders and the streamer.
@@ -612,6 +616,7 @@ load_worldspace :: proc(s: ^Scene, db: ^gamedb.DB, world_form_id: Form_ID) -> in
 	return total
 }
 
+// (hole loaded-cells-handoff :tags (threading world script) :sev gap :needs (cell-handoff)) the streamer appends g.loaded_cells on main and script_start swaps it; the sim must take loaded cells from its own live set.
 // note_loaded tells whoever listens that a cell is now resident at full detail.
 @(private)
 note_loaded :: proc(s: ^Scene, cell: Form_ID) {
@@ -880,6 +885,7 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	}
 }
 
+// (hole pick-on-render :tags (threading render) :sev gap :needs (body-pose-snapshot render-chunk)) hover_pick, pick and probe_ray walk chunks with live Jolt poses; picking on main must use render chunks and published poses.
 // pick_nearest ray-casts (origin + t·dir, dir normalized) against loaded instances and
 // returns the nearest hit's chunk + index, by PRECISE ray-vs-FACE — so small detail
 // meshes and foliage are selectable, not just whatever has the biggest bounding sphere.

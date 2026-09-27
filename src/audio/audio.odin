@@ -225,6 +225,7 @@ free_source :: proc(src: Source) {
 	}
 }
 
+// (hole audio-events-back :tags (threading audio script) :sev gap :needs (audio-commands)) scenes and dialogue wait for a voice line and scripts for a sound instance to end; they read a returned duration today. Wanted: audio sends 'handle ended' events back to the sim.
 // play_descriptor plays one of a sound descriptor's files (SNDR) at its category's volume and
 // static attenuation, with a random part of its dB and frequency variance; placed at `at` under
 // its output model, else flat. Given a world state, it plays only when its conditions pass on
@@ -323,6 +324,7 @@ stop :: proc(a: ^Audio, h: Handle, fade: f32 = 0) {
 	if gone != nil {release(gone)} // outside mu: destroying a stream waits for its feed
 }
 
+// (hole audio-emitter-follow :tags (threading audio) :sev gap :needs (audio-commands snapshot-buffer)) a sound on a moving ref needs that ref's position each frame. Wanted: audio reads emitter positions from the published poses, not from worldstate.
 // update places the sounds around the listener (its position and facing, game units) and
 // releases the ones that played to their end.
 update :: proc(a: ^Audio, pos, forward: [3]f32, dt: f32) {

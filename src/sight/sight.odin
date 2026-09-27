@@ -57,7 +57,7 @@ range :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID) -> f
 	return r
 }
 
-// (hole light-at-point :tags (query ai) :sev gap) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit.
+// (hole light-at-point :tags (query ai) :sev gap) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit. It runs on the sim: build it from LIGH refs, the cell lighting and the game clock and weather, never from render's lighting state.
 // light_at is how lit a point is, 0 dark .. 1 fully lit.
 light_at :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, p: smath.Vec3) -> f32 {
 	return 1

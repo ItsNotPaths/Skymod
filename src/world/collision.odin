@@ -25,6 +25,7 @@ import "../render"
 // burst of newly-resolved models can't stall a frame on QuickHull/tree builds.
 PHYS_BUDGET :: 8
 
+// (hole collision-store :tags (threading physics assets) :sev gap) body building reads collision from assetdb.Model in the GPU cache (model_ptr, is_failed, m.collision). Wanted: a CPU collision store the sim owns, filled by the stream workers.
 // sync_physics creates collision bodies for loaded instances whose model has resolved but
 // whose bodies aren't built yet, up to `budget` instances. Call once per frame (main thread)
 // after stream_update. No-op if the scene has no physics world. Returns how many instances it
@@ -125,6 +126,7 @@ build_chunk_physics :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 	build_chunk_terrain_body(s, db, chunk)
 }
 
+// (hole terrain-body-from-cell :tags (threading physics) :sev gap :needs (cell-handoff)) the terrain trimesh is built on main at stream load; it is pure gamedb, so the sim builds it from the cell ID when the cell goes live.
 // build_chunk_terrain_body adds a static trimesh collision body for a cell's LAND terrain,
 // built from the SAME Z-up heightmap geometry the renderer uses (build_terrain_verts) — so
 // collision matches the visual ground exactly. A trimesh (not Jolt's Y-up HeightFieldShape)
@@ -283,6 +285,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 	}
 }
 
+// (hole collision-debug-snapshot :tags (threading physics) :sev gap :needs (snapshot-buffer)) the K hitbox view reads Jolt shapes and body transforms from render. Wanted: the sim publishes the debug lines while the view is on.
 // draw_collision_debug draws the collision wireframe: cached per-chunk STATIC geometry, plus a
 // per-frame rebuild of the DYNAMIC bodies at their LIVE pose (so a shoved item's box follows it).
 // The dynamic mesh is the same geometry the physics build used, drawn at instance_world (= the body's

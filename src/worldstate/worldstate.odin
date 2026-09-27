@@ -188,6 +188,7 @@ Runtime :: struct {
 @(thread_local)
 on_script_thread: bool
 
+// (hole owner-asserts :tags threading :sev gap :needs (sim-struct)) only get, upsert, created_in, get_created and activation_blocked assert the owner; direct field reads (jailed, barks, talking, force_greet, quests) go unchecked. Wanted: every worldstate entry point asserts the sim thread, or main while parked.
 // assert_owner checks that the calling thread owns worldstate (script_phase).
 assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
 	when ODIN_DEBUG {assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)}

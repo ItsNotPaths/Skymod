@@ -86,6 +86,8 @@ game_frame :: proc(g: ^Game) {
 	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
 	// hand the loop a backlog it would spend the next several frames grinding through. A menu that
 	// pauses the world stops it.
+	// (hole pause-catchup :tags (threading ui) :sev gap) world_paused is read once before the catch-up loop, so a menu a tick opens does not stop the rest of this frame's ticks.
+	// (hole sim-clock :tags threading :sev gap :needs (snapshot-buffer)) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
 	g.tick.accum += 0 if world_paused(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
 	for g.tick.accum >= TICK_DT {
 		g.tick.accum -= TICK_DT
@@ -95,6 +97,7 @@ game_frame :: proc(g: ^Game) {
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
 	frame_force_greet(g)
+	// (hole snapshot-buffer :tags (threading render) :sev gap) there is no snapshot: main blends by writing alpha into the Jolt world. Wanted: the sim publishes a snapshot per tick with its tick time into a buffer main reads without waiting; main blends the two newest.
 	if g.cur_phys != nil {physics.set_render_alpha(g.cur_phys, g.tick.alpha)}
 
 	frame_camera(g)
@@ -133,16 +136,18 @@ game_frame :: proc(g: ^Game) {
 	// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 	// exactly one frame — UI string formatting, draw lists, transient buffers.
 	// Wiped here, every frame.
+	// (hole sim-temp-allocator :tags threading :sev gap) the tick's temp allocations (ray_hits, xform_points, add_static_mesh) live until this per-frame wipe, and loadui_frame wipes temp in the middle of a tick. Wanted: the tick gets its own temp arena, reset per tick.
 	free_all(context.temp_allocator)
 }
 
+// (hole tick-profile :tags threading :sev polish) game_tick has one phys timer, and g.prof is written by both sides; each tick part (jail, activations, scene select, locomotion, actor bodies, projectiles, physics, traversal, scripts) needs its own timer in a sim-owned profile.
 // game_tick is ONE fixed simulation step — everything whose outcome must not depend on the
 // display rate. The previous tick's scripts finish first and their activations run (a door
 // crossing is a transition, between ticks). Then scene select re-homes the capsule before it
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (world physics) :sev gap) the sim tick runs on the render thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): the game tick gets its own thread. Render then needs a published snapshot of poses and instances instead of reading Jolt and the chunks live.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (input-latch camera-from-sim sight-view-input command-queue activate-command cast-command grab-command console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts sim-temp-allocator logger-swap pause-catchup dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	script_run_pending(g)
 	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
@@ -225,6 +230,7 @@ frame_diag :: proc(g: ^Game) {
 @(private = "file")
 frame_overlay :: proc(g: ^Game) {
 	if tools.debug_overlay(g.p.dt, g.logging.persisting, g.logging.persist_path, &g.pretty) {
+		// (hole logger-swap :tags threading :sev gap) persist_run swaps the logger and frees the old one on main; a sim thread holding the old logger would log through freed memory. Wanted: a swap other threads can read safely.
 		if slog.persist_run(g.logging) {
 			context.logger = g.logging.logger // re-install: persist_run added a sink
 		}
@@ -295,6 +301,7 @@ frame_overlay :: proc(g: ^Game) {
 	// Dev console: evaluate the submitted line on the gameplay REPL and echo the
 	// captured output (results / print / errors). Falls back to a bare echo if the
 	// REPL failed to init.
+	// (hole console-command :tags threading :sev gap :needs (command-queue sim-events)) the console evaluates Lua on the gameplay VM from main, and repl_set_selection writes it. Wanted: a line is a command, its output comes back as an event.
 	if cmd := tools.console_panel(&g.console); cmd != "" {
 		tools.console_printf(&g.console, "> %s", cmd)
 		if g.repl_ok {
@@ -306,6 +313,7 @@ frame_overlay :: proc(g: ^Game) {
 	}
 }
 
+// (hole active-scene-pointer :tags (threading world) :sev gap :needs (sim-cell transition-request)) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
 // frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
 // interior (the streamer is paused there). Pure — no side effects — so the frame can call it
 // even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
@@ -363,6 +371,7 @@ frame_look :: proc(g: ^Game) {
 	if !g.fr.mouse_cap {camera_look(&g.cam, g.p.input.look)}
 }
 
+// (hole input-latch :tags (threading input player) :sev gap) the tick reads main's live g.p.input (move, fast, jump), g.fr.kb_cap and g.cam.yaw. Wanted: main latches one Sim_Input per tick and the tick reads only that.
 // tick_locomotion walks the player capsule one fixed tick: camera-relative WASD at the current
 // yaw, Shift sprint, Space jump, in whichever world the capsule is homed to. Free-fly moves in
 // frame_camera instead — no solver, so it has nothing to keep deterministic.
@@ -383,6 +392,7 @@ tick_locomotion :: proc(g: ^Game) {
 	physics.character_move(g.cur_phys, &g.character, hv, move.z > 0.5, TICK_DT)
 }
 
+// (hole player-pose-snapshot :tags (threading player render) :sev gap :needs (snapshot-buffer)) the camera reads character_render_position (Character.prev plus live Jolt). Wanted: the player's pose in the snapshot.
 // frame_camera puts the eye where this frame should see it: the capsule's position blended
 // across the tick the frame sits inside (walking looks smooth above 60 fps), or the free-fly
 // camera flown at render rate.
@@ -398,6 +408,7 @@ frame_camera :: proc(g: ^Game) {
 	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)} // keep the body under the free camera
 }
 
+// (hole dev-verb-commands :tags (threading input) :sev gap :needs (command-queue)) the drop, shove and noclip keys write Jolt and g.noclip from the frame; they must be commands.
 // frame_debug_verbs handles the physics-verification keys: G drop-test ball, K hitbox
 // wireframe toggle, H clutter shove.
 @(private = "file")
@@ -441,6 +452,7 @@ frame_persistence :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "QuickLoad") {quickload(g)}
 }
 
+// (hole drain-saves :tags (threading save) :sev gap :needs (sim-drain)) quicksave and quickload call script_run_pending, then do sim work inline on main (player_follow, player_publish, load_from_file, reapply_overlay_resident, player_restore); they must park the sim for the whole save or load.
 quicksave :: proc(g: ^Game) {
 	script_run_pending(g) // a save lands between whole ticks
 	_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
@@ -512,6 +524,7 @@ player_publish :: proc(g: ^Game) {
 	cell := g.trav.cur_int_cell
 	feet := g.cam.pos - {0, 0, EYE_HEIGHT}
 	if g.trav.mode != .Interior {
+		// (hole worldspace-owner :tags (threading world) :sev gap :needs (sim-struct)) player_publish and traversal read the worldspace from the streamer (st.world_fid); the sim must own the active worldspace and tell the streamer.
 		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
 		cell = gamedb.cell_under(&g.db, world_fid, feet)
 	}
@@ -520,6 +533,7 @@ player_publish :: proc(g: ^Game) {
 	g.published = {cell, feet}
 }
 
+// (hole transition-request) a script's MoveTo on the player reaches traversal_go_to and a load screen from the tick.
 // player_follow places the player where a script moved its ref (MoveTo, SetPosition) since the
 // last player_publish.
 player_follow :: proc(g: ^Game) {
@@ -602,6 +616,7 @@ frame_traversal :: proc(g: ^Game) {
 	}
 }
 
+// (hole camera-from-sim :tags (threading player) :sev gap :needs (input-latch player-pose-snapshot)) the tick reads g.cam.pos (capsule creation in frame_scene_select, frame_traversal, player_publish) and player_teleport writes g.cam. Wanted: the sim owns the player's feet; main's camera is the published eye plus main's own look.
 // player_teleport moves the player's feet outright — camera AND capsule. Both must move:
 // frame_camera reads the eye position back off the capsule, so setting only the camera snaps
 // straight back next frame. A crossing that also swaps physics world leaves the capsule to frame_scene_select
@@ -612,6 +627,7 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	if g.char_ok {physics.character_set_position(&g.character, feet)}
 }
 
+// (hole transition-request :tags (threading world) :sev gap :needs (sim-drain sim-events)) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
@@ -628,6 +644,7 @@ traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	}
 }
 
+// (hole dev-verb-commands) Ctrl+X disable_ref and Ctrl+B create_ref change worldstate, chunks and Jolt from the frame.
 // frame_inspect is inspect mode: hold Ctrl to highlight the model under the mouse cursor (a
 // ray through the cursor, not the screen centre); left-click selects the highlighted one for
 // the Inspector panel (and as the console's `sel`). Plus the Ctrl-hover mutation verbs:
@@ -733,6 +750,7 @@ frame_render :: proc(g: ^Game) {
 	interior_active := g.interiors_on && g.interiors.active
 
 	t_render := time.tick_now()
+	// (hole render-inputs-snapshot :tags (threading render) :sev gap :needs (snapshot-buffer active-scene-pointer weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
 	env := lighting_env(&g.lights.active, g.cam.pos)
 	shadows_on := g.shadow_dist > 0 && g.lights.active.shadow_strength > 0 && !in_interior
 	cascades: Cascades
@@ -797,6 +815,7 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
+			// (hole dev-verb-commands) the drop balls have no form ID, so body-pose-snapshot will not carry them; publish them with the dev verb output.
 			for b in g.drops {
 				render.draw_mesh(&g.r, g.drop_marker, vp, physics.body_transform(&g.phys, b), {})
 			}

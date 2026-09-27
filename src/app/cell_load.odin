@@ -811,6 +811,7 @@ Door_Hit :: struct {
 Traversal :: struct {
 	mode:        Traversal_Mode,
 	ext_scene:   ^world.Scene, // streamed exterior (borrowed; never destroyed here)
+	// (hole traversal-stream-control :tags (threading world) :sev gap :needs (transition-request stream-requests)) traversal holds the streamer and scenes and calls stream_pause, collapse, retarget and begin_load, and reads chunk LODs in resident(). Wanted: the sim sends a stream request and gets a 'bubble ready' reply.
 	st:          ^world.Streamer, // exterior streamer (borrowed)
 	db:          ^gamedb.DB,
 	v:           ^vfs.VFS,
@@ -1061,6 +1062,7 @@ resident :: proc(t: ^Traversal, pos: smath.Vec3) -> bool {
 	return ok && chunk.lod == 0
 }
 
+// (hole transition-request) enter_interior builds the scene with the renderer (scene_init(t.r), load_cell GPU uploads, the loadui progress callback) and pauses the streamer on the calling thread.
 // enter_interior swaps to a freshly-loaded interior cell. The exterior streamer is paused
 // (and its window collapsed to a small fixed footprint) the first time we leave it, so the
 // immediate surroundings stay warm for an instant return while the far LOD/terrain rings —

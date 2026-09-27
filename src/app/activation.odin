@@ -85,6 +85,7 @@ classify_base :: proc(db: ^gamedb.DB, base: gamedb.Form_ID) -> Activate_Kind {
 	return .Activator
 }
 
+// (hole hud-target :tags (threading ui) :sev gap :needs (input-latch snapshot-buffer)) the crosshair target is resolved on main from worldstate, actor bodies and Jolt picks. Wanted: the sim resolves it from the latched look ray and publishes it.
 // resolve_activation casts a ray down the screen centre and resolves what it hits into an
 // Activation_Target for this frame. No world state is mutated (uses world.probe_ray). Names come
 // from gamedb; strings are borrowed (valid for the DB's lifetime) — no allocation.
