@@ -162,6 +162,8 @@ witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kin
 	switch kind {
 	case .Steal:      add = i32(f32(value) * f.crime.steal_multiplier)
 	case .Pickpocket: add = i32(f.crime.pickpocket)
+	if kind in (bit_set[Crime_Kind]{.Assault, .Murder, .Pickpocket}) {ws.crime_victims[{victim, offender}] = true}
+	if unreported_against(ws, db, victim) {return .Unreported}
 	case .Trespass:   add = i32(f.crime.trespass)
 	case .Assault:    add = i32(f.crime.assault)
 	case .Murder:     add = i32(f.crime.murder)
@@ -173,15 +175,37 @@ witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kin
 	if kind in VIOLENT_CRIMES {b.violent += add} else {b.nonviolent += add}
 	learn_bounty(ws, db, knower, offender, b)
 	return true
+// unreported_against: `victim` (an actor, or an owner) is, or is a member of, a faction whose members'
+// crimes nobody reports (FACT DATA 0x800; 33 vanilla factions, the Companions among them).
+@(private = "file")
+unreported_against :: proc(ws: ^World_State, db: ^gamedb.DB, victim: Form_ID) -> bool {
+	if f, ok := faction(ws, db, victim); ok {return f.flags & esm.FACT_DO_NOT_REPORT_CRIMES != 0}
+	for id in actor_factions_now(ws, db, victim) {
+		if f, _ := faction(ws, db, id); f.flags & esm.FACT_DO_NOT_REPORT_CRIMES != 0 {return true}
+	}
+	return false
 }
 
-// (hole crime-groups :tags combat :sev gap) a crime group (FACT CRGR, an FLST) does nothing but ride along in the JAIL and ESJA events, and GetInSharedCrimeFaction (13 quest conditions) reads 0. Unsourced what sharing one means: vanilla's one list (CrimeFactionsList) holds the 9 holds, Imperial, Sons and PlayerFaction, so it cannot mean shared bounties.
-// counts is the crime faction `knower` reports `kind` to, if it tracks crime, reports and does not
-// ignore that crime.
+}
+
+// shared_crime_faction is GetInSharedCrimeFaction: `a` and `b` report to one crime faction, or `b`'s
+// is in `a`'s crime group. A crime group is otherwise only data scripts walk (C03RampageQuest calls
+// SetPlayerEnemy on each faction in CrimeFactionsList; CK Faction page: "other purposes are
+// unknown"): no bounty is shared through it.
+// (hole crime-group-reading :tags combat :sev polish) unsourced: GetInSharedCrimeFaction read as "same crime faction, or in the subject's crime group"; its 13 vanilla uses are quest conditions.
+shared_crime_faction :: proc(ws: ^World_State, db: ^gamedb.DB, a, b: Form_ID) -> bool {
+	fa, fb := crime_faction(ws, db, a), crime_faction(ws, db, b)
+	if fa == 0 || fb == 0 {return false}
+	if fa == fb {return true}
+	f, _ := faction(ws, db, fa)
+	return f.crime_group != 0 && list_has(ws, db, f.crime_group, fb)
+}
+
+// counts is the crime faction `knower` reports `kind` to, if it tracks crime and does not ignore it.
 @(private = "file")
 counts :: proc(ws: ^World_State, db: ^gamedb.DB, knower: Form_ID, kind: Crime_Kind) -> (gamedb.Faction, bool) {
 	f, ok := faction(ws, db, crime_faction(ws, db, knower))
-	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & (esm.FACT_DO_NOT_REPORT_CRIMES | IGNORES[kind]) != 0 {return {}, false}
+	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & IGNORES[kind] != 0 {return {}, false}
 	return f, true
 }
 

@@ -220,7 +220,7 @@ FACTION_FLAGS := [?]struct {
 	{"ignore_trespass", esm.FACT_IGNORE_TRESPASS},
 	{"ignore_pickpocket", esm.FACT_IGNORE_PICKPOCKET},
 	{"ignore_werewolf", esm.FACT_IGNORE_WEREWOLF},
-	{"do_not_report", esm.FACT_DO_NOT_REPORT_CRIMES},
+	{"unreported_against_members", esm.FACT_DO_NOT_REPORT_CRIMES},
 	{"vendor", esm.FACT_VENDOR},
 }
 
