@@ -132,14 +132,23 @@ archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	return ""
 }
 
-// effect_terms_of is the __effect terms of an effect's classes, once they loaded.
+// effect_terms_of is the __effect terms of an effect's classes, once they loaded. The terms share
+// their classes' formulas.
 @(private)
 effect_terms_of :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> []Effect_Term {
-	out := make([dynamic]Effect_Term, context.temp_allocator)
+	if terms, ok := ws.effect_terms[e.effect]; ok {return terms}
+	out := make([dynamic]Effect_Term)
 	for name in effect_classes(ws, db, e.effect) {
 		if c, ok := ws.effect_classes[name]; ok {append(&out, ..c.terms[:])}
 	}
+	ws.effect_terms[e.effect] = out[:]
 	return out[:]
+}
+
+@(private)
+forget_effect_terms :: proc(ws: ^World_State) {
+	for _, terms in ws.effect_terms {delete(terms)}
+	clear(&ws.effect_terms)
 }
 
 // remove_effect drops an ended effect whose instance has stopped ticking.
@@ -219,6 +228,7 @@ Effect_Src :: struct {
 // set_effect_class compiles a class's __effect table when the class loads. A bad formula warns and
 // drops only its term.
 set_effect_class :: proc(ws: ^World_State, class: string, srcs: []Effect_Src, claims, pure: bool) {
+	forget_effect_terms(ws)
 	c := Effect_Class{terms = make([dynamic]Effect_Term), claims = claims, pure = pure}
 	for s in srcs {
 		f, err := formula.compile(s.src, EFFECT_VARS)

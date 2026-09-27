@@ -154,6 +154,7 @@ Runtime :: struct {
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
+	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -201,6 +202,7 @@ init :: proc(ws: ^World_State) {
 	ws.quest_steps = make([dynamic]Quest_Step)
 	ws.info_runs = make([dynamic]Info_Run)
 	ws.effect_classes = make(map[string]Effect_Class)
+	ws.effect_terms = make(map[Form_ID][]Effect_Term)
 }
 
 destroy :: proc(ws: ^World_State) {
@@ -235,6 +237,8 @@ destroy :: proc(ws: ^World_State) {
 		free_effect_class(&c)
 	}
 	delete(ws.effect_classes)
+	forget_effect_terms(ws)
+	delete(ws.effect_terms)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}
