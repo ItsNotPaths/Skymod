@@ -106,7 +106,6 @@ game_date :: proc(ws: ^World_State) -> (year, month, day: i64, hour: f64) {
 	return year, month, day, math.mod(ws.clock.hours, 24)
 }
 
-// (hole start-weekday :tags quest :sev polish) that 17 Last Seed 4E 201 is a Morndas is from memory, not the data: check the wait menu on a new game.
 // weekday is the day of the week: 0 Sundas, 1 Morndas .. 6 Loredas.
 weekday :: proc(ws: ^World_State) -> i64 {
 	today := ws.clock.start_day + i64(math.floor(ws.clock.hours / 24))
