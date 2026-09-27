@@ -1,7 +1,10 @@
 -- pex: firetrap 9ed382fc
 -- fireTrap waited initialDelay, then polled every 0.01s firing a dart every firingDelay until
 -- shotcount ran out or the trap unloaded. Now a windup timer, then a per-shot cooldown timer.
+-- Papyrus spaced the shots far wider than firingDelay: each pass waited a frame per native call
+-- (the Wait, every link of GetNthLinkedRef, Fire), so 11 darts took 2-3 s. SHOT_EVERY keeps that.
 local rt = require('skymod.rt')
+local SHOT_EVERY = 0.22
 
 return function(C)
 	C.FireSeq = rt.sequence("Windup", "Firing", "Done")
@@ -45,7 +48,7 @@ return function(C)
 			self.dartweapon:fire(self.currentlink, self.dartammo)
 			self.shotcount = self.shotcount + 1
 			if self.loop then self:ResetLimiter() end
-			self.firesw = self.firingdelay
+			self.firesw = math.max(self.firingdelay, SHOT_EVERY)
 		end
 	end
 end
