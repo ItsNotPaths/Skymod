@@ -137,6 +137,13 @@ Saved_Said :: struct {
 	hour:          f64,
 }
 
+// Saved_Bounty is a faction-wide bounty (knower 0) or one only `knower` holds.
+Saved_Bounty :: struct {
+	offender, knower, faction: Form_ID,
+	bounty:                    Bounty,
+	enemy:                     bool,
+}
+
 Saved_Awareness :: struct {
 	viewer, target: Form_ID,
 	awareness:      Awareness,
@@ -321,6 +328,8 @@ Save_Body :: struct {
 	scenes:        []Saved_Scene,
 	packages_done: []Saved_Said,    // speaker = the actor, info = the package
 	awareness:     []Saved_Awareness,
+	bounties:      []Saved_Bounty,
+	unreported:    []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
 	los_regs:      []Los_Reg,
@@ -496,6 +505,9 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, hour in ws.packages_done {append(&packages_done, Saved_Said{k[0], k[1], hour})}
 	awareness := make([dynamic]Saved_Awareness, 0, len(ws.awareness), context.temp_allocator)
 	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
+	bounties := make([dynamic]Saved_Bounty, 0, len(ws.wanted) + len(ws.known_bounties), context.temp_allocator)
+	for k, w in ws.wanted {append(&bounties, Saved_Bounty{offender = k[0], faction = k[1], bounty = w.bounty, enemy = w.enemy})}
+	for k, b in ws.known_bounties {append(&bounties, Saved_Bounty{offender = k[1], knower = k[0], faction = b.faction, bounty = b.bounty})}
 	random_said := make([dynamic]Saved_Alias, 0, len(ws.random_said), context.temp_allocator)
 	for k in ws.random_said {append(&random_said, Saved_Alias{k[0], k[1]})}
 	exclusive := make([dynamic]Saved_Alias, 0, len(ws.exclusive), context.temp_allocator)
@@ -570,6 +582,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		scenes        = scenes[:],
 		packages_done = packages_done[:],
 		awareness     = awareness[:],
+		bounties      = bounties[:],
+		unreported    = save_set(ws.unreported),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
 		los_regs      = ws.los_regs[:],
@@ -802,6 +816,17 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		target, tok := rf(remap, have_remap, r.target)
 		if vok && tok {ws.awareness[{viewer, target}] = r.awareness}
 	}
+	for r in body.bounties {
+		offender, ook := rf(remap, have_remap, r.offender)
+		faction, fok := rf(remap, have_remap, r.faction)
+		if !ook || !fok {continue}
+		if r.knower == 0 {
+			ws.wanted[{offender, faction}] = {r.bounty, r.enemy}
+		} else if knower, kok := rf(remap, have_remap, r.knower); kok {
+			ws.known_bounties[{knower, offender}] = {faction, r.bounty}
+		}
+	}
+	load_set(&ws.unreported, body.unreported, remap, have_remap, rf)
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -1030,6 +1055,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	}
 	for r in body.packages_done {add_slot(&seen, r.speaker);add_slot(&seen, r.info)}
 	for r in body.awareness {add_slot(&seen, r.viewer);add_slot(&seen, r.target)}
+	for r in body.bounties {add_slot(&seen, r.offender);add_slot(&seen, r.knower);add_slot(&seen, r.faction)}
+	for a in body.unreported {add_slot(&seen, a)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

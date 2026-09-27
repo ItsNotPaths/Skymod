@@ -26,11 +26,79 @@ Bounty :: struct {
 	violent, nonviolent: i32,
 }
 
-// bounty is what `knower` knows its crime faction holds on `offender`: the faction-wide bounty,
-// else its own local one.
-// (hole crime-store :tags (combat save) :sev gap) no bounty store: nobody knows any bounty. Wanted: per (offender, crime faction) a faction-wide violent and nonviolent bounty, per knower a local one, infamy, the enemy and expelled flags, shared through the crime group (CRGR), saved.
-bounty :: proc(ws: ^World_State, knower, offender: Form_ID) -> Bounty {
-	return {}
+// Wanted is what a crime faction holds on an offender, faction-wide.
+Wanted :: struct {
+	bounty: Bounty,
+	enemy:  bool, // SetPlayerEnemy: the faction attacks the offender
+}
+
+// Known_Bounty is a bounty only its knower holds, for the knower's crime faction at the time.
+Known_Bounty :: struct {
+	faction: Form_ID,
+	bounty:  Bounty,
+}
+
+total :: proc(b: Bounty) -> i32 {return b.violent + b.nonviolent}
+
+// higher is the bounty with the larger total: a spreading bounty overrides a lower one.
+higher :: proc(a, b: Bounty) -> Bounty {return a if total(a) >= total(b) else b}
+
+// wanted is what `faction` holds on `offender` faction-wide.
+wanted :: proc(ws: ^World_State, offender, faction: Form_ID) -> Wanted {
+	return ws.wanted[{offender, faction}]
+}
+
+set_wanted :: proc(ws: ^World_State, offender, faction: Form_ID, w: Wanted) {
+	if w == {} {
+		delete_key(&ws.wanted, [2]Form_ID{offender, faction})
+		return
+	}
+	ws.wanted[{offender, faction}] = w
+}
+
+set_faction_bounty :: proc(ws: ^World_State, offender, faction: Form_ID, b: Bounty) {
+	w := wanted(ws, offender, faction)
+	w.bounty = {max(b.violent, 0), max(b.nonviolent, 0)}
+	set_wanted(ws, offender, faction, w)
+}
+
+// bounty is what `knower` knows its crime faction holds on `offender`: the faction-wide bounty or
+// its own local one, whichever is higher.
+bounty :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID) -> Bounty {
+	faction := crime_faction(ws, db, knower)
+	if faction == 0 {return {}}
+	b := wanted(ws, offender, faction).bounty
+	if k, ok := ws.known_bounties[{knower, offender}]; ok && k.faction == faction {b = higher(b, k.bounty)}
+	return b
+}
+
+// learn_bounty gives `knower` a local bounty on `offender`; a higher one it already knows stays.
+learn_bounty :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, b: Bounty) {
+	faction := crime_faction(ws, db, knower)
+	if faction == 0 {return}
+	ws.known_bounties[{knower, offender}] = {faction, higher(bounty(ws, db, knower, offender), b)}
+}
+
+// pay_bounty clears what `faction` holds on `offender`, faction-wide and in every member's memory.
+pay_bounty :: proc(ws: ^World_State, offender, faction: Form_ID) {
+	w := wanted(ws, offender, faction)
+	w.bounty = {}
+	set_wanted(ws, offender, faction, w)
+	paid := make([dynamic][2]Form_ID, context.temp_allocator)
+	for k, b in ws.known_bounties {
+		if k[1] == offender && b.faction == faction {append(&paid, k)}
+	}
+	for k in paid {delete_key(&ws.known_bounties, k)}
+}
+
+// forget_bounty drops what `knower` alone knows of `offender`.
+forget_bounty :: proc(ws: ^World_State, knower, offender: Form_ID) {
+	delete_key(&ws.known_bounties, [2]Form_ID{knower, offender})
+}
+
+// set_reports_crime is Game.SetPlayerReportCrime for any offender: false keeps its crimes unreported.
+set_reports_crime :: proc(ws: ^World_State, offender: Form_ID, reports: bool) {
+	set_in_set(&ws.unreported, offender, !reports)
 }
 
 // crime_faction is the faction an actor reports crimes to and guards for: a script's, else its CRIF.
@@ -46,12 +114,12 @@ set_crime_faction :: proc(ws: ^World_State, actor, faction: Form_ID) {
 
 // report_crime is an offence by `offender` against `victim` (an actor, or an owner for Steal and
 // Trespass), worth `value` gold for a theft.
-// (hole crime-report :tags (combat ai) :sev gap :needs (crime-store hostility)) an offence reaches nobody: wanted each member of a crime faction that has detected the offender to know the CRVA bounty (assault 40, murder 1000, theft value x0.5, pickpocket 25, trespass 5, escape 100, werewolf 1000; horse theft iCrimeGoldStealHorse 100) unless the faction ignores that crime, and the ASSU event. SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing. A hit or kill between hostile actors is no crime.
+// (hole crime-report :tags (combat ai) :sev gap :needs (hostility)) an offence reaches nobody: wanted each member of a crime faction that has detected the offender to know the CRVA bounty (assault 40, murder 1000, theft value x0.5, pickpocket 25, trespass 5, escape 100, werewolf 1000; horse theft iCrimeGoldStealHorse 100) unless the faction ignores that crime, and the ASSU event. SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing. A hit or kill between hostile actors is no crime.
 report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) {
 }
 
 // spread_crime passes local bounties between the members of a crime faction, after detection.
-// (hole crime-spread :tags (combat ai) :sev gap :needs (crime-store crime-report)) a local bounty never moves: wanted a member who knows it passing it to a member it detects (the higher bounty wins), faction-wide when a knower sees a guard of the faction (IsGuardFaction plus CRIF) or when half the members know it in a faction with no guards, and dropped when its last knower dies.
+// (hole crime-spread :tags (combat ai) :sev gap :needs (crime-report)) a local bounty never moves: wanted a member who knows it passing it to a member it detects (the higher bounty wins), faction-wide when a knower sees a guard of the faction (IsGuardFaction plus CRIF) or when half the members know it in a faction with no guards, and dropped when its last knower dies.
 spread_crime :: proc(ws: ^World_State, db: ^gamedb.DB) {
 }
 
@@ -62,6 +130,6 @@ is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool
 }
 
 // send_to_jail serves `actor`'s bounty with `faction`.
-// (hole jail :tags (combat world player) :sev gap :needs (crime-store time-skip)) nobody goes to jail: wanted the move to the jail marker, the items to PLCN and stolen ones to STOL, the JOUT outfit, bounty/100 days at most 7 (UESP), skill progress lost (more skills for longer sentences, UESP), the bounty cleared and the JAIL event; SendPlayerToJail and ClearPrison are its natives. The vanilla scripts only watch; the engine does it all.
+// (hole jail :tags (combat world player) :sev gap :needs (time-skip)) nobody goes to jail: wanted the move to the jail marker, the items to PLCN and stolen ones to STOL, the JOUT outfit, bounty/100 days at most 7 (UESP), skill progress lost (more skills for longer sentences, UESP), the bounty cleared and the JAIL event; SendPlayerToJail and ClearPrison are its natives. The vanilla scripts only watch; the engine does it all.
 send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) {
 }

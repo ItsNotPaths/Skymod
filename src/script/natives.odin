@@ -17,7 +17,6 @@ import smath "../math"
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
-// (hole crime-reads :tags combat :sev gap :needs (crime-store)) no crime gold natives: Get/Set/ModCrimeGold (and Violent, NonViolent), PlayerPayCrimeGold, SetPlayerEnemy, SetPlayerReportCrime. The Player-named ones act on ref 0x14's row.
 // (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-report crime-arrest jail)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): nothing sends them.
 // (hole ai-reads :tags ai :sev gap) no read for SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
@@ -92,6 +91,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
 	register_inventory(reg) // ObjectReference/Actor inventory store
 	register_actor(reg) // Actor values + faction/relationship store
+	register_crime(reg) // bounties
 	register_ai(reg)
 	register_ref_reads(reg) // position, links, cell and location of a ref
 	register_forms(reg) // FormList, Location, keywords, race, game time

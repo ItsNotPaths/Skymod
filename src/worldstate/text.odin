@@ -11,7 +11,7 @@ import "../formats/esm"
 import "../gamedb"
 
 // (hole alias-short-name :tags (dialogue records) :sev polish) <Alias.ShortName=...> shows the full name: NPC_ SHRT is not decoded.
-// (hole text-tag-crime :tags (dialogue combat) :sev polish :needs (crime-store)) <BribeCost> and <CrimeGold> show 0: there is no crime system.
+// (hole text-tag-crime :tags (dialogue combat) :sev polish :needs (persuasion)) <BribeCost> and <CrimeGold> show 0: fill_tags is not told the speaker whose crime faction <CrimeGold> reads (worldstate.bounty), and no bribe cost exists.
 
 // fill_tags is `raw` with its tags filled in for `quest`; `subject` is the form it names, if any.
 fill_tags :: proc(ws: ^World_State, db: ^gamedb.DB, raw: string, quest: Form_ID, subject: Form_ID = 0) -> string {

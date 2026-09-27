@@ -98,8 +98,8 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	360 = fn_get_in_current_loc_alias,
 	365 = fn_is_child,
 	372 = fn_is_in_list,
-	375 = fn_resting,
-	376 = fn_resting,
+	375 = fn_get_crime_gold_violent,
+	376 = fn_get_crime_gold_nonviolent,
 	402 = fn_resting,
 	403 = fn_get_relationship_rank,
 	408 = fn_is_killer,
@@ -111,10 +111,10 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	448 = fn_has_perk,
 	449 = fn_get_faction_relation,
 	453 = fn_get_player_teammate,
-	459 = fn_resting,
+	459 = fn_get_crime_gold,
 	476 = fn_is_protected,
 	491 = fn_resting,
-	497 = fn_resting,
+	497 = fn_can_pay_crime_gold,
 	499 = fn_resting,
 	503 = fn_get_allow_world_interactions,
 	513 = fn_resting,
@@ -233,6 +233,36 @@ fn_get_is_alias_ref :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 	return yes(ref != 0 && ref == on)
 }
 
+// The crime gold functions: with a faction, `on`'s bounty there; without, the bounty `on` knows on
+// the actor it talks to (a guard's line asks about the player's crimes).
+@(private = "file")
+condition_bounty :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> worldstate.Bounty {
+	if f := p1(c); f != 0 {return worldstate.wanted(ctx.ws, on, f).bounty}
+	return worldstate.bounty(ctx.ws, ctx.db, on, ctx.target)
+}
+
+@(private = "file")
+fn_get_crime_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.total(condition_bounty(ctx, c, on))), true
+}
+
+@(private = "file")
+fn_get_crime_gold_violent :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(condition_bounty(ctx, c, on).violent), true
+}
+
+@(private = "file")
+fn_get_crime_gold_nonviolent :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(condition_bounty(ctx, c, on).nonviolent), true
+}
+
+// CanPayCrimeGold: the actor `on` talks to carries the gold for the bounty `on` knows on it.
+@(private = "file")
+fn_can_pay_crime_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	b := worldstate.bounty(ctx.ws, ctx.db, on, ctx.target)
+	return yes(worldstate.inv_count(ctx.ws, ctx.db, ctx.target, formid.GOLD) >= worldstate.total(b))
+}
+
 // GetQuestVariable is deprecated and does not work in Skyrim (CK wiki): it reads 0.
 @(private = "file")
 fn_get_quest_variable :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
@@ -318,7 +348,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
-// (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-store trespass crime-arrest jail)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
+// (hole crime-conditions :tags (combat quest) :sev gap :needs (trespass crime-arrest jail)) IsTrespassing, GetTrespassWarningLevel, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
