@@ -1,0 +1,18 @@
+# C ABI over the ba2 crate (0BSD): skybsa_pack writes a v105 archive from a spool file.
+# Built by build/build-ba2.sh into vendor/ba2; src/formats/bsa/pack.odin binds it.
+[package]
+name = "skybsa"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+ba2 = { version = "=3.0.1", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] } # ba2 needs a backend; pure Rust, no system zlib
+memmap2 = "0.9"
+
+[profile.release]
+panic = "abort"

@@ -15,7 +15,10 @@
 #   - kenney input prompts : CC0 button-prompt glyph art (keyboard/mouse + every
 #                pad family Kenney draws). build/bake_prompts.sh packs the 64px
 #                tier into src/prompts/prompts.pak, which the binary #load's.
-# (hole ffmpeg-dep :tags audio :sev gap) ffmpeg is not vendored yet. It must be a static, trimmed ffmpeg (xwma demux + wmav2 decode, wav and ogg/opus both ways, libopus) so the installer converts xWMA and the engine decodes Ogg with nothing on the user's machine.
+#   - ffmpeg   : libopus + a trimmed static ffmpeg, built by build/build-ffmpeg.sh. The installer
+#                converts xWMA to Ogg (Opus) with it; the engine decodes WAV and Ogg with it.
+#   - ba2      : the ba2 crate (0BSD) and its deps, vendored with `cargo vendor` from the pins
+#                in build/bsa_glue/Cargo.lock; build/build-ba2.sh builds the glue offline.
 #
 # vendor/ is download-only: never hand-write code there. (.gitignore drops it.)
 set -euo pipefail
@@ -37,6 +40,12 @@ LUA_VERSION="5.4.9"
 LUA_SHA256="2335b6c582a52654f94612bf10d2f4672805d05329aa6568b1d8cd9e5c6fb8e6"
 # Kenney "Input Prompts" 1.5 (CC0 1.0 — https://kenney.nl/assets/input-prompts).
 # The media hash in the URL pins the exact 1.5 artifact.
+# ffmpeg release (sha256 of the tarball as first fetched; ffmpeg.org signs, it does not
+# publish sums) + libopus with the sum xiph publishes.
+FFMPEG_VERSION="9.0.1"
+FFMPEG_SHA256="cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635"
+OPUS_VERSION="1.6"
+OPUS_SHA256="b7637334527201fdfd6dd6a02e67aceffb0e5e60155bbd89175647a80301c92c"
 KENNEY_PROMPTS_URL="https://www.kenney.nl/media/pages/assets/input-prompts/8de120163f-1777890371/kenney_input-prompts_1.5.zip"
 
 # Build SDL3 as a static lib and INSTALL it into the vendor/sdl3 prefix. We
@@ -267,6 +276,38 @@ fetch_input_prompts() {
     echo "  done: vendor/kenney-input-prompts ($(find "$dest" -name '*.png' | wc -l) glyphs)"
 }
 
+# Fetch the ffmpeg + libopus sources into vendor/ffmpeg/src, then build them (build/build-ffmpeg.sh).
+fetch_ffmpeg() {
+    _fetch_checked() { # name url sha256 dest
+        local name="$1" url="$2" sum="$3" dest="$4"
+        [ -n "$(ls -A "$dest" 2>/dev/null)" ] && return
+        echo "  downloading $name..."
+        local work
+        work="$(mktemp -d)"
+        curl -fsSL "$url" -o "$work/src"
+        echo "$sum  $work/src" | sha256sum -c --quiet - || { echo "error: $name checksum mismatch" >&2; exit 1; }
+        mkdir -p "$dest"
+        tar xf "$work/src" --strip-components=1 -C "$dest"
+        rm -rf "$work"
+    }
+    _fetch_checked "ffmpeg $FFMPEG_VERSION" "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+        "$FFMPEG_SHA256" "$VENDOR/ffmpeg/src/ffmpeg"
+    _fetch_checked "opus $OPUS_VERSION" "https://downloads.xiph.org/releases/opus/opus-${OPUS_VERSION}.tar.gz" \
+        "$OPUS_SHA256" "$VENDOR/ffmpeg/src/opus"
+    bash "$ROOT/build/build-ffmpeg.sh"
+}
+
+# Vendor the ba2 crate graph pinned by build/bsa_glue/Cargo.lock (cargo checks each crate's sum),
+# then build the glue offline (build/build-ba2.sh).
+fetch_ba2() {
+    command -v cargo >/dev/null || { echo "error: cargo is required to vendor ba2" >&2; exit 1; }
+    if [ ! -d "$VENDOR/ba2/crates" ]; then
+        echo "  vendoring ba2 crates..."
+        cargo vendor --locked --quiet --manifest-path "$ROOT/build/bsa_glue/Cargo.toml" "$VENDOR/ba2/crates" >/dev/null
+    fi
+    bash "$ROOT/build/build-ba2.sh"
+}
+
 echo "Fetching dependencies into vendor/ ..."
 
 echo "==> sdl3 ($SDL3_VERSION)"
@@ -286,6 +327,12 @@ fetch_lua
 
 echo "==> kenney input prompts (1.5)"
 fetch_input_prompts
+
+echo "==> ffmpeg ($FFMPEG_VERSION, opus $OPUS_VERSION)"
+fetch_ffmpeg
+
+echo "==> ba2 (build/bsa_glue/Cargo.lock)"
+fetch_ba2
 
 echo ""
 echo "All deps ready."

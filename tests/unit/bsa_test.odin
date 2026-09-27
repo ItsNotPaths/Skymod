@@ -85,6 +85,41 @@ test_bsa_lz4_frame_extract :: proc(t: ^testing.T) {
 	}
 }
 
+@(test)
+test_bsa_pack_roundtrip :: proc(t: ^testing.T) {
+	dir := unit_temp_dir(t, "skymod_bsa_pack")
+	defer os.remove_all(dir)
+	defer delete(dir)
+	spool, _ := filepath.join({dir, "spool"}, context.temp_allocator)
+	out, _ := filepath.join({dir, "out.bsa"}, context.temp_allocator)
+
+	// Spool order is not archive order: pack sorts folders and files by hash.
+	bytes := "crate!OGGSvoiceNIF-BARREL"
+	testing.expect(t, os.write_entire_file(spool, transmute([]u8)bytes) == nil, "write spool")
+	entries := [?]bsa.Pack_Entry {
+		{"meshes\\clutter\\crate.nif", 0, 6},
+		{"sound\\voice\\skyrim.esm\\malenord\\hello.ogg", 6, 9},
+		{"meshes\\clutter\\barrel.nif", 15, 10},
+	}
+	testing.expect(t, bsa.pack(out, spool, entries[:]), "pack")
+
+	arc, ok := bsa.open(out)
+	testing.expect(t, ok, "open packed bsa")
+	defer bsa.close(&arc)
+	testing.expect_value(t, len(arc.entries), 3)
+	matched := 0
+	for want in entries {
+		for e in arc.entries {
+			if e.path != string(want.path) {continue}
+			data, eok := bsa.extract(&arc, e)
+			defer delete(data)
+			testing.expectf(t, eok && string(data) == bytes[want.offset:][:want.size], "bytes for %s", e.path)
+			matched += 1
+		}
+	}
+	testing.expect_value(t, matched, len(entries))
+}
+
 bsa_roundtrip :: proc(t: ^testing.T, version: u32) {
 	folders := test_folders()
 	archive_bytes := build_synthetic_bsa(version, folders)
