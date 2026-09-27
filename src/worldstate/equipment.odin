@@ -7,7 +7,7 @@ package worldstate
 
 import "../gamedb"
 
-// (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) and weapon damage (WEAP DATA) are not read; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
+// (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) is not read and weapon damage (Equip_Slot.damage) is not applied; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
 // (hole npc-auto-equip :tags ai :sev gap :needs gear-stats) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
 
 Worn :: struct {

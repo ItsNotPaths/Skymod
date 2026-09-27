@@ -11,6 +11,7 @@ package main
 //   odin run tools/esmdump -- <plugin.esm> --cells <substr> # interior cells matching
 //   odin run tools/esmdump -- <plugin.esm> --cell <edid>    # one cell's placed refs
 //   odin run tools/esmdump -- <plugin.esm> --quest <hex>    # one quest: stages, aliases, scenes, packages
+//   odin run tools/esmdump -- <plugin.esm> --item <hex>...  # equip slot, damage and projectile of items / PROJ
 //   odin run tools/esmdump -- <plugin.esm> --forms [edid]   # keyword/link/faction/magic/alias survey
 //   odin run tools/esmdump -- <plugin.esm> --gmst [substr] # game-setting (GMST) survey
 //   odin run tools/esmdump -- <plugin.esm> --mesg [substr] # message (MESG) survey
@@ -150,6 +151,17 @@ main :: proc() {
 	}
 	if len(os.args) >= 4 && os.args[2] == "--cell" {
 		dump_cell(&db, os.args[3])
+		return
+	}
+	if len(os.args) >= 4 && os.args[2] == "--item" {
+		for a in os.args[3:] {
+			id, _ := strconv.parse_uint(a, 16)
+			form := gamedb.Form_ID(id)
+			slot, sok := gamedb.equip_slot_of(&db, form)
+			proj, pok := gamedb.projectile_of(&db, form)
+			model, _ := gamedb.model_of(&db, form)
+			fmt.printfln("0x%08X model=%q\n  slot %v %v\n  proj %v %v", form, model, sok, slot, pok, proj)
+		}
 		return
 	}
 	if len(os.args) >= 4 && os.args[2] == "--quest" {

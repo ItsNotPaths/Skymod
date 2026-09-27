@@ -252,7 +252,7 @@ DB :: struct {
 	form_kinds:    map[Form_ID]Form_Kind, // form -> Papyrus class kind (QUST/GLOB/FACT); absent = Unknown
 	plugin_slots:  map[string]u32, // lower-cased plugin filename -> the global slot of its own forms (owned keys)
 	zones:                 map[Form_ID]Zone,    // ECZN -> its levels, flags and location
-	equip_slots:           map[Form_ID]Equip_Slot, // ARMO/WEAP/SPEL/... -> where it equips
+	equip_slots:           map[Form_ID]Equip_Slot, // ARMO/WEAP/SPEL/... -> where it equips, and a weapon's or ammo's damage
 	equip_types:           map[Form_ID]Equip_Type, // EQUP -> the slots it stands for
 	ref_zones:             map[Form_ID]Form_ID, // REFR/ACHR -> its own XEZN zone (absent = its cell's)
 	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
@@ -260,6 +260,7 @@ DB :: struct {
 	activate_parents:      map[Form_ID][]Form_ID, // REFR/ACHR -> its XAPR activate parents (owned)
 	packages:              map[Form_ID]Package, // PACK -> its decoded package (packages.odin)
 	ingredients:           map[Form_ID][]Magic_Effect_Ref, // INGR -> its effects (owned)
+	projectiles:           map[Form_ID]esm.Projectile, // PROJ -> its flight (projectiles.odin)
 	load_slots:            [dynamic]u32,        // load-order index -> that plugin's slot (Papyrus form ids)
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
 	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
@@ -821,6 +822,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		activate_parents      = make(map[Form_ID][]Form_ID, 1024, allocator),
 		packages              = make(map[Form_ID]Package, 8192, allocator),
 		ingredients           = make(map[Form_ID][]Magic_Effect_Ref, 128, allocator),
+		projectiles           = make(map[Form_ID]esm.Projectile, 256, allocator),
 		load_slots            = make([dynamic]u32, allocator),
 		respawning_containers = make(map[Form_ID]bool, 512, allocator),
 		vendor_chests         = make(map[Form_ID]bool, 256, allocator),
@@ -1053,6 +1055,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.plugin_slots)
 	delete(db.zones)
 	delete(db.equip_slots)
+	delete(db.projectiles)
 	for _, t in db.equip_types {delete(t.parents, db.allocator)}
 	delete(db.equip_types)
 	delete(db.ref_zones)
@@ -1595,6 +1598,9 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "INGR":
 		index_base(db, rec, ctx.fm)
 		index_ingredient(db, rec, ctx.fm)
+	case s == "PROJ":
+		index_base(db, rec, ctx.fm)
+		index_projectile(db, rec, ctx.fm)
 	case is_base_type(s):
 		index_base(db, rec, ctx.fm)
 	}
