@@ -24,7 +24,7 @@ import "../worldstate"
 
 // (hole actor-hitboxes :tags (combat unclaimed) :sev gap :needs (animation)) a hit can only land on the one capsule; combat wants the race skeleton's per-bone colliders, posed each tick, with the weapon swept through them (Precision-style, the default).
 // (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
-// (hole actor-ragdoll :tags (combat physics) :sev gap) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
+// (hole actor-ragdoll :tags (combat physics) :sev gap :needs (animation actor-states combat-damage)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
