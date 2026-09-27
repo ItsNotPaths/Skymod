@@ -161,8 +161,8 @@ passes :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, subject: Form_ID
 	return conditions.all(&ctx, a.conditions)
 }
 
-// create_ref makes a ref of the alias's base at its alias's ref, or inside it.
-// (hole alias-create-level :tags (quest records) :sev polish) Create_Ref ignores ALCL (easy..very hard): a leveled base rolls at the zone's level, not the alias's.
+// create_ref makes a ref of the alias's base at its alias's ref, or inside it. A leveled actor
+// rolls at once at the zone's level times the alias's difficulty (ALCL), as PlaceActorAtMe does.
 @(private = "file")
 create_ref :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> Form_ID {
 	at := worldstate.alias_ref(c.ws, quest, a.alias)
@@ -176,6 +176,9 @@ create_ref :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> Form_ID {
 	pos := worldstate.ref_pos(c.ws, c.db, at)
 	ref := worldstate.create_ref(c.ws, a.target, cell, {pos.x, pos.y, pos.z}, worldstate.ref_rot(c.ws, c.db, at), 1)
 	if a.flags & esm.ALIAS_INITIALLY_DISABLED != 0 {worldstate.set_disabled(c.ws, ref, cell, true)}
+	if worldstate.pick_list(c.ws, c.db, ref) != 0 {
+		worldstate.roll_pick(c.ws, c.db, ref, f32(worldstate.encounter_level(c.ws, c.db, gamedb.zone_of(c.db, at), i32(a.create_level))))
+	}
 	worldstate.mark_scene_dirty(c.ws, ref)
 	return ref
 }
