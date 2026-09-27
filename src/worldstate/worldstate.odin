@@ -53,6 +53,7 @@ Overlay :: struct {
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
 	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
+	unmarked:        Form_Set,                     // items a theft never marks stolen: gold, and mods' (ownership.odin; not saved)
 	level_choices:   map[string]Level_Choice,      // level-up choice name -> its changes (not saved; defaults + mods)
 	levels:          map[Form_ID]Level_State,      // actor -> its leveling: level, XP, perk points
 	level_listeners: map[Form_ID]bool,             // forms registered for OnLevelUp
@@ -287,6 +288,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.sleep_outfits = make(map[Form_ID]Form_ID)
 	o.carried = make(map[Form_ID]Form_ID)
 	init_formulas(o)
+	o.unmarked = make(Form_Set)
+	o.unmarked[formid.GOLD] = {}
 	init_level_choices(o)
 	o.levels = make(map[Form_ID]Level_State)
 	o.level_listeners = make(map[Form_ID]bool)
@@ -378,6 +381,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	free_deltas(&o.inventories)
 	for _, m in o.stolen {delete(m)}
 	delete(o.stolen)
+	delete(o.unmarked)
 	free_deltas(&o.spells)
 	free_deltas(&o.spell_seeds)
 	delete(o.rolled)

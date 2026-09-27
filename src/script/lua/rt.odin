@@ -44,6 +44,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__effect_class", rt_effect_class},
 		{"__seed_spell", rt_seed_spell},
 		{"__faction", rt_faction},
+		{"__stolen_mark", rt_stolen_mark},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -108,6 +109,16 @@ rt_seed_spell :: proc "c" (L: ^lua.State) -> c.int {
 	owner, _ := ref_form(L, 1)
 	spell, _ := ref_form(L, 2)
 	worldstate.seed_spell(vm.ctx.ws, owner, spell, i32(lua.tointeger(L, 3)))
+	return 0
+}
+
+// __stolen_mark(item, marks) is rt.stolen_mark's engine half.
+@(private)
+rt_stolen_mark :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	item, _ := ref_form(L, 1)
+	worldstate.set_unmarked(vm.ctx.ws, item, !bool(lua.toboolean(L, 2)))
 	return 0
 }
 

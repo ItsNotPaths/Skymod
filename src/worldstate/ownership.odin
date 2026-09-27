@@ -48,9 +48,9 @@ stolen_count :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item: Form_ID) ->
 }
 
 // mark_stolen marks `n` of `holder`'s `item`s as stolen from `owner`; an owner getting its own
-// things back, or its faction's, holds them clean.
+// things back, or its faction's, holds them clean, and an unmarked item (gold) is never marked.
 mark_stolen :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item, owner: Form_ID, n: i32) {
-	if n <= 0 || owner == 0 || owns(ws, db, holder, owner) {return}
+	if n <= 0 || owner == 0 || item in ws.unmarked || owns(ws, db, holder, owner) {return}
 	if holder not_in ws.stolen {ws.stolen[holder] = make(map[[2]Form_ID]i32)}
 	(&ws.stolen[holder])^[{item, owner}] += n
 }
@@ -87,20 +87,27 @@ stolen_moved :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) -> i32 {
 	return max(m.count - (inv_count(ws, db, m.from, m.base) - have), 0)
 }
 
-// Item_Stack is one row of a holder's items: the stolen ones stack apart from the rest.
+// set_unmarked is rt.stolen_mark: whether a theft marks `item` stolen. Gold never is (the engine's
+// rule; no record says so), and a mod can add a currency or put gold back.
+set_unmarked :: proc(ws: ^World_State, item: Form_ID, unmarked: bool) {
+	set_in_set(&ws.unmarked, item, unmarked)
+}
+
+// Item_Stack is one row of a holder's items: the clean ones stack, a stolen one never does.
 Item_Stack :: struct {
 	item:   Form_ID,
 	stolen: bool,
 	count:  i32,
 }
 
-// inv_stacks is `holder`'s items as stacks, a stolen stack after the clean one of the same item.
+// inv_stacks is `holder`'s items as rows: the clean ones of an item as one stack, then each stolen
+// one on its own.
 inv_stacks :: proc(ws: ^World_State, db: ^gamedb.DB, holder: Form_ID) -> []Item_Stack {
 	out := make([dynamic]Item_Stack, context.temp_allocator)
 	for item in inv_items(ws, db, holder) {
 		n, s := inv_count(ws, db, holder, item), stolen_count(ws, db, holder, item)
 		if n > s {append(&out, Item_Stack{item, false, n - s})}
-		if s > 0 {append(&out, Item_Stack{item, true, s})}
+		for _ in 0 ..< s {append(&out, Item_Stack{item, true, 1})}
 	}
 	return out[:]
 }

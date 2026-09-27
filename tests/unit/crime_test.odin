@@ -281,6 +281,16 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 1)
 	script.move_items(&c, {base = AXE, from = THIEF, to = OWNER_REF, count = 1, stolen = true})
 	testing.expect_value(t, ws.stolen_count(&s, &db, OWNER_REF, AXE), 0)
+
+	// Stolen ones never stack; gold is never marked.
+	ws.inv_add(&s, THIEF, AXE, 2)
+	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 2)
+	rows := 0
+	for r in ws.inv_stacks(&s, &db, THIEF) {if r.stolen {rows += 1; testing.expect_value(t, r.count, 1)}}
+	testing.expect_value(t, rows, 2)
+	ws.inv_add(&s, THIEF, 0xF, 100)
+	ws.mark_stolen(&s, &db, THIEF, 0xF, CHEST_OWNER, 100)
+	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, 0xF), 0)
 }
 
 // An owned interior that is not public is off limits while its owner has a load door locked. A

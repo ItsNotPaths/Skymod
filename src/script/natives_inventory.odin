@@ -165,7 +165,7 @@ move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 		worldstate.inv_add(c.ws, m.to, m.base, m.count)
 		for s in marks {worldstate.mark_stolen(c.ws, c.db, m.to, m.base, s.owner, s.count)}
 	} else if m.ref != 0 && len(marks) > 0 {
-		worldstate.set_owner(c.ws, m.ref, marks[0].owner) // dropped, it is still its owner's (one owner per stack)
+		worldstate.set_owner(c.ws, m.ref, marks[0].owner) // dropped, it is still its owner's
 	}
 	rest := m
 	for ref in worldstate.carry(c.ws, c.db, m) {
