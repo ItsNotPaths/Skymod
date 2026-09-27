@@ -1229,7 +1229,7 @@ ref_attach_cell :: proc(db: ^DB, r: Ref) -> Form_ID {
 // persistent cell, which has no grid; then the grid cell at `pos` (0 when none exists).
 grid_cell :: proc(db: ^DB, cell: Form_ID, pos: [3]f32) -> Form_ID {
 	c, ok := db.cells[cell]
-	if !ok || c.interior || c.has_grid {return cell}
+	if !ok || c.interior || (c.has_grid && db.world_persist[c.world_form_id] != cell) {return cell} // persistent cells carry XCLC 0,0 too
 	return cell_under(db, c.world_form_id, pos)
 }
 
