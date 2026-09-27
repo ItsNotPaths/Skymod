@@ -25,7 +25,7 @@ Ref_Field :: enum u8 {
 	Destroyed, // SetDestroyed: at its last destruction stage. The bit is the whole state
 }
 
-// (hole combat-damage :tags combat :sev blocker) `Dead` is set only by Actor.Kill: Health at 0 does not kill, no weapon does damage, and nothing is hostile or in combat.
+// (hole combat-damage :tags combat :sev blocker) no weapon does damage and nothing is hostile or in combat; only DamageActorValue kills at 0 Health, and essential actors never bleed out.
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as

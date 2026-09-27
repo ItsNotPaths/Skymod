@@ -43,20 +43,24 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 // story event. A dead actor does not die again.
 // (hole kill-essential :tags combat :sev polish) Kill does not read IsEssential (worldstate.actor_flag); unsourced whether Skyrim refuses, or sends the actor to bleedout.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
-	if worldstate.is_dead(c.ws, c.self) {return nil}
-	append(&c.ws.deaths, worldstate.Death{c.self, arg_form(args, 0)})
-	c.ws.killers[c.self] = arg_form(args, 0)
-	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), true)
-	worldstate.mark_scene_dirty(c.ws, c.self)
-	boss_died(c, c.self)
+	kill(c, c.self, arg_form(args, 0))
+	return nil
+}
+
+kill :: proc(c: ^Call, actor, killer: Form_ID) {
+	if worldstate.is_dead(c.ws, actor) {return}
+	append(&c.ws.deaths, worldstate.Death{actor, killer})
+	c.ws.killers[actor] = killer
+	worldstate.set_dead(c.ws, actor, worldstate.ref_cell(c.ws, c.db, actor), true)
+	worldstate.mark_scene_dirty(c.ws, actor)
+	boss_died(c, actor)
 	worldstate.queue_story_event(c.ws, {
 		type      = worldstate.STORY_KILL,
-		ref1      = c.self,
-		ref2      = arg_form(args, 0),
-		location1 = worldstate.ref_location(c.ws, c.db, c.self),
-		value2    = worldstate.rel_rank(c.ws, c.db, c.self, formid.PLAYER), // value1, the crime status, stays 0: there is no crime
+		ref1      = actor,
+		ref2      = killer,
+		location1 = worldstate.ref_location(c.ws, c.db, actor),
+		value2    = worldstate.rel_rank(c.ws, c.db, actor, formid.PLAYER), // value1, the crime status, stays 0: there is no crime
 	})
-	return nil
 }
 
 n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {

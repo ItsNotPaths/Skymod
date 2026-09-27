@@ -4,6 +4,7 @@ package script
 // `self` is the actor. Relationships aren't indexed yet, so an unset relationship reads 0.
 
 import "core:log"
+import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
@@ -101,7 +102,14 @@ n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	av, ok := av_arg(c, args)
 	if !ok {return nil}
 	worldstate.av_damage(c.ws, c.db, c.self, av, arg_f32(args, 1, 0))
+	if av == "Health" && worldstate.av_current(c.ws, c.db, c.self, av) <= 0 && !mortal_blocked(c, c.self) {kill(c, c.self, 0)}
 	return nil
+}
+
+// mortal_blocked: essential and protected actors survive 0 Health (protected dies only to the player,
+// and this damage names no attacker).
+mortal_blocked :: proc(c: ^Call, actor: Form_ID) -> bool {
+	return worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) || worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED)
 }
 
 // SetActorValueCap(asValueName, afCap) is ours: the soft cap training stops at, a skill's or a pool's
