@@ -15,6 +15,7 @@ Courier_Remove :: struct {
 // Force_Greet is an NPC waiting to start a conversation with the player: the AI asks, the app opens it. Not saved.
 Force_Greet :: struct {
 	speaker, topic: Form_ID, // topic 0: the speaker's usual greeting
+	subtype:        string, // with no topic: its line from every topic of this subtype (PFGT)
 }
 
 // Bark is a line an actor says outside a conversation or a scene (a Hello, idle chatter, the Say

@@ -174,7 +174,7 @@ proc_force_greet :: proc(c: ^Proc_Context) -> Status {
 	if ws.talking != 0 || ws.force_greet.speaker != 0 {return .Running}
 	if p, ok := location(c); ok && !inside(c, formid.PLAYER, worldstate.ref_pos(ws, db, formid.PLAYER), p) {return .Running}
 	topic, _ := input_value(c, 0, gamedb.Package_Topic)
-	ws.force_greet = {actor, topic.topic}
+	ws.force_greet = {speaker = actor, topic = topic.topic}
 	st.started = true
 	return .Running
 }
@@ -208,7 +208,7 @@ proc_dialogue_activate :: proc(c: ^Proc_Context) -> Status {
 	c.agent.mover.goal = {}
 	if target == formid.PLAYER {
 		if ws.talking != 0 || ws.force_greet.speaker != 0 {return .Running}
-		ws.force_greet = {actor, 0}
+		ws.force_greet = {speaker = actor}
 	} else {
 		worldstate.queue_story_event(ws, {type = worldstate.STORY_DIALOGUE, ref1 = actor, ref2 = target, location1 = worldstate.ref_location(ws, db, actor)})
 	}

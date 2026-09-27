@@ -39,7 +39,8 @@ Agent :: struct {
 	seat:      Seat, // the furniture marker it claimed
 	posture:   Posture, // on `seat` unless Standing
 	lead_at:   [3]f32, // where the leader it follows stood last tick
-	combat:    Combat, // toward the player; the package waits while it is not None
+	combat:    Combat, // toward its target; the package waits while it is not None
+	confront:  Confront, // a guard after a wanted actor; the package waits while it walks up
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
 	greeted:   bool, // said Hello to the player, who has not walked off since
@@ -83,13 +84,14 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 		a.scene = scene_pack != 0
 	}
-	confront(w, ws, db, actor)
 	was := a.combat.state
 	a.combat.state = next_combat(w, ws, db, actor, feet, &a.combat, dt)
 	if was != .None && a.combat.state == .None {interrupt(w, actor)}
 	if a.combat.state != .None {
 		leave(a)
 		combat_goal(ws, db, a, feet)
+	} else if confront(w, ws, db, a, actor, feet, dt) {
+		leave(a)
 	} else if a.pack != 0 {
 		c := Proc_Context {
 			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars},

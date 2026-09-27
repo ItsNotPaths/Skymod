@@ -25,6 +25,7 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Faction", "SetPlayerEnemy", n_set_player_enemy)
 	register(reg, "Game", "SetPlayerReportCrime", n_set_player_report_crime)
 	register(reg, "Actor", "SendAssaultAlarm", n_send_assault_alarm)
+	register(reg, "Actor", "SetPlayerResistingArrest", n_set_player_resisting_arrest)
 	register(reg, "ObjectReference", "SendStealAlarm", n_send_steal_alarm)
 }
 
@@ -151,5 +152,15 @@ n_send_steal_alarm :: proc(c: ^Call, args: []Value) -> Value {
 	if victim == 0 {victim = worldstate.owner(c.ws, c.db, c.self)}
 	value, _ := gamedb.value_of(c.db, worldstate.ref_base(c.ws, c.db, c.self))
 	worldstate.report_crime(c.ws, c.db, thief, victim, .Steal, value)
+	return nil
+}
+
+// SetPlayerResistingArrest: the player resists this guard; its crime faction attacks the player.
+n_set_player_resisting_arrest :: proc(c: ^Call, args: []Value) -> Value {
+	faction := worldstate.crime_faction(c.ws, c.db, c.self)
+	if faction == 0 {return nil}
+	w := worldstate.wanted(c.ws, formid.PLAYER, faction)
+	w.enemy = true
+	worldstate.set_wanted(c.ws, formid.PLAYER, faction, w)
 	return nil
 }

@@ -49,16 +49,20 @@ frame_force_greet :: proc(g: ^Game) {
 	fg := g.ws.force_greet
 	if fg.speaker == 0 || g.menu != .None {return}
 	g.ws.force_greet = {}
-	if !worldstate.is_dead(&g.ws, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic)}
+	if !worldstate.is_dead(&g.ws, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
 }
 
-// start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`.
+// start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`, or
+// for `subtype`.
 @(private = "file")
-start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0) {
+start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype := "") {
 	g.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)
 	greet, ok := dialogue.Greeting{info = dialogue.pick(&c, speaker, topic)}, true
-	if topic == 0 {greet, ok = dialogue.greeting(&c, speaker)}
+	if subtype != "" {
+		greet.info = dialogue.pick_subtype(&c, speaker, subtype)
+		ok = greet.info != 0
+	} else if topic == 0 {greet, ok = dialogue.greeting(&c, speaker)}
 	if !ok {
 		g.ws.talking = 0
 		return

@@ -83,8 +83,8 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	return .Warn
 }
 
-// candidates are the actors combat looks at: the loaded ones and the player.
-@(private = "file")
+// candidates are the actors combat and guards look at: the loaded ones and the player.
+@(private)
 candidates :: proc(w: ^World) -> []Form_ID {
 	out := make([dynamic]Form_ID, 0, len(w.agents) + 1, context.temp_allocator)
 	for a in w.agents {append(&out, a)}

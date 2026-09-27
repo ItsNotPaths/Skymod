@@ -348,7 +348,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
-// (hole crime-conditions :tags (combat quest) :sev gap :needs (trespass crime-arrest jail)) IsTrespassing, GetTrespassWarningLevel, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
+// (hole crime-conditions :tags (combat quest) :sev gap :needs (trespass jail)) IsTrespassing, GetTrespassWarningLevel, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
