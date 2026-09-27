@@ -115,6 +115,14 @@ actor_traits :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> gamedb
 	return gamedb.actor_traits(db, record_of(ws, actor), actor_pick(ws, db, actor))
 }
 
+// actor_voice is the voice type an actor speaks in: its traits' own (VTCK), else its race's for
+// its sex.
+actor_voice :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> Form_ID {
+	t := actor_traits(ws, db, actor)
+	if t.voice != 0 {return t.voice}
+	return db.races[t.race].voices[1 if t.flags & esm.ACBS_FEMALE != 0 else 0]
+}
+
 // actor_pick is the NPC_ a leveled actor rolled from the LVLN its base's template chain reaches: on
 // the first ask, at its zone level times its difficulty (CK wiki, LeveledCharacter), kept until the
 // actor resets. 0 for an actor with no leveled template, or a roll that gave nothing.

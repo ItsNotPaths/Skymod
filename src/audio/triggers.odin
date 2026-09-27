@@ -139,7 +139,6 @@ anim_sound :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, actor: formid.Fo
 // (hole ui-sounds :tags (audio ui) :sev gap) menus are silent: Skyrim's menus play SNDRs by editor ID (UIMenuOK...), and the Lua UI has no call to play one.
 ui_sound :: proc(db: ^gamedb.DB, edid: string) {}
 
-// (hole race-voice-types :tags (dialogue records audio) :sev gap) an NPC with no VTCK of its own speaks silently: a RACE's default voice types (male, female) are not decoded.
 // say plays one response of a topic info in the speaker's voice, at the dialogue category's
 // volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP2), else flat.
 // The voice file is the info's own, else that of the info it shares (DNAM). Its handle and
@@ -152,7 +151,7 @@ say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State,
 		if gamedb.output_level(p.output, distance(a, p.pos)) == 0 {return 0, 0} // out of earshot
 		at = p
 	}
-	voice := gamedb.actor_traits(db, worldstate.ref_base(ws, db, speaker)).voice
+	voice := worldstate.actor_voice(ws, db, speaker)
 	s, ok := open(v, gamedb.voice_path(db, voice, info, number))
 	if shared := db.infos[info].shared; !ok && shared != 0 {s, ok = open(v, gamedb.voice_path(db, voice, shared, number))}
 	if !ok {return 0, 0}

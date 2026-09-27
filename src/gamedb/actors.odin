@@ -20,6 +20,7 @@ Race :: struct {
 	spells:      []Form_ID, // SPLO (owned)
 	skeletons:   [2]string, // ANAM after the male and female markers: skeleton .nif paths (owned)
 	walk, run:   Form_ID, // WKMV, RNMV movement types; 0 on the playable races, which use the defaults
+	voices:      [2]Form_ID, // VTCK: the male and female default voice types
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
@@ -63,6 +64,9 @@ index_race :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	r.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
 	if f, has := esm.find_field(fl, "WKMV"); has {r.walk = esm.remap_form(fm, esm.field_u32(f) or_else 0)}
 	if f, has := esm.find_field(fl, "RNMV"); has {r.run = esm.remap_form(fm, esm.field_u32(f) or_else 0)}
+	if f, has := esm.find_field(fl, "VTCK"); has && len(f.data) >= 8 {
+		for i in 0 ..< 2 {r.voices[i] = esm.remap_form(fm, u32((^u32le)(&f.data[i * 4])^))}
+	}
 	n := 0
 	for f in fl {
 		if f.type != "ANAM" || n >= 2 {continue}
