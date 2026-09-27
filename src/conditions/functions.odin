@@ -24,7 +24,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	5   = fn_get_locked,
 	14  = fn_get_actor_value,
 	18  = fn_get_current_time,
-	25  = fn_resting,
+	25  = fn_is_moving,
 	27  = fn_get_line_of_sight,
 	32  = fn_get_in_same_cell,
 	35  = fn_get_disabled,
@@ -65,7 +65,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	149 = fn_resting,
 	157 = fn_get_open_state,
 	159 = fn_resting,
-	161 = fn_resting,
+	161 = fn_get_is_current_package,
 	170 = fn_get_day_of_week,
 	180 = fn_has_same_editor_loc_as_ref,
 	181 = fn_has_same_editor_loc_as_ref_alias,
@@ -116,7 +116,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	491 = fn_resting,
 	497 = fn_resting,
 	499 = fn_resting,
-	503 = fn_resting_true,
+	503 = fn_get_allow_world_interactions,
 	513 = fn_resting,
 	543 = fn_get_quest_completed,
 	550 = fn_is_scene_action_complete,
@@ -319,7 +319,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap) GetIsCurrentPackage, GetSleeping, GetSitting, IsSmallBump, GetGroupMemberCount and IsMoving read 0 and GetAllowWorldInteractions 1: no actor runs a package, walks, uses furniture, bumps or looks for anyone.
+// (hole package-conditions :tags ai :sev gap :needs proc-furniture) GetSleeping, GetSitting, IsSmallBump and GetGroupMemberCount read 0: no actor sits, sleeps or bumps as Skyrim counts it, and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (ai combat) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
@@ -633,6 +633,26 @@ fn_is_in_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 fn_get_current_time :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	_, _, _, hour := worldstate.game_date(ctx.ws)
 	return f32(hour), true
+}
+
+@(private = "file")
+fn_is_moving :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on in ctx.ws.ai.moving)
+}
+
+@(private = "file")
+fn_get_is_current_package :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	pack := ctx.ws.ai.packages[on]
+	return yes(pack != 0 && pack == p1(c))
+}
+
+WORLD_INTERACTIONS :: 0x200 // PKDT interrupt flag (xEdit wbPKDTInterruptFlags)
+
+// GetAllowWorldInteractions reads the running package's flag; an actor with none allows them.
+@(private = "file")
+fn_get_allow_world_interactions :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	p, ok := gamedb.package_of(ctx.db, ctx.ws.ai.packages[on])
+	return yes(!ok || p.interrupt_flags & WORLD_INTERACTIONS != 0)
 }
 
 @(private = "file")

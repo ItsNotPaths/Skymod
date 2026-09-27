@@ -61,6 +61,11 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	a.planned = false
 	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
 	a.eval_in -= dt
+	if worldstate.take(&ws.ai.evaluate, actor) {a.eval_in = 0}
+	if worldstate.take(&ws.ai.to_package, actor) && a.pack != 0 {
+		jump_to_destination(w, ws, db, a, actor, feet)
+		interrupt(w, actor)
+	}
 	if a.eval_in <= 0 || scene_pack != a.pack && (scene_pack != 0 || a.scene) { // a scene takes and gives back the actor at once
 		a.eval_in = max(a.eval_in + EVAL_EVERY, 0)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
@@ -83,10 +88,14 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		}
 		if run_tree(&c) != .Running && action != nil && a.scene {action.done = true}
 	}
+	follow_path_order(ws, db, a, actor, feet)
+	if worldstate.held_still(ws, actor) {a.mover.goal = {}}
 	if g := a.mover.goal; g.active && g.cell != 0 && g.cell not_in w.mesh.cells {
 		a.mover.goal = route_goal(w, ws, db, a, actor, feet, g)
 	}
 	vel := mover_step(&a.mover, &w.mesh, feet, touching, dt)
+	ws.ai.packages[actor] = a.pack
+	worldstate.set_in_set(&ws.ai.moving, actor, vel != {})
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
 	return vel
 }
@@ -121,6 +130,21 @@ route_goal :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^A
 	if at >= len(a.route) - 1 {return final}
 	s := a.route[at]
 	return {active = true, point = s.exit, radius = DOOR_RADIUS if s.door != 0 else ARRIVED, gait = final.gait, door = s.door}
+}
+
+// follow_path_order walks a script's PathTo in place of the package, and drops it on arrival.
+@(private = "file")
+follow_path_order :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
+	o, ok := ws.ai.paths[actor]
+	if !ok {return}
+	at := worldstate.ref_pos(ws, db, o.to)
+	if o.to == 0 || linalg.length(at.xy - feet.xy) <= ARRIVED {
+		delete_key(&ws.ai.paths, actor)
+		a.mover.goal = {}
+		return
+	}
+	g: Gait = .Run if o.speed >= 0.75 else .Jog if o.speed >= 0.5 else .Walk
+	a.mover.goal = {active = true, point = at, radius = ARRIVED, gait = g, cell = worldstate.ref_grid_cell(ws, db, o.to)}
 }
 
 // cross_load_door puts the actor at the door's teleport marker, in the destination door's cell.
@@ -161,6 +185,16 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 	if a.eval_in <= 0 {
 		a.eval_in += EVAL_EVERY
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
+	}
+	if worldstate.take(&ws.ai.to_package, actor) && a.pack != 0 {
+		jump_to_destination(w, ws, db, a, actor, feet)
+		clear(&a.trip)
+	}
+	if o, ok := ws.ai.paths[actor]; ok { // unloaded, a PathTo arrives at once
+		to := worldstate.ref_pos(ws, db, o.to)
+		worldstate.set_moved(ws, actor, worldstate.ref_grid_cell(ws, db, o.to), smath.trs(to, {}, 1), to)
+		delete_key(&ws.ai.paths, actor)
+		return
 	}
 	if a.pack != 0 && !a.planned {plan_trip(w, ws, db, a, actor, feet)}
 	walk_trip(ws, db, a, actor, feet, dt)
@@ -244,20 +278,28 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 	if actor not_in w.agents {w.agents[actor] = {}}
 	a := &w.agents[actor]
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
-	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
+	return jump_to_destination(w, ws, db, a, actor, feet)
+}
+
+// jump_to_destination puts the actor where its package wants it at once: the dry spot nearest the
+// place when that is loaded, else straight into the place's cell.
+@(private = "file")
+jump_to_destination :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) -> (at: [3]f32, placed: Placement) {
+	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, quest_vars = w.quest_vars}, agent = a, mesh = &w.mesh, routes = &w.routes, feet = feet}
 	p, ok := destination(&c)
 	if !ok || reached(&c, p) {return}
+	spot, found := [3]f32{}, false
 	if p.cell in w.mesh.cells {
 		spots := nav.dry_points_near(&w.mesh, p.center, max(p.radius, SANDBOX_RADIUS)) // a place's centre can sit off the mesh
-		if len(spots) == 0 {return}
-		a.start_pos = spots[0]
-		return spots[0], .Here
+		if len(spots) > 0 {spot, found, placed = spots[0], true, .Here}
+	} else {
+		spot, found = nav.dry_point_in_cell(db, p.cell, p.center)
+		placed = .Away
 	}
-	spot, found := nav.dry_point_in_cell(db, p.cell, p.center)
-	if !found {return}
+	if !found {return {}, .Stay}
 	worldstate.set_moved(ws, actor, p.cell, smath.trs(spot, {}, 1), spot)
 	a.start_pos = spot
-	return spot, .Away
+	return spot, placed
 }
 
 destroy :: proc(w: ^World) {

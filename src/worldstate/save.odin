@@ -303,6 +303,8 @@ Save_Body :: struct {
 	no_pc_dialogue: []Form_ID,
 	sneaking:      []Form_ID,
 	grounded:      []Form_ID,
+	dont_move:     []Form_ID,
+	restrained:    []Form_ID,
 	actor_flags:   []Saved_Flags,
 	owners:        []Saved_Alias,   // alias = the ref or cell, form = its owner
 	killers:       []Saved_Alias,   // alias = the dead actor, form = its killer
@@ -539,6 +541,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		no_pc_dialogue = save_set(ws.no_pc_dialogue),
 		sneaking      = save_set(ws.sneaking),
 		grounded      = save_set(ws.grounded),
+		dont_move     = save_set(ws.dont_move),
+		restrained    = save_set(ws.restrained),
 		actor_flags   = actor_flags[:],
 		owners        = save_pairs(ws.owners),
 		killers       = save_pairs(ws.killers),
@@ -731,6 +735,8 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
 	load_set(&ws.sneaking, body.sneaking, remap, have_remap, rf)
 	load_set(&ws.grounded, body.grounded, remap, have_remap, rf)
+	load_set(&ws.dont_move, body.dont_move, remap, have_remap, rf)
+	load_set(&ws.restrained, body.restrained, remap, have_remap, rf)
 	for f in body.actor_flags {
 		if form, ok := rf(remap, have_remap, f.form); ok {ws.actor_flags[form] = f.flags}
 	}
@@ -963,6 +969,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.no_pc_dialogue {add_slot(&seen, a)}
 	for a in body.sneaking {add_slot(&seen, a)}
 	for a in body.grounded {add_slot(&seen, a)}
+	for a in body.dont_move {add_slot(&seen, a)}
+	for a in body.restrained {add_slot(&seen, a)}
 	for f in body.actor_flags {add_slot(&seen, f.form)}
 	for r in body.owners {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.killers {add_slot(&seen, r.alias);add_slot(&seen, r.form)}

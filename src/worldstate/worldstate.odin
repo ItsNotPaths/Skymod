@@ -97,6 +97,8 @@ Overlay :: struct {
 	no_pc_dialogue:  Form_Set,                     // Actor.AllowPCDialogue(false): will not talk to the player
 	sneaking:        Form_Set,                     // actors in sneak mode (actors.odin)
 	grounded:        Form_Set,                     // Actor.SetAllowFlying(false): may not fly
+	dont_move:       Form_Set,                     // Actor.SetDontMove: stands (ai_link.odin)
+	restrained:      Form_Set,                     // Actor.SetRestrained: stands
 	actor_flags:     map[Form_ID]Flag_Override,    // actor or NPC_ -> ACBS bits a script set: ghost, essential, protected, invulnerable
 	owners:          map[Form_ID]Form_ID,          // ref or cell -> the owner a script set; 0 = none (ownership.odin)
 	killers:         map[Form_ID]Form_ID,          // dead actor -> Actor.Kill's akKiller
@@ -143,6 +145,7 @@ Runtime :: struct {
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
+	ai:              AI_Link,               // script asks of the AI, and what it publishes
 	in_triggers:     Form_Set,              // trigger volumes the player is inside (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
@@ -213,6 +216,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.in_triggers)
 	delete(ws.story_events)
 	delete(ws.barks)
+	destroy_ai_link(&ws.ai)
 	delete(ws.story_quests)
 	delete(ws.quest_steps)
 	delete(ws.info_runs)
@@ -278,6 +282,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.no_pc_dialogue = make(Form_Set)
 	o.sneaking = make(Form_Set)
 	o.grounded = make(Form_Set)
+	o.dont_move = make(Form_Set)
+	o.restrained = make(Form_Set)
 	o.actor_flags = make(map[Form_ID]Flag_Override)
 	o.owners = make(map[Form_ID]Form_ID)
 	o.killers = make(map[Form_ID]Form_ID)
@@ -364,6 +370,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.no_pc_dialogue)
 	delete(o.sneaking)
 	delete(o.grounded)
+	delete(o.dont_move)
+	delete(o.restrained)
 	delete(o.actor_flags)
 	delete(o.owners)
 	delete(o.killers)
