@@ -115,3 +115,17 @@ character_render_position_interpolates :: proc(t: ^testing.T) {
 	physics.character_set_position(&c, {700, 0, 0})
 	testing.expect(t, close(physics.character_render_position(&c, 0).x, 700), "teleport lands outright")
 }
+
+// A capsule fits beside or on top of a box, not inside it (actor spawns avoid clipping furniture).
+@(test)
+test_capsule_fits :: proc(t: ^testing.T) {
+	w, ok := physics.world_create()
+	if !testing.expect(t, ok) {return}
+	defer physics.world_destroy(&w)
+	physics.add_box(&w, {50, 50, 40}, {0, 0, 40}) // a bench: top at z 80
+	physics.optimize_broadphase(&w)
+	testing.expect(t, !physics.capsule_fits(&w, {0, 0, 0}, 20, 40))
+	testing.expect(t, physics.capsule_fits(&w, {0, 0, 80}, 20, 40))
+	testing.expect(t, physics.capsule_fits(&w, {200, 0, 0}, 20, 40))
+	testing.expect(t, !physics.capsule_fits(&w, {60, 0, 0}, 20, 40)) // clips the side
+}

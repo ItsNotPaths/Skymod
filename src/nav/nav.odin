@@ -422,6 +422,24 @@ navmesh_near :: proc(db: ^gamedb.DB, cell: Form_ID, p: [3]f32) -> (best: Form_ID
 	return
 }
 
+// dry_points_near are the centres of the dry triangles within radius of p, nearest first.
+dry_points_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32, allocator := context.temp_allocator) -> [][3]f32 {
+	out := make([dynamic][3]f32, allocator)
+	for &nm, mi in m.meshes {
+		for tri, ti in nm.tris {
+			c := center(m, {i32(mi), i32(ti)})
+			if tri.flags & esm.NAV_TRI_WATER == 0 && linalg.distance(c, p) <= radius {append(&out, c)}
+		}
+	}
+	origin := p
+	context.user_ptr = &origin
+	slice.sort_by(out[:], proc(a, b: [3]f32) -> bool {
+		p := (^[3]f32)(context.user_ptr)^
+		return linalg.distance(a, p) < linalg.distance(b, p)
+	})
+	return out[:]
+}
+
 // random_point_near is the centre of a random dry triangle whose centre lies within radius of p.
 random_point_near :: proc(m: ^Path_Mesh, p: [3]f32, radius: f32) -> (point: [3]f32, ok: bool) {
 	seen := 0

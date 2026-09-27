@@ -116,12 +116,26 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 	} else if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {
 		start.z += SPAWN_LIFT
 	}
+	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
 		g.actor_bodies[form] = {ch, pos, capsule}
 		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
 	} else {
 		delete_key(&g.actor_bodies, form)
 	}
+}
+
+// free_spot is where a capsule can appear without overlapping anything: `feet`, else the nearest
+// dry navmesh spot that fits. An overlap would be resolved by pushing the capsule out, often up onto
+// the furniture it clipped.
+@(private = "file")
+free_spot :: proc(g: ^Game, phys: ^physics.World, feet: smath.Vec3, c: Capsule) -> smath.Vec3 {
+	SEARCH :: 256
+	if physics.capsule_fits(phys, feet, c.radius, c.half_h) {return feet}
+	for p in nav.dry_points_near(&g.agents.mesh, feet, SEARCH) {
+		if physics.capsule_fits(phys, p, c.radius, c.half_h) {return p}
+	}
+	return feet
 }
 
 @(private = "file")

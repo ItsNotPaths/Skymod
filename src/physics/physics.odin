@@ -817,6 +817,28 @@ character_render_position :: proc(c: ^Character, alpha: f32) -> [3]f32 {
 	return c.prev + (cur - c.prev) * clamp(alpha, 0, 1)
 }
 
+// capsule_fits is whether an upright capsule standing on `feet` would overlap nothing (a little
+// above them, so the floor it stands on does not count).
+capsule_fits :: proc(w: ^World, feet: [3]f32, radius, half_h: f32) -> bool {
+	FLOOR_GAP :: 4
+	cap := jolt.CapsuleShape_Create(half_h, radius)
+	defer jolt.Shape_Destroy(cast(^jolt.Shape)cap)
+	xf := jolt.RMat4 {
+		column  = {{1, 0, 0, 0}, {0, 0, 1, 0}, {0, -1, 0, 0}}, // Jolt capsules run along Y; stand it on Z
+		column3 = to_rvec(feet + {0, 0, half_h + radius + FLOOR_GAP}),
+	}
+	scale := jolt.Vec3{1, 1, 1}
+	base := jolt.RVec3{}
+	settings: jolt.CollideShapeSettings
+	jolt.CollideShapeSettings_Init(&settings)
+	hits := 0
+	count :: proc "c" (hits: rawptr, _: ^jolt.CollideShapeResult) {(^int)(hits)^ += 1}
+	callback := (^jolt.CollideShapeResultCallback)(rawptr(count))
+	query := jolt.PhysicsSystem_GetNarrowPhaseQuery(w.system)
+	jolt.NarrowPhaseQuery_CollideShape2(query, cast(^jolt.Shape)cap, &scale, &xf, &settings, &base, .AnyHit, callback, &hits, nil, nil, nil, nil)
+	return hits == 0
+}
+
 // character_touching is the owner of a moving body the character pushed against in its last move
 // (another character's inner body, for one), 0 for none.
 character_touching :: proc(w: ^World, c: ^Character) -> u64 {
