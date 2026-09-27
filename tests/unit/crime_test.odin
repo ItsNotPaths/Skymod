@@ -213,6 +213,8 @@ test_crime_jail :: proc(t: ^testing.T) {
 
 	// What the app does on the way in, then the bed.
 	s.jailed[CRIME_THIEF] = {faction = CRIME_TOWN, cell = 0x0004CE13, until = s.clock.hours + 48}
+	ws.tick_crime(&s, &db, 0.1)
+	testing.expect(t, CRIME_THIEF in s.jailed, "not there yet: no escape")
 	ws.relocate(&s, CRIME_THIEF, 0x0004CE13, {}, {})
 	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
 	ws.set_wanted(&s, CRIME_THIEF, CRIME_TOWN, {enemy = true})

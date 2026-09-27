@@ -857,7 +857,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		f, fok := rf(remap, have_remap, r.jailed.faction)
 		c, cok := rf(remap, have_remap, r.jailed.cell)
 		o, ook := rf(remap, have_remap, r.jailed.outfit)
-		if aok && fok && cok {ws.jailed[a] = {f, c, r.jailed.until, o if ook else 0}}
+		if aok && fok && cok {ws.jailed[a] = {f, c, r.jailed.arrived, r.jailed.until, o if ook else 0}}
 	}
 	for r in body.relations {
 		from, fok := rf(remap, have_remap, r.from)

@@ -145,9 +145,9 @@ game_frame :: proc(g: ^Game) {
 // (hole tick-thread :tags (world physics) :sev gap) the sim tick runs on the render thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): the game tick gets its own thread. Render then needs a published snapshot of poses and instances instead of reading Jolt and the chunks live.
 game_tick :: proc(g: ^Game) {
 	script_run_pending(g)
+	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
 	player_follow(g)
 	tick_activations(g)
-	tick_jail(g)
 	frame_scene_select(g)
 	tick_locomotion(g)
 	tick_actor_bodies(g)

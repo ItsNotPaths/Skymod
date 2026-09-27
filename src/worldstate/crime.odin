@@ -203,8 +203,10 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		spread_bounties(ws, db)
 	}
 	escaped := make([dynamic]Form_ID, context.temp_allocator)
-	for actor, j in ws.jailed {
-		if ref_cell(ws, db, actor) != j.cell {
+	for actor, &j in ws.jailed {
+		in_cell := ref_cell(ws, db, actor) == j.cell
+		j.arrived ||= in_cell
+		if j.arrived && !in_cell {
 			append(&escaped, actor)
 		} else if ws.clock.hours >= j.until {
 			append(&ws.jail_orders, Jail_Order{actor = actor, faction = j.faction, release = true})
@@ -313,6 +315,7 @@ is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool
 Jailed :: struct {
 	faction: Form_ID,
 	cell:    Form_ID, // the cell it was put in; leaving it is an escape
+	arrived: bool, // it has stood in `cell`; before that no escape counts
 	until:   f64, // game hours when the sentence is served
 	outfit:  Form_ID, // the script outfit it wore before, 0 for its records'
 }
