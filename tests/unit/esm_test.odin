@@ -583,11 +583,20 @@ test_gamedb_enable_parent :: proc(t: ^testing.T) {
 	child, _ := gamedb.ref_by_formid(&db, 0x0001_0011)
 	child_opp, _ := gamedb.ref_by_formid(&db, 0x0001_0012)
 	lone, _ := gamedb.ref_by_formid(&db, 0x0001_0013)
+	grandchild, _ := gamedb.ref_by_formid(&db, 0x0001_0014)
 
 	testing.expect(t, gamedb.ref_effective_disabled(&db, parent), "parent is initially disabled")
 	testing.expect(t, gamedb.ref_effective_disabled(&db, child), "child of a disabled parent is culled")
 	testing.expect(t, !gamedb.ref_effective_disabled(&db, child_opp), "opposite child shows when parent is off")
 	testing.expect(t, !gamedb.ref_effective_disabled(&db, lone), "unparented enabled ref shows")
+	testing.expect(t, gamedb.ref_effective_disabled(&db, grandchild), "a disabled root culls the whole chain")
+
+	state: worldstate.World_State
+	worldstate.init(&state)
+	defer worldstate.destroy(&state)
+	worldstate.set_disabled(&state, 0x0001_0010, 0x0000_00AA, false)
+	testing.expect(t, worldstate.ref_enabled(&state, &db, 0x0001_0014), "a script enabling the root enables the chain")
+	testing.expect(t, !worldstate.ref_enabled(&state, &db, 0x0001_0012), "and turns the opposite child off")
 	testing.expect_value(t, child.enable_parent, gamedb.Form_ID(0x0001_0010))
 }
 
@@ -916,6 +925,10 @@ build_enable_parent_plugin :: proc() -> []u8 {
 	ro := make([dynamic]u8, 0, 48);defer delete(ro)
 	field(&ro, "NAME", u32_bytes(0x0000_0300));field(&ro, "DATA", rdata[:])
 	xo: [8]u8;put_u32(xo[:], 0, 0x0001_0010);put_u32(xo[:], 4, esm.XESP_OPPOSITE);field(&ro, "XESP", xo[:])
+	// Grandchild gated by the enabled child, so off through the chain.
+	rg := make([dynamic]u8, 0, 48);defer delete(rg)
+	field(&rg, "NAME", u32_bytes(0x0000_0300));field(&rg, "DATA", rdata[:])
+	xg: [8]u8;put_u32(xg[:], 0, 0x0001_0011);put_u32(xg[:], 4, 0);field(&rg, "XESP", xg[:])
 	// Lone unparented ref.
 	rl := make([dynamic]u8, 0, 48);defer delete(rl)
 	field(&rl, "NAME", u32_bytes(0x0000_0300));field(&rl, "DATA", rdata[:])
@@ -925,6 +938,7 @@ build_enable_parent_plugin :: proc() -> []u8 {
 	record(&cc, "REFR", 0, 0x0001_0011, rc[:])
 	record(&cc, "REFR", 0, 0x0001_0012, ro[:])
 	record(&cc, "REFR", 0, 0x0001_0013, rl[:])
+	record(&cc, "REFR", 0, 0x0001_0014, rg[:])
 	cc_grup := make([dynamic]u8, 0, 320);defer delete(cc_grup)
 	group(&cc_grup, u32_bytes(0x0000_00AA), 6, cc[:])
 	cell_grp := make([dynamic]u8, 0, 384);defer delete(cell_grp)
