@@ -244,9 +244,42 @@ apply_pending_scene_ops :: proc(s: ^Scene, db: ^gamedb.DB) {
 	for form in worldstate.pending_scene(s.ws) {
 		spawned |= spawn_live(s, db, form) // a ref a script created (PlaceAtMe, DropObject)
 		apply_overlay_ref(s, form)
+		regate_enable(s, db, form)
 	}
 	if spawned {resolve_created_models(s)}
 	worldstate.clear_scene_dirty(s.ws)
+}
+
+// regate_enable rebuilds the resident chunks an Enable/Disable changes beyond the ref's own
+// instance: the ref itself when it was never built, and every ref below it in an enable chain.
+@(private = "file")
+regate_enable :: proc(s: ^Scene, db: ^gamedb.DB, form: Form_ID) {
+	d, ok := worldstate.get(s.ws, form)
+	if !ok || .Disabled not_in d.live {return}
+	if r, known := gamedb.ref_by_formid(db, form); known && !d.disabled {
+		if _, _, built := find_resident(s, form); !built {
+			cell := gamedb.ref_attach_cell(db, r)
+			if chunk, res := &s.chunks[cell]; res {rebuild_chunk_overlay(s, db, cell, chunk)}
+		}
+	}
+	if form not_in db.enable_parents {return}
+	for cell, &chunk in s.chunks {
+		if gated_by(s, db, &chunk, form) {rebuild_chunk_overlay(s, db, cell, &chunk)}
+	}
+}
+
+// gated_by reports whether a ref of the chunk hangs below `parent` in an enable chain.
+@(private = "file")
+gated_by :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk, parent: Form_ID) -> bool {
+	for r in gamedb.refs_of(db, chunk.cell_form_id) {
+		if gamedb.enable_chain_has(db, r, parent) {return true}
+	}
+	bucket, ok := s.persistent_by_grid[{chunk.gx, chunk.gy}]
+	if !chunk.has_grid || !ok {return false}
+	for r in bucket {
+		if gamedb.enable_chain_has(db, r, parent) {return true}
+	}
+	return false
 }
 
 // apply_overlay_ref live-applies a single form's CURRENT overlay delta to the resident scene — the
@@ -338,7 +371,7 @@ build_created_instance :: proc(db: ^gamedb.DB, form_id: Form_ID, c: worldstate.C
 // drop created refs). Models are left unresolved (the caller resolves sync or enqueues async); deltas
 // are patched afterward via apply_overlay.
 build_overlaid_chunk :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID) -> Chunk {
-	chunk := build_chunk(db, cell)
+	chunk := build_chunk(db, cell, s.ws)
 	merge_persistent(s, db, &chunk) // fold in this grid cell's persistent refs (doors/bridges/gates)
 	if s.ws != nil {
 		// Deleted refs are SUPPRESSED at build — never instantiated (vs Disabled, which is built then
