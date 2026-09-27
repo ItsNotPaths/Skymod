@@ -10,6 +10,7 @@ import "core:math/rand"
 import "core:strings"
 import "../conditions"
 import smath "../math"
+import "../formid"
 import "../gamedb"
 import "../nav"
 import "../worldstate"
@@ -36,7 +37,8 @@ Agent :: struct {
 	done:      bool, // the package tree finished
 	found:     map[u8]Form_ID, // ObjectList input -> the ref a Find put there
 	seat:      Seat, // the furniture marker it claimed
-	seated:    bool, // on `seat`
+	posture:   Posture, // on `seat` unless Standing
+	lead_at:   [3]f32, // where the leader it follows stood last tick
 	combat:    Combat, // toward the player; the package waits while it is not None
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
@@ -55,15 +57,15 @@ World :: struct {
 	lua:        Lua_Hook,
 	furniture:  Furniture_Hook,
 	seats:      map[Seat]Form_ID, // marker -> the actor that claimed it; stale once that actor holds another
-	seating:    map[Form_ID][dynamic]Form_ID, // cell -> the furniture refs its records place (furniture.odin)
+	seating:    map[Form_ID][dynamic]Form_ID, // cell -> the furniture and idle marker refs its records place (furniture.odin)
+	escorts:    map[Form_ID]Escort_Ask, // escorted NPC -> the escort leading it (procedures.odin)
 	chatter_in: f32, // seconds to the next idle line
 	found:      map[[2]Form_ID]bool, // (finder, body): bodies already reported
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
 tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
-	if actor not_in w.agents {w.agents[actor] = {eval_in = rand.float32() * EVAL_EVERY}} // spread the selections over ticks
-	a := &w.agents[actor]
+	a := agent_of(w, ws, db, actor)
 	clear(&a.trip)
 	a.planned = false
 	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
@@ -75,6 +77,8 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	}
 	if a.eval_in <= 0 || scene_pack != a.pack && (scene_pack != 0 || a.scene) { // a scene takes and gives back the actor at once
 		a.eval_in = max(a.eval_in + EVAL_EVERY, 0)
+		a.mover.pace = actor_pace(ws, db, actor)
+		worldstate.wear_spare_armor(ws, db, actor)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 		a.scene = scene_pack != 0
 	}
@@ -82,7 +86,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	a.combat.state = next_combat(ws, db, actor, feet, &a.combat, dt)
 	if was != .None && a.combat.state == .None {interrupt(w, actor)}
 	if a.combat.state != .None {
-		a.seated = false
+		leave(a)
 		combat_goal(ws, db, a, feet)
 	} else if a.pack != 0 {
 		c := Proc_Context {
@@ -98,7 +102,9 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 			if action != nil && a.scene {action.done = true}
 		}
 	}
+	escorts_follow(w, ws, db, a, actor, feet, dt)
 	follow_path_order(ws, db, a, actor, feet)
+	keep_offset(ws, db, a, actor, feet)
 	if worldstate.held_still(ws, actor) {a.mover.goal = {}}
 	if g := a.mover.goal; g.active && g.cell != 0 && g.cell not_in w.mesh.cells {
 		a.mover.goal = route_goal(w, ws, db, a, actor, feet, g)
@@ -107,8 +113,25 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	note_location(ws, db, a, actor)
 	ws.ai.packages[actor] = a.pack
 	worldstate.set_in_set(&ws.ai.moving, actor, vel != {})
+	worldstate.set_in_set(&ws.ai.sitting, actor, a.posture == .Sitting)
+	worldstate.set_sleeping(ws, db, actor, a.posture == .Sleeping)
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
 	return vel
+}
+
+// agent_of is an actor's agent, made on first use with its selections spread over ticks.
+@(private)
+agent_of :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> ^Agent {
+	if actor not_in w.agents {w.agents[actor] = {eval_in = rand.float32() * EVAL_EVERY, mover = {pace = actor_pace(ws, db, actor)}}}
+	return &w.agents[actor]
+}
+
+// actor_pace is how fast an actor walks and runs: its race's movement types times its SpeedMult.
+@(private)
+actor_pace :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> [2]f32 {
+	walk, run, ok := gamedb.gait_speeds(db, worldstate.actor_traits(ws, db, actor).race)
+	pace := [2]f32{walk, run} if ok else DEFAULT_PACE
+	return pace * worldstate.av_current(ws, db, actor, "SpeedMult") / 100
 }
 
 @(private)
@@ -117,7 +140,7 @@ start_package :: proc(a: ^Agent, db: ^gamedb.DB, pack, quest: Form_ID, now: f64,
 	clear(&a.trip)
 	a.planned, a.done = false, false
 	clear(&a.found)
-	a.seat, a.seated = {}, false
+	leave(a)
 	resize(&a.nodes, len(gamedb.package_tree(db, pack)))
 	for &n in a.nodes {n = {}}
 	a.mover.goal = {}
@@ -169,6 +192,21 @@ follow_path_order :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent
 	a.mover.goal = {active = true, point = at, radius = ARRIVED, gait = g, cell = worldstate.ref_grid_cell(ws, db, o.to)}
 }
 
+OFFSET_REACHED :: f32(16) // nearer than this an offset holder stands
+
+// keep_offset walks the actor to the place its KeepOffsetFromActor asks for, in the target's frame.
+@(private = "file")
+keep_offset :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
+	o, ok := ws.ai.offsets[actor]
+	if !ok {return}
+	at := worldstate.ref_pos(ws, db, o.target)
+	h := worldstate.ref_rot(ws, db, o.target).z + o.angle
+	right, ahead := [2]f32{math.cos(h), -math.sin(h)}, [2]f32{math.sin(h), math.cos(h)} // heading 0 faces +Y, turning clockwise
+	spot := at + {right.x * o.offset.x + ahead.x * o.offset.y, right.y * o.offset.x + ahead.y * o.offset.y, o.offset.z}
+	d := linalg.length(spot.xy - feet.xy)
+	a.mover.goal = {active = true, point = spot, radius = max(o.follow, OFFSET_REACHED), gait = .Run if d > o.catch_up else .Walk, cell = worldstate.ref_grid_cell(ws, db, o.target)}
+}
+
 // cross_load_door puts the actor at the door's teleport marker, in the destination door's cell.
 // If that cell is not loaded, the actor leaves the loaded world there.
 @(private = "file")
@@ -200,12 +238,12 @@ tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 @(private = "file")
 step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool, actor: Form_ID, dt: f32) {
 	if actor in loaded || worldstate.is_dead(ws, actor) || !worldstate.ref_enabled(ws, db, actor) {return}
-	if actor not_in w.agents {w.agents[actor] = {eval_in = rand.float32() * EVAL_EVERY}}
-	a := &w.agents[actor]
+	a := agent_of(w, ws, db, actor)
 	feet := worldstate.ref_pos(ws, db, actor)
 	a.eval_in -= dt
 	if a.eval_in <= 0 {
 		a.eval_in += EVAL_EVERY
+		a.mover.pace = actor_pace(ws, db, actor)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 	}
 	if worldstate.take(&ws.ai.to_package, actor) && a.pack != 0 {
@@ -235,11 +273,29 @@ plan_trip :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Ag
 	if !found {return}
 	append(&a.trip, ..points)
 	a.trip_at = 1
-	a.speed = gait_speed(gait(&c))
+	a.speed = gait_speed(a.mover.pace, gait(&c))
 }
 
-// (hole trip-time-skip :tags (ai world) :sev gap) a wait or sleep skips hours but no traveller walks through them: unloaded trips advance by the tick only, and loaded actors do not jump ahead either. Decided: one nav helper advances an actor by N skipped hours (walk the trip, or place it at the end as pull_visitor does), used for loaded and unloaded actors.
-// walk_trip moves an unloaded actor along its trip for one tick and writes where it got to.
+// skip_time walks every agent through the hours a wait or sleep skipped: each selects its package
+// again and covers as much of the trip to it as that time allows, loaded or not.
+skip_time :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB) {
+	hours := ws.ai.skipped
+	ws.ai.skipped = 0
+	if hours <= 0 {return}
+	seconds := f32(hours * 3600) / max(worldstate.global_value(ws, db, formid.TIMESCALE), 1)
+	for actor, &a in w.agents {
+		if worldstate.is_dead(ws, actor) || !worldstate.ref_enabled(ws, db, actor) {continue}
+		feet := worldstate.ref_pos(ws, db, actor)
+		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(&a, db, pack, quest, ws.clock.hours, feet)}
+		clear(&a.trip)
+		plan_trip(w, ws, db, &a, actor, feet)
+		if len(a.trip) == 0 {continue}
+		walk_trip(ws, db, &a, actor, feet, seconds)
+		interrupt(w, actor)
+	}
+}
+
+// walk_trip moves an actor `dt` seconds along its trip and writes where it got to.
 @(private = "file")
 walk_trip :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32, dt: f32) {
 	if a.trip_at >= len(a.trip) {return}
@@ -298,8 +354,7 @@ place_on_load :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ac
 	if a, ok := w.agents[actor]; ok && a.trip_at < len(a.trip) {return}
 	pack, quest := select_package(w, ws, db, actor)
 	if pack == 0 {return}
-	if actor not_in w.agents {w.agents[actor] = {}}
-	a := &w.agents[actor]
+	a := agent_of(w, ws, db, actor)
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
 	return jump_to_destination(w, ws, db, a, actor, feet)
 }
@@ -340,6 +395,7 @@ destroy :: proc(w: ^World) {
 	delete(w.visitors)
 	delete(w.found)
 	delete(w.seats)
+	delete(w.escorts)
 	for _, list in w.seating {delete(list)}
 	delete(w.seating)
 	nav.destroy(&w.mesh)
@@ -355,7 +411,7 @@ interrupt :: proc(w: ^World, actor: Form_ID) {
 	clear(&a.mover.path)
 	clear(&a.trip)
 	a.planned = false
-	a.seated = false
+	leave(a)
 }
 
 // describe is an actor's AI state as console text: its package, each tree node, its mover and trip.

@@ -33,7 +33,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	46  = fn_get_dead,
 	47  = fn_get_item_count,
 	48  = fn_get_gold,
-	49  = fn_resting,
+	49  = fn_get_sleeping,
 	50  = fn_get_talked_to_pc,
 	56  = fn_get_quest_running,
 	58  = fn_get_stage,
@@ -64,7 +64,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	145 = fn_resting,
 	149 = fn_resting,
 	157 = fn_get_open_state,
-	159 = fn_resting,
+	159 = fn_get_sitting,
 	161 = fn_get_is_current_package,
 	170 = fn_get_day_of_week,
 	180 = fn_has_same_editor_loc_as_ref,
@@ -319,7 +319,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (crime-reads)) IsTrespassing, GetTrespassWarningLevel, GetCrimeGold (and Violent, Nonviolent), CanPayCrimeGold, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
 // (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
-// (hole package-conditions :tags ai :sev gap) GetSleeping, GetSitting, IsSmallBump and GetGroupMemberCount read 0: no actor sits, sleeps or bumps as Skyrim counts it, and there are no package groups.
+// (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (animation combat unclaimed) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags world :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
@@ -638,6 +638,16 @@ fn_get_current_time :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_is_moving :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(on in ctx.ws.ai.moving)
+}
+
+@(private = "file")
+fn_get_sitting :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.sit_state(ctx.ws, on)), true
+}
+
+@(private = "file")
+fn_get_sleeping :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(worldstate.sleep_state(ctx.ws, on)), true
 }
 
 @(private = "file")

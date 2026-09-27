@@ -8,13 +8,14 @@ package worldstate
 import "../gamedb"
 
 // (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) and weapon damage (WEAP DATA) are not read; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
-// (hole npc-auto-equip :tags ai :sev gap) an NPC never picks better gear from its inventory or puts its outfit back on (UESP Followers). Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
+// (hole npc-auto-equip :tags ai :sev gap :needs gear-stats) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
 
 Worn :: struct {
 	item:  Form_ID,
 	slots: gamedb.Slots,
 	kept:   bool, // EquipItem's abPreventRemoval: another EquipItem cannot take it off
 	outfit: bool, // put on from the actor's outfit; SetOutfit takes it away
+	sleep:  bool, // the outfit is its sleep outfit
 }
 
 Equipment :: struct {
@@ -102,7 +103,7 @@ weapon_anim_type :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> i3
 }
 
 @(private)
-put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool, outfit := false) -> bool {
+put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool, outfit := false, sleep := false) -> bool {
 	slots, either := gamedb.slots_of(db, item)
 	if slots == {} {return false}
 	if either {slots = {pick_hand(slots, hand)}}
@@ -115,7 +116,7 @@ put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Fo
 		ordered_remove(&eq.worn, i)
 		if announce {append(&ws.equip_changes, Equip_Change{actor, w.item, false})}
 	}
-	append(&eq.worn, Worn{item, slots, keep, outfit})
+	append(&eq.worn, Worn{item, slots, keep, outfit, sleep})
 	if announce {append(&ws.equip_changes, Equip_Change{actor, item, true})}
 	return true
 }
@@ -137,22 +138,66 @@ wear_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, gear: []ga
 	for e in gear {put_on(ws, db, eq, actor, e.item, nil, false, false, outfit = true)}
 }
 
-// outfit_items is the gear list of an actor's outfit: one a script set on the actor or its NPC_,
-// else its records'.
-outfit_items :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
+// outfit_items is the gear list of an actor's outfit, or of its sleep outfit: one a script set on
+// the actor or its NPC_, else its records'.
+outfit_items :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, sleep := false) -> []Form_ID {
 	record := record_of(ws, actor)
 	base := record
 	if r, ok := gamedb.ref_by_formid(db, record); ok {base = r.base}
+	set := &ws.sleep_outfits if sleep else &ws.outfits
 	for key in ([2]Form_ID{actor, base}) {
-		if o, ok := ws.outfits[key]; ok {return db.outfits[o]}
+		if o, ok := set[key]; ok {return db.outfits[o]}
 	}
-	return gamedb.outfit_of(db, record, actor_pick(ws, db, actor))
+	return gamedb.outfit_of(db, record, actor_pick(ws, db, actor), sleep)
 }
 
-// (hole sleep-outfits :tags (ai player) :sev gap) SetOutfit(abSleepOutfit = true) is ignored: nothing sleeps, so no actor changes into its sleep outfit (NPC_ SOFT is not read).
-// set_outfit dresses `actor` in `outfit`: the old outfit's gear is taken off and out of its
-// inventory, the new gear, rolled at the player's level, goes in and on. It stays through resets.
-set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {
+// wear_spare_armor puts on armor from the actor's inventory where nothing is worn: its outfit, after
+// it was taken off, or what it was given.
+wear_spare_armor :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+	eq := equipment(ws, db, actor)
+	for item in inv_items(ws, db, actor) {
+		s, ok := db.equip_slots[item]
+		slots, _ := gamedb.slots_of(db, item)
+		if !ok || s.kind != .Armor || slots == {} || worn_in(eq, slots) {continue}
+		put_on(ws, db, eq, actor, item, nil, false, true)
+	}
+}
+
+@(private = "file")
+worn_in :: proc(eq: ^Equipment, slots: gamedb.Slots) -> bool {
+	for w in eq.worn {
+		if w.slots & slots != {} {return true}
+	}
+	return false
+}
+
+// set_outfit is SetOutfit: `outfit` becomes the actor's outfit, or its sleep outfit. It stays
+// through resets; the actor changes into it now if it wears that kind.
+set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID, sleep := false) {
+	(&ws.sleep_outfits if sleep else &ws.outfits)[actor] = outfit
+	items, _ := db.outfits[outfit] // not `for x in m[k]`: a missing key hangs (odin-map-index-iteration)
+	if in_sleep_outfit(ws, db, actor) == sleep {dress(ws, db, actor, items, sleep)}
+}
+
+// set_sleeping notes whether an actor sleeps now; one with a sleep outfit changes into it or out.
+set_sleeping :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, asleep: bool) {
+	set_in_set(&ws.ai.sleeping, actor, asleep)
+	if asleep == in_sleep_outfit(ws, db, actor) || len(outfit_items(ws, db, actor, true)) == 0 {return}
+	dress(ws, db, actor, outfit_items(ws, db, actor, asleep), asleep)
+}
+
+@(private)
+in_sleep_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool {
+	for w in equipment(ws, db, actor).worn {
+		if w.outfit {return w.sleep}
+	}
+	return false
+}
+
+// dress changes an actor's outfit gear: the old gear is taken off and out of its inventory, the
+// new, rolled at the player's level, goes in and on.
+@(private)
+dress :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, items: []Form_ID, sleep: bool) {
 	eq := equipment(ws, db, actor)
 	for i := 0; i < len(eq.worn); {
 		w := eq.worn[i]
@@ -162,14 +207,12 @@ set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {
 		inv_add(ws, actor, w.item, -1)
 		move_items(ws, {base = w.item, from = actor, count = 1})
 	}
-	ws.outfits[actor] = outfit
 	gear := make([dynamic]gamedb.Content_Entry, context.temp_allocator)
-	items, _ := db.outfits[outfit] // not `for x in m[k]`: a missing key hangs (odin-map-index-iteration)
 	for item in items {roll(ws, db, item, player_level(ws, db), 1, &gear)}
 	for e in gear {
 		inv_add(ws, actor, e.item, e.count)
 		move_items(ws, {base = e.item, to = actor, count = e.count})
-		put_on(ws, db, eq, actor, e.item, nil, false, true, outfit = true)
+		put_on(ws, db, eq, actor, e.item, nil, false, true, outfit = true, sleep = sleep)
 	}
 }
 

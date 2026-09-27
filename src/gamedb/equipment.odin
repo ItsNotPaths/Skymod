@@ -202,12 +202,13 @@ etyp_slots :: proc(db: ^DB, etyp: Form_ID, depth := 0) -> (slots: Slots, either:
 	return slots, !t.use_all && card(slots) > 1
 }
 
-// outfit_of is the gear an actor starts wearing: its DOFT outfit's items, following ref → base and the
-// inventory template (`pick` standing in for a leveled one). Entries may be leveled lists.
-outfit_of :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0) -> []Form_ID {
+// outfit_of is the gear an actor starts wearing: its DOFT outfit's items (SOFT when `sleep`),
+// following ref → base and the inventory template (`pick` standing in for a leveled one). Entries
+// may be leveled lists.
+outfit_of :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0, sleep := false) -> []Form_ID {
 	base := form
 	if r, ok := db.ref_by_id[form]; ok {base = r.base}
-	a, ok := db.actors[base]
-	if !ok {return nil}
-	return db.outfits[template_part(db, base, esm.ACBS_TEMPLATE_INVENTORY, pick).outfit]
+	if base not_in db.actors {return nil}
+	a := template_part(db, base, esm.ACBS_TEMPLATE_INVENTORY, pick)
+	return db.outfits[a.sleep_outfit if sleep else a.outfit]
 }

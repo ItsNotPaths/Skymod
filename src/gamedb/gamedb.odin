@@ -199,6 +199,8 @@ DB :: struct {
 	locations:     map[Form_ID]Location, // LCTN formID -> its place in the location tree + map marker
 	weathers:      map[Form_ID]Weather, // WTHR formID -> its authored sky look (colours/fog/imagespaces)
 	races:         map[Form_ID]Race, // RACE formID -> identity + skill bonuses + body scale (owned description)
+	movement:      map[Form_ID][2]f32, // MOVT formID -> forward walk and run speed
+	default_move:  [2]Form_ID, // DOBJ: the walk and run MOVT of races without their own
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
 	outfits:       map[Form_ID][]Form_ID, // OTFT formID -> the gear it grants (owned; remapped)
@@ -215,9 +217,11 @@ DB :: struct {
 	recipes_by_bench: map[Form_ID][dynamic]Form_ID, // workbench KEYWORD formID -> the recipes it shows (owned)
 	actors:        map[Form_ID]Actor_Base, // NPC_ formID -> its decoded base identity (owned slices; the player is 0x00000007)
 	doors:         map[Form_ID]bool, // base formID -> true if it's a DOOR record (door-panel cull)
-	furniture:     map[Form_ID]bool, // FURN base formIDs (AI seats)
+	furniture:     map[Form_ID]bool, // FURN base formID -> it is a crafting bench (WBDT bench type set)
+	idle_markers:  map[Form_ID]u8, // IDLM formID -> its IDLF flags
 	triggers:      map[Form_ID]esm.Primitive, // REFR formID -> its XPRM box or sphere (a trigger volume)
 	locks:         map[Form_ID]esm.Lock_Data, // REFR formID -> its XLOC baseline lock (presence = starts locked)
+	patrol_idles:  map[Form_ID]f32, // patrol marker REFR -> seconds a patrol waits there (XPRD)
 	trees:         map[Form_ID]bool, // base formID -> true if it's a TREE record (distant billboard LOD)
 	books:         map[Form_ID]Book, // BOOK base formID -> what reading it teaches (absent = teaches nothing)
 	produce:       map[Form_ID]Form_ID, // FLOR / TREE base formID -> its PFIG harvest (an item or a leveled list)
@@ -350,6 +354,7 @@ Actor_Base :: struct {
 	class:         Form_ID, // CNAM
 	voice:         Form_ID, // VTCK
 	outfit:        Form_ID, // DOFT default outfit
+	sleep_outfit:  Form_ID, // SOFT
 	gift_filter:   Form_ID, // GNAM FLST of what it accepts as a gift
 	template:      Form_ID, // TPLT: an NPC_ or LVLN the template flags draw from
 	template_flags: u16,    // ACBS (esm.ACBS_TEMPLATE_*)
@@ -759,6 +764,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		locations     = make(map[Form_ID]Location, 1024, allocator),
 		weathers      = make(map[Form_ID]Weather, 128, allocator),
 		races         = make(map[Form_ID]Race, 128, allocator),
+		movement      = make(map[Form_ID][2]f32, 128, allocator),
 		classes       = make(map[Form_ID]Class, 256, allocator),
 		voice_types   = make(map[Form_ID]u8, 256, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
@@ -776,7 +782,9 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		actors        = make(map[Form_ID]Actor_Base, 4096, allocator),
 		doors         = make(map[Form_ID]bool, 512, allocator),
 		furniture     = make(map[Form_ID]bool, 512, allocator),
+		idle_markers  = make(map[Form_ID]u8, 128, allocator),
 		locks         = make(map[Form_ID]esm.Lock_Data, 2048, allocator),
+		patrol_idles  = make(map[Form_ID]f32, 4096, allocator),
 		triggers      = make(map[Form_ID]esm.Primitive, 4096, allocator),
 		trees         = make(map[Form_ID]bool, 512, allocator),
 		books         = make(map[Form_ID]Book, 256, allocator),
@@ -976,8 +984,11 @@ destroy :: proc(db: ^DB) {
 	}
 	delete(db.actors)
 	delete(db.doors)
+	delete(db.movement)
 	delete(db.furniture)
+	delete(db.idle_markers)
 	delete(db.locks)
+	delete(db.patrol_idles)
 	delete(db.triggers)
 	delete(db.trees)
 	delete(db.books)
@@ -1551,6 +1562,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_weather(db, rec, ctx.fm)
 	case s == "RACE":
 		index_race(db, rec, ctx.fm)
+	case s == "MOVT":
+		index_movement(db, rec)
+	case s == "DOBJ":
+		index_default_movement(db, rec, ctx.fm)
 	case s == "CLAS":
 		index_class(db, rec)
 	case s == "VTYP":
@@ -1561,6 +1576,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_actor_value(db, rec, ctx.fm) // identity + its perk-tree nodes
 	case s == "GLOB":
 		index_glob(db, rec) // its FLTV baseline value
+	case s == "IDLM":
+		index_idle_marker(db, rec)
 	case s == "GMST":
 		index_gmst(db, rec) // its typed DATA value, keyed by editor id
 	case s == "MESG":
@@ -2015,6 +2032,11 @@ index_ref :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	} else if _, was := db.ref_index[rec.form_id]; was {
 		delete_key(&db.locks, rec.form_id) // override removed the lock — drop the stale baseline
 	}
+	if xprd, has := esm.find_field(fl, "XPRD"); has {
+		db.patrol_idles[rec.form_id], _ = esm.field_f32(xprd)
+	} else {
+		delete_key(&db.patrol_idles, rec.form_id)
+	}
 
 	// Override: a later plugin re-declaring this REFR formID replaces it in place (preserves
 	// cell-array order). Otherwise append and remember where it landed. (A relocation to a
@@ -2306,6 +2328,16 @@ index_leveled_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 // runtime worldstate.globals overrides it (a scripted SetValue). A later plugin overriding the same
 // GLOB replaces the baseline (last write wins). Non-FLTV globals (malformed) are skipped.
 @(private)
+// index_idle_marker keeps an IDLM's flags (IDLF).
+index_idle_marker :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+	idlf, _ := esm.find_field(fl, "IDLF")
+	db.idle_markers[rec.form_id] = idlf.data[0] if len(idlf.data) > 0 else 0
+}
+
 index_glob :: proc(db: ^DB, rec: esm.Record) {
 	fl, backing, ok := esm.fields(rec) // heap scratch; freed below
 	if !ok {
@@ -2657,6 +2689,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if c, cok := esm.subrecord_formid(fl, "CNAM"); cok {a.class = esm.remap_form(fm, c)}
 	if v, vok := esm.subrecord_formid(fl, "VTCK"); vok {a.voice = esm.remap_form(fm, v)}
 	if o, ook := esm.subrecord_formid(fl, "DOFT"); ook {a.outfit = esm.remap_form(fm, o)}
+	if o, ook := esm.subrecord_formid(fl, "SOFT"); ook {a.sleep_outfit = esm.remap_form(fm, o)}
 	if g, gok := esm.subrecord_formid(fl, "GNAM"); gok {a.gift_filter = esm.remap_form(fm, g)}
 	if t, tok := esm.subrecord_formid(fl, "TPLT"); tok {a.template = esm.remap_form(fm, t)}
 	if d, dok := esm.subrecord_formid(fl, "DPLT"); dok {a.default_packages = esm.remap_form(fm, d)}
@@ -2778,7 +2811,10 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if rec.type == "DOOR" {
 		db.doors[rec.form_id] = true // door-panel base (open-interiors portal cull)
 	}
-	if rec.type == "FURN" {db.furniture[rec.form_id] = true}
+	if rec.type == "FURN" {
+		wbdt, has := esm.find_field(fl, "WBDT")
+		db.furniture[rec.form_id] = has && len(wbdt.data) > 0 && wbdt.data[0] != 0
+	}
 	if rec.type == "TREE" {
 		db.trees[rec.form_id] = true // tree base → distant billboard (the _lod_flat.nif beside the mesh)
 	}
@@ -2814,9 +2850,27 @@ is_door :: proc(db: ^DB, base: Form_ID) -> bool {
 	return base in db.doors
 }
 
+// patrol_idle is how long a patrol waits at a marker (XPRD seconds); 0 without.
+patrol_idle :: proc(db: ^DB, marker: Form_ID) -> f32 {
+	return db.patrol_idles[marker]
+}
+
 // is_furniture reports whether a base formID is a FURN record.
 is_furniture :: proc(db: ^DB, base: Form_ID) -> bool {
 	return base in db.furniture
+}
+
+// is_bench reports whether a FURN is a crafting bench: "special furniture" a sandbox may use.
+is_bench :: proc(db: ^DB, base: Form_ID) -> bool {
+	return db.furniture[base]
+}
+
+IDLE_IGNORED_BY_SANDBOX :: 0x10 // IDLF (xEdit)
+
+// is_idle_marker reports whether a base formID is an IDLM, and whether a sandbox may use it.
+is_idle_marker :: proc(db: ^DB, base: Form_ID) -> (marker, sandbox: bool) {
+	flags, ok := db.idle_markers[base]
+	return ok, ok && flags & IDLE_IGNORED_BY_SANDBOX == 0
 }
 
 // is_container reports whether a base formID is a CONT record (an openable container).

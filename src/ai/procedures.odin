@@ -11,7 +11,7 @@ import "../worldstate"
 
 FOLLOW_SPRINT :: f32(300) // fFollowStartSprintDistance: a follower this far behind runs
 
-// (hole follow-pace :tags ai :sev polish) a follower walks until it falls past MaxRadius, then runs: it does not match the target's pace, sneak when it sneaks, or honour GoToLeadersGoal and NeedLOS.
+// (hole follow-sight :tags ai :sev polish) a follower ignores "Need LOS?" and GoToLeadersGoal: it always walks straight at the leader.
 // proc_follow keeps within MinRadius of the target until the package ends (Follow) or the actor
 // reaches EndLocation (FollowTo, whose slots start one later). A dead target fails it (CK).
 proc_follow :: proc(c: ^Proc_Context, shift: int) -> Status {
@@ -26,27 +26,47 @@ proc_follow :: proc(c: ^Proc_Context, shift: int) -> Status {
 	}
 	near := max(input_value(c, 1 + shift, f32) or_else 0, ARRIVED)
 	far := max(input_value(c, 2 + shift, f32) or_else 0, near)
-	at := worldstate.ref_pos(ws, db, target)
-	d := linalg.length(at.xy - c.feet.xy)
-	g := Gait.Walk
-	if d > far {g = .Run if d > FOLLOW_SPRINT else .Jog}
-	c.agent.mover.goal = {active = true, point = at, radius = near, gait = g, cell = worldstate.ref_grid_cell(ws, db, target)}
+	follow_goal(ws, db, c.agent, c.cond.subject, target, c.feet, near, far, FOLLOW_SPRINT, c.dt)
 	return .Running
 }
 
-// (hole escort-followers :tags ai :sev gap) Escort does not put a Follow package on an escorted NPC, so only the player follows; NumberToEscort, object lists and RunIfBehindDist are unread.
+// follow_goal steers an actor after a leader: it stands within `near` and keeps the leader's pace,
+// sneaking while it sneaks; past `far` it jogs, and past `sprint` it runs.
+@(private)
+follow_goal :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor, leader: Form_ID, feet: [3]f32, near, far, sprint, dt: f32) {
+	at := worldstate.ref_pos(ws, db, leader)
+	moved := linalg.length(at.xy - a.lead_at.xy) if a.lead_at != {} else 0
+	a.lead_at = at
+	d := linalg.length(at.xy - feet.xy)
+	g := Gait.Run if moved > gait_speed(a.mover.pace, .Walk) * 1.5 * dt else .Walk // the leader runs
+	if d > sprint {
+		g = .Run
+	} else if d > far && g == .Walk {
+		g = .Jog
+	}
+	worldstate.set_sneaking(ws, actor, worldstate.is_sneaking(ws, leader))
+	a.mover.goal = {active = true, point = at, radius = near, gait = g, cell = worldstate.ref_grid_cell(ws, db, leader)}
+}
+
+// (hole escort-count :tags ai :sev polish) Escort leads one actor: NumberToEscort and object lists of escorted actors are not read.
 // proc_escort leads the escorted actor to the destination, stopping while it lags farther than
-// EscortWaitDist; done at the destination.
+// EscortWaitDist; done at the destination. An escorted NPC follows it (escorts_follow).
 proc_escort :: proc(c: ^Proc_Context) -> Status {
 	ws, db := c.cond.ws, c.cond.db
+	who := input_target(c, 0)
 	dest, ok := location(c)
 	if !ok {return .Failed}
 	dest.radius = travel_radius(c, dest)
 	if reached(c, dest) {
+		delete_key(&c.w.escorts, who)
 		c.agent.mover.goal = {}
 		return .Done
 	}
-	if who := input_target(c, 0); who != 0 && !worldstate.is_dead(ws, who) {
+	if who != 0 && who != formid.PLAYER {
+		near := max(input_value(c, 4, f32) or_else 0, ARRIVED)
+		c.w.escorts[who] = {c.cond.subject, near, max(input_value(c, 5, f32) or_else 0, near), input_value(c, 8, f32) or_else FOLLOW_SPRINT, ws.clock.played}
+	}
+	if who != 0 && !worldstate.is_dead(ws, who) {
 		wait := input_value(c, 3, f32) or_else 0
 		if wait > 0 && linalg.length(worldstate.ref_pos(ws, db, who).xy - c.feet.xy) > wait {
 			c.agent.mover.goal = {}
@@ -55,6 +75,27 @@ proc_escort :: proc(c: ^Proc_Context) -> Status {
 	}
 	c.agent.mover.goal = {active = true, point = dest.center, radius = dest.radius, gait = gait(c), cell = dest.cell}
 	return .Running
+}
+
+ESCORT_STALE :: 1 // seconds after its escort last asked, an escorted actor goes back to its package
+
+// Escort_Ask is an escort leading an NPC: the NPC follows within the escort's follower radii.
+Escort_Ask :: struct {
+	leader:            Form_ID,
+	near, far, sprint: f32,
+	at:                f64, // clock.played when the escort last asked
+}
+
+// escorts_follow steers an escorted NPC after its escort, over its own package.
+@(private)
+escorts_follow :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32, dt: f32) {
+	e, ok := w.escorts[actor]
+	if !ok {return}
+	if ws.clock.played - e.at > ESCORT_STALE {
+		delete_key(&w.escorts, actor)
+		return
+	}
+	follow_goal(ws, db, a, actor, e.leader, feet, e.near, e.far, e.sprint, dt)
 }
 
 // proc_flee runs from the FleeFrom target until FleeDist away (UseDynamicGoalInstead), else to

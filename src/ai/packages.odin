@@ -165,7 +165,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Find":                          return proc_find(c)
 	case "Sit":                           return proc_seat(c, .Sit)
 	case "Sleep":                         return proc_seat(c, .Lay)
-	// (hole proc-acquire :tags ai :sev gap) Acquire takes nothing and Eat does nothing: an actor eats fake food, and the food a Find names stays where it is (eating itself is animation).
+	// (hole proc-acquire :tags ai :sev gap) Acquire takes nothing and Eat does nothing: an actor eats fake food, and Find never names food (ALCH food flag not decoded). Picking a world item up lives in script (natives_inventory take/move_items, stacks via the VM), out of the AI's reach. Eating itself is animation.
 	case "Eat", "Acquire":                return .Done
 	case "Patrol":                        return proc_patrol(c)
 	case "UseIdleMarker":                 return proc_idle_marker(c)
@@ -307,27 +307,68 @@ proc_travel :: proc(c: ^Proc_Context) -> Status {
 	return .Running
 }
 
-// (hole proc-sandbox :tags ai :sev gap :needs proc-idle-marker) Sandbox only wanders: it never sits, eats, sleeps or uses an idle marker (IDLM is not decoded), whatever the package flags allow.
+// (hole sandbox-choices :tags ai :sev polish) unsourced: a sandbox takes a free chair or idle marker half the time (20-60 s) and a random spot otherwise (5-15 s); it never takes a bed, and Energy, Allow Eating, Allow Conversation, Allow Wandering and the minimum wander distance are not read.
+// proc_sandbox moves between spots, chairs and idle markers in the package location, as its
+// Allow inputs let it. It stands aside while a Sit or Sleep beside it holds a seat.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	st := &c.agent.nodes[c.node]
+	a := c.agent
 	p, ok := location(c)
 	center, radius := p.center if ok else c.feet, max(p.radius, SANDBOX_RADIUS)
 	if ok && p.cell not_in c.w.mesh.cells { // walk there first; spots are picked on the loaded navmesh
-		c.agent.mover.goal = {active = true, point = center, radius = radius, gait = .Walk, cell = p.cell}
+		a.mover.goal = {active = true, point = center, radius = radius, gait = .Walk, cell = p.cell}
 		return .Running
 	}
-	if !st.started || (arrived(c, st.point) && st.timer <= 0) {
-		st.point = nav.random_point_near(&c.w.mesh, center, radius) or_else center
-		st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
+	if a.seat.furniture != 0 && a.seat.furniture != st.target {return .Running}
+	if !st.started || st.timer <= 0 {
 		st.started = true
+		sandbox_pick(c, center, radius)
 	}
-	if c.agent.mover.stuck {st.timer = 0}
-	if arrived(c, st.point) || c.agent.mover.stuck {st.timer -= c.dt}
-	c.agent.mover.goal = {active = true, point = st.point, radius = ARRIVED, gait = .Walk}
+	if st.target != 0 {
+		if settle(c) {st.timer -= c.dt}
+		if a.mover.stuck {st.timer = 0}
+		return .Running
+	}
+	if a.mover.stuck {st.timer = 0}
+	if arrived(c, st.point) || a.mover.stuck {st.timer -= c.dt}
+	a.mover.goal = {active = true, point = st.point, radius = ARRIVED, gait = .Walk}
 	return .Running
 }
 
 SANDBOX_IDLE :: [2]f32{5, 15} // seconds at a spot before the next
+SANDBOX_STAY :: [2]f32{20, 60} // seconds on a chair or at an idle marker
+
+// sandbox_pick chooses the sandbox's next activity: a free chair or idle marker in the location
+// that its inputs allow, or a random spot.
+@(private = "file")
+sandbox_pick :: proc(c: ^Proc_Context, center: [3]f32, radius: f32) {
+	ws, db := c.cond.ws, c.cond.db
+	st := &c.agent.nodes[c.node]
+	if st.target != 0 {leave(c.agent)}
+	st.target = 0
+	allowed := proc(c: ^Proc_Context, k: int) -> bool {return input_value(c, k, bool) or_else true}
+	options := make([dynamic]Seat, context.temp_allocator)
+	for cell in c.w.loaded {
+		for r in seating_in(c.w, db, cell) {
+			if linalg.length(worldstate.ref_pos(ws, db, r).xy - center.xy) > radius || !worldstate.ref_enabled(ws, db, r) {continue}
+			base := worldstate.ref_base(ws, db, r)
+			if marker, sandbox := gamedb.is_idle_marker(db, base); marker {
+				if sandbox && allowed(c, 4) && !taken(c, {r, 0}) {append(&options, Seat{r, 0})}
+				continue
+			}
+			if !allowed(c, 5) || gamedb.is_bench(db, base) && !allowed(c, 9) {continue}
+			if i, free := free_marker(c, r, .Sit); free {append(&options, Seat{r, i})}
+		}
+	}
+	if len(options) > 0 && rand.float32() < 0.5 && claim(c, rand.choice(options[:])) {
+		st.target = c.agent.seat.furniture
+		st.timer = rand.float32_range(SANDBOX_STAY[0], SANDBOX_STAY[1])
+		return
+	}
+	st.point = nav.random_point_near(&c.w.mesh, center, radius) or_else center
+	st.timer = rand.float32_range(SANDBOX_IDLE[0], SANDBOX_IDLE[1])
+}
+
 ARRIVED :: f32(48)
 
 @(private = "file")
@@ -335,9 +376,10 @@ arrived :: proc(c: ^Proc_Context, p: [3]f32) -> bool {
 	return linalg.length(c.feet.xy - p.xy) <= ARRIVED
 }
 
-// (hole patrol-marker-idle :tags ai :sev gap) a patrol never pauses at a marker: the marker's patrol data (REFR XPRD idle time, idle, topic) is not decoded.
+// (hole patrol-marker-topic :tags (ai dialogue) :sev polish) a patrol marker's topic (PDTO, on 2 markers: RorikPatrolCommentTopic and a RUMO subtype) is not said on arrival.
 // proc_patrol walks the linked-ref chain of markers from the PathStart input, starting at the
-// nearest one when asked; a repeatable patrol starts over at the end of the chain.
+// nearest one when asked, and waits at each for its patrol idle time; a repeatable patrol starts
+// over at the end of the chain.
 proc_patrol :: proc(c: ^Proc_Context) -> Status {
 	PATROL_RADIUS :: f32(128)
 	db, ws := c.cond.db, c.cond.ws
@@ -347,11 +389,17 @@ proc_patrol :: proc(c: ^Proc_Context) -> Status {
 		st.started = true
 		st.target = input_target(c, 0)
 		if input_value(c, 3, bool) or_else false {st.target = nearest_marker(ws, db, st.target, c.feet)}
+		st.timer = gamedb.patrol_idle(db, st.target)
 	}
 	if st.target == 0 {return .Failed}
 	at := worldstate.ref_pos(ws, db, st.target)
 	radius := max(input_value(c, 1, f32) or_else PATROL_RADIUS, ARRIVED)
 	if linalg.length(c.feet.xy - at.xy) <= radius {
+		st.timer -= c.dt
+		if st.timer > 0 {
+			c.agent.mover.goal = {}
+			return .Running
+		}
 		next, _ := gamedb.linked_ref(db, st.target)
 		if next == 0 && repeat {next = input_target(c, 0)}
 		if next == 0 {
@@ -359,6 +407,7 @@ proc_patrol :: proc(c: ^Proc_Context) -> Status {
 			return .Done
 		}
 		st.target = next
+		st.timer = gamedb.patrol_idle(db, next)
 		at = worldstate.ref_pos(ws, db, next)
 	}
 	c.agent.mover.goal = {active = true, point = at, radius = radius, gait = gait(c), cell = worldstate.ref_grid_cell(ws, db, st.target)}
@@ -413,11 +462,6 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	return 0
 }
 
-// (hole proc-idle-marker :tags ai :sev gap ) UseIdleMarker does nothing: wanted walk to the IDLM ref and play its idle (the idle itself is animation).
-proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
-	return .Done
-}
-
 // (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
 // proc_guard walks to the package location and holds it.
 proc_guard :: proc(c: ^Proc_Context) -> Status {
@@ -431,12 +475,35 @@ proc_wait :: proc(c: ^Proc_Context) -> Status {
 	return .Running
 }
 
-// (hole proc-wander :tags ai :sev polish ) Wander does nothing (5 uses, all in Sit trees).
+// (hole wander-legs :tags ai :sev polish) unsourced: Wander walks one leg to a random spot in the location and ends (its 5 uses sit in a Sequence before a Sit, which must run); "Wander Preferred Path Only?" is not read.
+// proc_wander walks to a random spot in the package location and ends there.
 proc_wander :: proc(c: ^Proc_Context) -> Status {
-	return .Done
+	st := &c.agent.nodes[c.node]
+	if !st.started {
+		st.started = true
+		p, ok := location(c)
+		center := p.center if ok else c.feet
+		st.point = nav.random_point_near(&c.w.mesh, center, max(p.radius, SANDBOX_RADIUS)) or_else center
+	}
+	if arrived(c, st.point) || c.agent.mover.stuck {
+		c.agent.mover.goal = {}
+		return .Done
+	}
+	c.agent.mover.goal = {active = true, point = st.point, radius = ARRIVED, gait = .Walk}
+	return .Running
 }
 
-// (hole proc-doors :tags ai :sev polish) LockDoors and UnlockDoors do nothing: wanted lock or unlock the doors of the package location's cell.
+// (hole door-lock-scope :tags ai :sev polish) unsourced: LockDoors and UnlockDoors change only the load doors of an interior package location and their far sides, and nothing warns the player before a lock.
+// proc_doors locks or unlocks the ways into an interior package location: its load doors and the doors they lead to.
 proc_doors :: proc(c: ^Proc_Context, lock: bool) -> Status {
+	ws, db := c.cond.ws, c.cond.db
+	p, ok := location(c)
+	cl, _ := gamedb.cell_by_formid(db, p.cell)
+	if !ok || !cl.interior {return .Done}
+	for r in gamedb.refs_of(db, p.cell) {
+		if !gamedb.is_door(db, r.base) || r.teleport.door == 0 {continue}
+		worldstate.set_locked(ws, r.form_id, p.cell, lock)
+		worldstate.set_locked(ws, r.teleport.door, worldstate.ref_cell(ws, db, r.teleport.door), lock)
+	}
 	return .Done
 }

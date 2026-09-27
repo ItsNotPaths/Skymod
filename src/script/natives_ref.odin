@@ -139,8 +139,11 @@ form_or_none :: proc(form: Form_ID) -> Value {
 	return form
 }
 
-// GetTriggerObjectCount() -> int: how many actors are inside this trigger volume (only the player
-// enters one, script tick_triggers).
+// GetTriggerObjectCount() -> int: how many actors are inside this trigger volume (script tick_triggers).
 n_get_trigger_object_count :: proc(c: ^Call, args: []Value) -> Value {
-	return i32(1) if c.self in c.ws.in_triggers else i32(0)
+	n: i32
+	for key in c.ws.in_triggers {
+		if key[0] == c.self {n += 1}
+	}
+	return n
 }

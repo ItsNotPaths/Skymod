@@ -154,6 +154,58 @@ test_set_outfit :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, helmet) && !worldstate.is_equipped(&ws, &db, NPC, hood), "a reset keeps the new outfit")
 }
 
+// An NPC puts armor from its pack back on where nothing is worn.
+@(test)
+test_wear_spare_armor :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0x200)
+	OUTFIT :: gamedb.Form_ID(0x201)
+	hood := gamedb.Form_ID(Gear.Hood)
+	db: gamedb.DB
+	gear_db(&db)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[NPC] = {outfit = OUTFIT}
+	db.outfits = make(map[gamedb.Form_ID][]gamedb.Form_ID, context.temp_allocator)
+	db.outfits[OUTFIT] = {hood}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.unequip(&ws, &db, NPC, hood)
+	worldstate.wear_spare_armor(&ws, &db, NPC)
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, hood), "outfit back on")
+}
+
+// A sleeper changes into its sleep outfit and back on waking, and a save between keeps it straight.
+@(test)
+test_sleep_outfit :: proc(t: ^testing.T) {
+	NPC :: gamedb.Form_ID(0x200)
+	DAY :: gamedb.Form_ID(0x201)
+	NIGHT :: gamedb.Form_ID(0x202)
+	hood, robes := gamedb.Form_ID(Gear.Hood), gamedb.Form_ID(Gear.Robes)
+	db: gamedb.DB
+	gear_db(&db)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
+	db.actors[NPC] = {outfit = DAY, sleep_outfit = NIGHT}
+	db.outfits = make(map[gamedb.Form_ID][]gamedb.Form_ID, context.temp_allocator)
+	db.outfits[DAY] = {hood}
+	db.outfits[NIGHT] = {robes}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+
+	worldstate.set_sleeping(&ws, &db, NPC, true)
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, robes) && !worldstate.is_equipped(&ws, &db, NPC, hood), "asleep in the sleep outfit")
+	testing.expect_value(t, worldstate.sleep_state(&ws, NPC), worldstate.SEATED)
+
+	path := "test_sleep_outfit.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
+	_, ok := worldstate.load_from_file(&ws, path)
+	testing.expect(t, ok, "load")
+	worldstate.set_sleeping(&ws, &db, NPC, false)
+	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, hood) && !worldstate.is_equipped(&ws, &db, NPC, robes), "awake in the day outfit")
+}
+
 // No two biped bits share an engine slot, so every plugin item keeps exactly its Skyrim conflicts.
 @(test)
 test_biped_slots_disjoint :: proc(t: ^testing.T) {

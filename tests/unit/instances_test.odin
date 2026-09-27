@@ -94,8 +94,8 @@ local function log(s) __log = (__log or "") .. s .. ";" end
 C.__fn["onlocationchange"] = function(self, old, new) log("loc"); __old, __new = old, new end
 C.__fn["ondying"] = function(self, killer) log("dying"); __killer = killer end
 C.__fn["ondeath"] = function(self, killer) log("death"); assert(killer === __killer) end
-C.__fn["ontriggerenter"] = function(self, who) log("enter"); assert(who === ref(0x14)) end
-C.__fn["ontriggerleave"] = function(self, who) log("leave"); assert(who === ref(0x14)) end
+C.__fn["ontriggerenter"] = function(self, who) log("enter"); __who = who end
+C.__fn["ontriggerleave"] = function(self, who) log("leave"); __who = who end
 return C
 `
 
@@ -1487,7 +1487,8 @@ test_kill_events :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.is_dead(&f.ws, VICTIM), "dead")
 }
 
-// A trigger box turned 90 degrees hears the player come in, then go out; a disabled one forgets.
+// A trigger box turned 90 degrees hears the player come in, then go out; a disabled one forgets;
+// a loaded NPC walks in too.
 @(test)
 test_trigger_events :: proc(t: ^testing.T) {
 	f: Fixture
@@ -1512,10 +1513,17 @@ test_trigger_events :: proc(t: ^testing.T) {
 	at(&f, {1000, 250, 0})
 	testing.expect_value(t, len(f.ws.in_triggers), 1)
 	at(&f, {1000, 400, 0})
-	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;leave;", __log); __log = nil`), "enter once, then leave")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;leave;", __log); assert(__who === ref(0x14)); __log = nil`), "enter once, then leave")
 	at(&f, {1000, 200, 0})
 	worldstate.set_disabled(&f.ws, TRIG, CELL, true)
 	at(&f, {1000, 400, 0})
-	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log)`), "a disabled trigger sends no leave")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log); __log = nil`), "a disabled trigger sends no leave")
 	testing.expect_value(t, len(f.ws.in_triggers), 0)
+
+	NPC :: script.Form_ID(0x800)
+	worldstate.set_disabled(&f.ws, TRIG, CELL, false)
+	f.ws.ai.loaded[NPC] = true
+	worldstate.set_moved(&f.ws, NPC, CELL, {}, {1000, 200, 0})
+	at(&f, {1000, 400, 0})
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log); assert(__who === ref(0x800))`), "a loaded NPC enters too")
 }

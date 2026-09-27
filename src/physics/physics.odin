@@ -23,6 +23,7 @@ import "base:runtime"
 import "core:math"
 import "core:math/linalg"
 import "core:slice"
+import "core:sync"
 
 import jolt "../../vendor/joltc-odin"
 
@@ -125,10 +126,12 @@ Pose :: struct {
 }
 
 @(private) g_inited := false
+@(private) g_init_lock: sync.Mutex // worlds may be made on several threads (the unit tests)
 
 // init brings up Jolt's global factory/allocator (once per process). Idempotent; safe to
 // call before each world_create. Returns false if Jolt failed to initialize.
 init :: proc() -> bool {
+	sync.guard(&g_init_lock)
 	if !g_inited {g_inited = jolt.Init()}
 	return g_inited
 }

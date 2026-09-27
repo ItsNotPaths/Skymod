@@ -33,6 +33,7 @@ Mover :: struct {
 	stalled: f32, // seconds since it got nearer
 	dodge:   f32, // seconds of sidestep left
 	dodges:  int, // sidesteps so far; they alternate sides
+	pace:    [2]f32, // walk and run speed, units/s
 }
 
 CORNER_REACHED :: f32(32)
@@ -42,18 +43,21 @@ DODGE_ANGLE :: f32(1) // radians off the way ahead
 STUCK_AFTER :: f32(2)
 BUMP_TURN :: f32(0.35) // radians clockwise while touching another actor
 
-// (hole noise-events :tags (ai audio) :sev gap) moving makes no noise: no footstep, combat or spell noise event with a loudness that detection can hear.
-// (hole movement-speeds :tags ai :sev gap) gait speeds are constants; Skyrim reads them from the race's movement types (MOVT), which are not decoded.
-gait_speed :: proc(g: Gait) -> f32 {
+DEFAULT_PACE :: [2]f32{80.1, 370} // NPC_Default_MT forward walk and run, when the records give none
+
+// (hole gait-blend :tags ai :sev polish) unsourced: FastWalk is 1.5 times the walk and Jog is halfway between walk and run; MOVT has only walk and run.
+// gait_speed is a gait's speed for an actor that walks and runs at `pace` (units/s).
+gait_speed :: proc(pace: [2]f32, g: Gait) -> f32 {
 	switch g {
-	case .Walk:      return 80
-	case .FastWalk:  return 120
-	case .Jog:       return 200
-	case .Run:       return 300
+	case .Walk:     return pace[0]
+	case .FastWalk: return pace[0] * 1.5
+	case .Jog:      return (pace[0] + pace[1]) / 2
+	case .Run:      return pace[1]
 	}
 	return 0
 }
 
+// (hole noise-events :tags (ai audio) :sev gap) moving makes no noise: no footstep, combat or spell noise event with a loudness that detection can hear.
 // mover_step is the XY velocity that walks the feet one tick toward the goal. With no path on the
 // navmesh (none loaded, or off it) it walks straight.
 mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
@@ -92,7 +96,7 @@ mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool
 		dir = rotate(dir, DODGE_ANGLE if m.dodges % 2 == 0 else -DODGE_ANGLE)
 	}
 	m.heading = math.atan2(dir.y, dir.x)
-	return dir * gait_speed(m.goal.gait)
+	return dir * gait_speed(m.pace, m.goal.gait)
 }
 
 @(private = "file")

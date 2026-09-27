@@ -19,6 +19,7 @@ Race :: struct {
 	description: string, // DESC (owned; "" when absent)
 	spells:      []Form_ID, // SPLO (owned)
 	skeletons:   [2]string, // ANAM after the male and female markers: skeleton .nif paths (owned)
+	walk, run:   Form_ID, // WKMV, RNMV movement types; 0 on the playable races, which use the defaults
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
@@ -60,6 +61,8 @@ index_race :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	r.info, _ = esm.race_info(fl)
 	r.description = index_description(db, fl)
 	r.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)
+	if f, has := esm.find_field(fl, "WKMV"); has {r.walk = esm.remap_form(fm, esm.field_u32(f) or_else 0)}
+	if f, has := esm.find_field(fl, "RNMV"); has {r.run = esm.remap_form(fm, esm.field_u32(f) or_else 0)}
 	n := 0
 	for f in fl {
 		if f.type != "ANAM" || n >= 2 {continue}
@@ -73,6 +76,46 @@ index_race :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 		for s in old.skeletons {delete(s, db.allocator)}
 	}
 	db.races[rec.form_id] = r
+}
+
+// index_movement keeps a MOVT's forward walk and run speeds (SPED floats 4 and 5, units/s).
+@(private)
+index_movement :: proc(db: ^DB, rec: esm.Record) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+	sped, has := esm.find_field(fl, "SPED")
+	if !has || len(sped.data) < 24 {return}
+	db.movement[rec.form_id] = {f32((^f32le)(&sped.data[16])^), f32((^f32le)(&sped.data[20])^)}
+}
+
+// index_default_movement keeps the DOBJ default walk and run movement types (DNAM DMWL, DMRN).
+@(private)
+index_default_movement :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+	dnam, has := esm.find_field(fl, "DNAM")
+	if !has {return}
+	for i := 0; i + 8 <= len(dnam.data); i += 8 {
+		form := esm.remap_form(fm, u32((^u32le)(&dnam.data[i + 4])^))
+		switch string(dnam.data[i:i + 4]) {
+		case "DMWL": db.default_move[0] = form
+		case "DMRN": db.default_move[1] = form
+		}
+	}
+}
+
+// gait_speeds is how fast a race walks and runs forward: its movement types, else the defaults.
+gait_speeds :: proc(db: ^DB, race: Form_ID) -> (walk, run: f32, ok: bool) {
+	r, _ := db.races[race]
+	walk_type := r.walk if r.walk != 0 else db.default_move[0]
+	run_type := r.run if r.run != 0 else db.default_move[1]
+	w, wok := db.movement[walk_type]
+	rn, rok := db.movement[run_type]
+	return w[0], rn[1], wok && rok
 }
 
 // index_class decodes a CLAS's DATA level-up weighting plus its name/description.

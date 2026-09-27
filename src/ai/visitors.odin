@@ -31,8 +31,7 @@ pull_visitor :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, act
 	if a, ok := w.agents[actor]; ok && a.trip_at < len(a.trip) {return} // walking there already
 	pack, quest := select_package(w, ws, db, actor)
 	if pack == 0 {return}
-	if actor not_in w.agents {w.agents[actor] = {}}
-	a := &w.agents[actor]
+	a := agent_of(w, ws, db, actor)
 	feet := worldstate.ref_pos(ws, db, actor)
 	start_package(a, db, pack, quest, ws.clock.hours, feet)
 	c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = quest, quest_vars = w.quest_vars}, agent = a, w = w, feet = feet}

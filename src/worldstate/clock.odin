@@ -61,6 +61,7 @@ skip_game_time :: proc(ws: ^World_State, hours: f64) {
 	if hours <= 0 {return}
 	ws.clock.hours += hours
 	ws.clock.skipped += hours
+	ws.ai.skipped += hours
 	write_time_globals(ws)
 }
 

@@ -55,6 +55,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
 	nav.rebuild(&g.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
 	ai.track_cells(&g.agents, &g.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
+	ai.skip_time(&g.agents, &g.ws, &g.db)
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
 		for form in chunk.actors {
@@ -85,6 +86,8 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	for form in gone {delete_key(&g.actor_bodies, form)}
+	clear(&g.ws.ai.loaded)
+	for form in g.actor_bodies {g.ws.ai.loaded[form] = true}
 	ai.tick_social(&g.agents, &g.ws, &g.db, seen, TICK_DT)
 	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen, TICK_DT)
 }

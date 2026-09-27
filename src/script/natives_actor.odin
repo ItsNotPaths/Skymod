@@ -38,6 +38,8 @@ register_actor :: proc(reg: ^Registry) {
 	register(reg, "Actor", "GetRelationshipRank", n_get_rel_rank)
 	register(reg, "Actor", "IsSneaking", n_is_sneaking)
 	register(reg, "Actor", "StartSneaking", n_start_sneaking)
+	register(reg, "Actor", "GetSitState", n_get_sit_state)
+	register(reg, "Actor", "GetSleepState", n_get_sleep_state)
 	register(reg, "Actor", "SetRelationshipRank", n_set_rel_rank)
 	register(reg, "Actor", "SetAllowFlying", n_set_allow_flying)
 	register(reg, "Actor", "SetAllowFlyingEx", n_set_allow_flying)
@@ -179,6 +181,14 @@ n_remove_from_all_factions :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_sneaking :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.is_sneaking(c.ws, c.self)
+}
+
+n_get_sit_state :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.sit_state(c.ws, c.self)
+}
+
+n_get_sleep_state :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.sleep_state(c.ws, c.self)
 }
 
 n_start_sneaking :: proc(c: ^Call, args: []Value) -> Value {

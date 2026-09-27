@@ -47,6 +47,7 @@ Overlay :: struct {
 	zone_levels:     map[Form_ID]i32,              // ECZN -> the level it took on the first ask
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
 	outfits:         map[Form_ID]Form_ID,          // actor or NPC_ -> the OTFT a script set (SetOutfit), over its records'
+	sleep_outfits:   map[Form_ID]Form_ID,          // actor or NPC_ -> the sleep OTFT a script set
 	carried:         map[Form_ID]Form_ID,          // item ref taken into a container -> that container
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
@@ -147,7 +148,7 @@ Runtime :: struct {
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
-	in_triggers:     Form_Set,              // trigger volumes the player is inside (script tick_triggers)
+	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
@@ -248,6 +249,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.zone_levels = make(map[Form_ID]i32)
 	o.actor_picks = make(map[Form_ID]Form_ID)
 	o.outfits = make(map[Form_ID]Form_ID)
+	o.sleep_outfits = make(map[Form_ID]Form_ID)
 	o.carried = make(map[Form_ID]Form_ID)
 	init_formulas(o)
 	init_level_choices(o)
@@ -336,6 +338,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.zone_levels)
 	delete(o.actor_picks)
 	delete(o.outfits)
+	delete(o.sleep_outfits)
 	delete(o.carried)
 	for &f in o.formulas {formula.destroy(&f)}
 	free_choices(&o.level_choices)

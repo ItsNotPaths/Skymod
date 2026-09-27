@@ -1,7 +1,8 @@
 package script_lua
 
 // Trigger volumes: a scripted ref with an XPRM box or sphere hears OnTriggerEnter and
-// OnTriggerLeave as the player crosses it. The test is polled each tick, not a physics sensor.
+// OnTriggerLeave as an actor, the player or a loaded NPC, crosses it. The test is polled each
+// tick, not a physics sensor.
 
 import script ".."
 import "../../formats/esm"
@@ -10,38 +11,41 @@ import "../../gamedb"
 import smath "../../math"
 import "../../worldstate"
 
-// (hole trigger-actors :tags (physics ai) :sev gap) only the player enters trigger volumes; an NPC does not, because nothing but a script moves one.
-
-// tick_triggers sends OnTriggerEnter / OnTriggerLeave(player) for each enabled trigger in the
-// attached cells that the player's height went into or out of since the last tick. A trigger that
-// detaches or is disabled forgets the player without an event.
+// tick_triggers sends OnTriggerEnter / OnTriggerLeave(actor) for each enabled trigger in the
+// attached cells that an actor's height went into or out of since the last tick. A trigger that
+// detaches or is disabled, or an actor that unloads, is forgotten without an event.
 tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
-	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
-	box := worldstate.actor_box(ws, db, formid.PLAYER)
-	head := feet + {0, 0, box[1].z - box[0].z}
-	c := vm.ctx
-	live := make(map[script.Form_ID]bool, context.temp_allocator)
+	actors := make([dynamic]script.Form_ID, context.temp_allocator)
+	append(&actors, formid.PLAYER)
+	for actor in ws.ai.loaded {append(&actors, actor)}
+	live := make(map[[2]script.Form_ID]bool, context.temp_allocator)
 	for _, refs in ws.attached {
 		for trig in refs {
 			shape, ok := db.triggers[trig]
 			if !ok || !worldstate.ref_enabled(ws, db, trig) {continue}
-			live[trig] = true
-			inside := segment_in(shape, worldstate.ref_pos(ws, db, trig), worldstate.ref_rot(ws, db, trig), worldstate.ref_scale(ws, db, trig), feet, head)
-			if inside == (trig in ws.in_triggers) {continue}
-			if inside {
-				ws.in_triggers[trig] = true
-				send(vm, trig, "OnTriggerEnter", script.Form_ID(formid.PLAYER))
-			} else {
-				delete_key(&ws.in_triggers, trig)
-				send(vm, trig, "OnTriggerLeave", script.Form_ID(formid.PLAYER))
+			pos, rot, scale := worldstate.ref_pos(ws, db, trig), worldstate.ref_rot(ws, db, trig), worldstate.ref_scale(ws, db, trig)
+			for actor in actors {
+				key := [2]script.Form_ID{trig, actor}
+				live[key] = true
+				feet := worldstate.ref_pos(ws, db, actor)
+				box := worldstate.actor_box(ws, db, actor)
+				inside := segment_in(shape, pos, rot, scale, feet, feet + {0, 0, box[1].z - box[0].z})
+				if inside == (key in ws.in_triggers) {continue}
+				if inside {
+					ws.in_triggers[key] = true
+					send(vm, trig, "OnTriggerEnter", actor)
+				} else {
+					delete_key(&ws.in_triggers, key)
+					send(vm, trig, "OnTriggerLeave", actor)
+				}
 			}
 		}
 	}
-	gone := make([dynamic]script.Form_ID, context.temp_allocator)
-	for trig in ws.in_triggers {
-		if trig not_in live {append(&gone, trig)}
+	gone := make([dynamic][2]script.Form_ID, context.temp_allocator)
+	for key in ws.in_triggers {
+		if key not_in live {append(&gone, key)}
 	}
-	for trig in gone {delete_key(&ws.in_triggers, trig)}
+	for key in gone {delete_key(&ws.in_triggers, key)}
 }
 
 // segment_in reports whether the segment a..b touches a primitive placed at pos/rot/scale.

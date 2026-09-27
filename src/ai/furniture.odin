@@ -1,8 +1,9 @@
 package ai
 
-// Furniture: Find fills an ObjectList input with a chair, bed or other furniture near the package
-// location and keeps looking; Sit and Sleep walk to a free marker on it and end seated. A seated
-// actor holds the marker until its package changes; the app pins its capsule there.
+// Furniture and idle markers: Find fills an ObjectList input with a chair, bed or other furniture
+// near the package location and keeps looking; Sit and Sleep walk to a free marker on it and end
+// seated; UseIdleMarker walks to its marker and stays. An actor holds its seat until its package
+// changes; the app pins its capsule there.
 
 import "core:math"
 import "core:math/linalg"
@@ -18,7 +19,15 @@ Furniture_Hook :: struct {
 	markers: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_Marker,
 }
 
-// Seat is one marker of a furniture ref.
+// Posture is how an actor holds its seat.
+Posture :: enum u8 {
+	Standing,
+	Sitting,
+	Sleeping,
+	Idling, // at an idle marker
+}
+
+// Seat is one marker of a furniture ref, or an idle marker ref (marker 0).
 Seat :: struct {
 	furniture: Form_ID,
 	marker:    int,
@@ -64,7 +73,7 @@ find :: proc(c: ^Proc_Context) {
 	ws, db := c.cond.ws, c.cond.db
 	best, best_d := Form_ID(0), max(f32)
 	for cell in c.w.loaded {
-		for r in furniture_in(c.w, db, cell) {
+		for r in seating_in(c.w, db, cell) {
 			if t.kind == .ObjectID && worldstate.ref_base(ws, db, r) != t.form {continue}
 			d := linalg.length(worldstate.ref_pos(ws, db, r).xy - p.center.xy)
 			if d <= p.radius && d < best_d && usable(c, r, t) {best, best_d = r, d}
@@ -73,13 +82,13 @@ find :: proc(c: ^Proc_Context) {
 	if best != 0 {c.agent.found[slot] = best}
 }
 
-// furniture_in is the furniture refs a cell's records place, listed on first use.
-@(private = "file")
-furniture_in :: proc(w: ^World, db: ^gamedb.DB, cell: Form_ID) -> []Form_ID {
+// seating_in is the furniture and idle marker refs a cell's records place, listed on first use.
+@(private)
+seating_in :: proc(w: ^World, db: ^gamedb.DB, cell: Form_ID) -> []Form_ID {
 	if list, ok := w.seating[cell]; ok {return list[:]}
 	list := make([dynamic]Form_ID)
 	for r in gamedb.refs_of(db, cell) {
-		if gamedb.is_furniture(db, r.base) {append(&list, r.form_id)}
+		if marker, _ := gamedb.is_idle_marker(db, r.base); marker || gamedb.is_furniture(db, r.base) {append(&list, r.form_id)}
 	}
 	w.seating[cell] = list
 	return list[:]
@@ -89,7 +98,8 @@ furniture_in :: proc(w: ^World, db: ^gamedb.DB, cell: Form_ID) -> []Form_ID {
 // criteria's kind, and, for a bed, its own or no one's.
 @(private = "file")
 usable :: proc(c: ^Proc_Context, ref: Form_ID, t: gamedb.Package_Target) -> bool {
-	ws, db, actor := c.cond.ws, c.cond.db, c.cond.subject
+	ws, db := c.cond.ws, c.cond.db
+	if !gamedb.is_furniture(db, worldstate.ref_base(ws, db, ref)) {return false}
 	kind: Maybe(nif.Marker_Kind)
 	if t.kind == .ObjectType {
 		switch t.value {
@@ -101,20 +111,62 @@ usable :: proc(c: ^Proc_Context, ref: Form_ID, t: gamedb.Package_Target) -> bool
 	}
 	if !worldstate.ref_enabled(ws, db, ref) {return false}
 	if _, free := free_marker(c, ref, kind); !free {return false}
-	if kind != .Lay {return true}
-	owner := worldstate.owner(ws, db, ref)
+	return kind != .Lay || may_sleep_in(c, ref)
+}
+
+// may_sleep_in is whether a bed is the actor's own or no one's.
+@(private = "file")
+may_sleep_in :: proc(c: ^Proc_Context, bed: Form_ID) -> bool {
+	ws, db, actor := c.cond.ws, c.cond.db, c.cond.subject
+	owner := worldstate.owner(ws, db, bed)
 	return owner == 0 || owner == actor || owner == worldstate.ref_base(ws, db, actor) || worldstate.in_faction(ws, db, actor, owner)
 }
 
 // free_marker is the first marker of a ref, of the kind when given, that no other actor holds.
-@(private = "file")
+@(private)
 free_marker :: proc(c: ^Proc_Context, ref: Form_ID, kind: Maybe(nif.Marker_Kind)) -> (int, bool) {
 	for m, i in markers_of(c.w, c.cond.ws, c.cond.db, ref) {
 		if k, ok := kind.?; ok && m.kind != k {continue}
-		holder := c.w.seats[{ref, i}]
-		if holder == 0 || holder == c.cond.subject || c.w.agents[holder].seat != {ref, i} {return i, true}
+		if !taken(c, {ref, i}) {return i, true}
 	}
 	return 0, false
+}
+
+// taken is whether another actor holds a seat.
+@(private)
+taken :: proc(c: ^Proc_Context, s: Seat) -> bool {
+	holder := c.w.seats[s]
+	return holder != 0 && holder != c.cond.subject && c.w.agents[holder].seat == s
+}
+
+// claim takes a seat for the actor, unless another holds it.
+@(private)
+claim :: proc(c: ^Proc_Context, s: Seat) -> bool {
+	if taken(c, s) {return false}
+	if c.agent.seat != s {c.agent.seat, c.agent.posture = s, .Standing}
+	c.w.seats[s] = c.cond.subject
+	return true
+}
+
+// leave gives up the actor's seat.
+@(private)
+leave :: proc(a: ^Agent) {
+	a.seat, a.posture = {}, .Standing
+}
+
+// settle walks to the claimed seat and takes it. True once on it.
+@(private)
+settle :: proc(c: ^Proc_Context) -> bool {
+	a := c.agent
+	pos, _ := seat_pose(c.w, c.cond.ws, c.cond.db, a.seat)
+	d := linalg.length(c.feet.xy - pos.xy)
+	if a.posture != .Standing || d <= SEAT_REACH || a.mover.stuck && d <= SEAT_NEAR {
+		a.posture = posture_on(c.w, c.cond.ws, c.cond.db, a.seat)
+		a.mover.goal = {}
+		return true
+	}
+	a.mover.goal = {active = true, point = pos, radius = SEAT_REACH, gait = gait(c), cell = worldstate.ref_grid_cell(c.cond.ws, c.cond.db, a.seat.furniture)}
+	return false
 }
 
 // proc_seat walks to a free marker of the furniture its input names (a Find's ObjectList, or a
@@ -127,22 +179,32 @@ proc_seat :: proc(c: ^Proc_Context, kind: nif.Marker_Kind) -> Status {
 	if a.seat.furniture != ref {
 		marker, free := free_marker(c, ref, kind)
 		if !free {marker, free = free_marker(c, ref, nil)}
-		if !free {return .Running}
-		a.seat, a.seated = {ref, marker}, false
-		c.w.seats[a.seat] = c.cond.subject
+		if !free || !claim(c, {ref, marker}) {return .Running}
 	}
-	pos, _ := seat_pose(c.w, c.cond.ws, c.cond.db, a.seat)
-	d := linalg.length(c.feet.xy - pos.xy)
-	if a.seated || d <= SEAT_REACH || a.mover.stuck && d <= SEAT_NEAR {
-		a.seated = true
-		a.mover.goal = {}
-		return .Done
+	return .Done if settle(c) else .Running
+}
+
+// proc_idle_marker walks to its idle marker and stays there; it waits while another actor holds it.
+proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
+	ref := input_target(c, 0)
+	if ref == 0 {return .Failed}
+	if claim(c, {ref, 0}) {
+		settle(c)
+	} else {
+		c.agent.mover.goal = {}
 	}
-	a.mover.goal = {active = true, point = pos, radius = SEAT_REACH, gait = gait(c), cell = worldstate.ref_grid_cell(c.cond.ws, c.cond.db, ref)}
 	return .Running
 }
 
-// seat_pose is where a marker puts an actor's feet in the world, and the way it faces.
+// posture_on is how an actor holds a seat: an idle marker stands, a Lay marker sleeps.
+@(private = "file")
+posture_on :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Seat) -> Posture {
+	markers := markers_of(w, ws, db, s.furniture)
+	if s.marker >= len(markers) {return .Idling}
+	return .Sleeping if markers[s.marker].kind == .Lay else .Sitting
+}
+
+// seat_pose is where a seat puts an actor's feet in the world, and the way it faces.
 @(private = "file")
 seat_pose :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Seat) -> (pos: [3]f32, heading: f32) {
 	markers := markers_of(w, ws, db, s.furniture)
@@ -154,18 +216,19 @@ seat_pose :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Sea
 	return p.xyz, math.mod(rot.z + m.heading, math.TAU)
 }
 
-// seated is the pose a seated actor holds; the app pins its capsule there.
+// seated is the pose an actor on its seat holds; the app pins its capsule there.
 seated :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> (pos: [3]f32, heading: f32, ok: bool) {
 	a, has := &w.agents[actor]
-	if !has || !a.seated {return}
+	if !has || a.posture == .Standing {return}
 	pos, heading = seat_pose(w, ws, db, a.seat)
 	return pos, heading, true
 }
 
-@(private = "file")
+@(private)
 markers_of :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ref: Form_ID) -> []nif.Furniture_Marker {
-	if w.furniture.markers == nil {return nil}
-	return w.furniture.markers(w.furniture.user, worldstate.ref_base(ws, db, ref))
+	base := worldstate.ref_base(ws, db, ref)
+	if w.furniture.markers == nil || !gamedb.is_furniture(db, base) {return nil}
+	return w.furniture.markers(w.furniture.user, base)
 }
 
 // input_slot is the input index of the node's k-th input when it is an ObjectList: the slot a Find writes.

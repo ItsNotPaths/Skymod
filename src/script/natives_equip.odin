@@ -26,18 +26,16 @@ register_equip :: proc(reg: ^Registry) {
 	register(reg, "ActorBase", "SetOutfit", n_base_set_outfit)
 }
 
-// Actor.SetOutfit(akOutfit, abSleepOutfit=false): the actor changes into it now.
+// Actor.SetOutfit(akOutfit, abSleepOutfit=false): the actor changes into it now if it wears that kind.
 n_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
-	if outfit := arg_form(args, 0); outfit != 0 && !arg_bool(args, 1, false) {
-		worldstate.set_outfit(c.ws, c.db, c.self, outfit)
-	}
+	if outfit := arg_form(args, 0); outfit != 0 {worldstate.set_outfit(c.ws, c.db, c.self, outfit, arg_bool(args, 1, false))}
 	return nil
 }
 
 // ActorBase.SetOutfit(akOutfit, abSleepOutfit=false): the base's default outfit; actors already
 // dressed keep theirs until they reset.
 n_base_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
-	if outfit := arg_form(args, 0); outfit != 0 && !arg_bool(args, 1, false) {c.ws.outfits[c.self] = outfit}
+	if outfit := arg_form(args, 0); outfit != 0 {(&c.ws.sleep_outfits if arg_bool(args, 1, false) else &c.ws.outfits)[c.self] = outfit}
 	return nil
 }
 
