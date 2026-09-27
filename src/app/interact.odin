@@ -35,7 +35,7 @@ import "../formid"
 // (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
 // (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
 // (hole story-flatter-event :tags (quest dialogue) :sev polish :needs persuasion) no FLAT story event is queued when a flatter check passes.
-// (hole dialogue-voice :tags (dialogue audio) :sev gap) scene and bark lines are silent and last as long as their text: they run on the script thread, which cannot reach the audio device. The player's conversation is voiced.
+// (hole dialogue-voice :tags (dialogue audio) :sev gap :needs (script-audio)) scene and bark lines are silent and last as long as their text: they run on the script thread, which cannot reach the audio device. The player's conversation is voiced.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a
@@ -144,7 +144,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	ref, is_record := gamedb.ref_by_formid(&g.db, form)
 	base := worldstate.ref_base(&g.ws, &g.db, form)
 	if base == 0 {return}
-	audio.activate_sound(&g.db, &g.ws, form)
+	if by == formid.PLAYER {audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, form)}
 	switch kind := Activate_Kind.Door if is_record && ref.has_tp else classify_base(&g.db, base); kind {
 	case .Door:
 		if !ref.has_tp {break}

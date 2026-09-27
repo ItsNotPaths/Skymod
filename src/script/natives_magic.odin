@@ -5,7 +5,7 @@ package script
 // its handle (worldstate.Active_Effect).
 // (hole brew-enchant-perks :tags (magic player) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
 // (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
-// (hole effect-sounds :tags (magic audio) :sev gap :needs (sound-records)) an effect's sounds (its MGEF's sound list) do not play.
+// (hole effect-sounds :tags (magic audio) :sev gap :needs (sound-3d)) an effect's sounds (its MGEF's sound list) do not play.
 
 import "core:slice"
 import "../conditions"

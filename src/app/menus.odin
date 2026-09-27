@@ -7,6 +7,7 @@ package main
 import "core:fmt"
 import "core:slice"
 import imgui "../../vendor/odin-imgui"
+import "../audio"
 import "../formid"
 import "../gamedb"
 import "../input"
@@ -79,6 +80,8 @@ open_container :: proc(g: ^Game, container: Form_ID) {
 // frame_menus toggles the menus from their actions and draws the open one. Runs after the script
 // phase has joined, so worldstate is the main thread's.
 frame_menus :: proc(g: ^Game) {
+	was := g.menu
+	defer if was == .Container && g.menu != .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, g.menu_target, done = true)}
 	for kind, m in MENUS {
 		if kind.action == "" || !input.fired(&g.imgr, kind.action) {continue}
 		closes := g.menu == m || (m == .Tween && g.menu in TWEEN)
