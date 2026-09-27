@@ -13,6 +13,7 @@ import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
+import "core:slice"
 import "core:sync"
 import sdl "vendor:sdl3"
 import "../formats/ffmpeg"
@@ -45,6 +46,8 @@ Voice :: struct {
 	ratio:   f32, // speed and pitch, before its categories'
 	chain:   [4]gamedb.Form_ID, // its category and that category's parents
 	at:      Maybe(Placement), // nil: flat, as for UI sounds and the player's own voice
+	fade:    f32, // seconds a fading stop takes; 0 while it is not stopping
+	faded:   f32, // seconds of that fade gone
 	// Shared with feed on SDL's audio thread, which alone moves cursor.
 	cursor:  int,
 	looping: bool, // atomic: stop clears it, and the tail past the loop region plays out
@@ -68,6 +71,7 @@ Audio :: struct {
 	last:       Handle,
 	listener:   [2][3]f32, // position, right
 	categories: map[gamedb.Form_ID]Category_State,
+	music:      [dynamic]gamedb.Form_ID, // the music types scripts added (MusicType.Add), oldest first
 }
 
 // init opens the default output device. Without one the game runs silent.
@@ -90,6 +94,7 @@ shutdown :: proc(a: ^Audio) {
 	for v in a.voices {release(v)}
 	delete(a.voices)
 	delete(a.categories)
+	delete(a.music)
 	if a.device != 0 {sdl.CloseAudioDevice(a.device)}
 	sdl.QuitSubSystem({.AUDIO})
 	a^ = {}
@@ -170,15 +175,42 @@ category_set :: proc(a: ^Audio, c: gamedb.Form_ID, volume: Maybe(f32) = nil, fre
 	a.categories[c] = st
 }
 
-// stop ends a sound: at once, or for a looping one with a loop region, after its tail (the part
-// past the region) plays.
-stop :: proc(a: ^Audio, h: Handle) {
+// music_add and music_remove change the music types scripts want (MusicType.Add, Remove).
+music_add :: proc(a: ^Audio, t: gamedb.Form_ID) {
+	sync.guard(&a.mu)
+	for m in a.music {
+		if m == t {return}
+	}
+	append(&a.music, t)
+}
+
+music_remove :: proc(a: ^Audio, t: gamedb.Form_ID) {
+	sync.guard(&a.mu)
+	for m, i in a.music {
+		if m == t {
+			ordered_remove(&a.music, i)
+			return
+		}
+	}
+}
+
+// music_wanted is a copy of the music types scripts added.
+music_wanted :: proc(a: ^Audio, allocator := context.temp_allocator) -> []gamedb.Form_ID {
+	sync.guard(&a.mu)
+	return slice.clone(a.music[:], allocator)
+}
+
+// stop ends a sound: over fade seconds, at once, or for a looping one with a loop region, after
+// its tail (the part past the region) plays.
+stop :: proc(a: ^Audio, h: Handle, fade: f32 = 0) {
 	gone: ^Voice
 	{
 		sync.guard(&a.mu)
 		for v, i in a.voices {
 			if v.handle != h {continue}
-			if sync.atomic_load(&v.looping) && region(v.sound)[1] < len(v.sound.samples) {
+			if fade > 0 {
+				v.fade = fade
+			} else if sync.atomic_load(&v.looping) && region(v.sound)[1] < len(v.sound.samples) {
 				sync.atomic_store(&v.looping, false)
 			} else {
 				gone = v
@@ -192,13 +224,14 @@ stop :: proc(a: ^Audio, h: Handle) {
 
 // update places the sounds around the listener (its position and facing, game units) and
 // releases the ones that played to their end.
-update :: proc(a: ^Audio, pos, forward: [3]f32) {
+update :: proc(a: ^Audio, pos, forward: [3]f32, dt: f32) {
 	gone := make([dynamic]^Voice, context.temp_allocator)
 	{
 		sync.guard(&a.mu)
 		a.listener = {pos, linalg.normalize0(linalg.cross(forward, [3]f32{0, 0, 1}))}
 		#reverse for v, i in a.voices {
-			if sync.atomic_load(&v.done) && sdl.GetAudioStreamQueued(v.stream) == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
+			if v.fade > 0 {v.faded += dt}
+			if v.fade > 0 && v.faded >= v.fade || sync.atomic_load(&v.done) && sdl.GetAudioStreamQueued(v.stream) == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
 				append(&gone, v)
 				ordered_remove(&a.voices, i)
 				continue
@@ -225,6 +258,7 @@ frequency :: proc(a: ^Audio, v: ^Voice) -> f32 {
 @(private = "file")
 levels :: proc(a: ^Audio, v: ^Voice) -> [2]f32 {
 	g := v.gain * v.volume
+	if v.fade > 0 {g *= max(0, 1 - v.faded / v.fade)}
 	paused := false
 	for c in v.chain {
 		st, ok := a.categories[c]

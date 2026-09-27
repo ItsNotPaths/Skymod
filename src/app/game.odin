@@ -138,6 +138,7 @@ Game :: struct {
 	p: platform.Platform,
 	r: render.Renderer,
 	ambient: audio.Ambient, // before `audio`, which names the package for the fields after it
+	music:   audio.Music,
 	audio: audio.Audio,
 
 	// input: rebindable action manager (src/input). Driven each frame from the SDL

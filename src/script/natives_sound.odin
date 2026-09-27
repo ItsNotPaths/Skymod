@@ -1,6 +1,6 @@
 package script
 
-// Sound (a SOUN form) and SoundCategory (SNCT). Instance ids are audio handles. A wait on a sound
+// Sound (a SOUN form), SoundCategory (SNCT) and MusicType (MUSC). Instance ids are audio handles. A wait on a sound
 // polls Sound.IsPlaying(id) (docs/script-api.md section 4).
 
 import "../audio"
@@ -11,6 +11,14 @@ register_sound :: proc(reg: ^Registry) {
 	register(reg, "Sound", "IsPlaying", n_sound_is_playing)
 	register(reg, "Sound", "StopInstance", n_sound_stop_instance)
 	register(reg, "Sound", "SetInstanceVolume", n_sound_set_instance_volume)
+	register(reg, "MusicType", "Add", proc(c: ^Call, args: []Value) -> Value {
+		if c.audio != nil {audio.music_add(c.audio, c.self)}
+		return nil
+	})
+	register(reg, "MusicType", "Remove", proc(c: ^Call, args: []Value) -> Value {
+		if c.audio != nil {audio.music_remove(c.audio, c.self)}
+		return nil
+	})
 	register(reg, "SoundCategory", "Mute", proc(c: ^Call, args: []Value) -> Value {return category(c, muted = true)})
 	register(reg, "SoundCategory", "UnMute", proc(c: ^Call, args: []Value) -> Value {return category(c, muted = false)})
 	register(reg, "SoundCategory", "Pause", proc(c: ^Call, args: []Value) -> Value {return category(c, paused = true)})

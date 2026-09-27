@@ -26,6 +26,14 @@ Combat :: struct {
 COMBAT_LEAVE :: f32(1.5) // combat ends when the player is lost and past this times the aggro radius (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
+// player_in_combat: some actor fights the player.
+player_in_combat :: proc(w: ^World) -> bool {
+	for _, a in w.agents {
+		if a.combat.state == .Combat {return true}
+	}
+	return false
+}
+
 combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
 	a, ok := w.agents[actor]
 	return a.combat.state if ok else .None

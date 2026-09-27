@@ -2,6 +2,7 @@ package audio
 
 // What starts a sound. Records name the sound; these say when.
 
+import "core:math/rand"
 import "../formid"
 import "../gamedb"
 import "../vfs"
@@ -10,8 +11,65 @@ import "../worldstate"
 // HEAD_Z is how far above an actor's origin its voice comes from, game units.
 HEAD_Z :: 110
 
-// (hole music-system :tags audio :sev gap :needs (music-records)) no music: nothing picks a MUSC type (DOBJ battle BTMS, death, success, level-up, dungeon-cleared; cell XCMO, worldspace ZNAM; script MusicType.Add by priority) or plays its MUST tracks.
-music_update :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {}
+// (hole music-events :tags (audio quest) :sev gap) no event music: discovering a location, clearing a dungeon, levelling up, succeeding and dying (DOBJ DFMS, DCMS, LUMS, SCMS, DTMS) push no music type.
+
+// Music plays the wanted music type's tracks, one after another. The wanted type is the one with
+// the lowest priority number among those scripts added, battle music while the player is in
+// combat (DOBJ BTMS), and the player's cell's type, else its worldspace's.
+Music :: struct {
+	current: formid.Form_ID, // the type playing
+	track:   Handle,
+	next:    int, // the type's next track, when it cycles
+	wait:    f32, // a silent track's seconds left
+	played:  bool, // a track of this type has started
+}
+
+music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool, dt: f32) {
+	if a.device == 0 {return}
+	if want := wanted_music(a, db, ws, in_combat); want != m.current {
+		t := db.music_types[want]
+		stop(a, m.track, 0 if t.flags & gamedb.MUSIC_ABRUPT != 0 else max(t.fade, 0.01))
+		m^ = {current = want}
+	}
+	if m.current == 0 || playing(a, m.track) {return}
+	if m.wait > 0 {
+		m.wait -= dt
+		return
+	}
+	t := db.music_types[m.current]
+	if len(t.tracks) == 0 {return}
+	if m.played && t.flags & gamedb.MUSIC_PLAYS_ONE != 0 {
+		music_remove(a, m.current) // done; a place's type stays silent until the place changes
+		return
+	}
+	i := m.next % len(t.tracks) if t.flags & gamedb.MUSIC_CYCLES != 0 else rand.int_max(len(t.tracks))
+	m.next += 1
+	m.played = true
+	track := db.music_tracks[t.tracks[i]]
+	for hops := 0; track.kind == .Palette && len(track.children) > 0 && hops < 4; hops += 1 {
+		track = db.music_tracks[rand.choice(track.children)]
+	}
+	switch track.kind {
+	case .Silent:
+		m.wait = track.duration
+	case .Single:
+		if s, ok := open(v, track.file); ok {m.track = play(a, s, gamedb.sound_volume(db, gamedb.default_object(db, "MDSC")))}
+	case .Palette:
+	}
+}
+
+@(private = "file")
+wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool) -> formid.Form_ID {
+	best, best_priority := formid.Form_ID(0), max(u16)
+	consider :: proc(db: ^gamedb.DB, t: formid.Form_ID, best: ^formid.Form_ID, best_priority: ^u16) {
+		if mt, ok := db.music_types[t]; ok && mt.priority < best_priority^ {best^, best_priority^ = t, mt.priority}
+	}
+	for t in music_wanted(a) {consider(db, t, &best, &best_priority)}
+	if in_combat {consider(db, gamedb.default_object(db, "BTMS"), &best, &best_priority)}
+	cell := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)]
+	consider(db, cell.music if cell.music != 0 else db.world_music[cell.world_form_id], &best, &best_priority)
+	return best
+}
 
 // (hole region-sounds :tags (audio world) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
 // (hole acoustic-boxes :tags (audio world) :sev gap) placed acoustic spaces (125 ASPC refs, a box each) are not entered: only a cell's own space (XCAS) plays, and no space's reverb (RDAT) applies.
@@ -83,14 +141,14 @@ ui_sound :: proc(db: ^gamedb.DB, edid: string) {}
 
 // (hole race-voice-types :tags (dialogue records audio) :sev gap) an NPC with no VTCK of its own speaks silently: a RACE's default voice types (male, female) are not decoded.
 // say plays one response of a topic info in the speaker's voice, at the dialogue category's
-// volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP3), else flat.
+// volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP2), else flat.
 // The voice file is the info's own, else that of the info it shares (DNAM). Its handle and
 // length in seconds; 0, 0 when the line has no voice file.
 say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, speaker, info: formid.Form_ID, number: u8, placed: bool) -> (Handle, f32) {
 	if a.device == 0 {return 0, 0}
 	at: Maybe(Placement)
 	if placed {
-		p := Placement{worldstate.ref_pos(ws, db, speaker) + {0, 0, HEAD_Z}, db.sound_outputs[gamedb.default_object(db, "DOP3")]}
+		p := Placement{worldstate.ref_pos(ws, db, speaker) + {0, 0, HEAD_Z}, db.sound_outputs[gamedb.default_object(db, "DOP2")]}
 		if gamedb.output_level(p.output, distance(a, p.pos)) == 0 {return 0, 0} // out of earshot
 		at = p
 	}

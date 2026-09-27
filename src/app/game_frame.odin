@@ -18,6 +18,7 @@ import "core:os"
 import "core:strings"
 import "core:time"
 
+import "../ai"
 import "../audio"
 import "../formid"
 import "../gamedb"
@@ -105,9 +106,9 @@ game_frame :: proc(g: ^Game) {
 	frame_dev_shot(g)
 	frame_cast(g)
 	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
-	audio.music_update(&g.db, &g.ws)
+	audio.music_update(&g.music, &g.audio, &g.v, &g.db, &g.ws, ai.player_in_combat(&g.agents), g.p.dt)
 	audio.ambient_update(&g.ambient, &g.audio, &g.v, &g.db, &g.ws)
-	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam))
+	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam), g.p.dt)
 	draw_actor_nametags(g)
 
 	g.elapsed += g.p.dt
