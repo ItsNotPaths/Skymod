@@ -52,11 +52,8 @@ MAX_CLUTTER_VEL :: f32(2500)
 // than any real swing yet stops a transient from diverging.
 MAX_CLUTTER_ANG_VEL :: f32(15)
 
-// A projectile keeps its authored speed (arrows fly 3600 u/s and up, past MAX_CLUTTER_VEL), sweeps
-// each step (LinearCast) so it cannot skip a wall, and keeps some energy when it strikes one.
+// A projectile keeps its authored speed: arrows fly 3600 u/s and up, past MAX_CLUTTER_VEL.
 MAX_PROJECTILE_VEL :: f32(100000)
-PROJECTILE_RESTITUTION :: f32(0.3)
-PROJECTILE_FRICTION :: f32(0.4)
 
 // convex_radius: the rounding radius (units) for convex shapes (hulls + boxes). Kept at Jolt's small
 // default. An earlier theory raised it to ~3.5 u (0.05 m × 69.99) to give GJK a shrink margin against
@@ -96,8 +93,9 @@ clutter_ccd := true
 // moving↔static (static↔static never collides — neither moves).
 LAYER_STATIC :: jolt.ObjectLayer(0)
 LAYER_MOVING :: jolt.ObjectLayer(1)
+LAYER_PROJECTILE :: jolt.ObjectLayer(2) // collides with nothing: a flight's hits come from rays
 
-@(private) NUM_OBJECT_LAYERS :: 2
+@(private) NUM_OBJECT_LAYERS :: 3
 @(private) BP_STATIC :: jolt.BroadPhaseLayer(0)
 @(private) BP_MOVING :: jolt.BroadPhaseLayer(1)
 @(private) NUM_BP_LAYERS :: 2
@@ -165,6 +163,7 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 	w.bp_iface = jolt.BroadPhaseLayerInterfaceTable_Create(NUM_OBJECT_LAYERS, NUM_BP_LAYERS)
 	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_STATIC, BP_STATIC)
 	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_MOVING, BP_MOVING)
+	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_PROJECTILE, BP_MOVING)
 
 	w.obj_vs_bp = jolt.ObjectVsBroadPhaseLayerFilterTable_Create(
 		w.bp_iface, NUM_BP_LAYERS, w.obj_pair, NUM_OBJECT_LAYERS,
@@ -442,7 +441,7 @@ add_dynamic_body :: proc(w: ^World, subs: []Dyn_Shape, origin: [3]f32, projectil
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
 	for c in children {jolt.Shape_Destroy(c)} // compound holds its own refs now; drop ours
 	if shape == nil {return 0}
-	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true, ccd = clutter_ccd || projectile, activate = false, projectile = projectile)
+	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, true, ccd = clutter_ccd, activate = false, projectile = projectile)
 }
 
 // build_sub_shape creates one Jolt leaf shape for a compound sub-shape. Caller owns the returned
@@ -580,7 +579,7 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 	p := to_rvec(pos)
 	r := rot
 	motion := jolt.MotionType.Dynamic if is_dynamic else jolt.MotionType.Static
-	layer := jolt.ObjectLayer(LAYER_MOVING if is_dynamic else LAYER_STATIC)
+	layer := LAYER_PROJECTILE if projectile else LAYER_MOVING if is_dynamic else LAYER_STATIC
 	bcs := jolt.BodyCreationSettings_Create3(shape, &p, &r, motion, layer)
 	jolt.BodyCreationSettings_SetFriction(bcs, WORLD_FRICTION) // default 0.2 = ice; grip so clutter settles
 	if is_dynamic {
@@ -602,11 +601,7 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 		// through the chain toward inf → NaN (the Trader sign blow-up). Jolt's default is ~47 rad/s;
 		// clamp to a sane spin so a transient can't diverge.
 		jolt.BodyCreationSettings_SetMaxAngularVelocity(bcs, MAX_CLUTTER_ANG_VEL)
-		if projectile {
-			jolt.BodyCreationSettings_SetMaxLinearVelocity(bcs, MAX_PROJECTILE_VEL)
-			jolt.BodyCreationSettings_SetRestitution(bcs, PROJECTILE_RESTITUTION)
-			jolt.BodyCreationSettings_SetFriction(bcs, PROJECTILE_FRICTION)
-		}
+		if projectile {jolt.BodyCreationSettings_SetMaxLinearVelocity(bcs, MAX_PROJECTILE_VEL)}
 	}
 	// activate=false spawns the body ASLEEP: placed clutter stays inert (Skyrim keyframes it until
 	// touched) so it neither simulates a mass-settle at load — the blow-up that froze the frame and

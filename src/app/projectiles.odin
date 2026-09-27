@@ -50,8 +50,7 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 }
 
 // fly moves one flight a tick; false once it is done. Its body gets the flight's pos and velocity the
-// first tick it exists. A step that crosses a live actor hits it; one that crosses anything else,
-// or runs past the range, spends it: the body keeps bouncing as clutter.
+// first tick it exists. Past its range it falls, and it is lost at twice the range.
 @(private = "file")
 fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 	s := g.fr.active_scene
@@ -67,32 +66,50 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 		f.launched = true
 	}
 	f.pos, f.vel = physics.body_origin(s.phys, b), physics.body_velocity(s.phys, b)
-	if linalg.length(f.vel) > 1 {
-		aim := smath.normalize3((inst.world * [4]f32{0, 1, 0, 0}).xyz) // the body turns the placed ref
-		physics.set_rotation(s.phys, b, linalg.quaternion_between_two_vector3(aim, linalg.normalize(f.vel)))
-	}
+	if linalg.length(f.vel) < 1 {return true}
+	dir := linalg.normalize(f.vel)
+	aim := smath.normalize3((inst.world * [4]f32{0, 1, 0, 0}).xyz) // the body turns the placed ref
+	physics.set_rotation(s.phys, b, linalg.quaternion_between_two_vector3(aim, dir))
+
+	// From the body to its tip one step on: an arrow's origin is its tip, a dart's is mid-shaft.
+	tip := inst.model.hi.y * inst.scale if inst.model != nil else 0
 	from := physics.body_position(s.phys, b)
-	step := f.vel * TICK_DT
-	for h in physics.ray_hits(s.phys, from, from + step) {
+	to := f.pos + dir * tip + f.vel * TICK_DT
+	for h in physics.ray_hits(s.phys, from, to) {
 		target := Form_ID(h.owner)
-		if target == f.ref || target == f.shooter {continue}
-		if !live_actor(g, target) {return spend(s.phys, b)}
-		script.projectile_hit(c, f^, target)
-		worldstate.set_deleted(&g.ws, f.ref, worldstate.ref_cell(&g.ws, &g.db, f.ref))
-		worldstate.mark_scene_dirty(&g.ws, f.ref)
+		if target == f.ref || target == f.shooter || is_projectile(g, target) {continue}
+		if live_actor(g, target) {
+			script.projectile_hit(c, f^, target)
+			worldstate.set_deleted(&g.ws, f.ref, worldstate.ref_cell(&g.ws, &g.db, f.ref))
+			worldstate.mark_scene_dirty(&g.ws, f.ref)
+			return false
+		}
+		embed(g, inst, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
 		return false
 	}
-	f.travelled += linalg.length(step)
-	return f.travelled <= p.range || spend(s.phys, b)
+	f.travelled += linalg.length(f.vel) * TICK_DT
+	if f.travelled > p.range {physics.set_gravity_factor(s.phys, b, 1)}
+	return f.travelled <= 2 * p.range
 }
 
+// How far a landed projectile's tip sinks into what it hit.
+EMBED_DEPTH :: f32(4)
+
+// (hole projectile-ricochet :tags (physics combat unclaimed) :sev gap) every projectile embeds where it lands; none ricochets, bounces, slides or breaks. Wanted: something like the Ricochet Framework SKSE plugin (Nexus 160603), by angle, speed and surface material.
 // (hole projectile-object-hits :tags (combat script) :sev gap) a projectile that strikes a non-actor sends it no OnHit, so arrow targets and shoot-to-open puzzles never hear it.
-// (hole spent-projectile-cleanup :tags (world save) :sev polish) spent darts and arrows stay as created refs forever; nothing removes them after a while.
-// spend ends a flight: its body falls like any clutter from now on.
+// (hole spent-projectile-cleanup :tags (world save) :sev polish) embedded darts and arrows stay as created refs forever; nothing removes them after a while.
+// embed stops a projectile with its origin at `pos`, pointing along dir: a still ref with no body.
 @(private = "file")
-spend :: proc(w: ^physics.World, b: physics.Body) -> bool {
-	physics.set_gravity_factor(w, b, 1)
-	return false
+embed :: proc(g: ^Game, inst: ^world.Instance, pos, dir: [3]f32) {
+	inst.in_flight = false // its body goes when the move below rebuilds its collision
+	physics.launch(g.fr.active_scene.phys, inst.dyn_body, pos, {}, 0)
+	worldstate.relocate(&g.ws, inst.form_id, worldstate.ref_cell(&g.ws, &g.db, inst.form_id), pos, worldstate.heading_rot(dir))
+}
+
+@(private = "file")
+is_projectile :: proc(g: ^Game, form: Form_ID) -> bool {
+	_, ok := gamedb.projectile_of(&g.db, worldstate.ref_base(&g.ws, &g.db, form))
+	return ok
 }
 
 @(private = "file")

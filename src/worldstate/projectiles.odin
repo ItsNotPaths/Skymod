@@ -4,16 +4,20 @@ import "core:math"
 import "core:math/linalg"
 import "../gamedb"
 
-// Flight is a projectile that can still hit: its created ref (a PROJ base), who shot it, the
-// weapon whose enchantment it carries, and the damage it deals. pos is the body origin and vel its
-// velocity, as of the last tick. A flight that strikes anything but a live actor is spent: it
-// leaves this list and its ref stays as clutter.
+// Flight is a projectile in the air: its created ref (a PROJ base), who shot it, the weapon whose
+// enchantment it carries, and the damage it deals. pos is the body origin and vel its velocity, as
+// of the last tick. It ends in a live actor, or embedded where it lands.
 Flight :: struct {
 	ref, shooter, weapon: Form_ID,
 	damage:               f32,
 	pos, vel:             [3]f32,
 	travelled:            f32,
 	launched:             bool, // its body got pos and vel (not saved: a load launches it again)
+}
+
+in_flight :: proc(ws: ^World_State, ref: Form_ID) -> bool {
+	for f in ws.projectiles {if f.ref == ref {return true}}
+	return false
 }
 
 // Hit is an attack that landed, for OnHit: `source` is the weapon or spell, `projectile` the PROJ.

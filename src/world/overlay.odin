@@ -346,7 +346,7 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 
 // build_created_instance constructs an Instance for a runtime-created ref (base form → model path via
 // gamedb). ok=false if the base has no world model (nothing to place).
-build_created_instance :: proc(db: ^gamedb.DB, form_id: Form_ID, c: worldstate.Created_Ref) -> (Instance, bool) {
+build_created_instance :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form_id: Form_ID, c: worldstate.Created_Ref) -> (Instance, bool) {
 	modl, ok := gamedb.model_of(db, c.base)
 	if !ok || modl == "" || is_marker_path(modl) || is_nonworld_path(modl) {
 		return {}, false
@@ -360,7 +360,7 @@ build_created_instance :: proc(db: ^gamedb.DB, form_id: Form_ID, c: worldstate.C
 			scale = c.scale,
 			world = smath.trs(c.pos, c.rot, c.scale),
 			veg = veg_classify(modl),
-			projectile = c.base in db.projectiles,
+			in_flight = worldstate.in_flight(ws, form_id),
 		},
 		true
 }
@@ -405,7 +405,7 @@ spawn_created :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 		if !ok {
 			continue
 		}
-		if inst, built := build_created_instance(db, fid, c); built {
+		if inst, built := build_created_instance(db, s.ws, fid, c); built {
 			append(&chunk.instances, inst)
 		}
 	}
@@ -508,7 +508,7 @@ spawn_live :: proc(s: ^Scene, db: ^gamedb.DB, id: Form_ID) -> bool {
 	chunk, resident := &s.chunks[c.cell]
 	if !resident {return false}
 	if _, _, live := find_resident(s, id); live {return false}
-	inst, built := build_created_instance(db, id, c)
+	inst, built := build_created_instance(db, s.ws, id, c)
 	if !built {return false}
 	assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
 	append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held

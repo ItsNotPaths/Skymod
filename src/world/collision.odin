@@ -488,7 +488,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 	// one Jolt body per shape — the FIRST is the representative (all its parts are fixed at the same
 	// place, so a hinge anchored to any of them is equivalent).
 	body_ids := make([]physics.Body, len(m.collision.bodies), context.temp_allocator)
-	if inst.projectile {
+	if inst.in_flight {
 		if b := physics.add_dynamic_body(w, {projectile_capsule(inst, m)}, inst.pos, projectile = true); b != 0 {
 			append(&chunk.bodies, b)
 			inst.dyn_body = b
@@ -497,7 +497,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 	}
 
 	for body, bi in m.collision.bodies {
-		if inst.projectile {break}
+		if inst.in_flight {break}
 		if allow_dynamic && body.movable {
 			// ONE dynamic compound body per movable rigid body, from its exact sub-shapes.
 			subs := make([dynamic]physics.Dyn_Shape, 0, 8, context.temp_allocator)

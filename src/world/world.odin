@@ -212,7 +212,7 @@ Instance :: struct {
 	dyn_body:   physics.Body, // movable-clutter dynamic body (0 = none/static); render follows it (Phase 3b)
 	dyn_active: bool, // last frame's body-active state — settle (active→asleep) edge → overlay delta (Phase 3c)
 	disabled:   bool, // overlay Disabled/Deleted: hidden + no collision (set by apply_overlay / disable_ref)
-	projectile: bool, // a PROJ base: one dynamic capsule from its model bounds, whatever the NIF's collision
+	in_flight:  bool, // a projectile still flying: one non-colliding capsule its render follows, no NIF collision
 	// This instance's collision bodies occupy chunk.bodies[body_first : body_first+body_count] and its
 	// hinge constraints chunk.constraints[con_first : con_first+con_count] — contiguous slices recorded
 	// at build. Lets disable_ref remove just this ref's bodies/constraints live without a per-instance
