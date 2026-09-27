@@ -8,8 +8,11 @@ package main
 // user's console.lua rc. Everything registry-backed (disable/enable/scale/moveto…)
 // comes from the REPL prelude for free.
 
+import "base:runtime"
 import "core:c"
+import "core:strings"
 import lua "../../vendor/lua"
+import "../ai"
 import "../gamedb"
 import "../script"
 import slua "../script/lua"
@@ -43,6 +46,25 @@ console_cmd_noclip :: proc "c" (L: ^lua.State) -> c.int {
 	flag^ = !flag^
 	lua.getglobal(L, "print")
 	lua.pushstring(L, "noclip on" if flag^ else "noclip off")
+	lua.pcall(L, 1, 0, 0)
+	return 0
+}
+
+// console_cmd_ai prints an actor's AI state (upvalue 1 = ^Game); no argument means the selection.
+@(private = "package")
+console_cmd_ai :: proc "c" (L: ^lua.State) -> c.int {
+	context = runtime.default_context()
+	g := cast(^Game)lua.touserdata(L, lua.REGISTRYINDEX - 1)
+	if lua.gettop(L) == 0 {
+		lua.getglobal(L, "sel")
+	} else if lua.isnil(L, 1) {
+		lua.getglobal(L, "sel")
+		lua.replace(L, 1)
+	}
+	form, ok := slua.ref_form(L, 1)
+	text := ai.describe(&g.agents, &g.ws, &g.db, form) if ok else "ai: no ref"
+	lua.getglobal(L, "print")
+	lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
 	lua.pcall(L, 1, 0, 0)
 	return 0
 }

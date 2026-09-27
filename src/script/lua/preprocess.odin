@@ -84,6 +84,8 @@ ce_alias :: proc(word: string) -> (target: string, ok: bool) {
 		return "cmd.moveto", true
 	case "prid", "pickrefbyid":
 		return "cmd.prid", true
+	case "ai":
+		return "cmd.ai", true
 	case "wait":
 		return "cmd.wait", true
 	case "time":

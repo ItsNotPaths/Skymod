@@ -3,9 +3,11 @@ package ai
 // Out-of-combat AI: every actor runs a package. A loaded actor walks its capsule with a mover.
 // An unloaded actor that travels steps cell to cell; any other waits and is placed when its cell loads.
 
+import "core:fmt"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
+import "core:strings"
 import "../conditions"
 import smath "../math"
 import "../gamedb"
@@ -205,4 +207,28 @@ destroy :: proc(w: ^World) {
 	delete(w.persistent)
 	nav.destroy(&w.mesh)
 	nav.route_index_destroy(&w.routes)
+}
+
+// describe is an actor's AI state as console text: its package, each tree node, its mover and trip.
+describe :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, allocator := context.temp_allocator) -> string {
+	name := proc(db: ^gamedb.DB, f: Form_ID) -> string {
+		for k, v in db.form_by_edid {if v == f {return k}}
+		return fmt.tprintf("0x%X", u64(f))
+	}
+	b := strings.builder_make(allocator)
+	fmt.sbprintfln(&b, "at %v in 0x%X", worldstate.ref_pos(ws, db, actor), u64(worldstate.ref_cell(ws, db, actor)))
+	a, ok := w.agents[actor]
+	if !ok {
+		fmt.sbprint(&b, "no agent (never selected a package)")
+		return strings.to_string(b)
+	}
+	fmt.sbprintfln(&b, "package %s, quest %s, since %.2fh", name(db, a.pack) if a.pack != 0 else "none", name(db, a.quest) if a.quest != 0 else "-", a.started)
+	for n, i in gamedb.package_tree(db, a.pack) {
+		st := a.nodes[i] if i < len(a.nodes) else {}
+		fmt.sbprintfln(&b, "  node %d %v %s done %v child %d timer %.1f point %v", i, n.branch, n.procedure, st.done, st.child, st.timer, st.point)
+	}
+	m := a.mover
+	fmt.sbprintfln(&b, "mover goal %v at %v r %.0f door 0x%X; path %d; arrived %v stuck %v", m.goal.active, m.goal.point, m.goal.radius, u64(m.goal.door), len(m.path), m.arrived, m.stuck)
+	fmt.sbprintf(&b, "trip %d/%d, route %d steps to 0x%X", a.trip_at, len(a.trip), len(a.route), u64(a.route_to))
+	return strings.to_string(b)
 }
