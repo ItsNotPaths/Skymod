@@ -38,7 +38,7 @@ DEFAULTS := [?]Default {
 	{"persist_logs", "false"},
 	// Pretty mode: hide the white, untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name-based filter. Also set with --pretty.
-	{"pretty", "false"},
+	{"pretty", "true"},
 	// Exterior render distance as the streaming window half-size in cells: the
 	// loaded square is (2·render_distance + 1)² cells around the player. Higher =
 	// see farther, more to stream/draw. LOD distance settings will join this when
