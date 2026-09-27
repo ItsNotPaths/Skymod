@@ -816,6 +816,19 @@ character_render_position :: proc(c: ^Character, alpha: f32) -> [3]f32 {
 	return c.prev + (cur - c.prev) * clamp(alpha, 0, 1)
 }
 
+// character_touching is the owner of a moving body the character pushed against in its last move
+// (another character's inner body, for one), 0 for none.
+character_touching :: proc(w: ^World, c: ^Character) -> u64 {
+	for i in 0 ..< jolt.CharacterVirtual_GetNumActiveContacts(c.cv) {
+		ct: jolt.CharacterVirtualContact
+		jolt.CharacterVirtual_GetActiveContact(c.cv, i, &ct)
+		if ct.hadCollision && ct.motionTypeB != .Static {
+			if owner := jolt.BodyInterface_GetUserData(w.bodies, ct.bodyB); owner != 0 {return owner}
+		}
+	}
+	return 0
+}
+
 character_on_ground :: proc(c: ^Character) -> bool {
 	return jolt.CharacterBase_GetGroundState(cast(^jolt.CharacterBase)c.cv) == .OnGround
 }

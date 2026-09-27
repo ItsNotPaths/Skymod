@@ -61,11 +61,12 @@ tick_actor_bodies :: proc(g: ^Game) {
 	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
 	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
 	nav.rebuild(&g.agents.mesh, &g.db, cells[:])
-	// (hole ai-agent :tags ai :sev blocker :needs (package-tree mover proc-travel proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed. Also: a capsule's walk is never written back to its ref (Moved delta), so scripts, saves and GetDistance see the placed spot.
+	// (hole ai-agent :tags ai :sev blocker :needs (package-tree proc-travel proc-sandbox load-placement actor-load-doors)) no NPC walks: actors stand where they were placed. Also: a capsule's walk is never written back to its ref (Moved delta), so scripts, saves and GetDistance see the placed spot.
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {
-			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), TICK_DT)
+			touching := physics.character_touching(phys, &b.char)
+			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
 			physics.character_move(phys, &b.char, vel, false, TICK_DT)
 		} else {
 			physics.character_destroy(&b.char)

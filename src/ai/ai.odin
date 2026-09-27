@@ -24,18 +24,18 @@ World :: struct {
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
-tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, dt: f32) -> [2]f32 {
+tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
 	if actor not_in w.agents {w.agents[actor] = {}}
 	a := &w.agents[actor]
 	if pack := select_package(ws, db, actor); pack != a.pack {a.pack, a.started = pack, ws.clock.hours}
 	c := Proc_Context{ws, db, actor, a, feet, 0}
 	run_tree(&c)
-	vel := mover_step(&a.mover, &w.mesh, feet, dt)
+	vel := mover_step(&a.mover, &w.mesh, feet, touching, dt)
 	if a.mover.door != 0 {cross_load_door(ws, db, actor, a.mover.door)}
 	return vel
 }
 
-// (hole actor-load-doors :tags ai :sev gap :needs mover) an NPC that walks into a load door stays on this side: wanted move it to the door's teleport marker, into the other cell.
+// (hole actor-load-doors :tags ai :sev gap ) an NPC that walks into a load door stays on this side: wanted move it to the door's teleport marker, into the other cell.
 cross_load_door :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor, door: Form_ID) {
 }
 

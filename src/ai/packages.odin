@@ -54,27 +54,27 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Failed
 }
 
-// (hole proc-travel :tags ai :sev blocker :needs mover) Travel never moves anyone: wanted aim the mover at the package location (NearRef, NearEditorLoc, AliasRef, InCell, NearLinkedRef, NearPackageStart, NearSelf) and finish on arrival.
+// (hole proc-travel :tags ai :sev blocker ) Travel never moves anyone: wanted aim the mover at the package location (NearRef, NearEditorLoc, AliasRef, InCell, NearLinkedRef, NearPackageStart, NearSelf) and finish on arrival.
 proc_travel :: proc(c: ^Proc_Context) -> Status {
 	return .Done
 }
 
-// (hole proc-sandbox :tags ai :sev blocker :needs (mover furniture-markers)) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
+// (hole proc-sandbox :tags ai :sev blocker :needs furniture-markers) Sandbox does nothing: wanted wander inside the radius, and sit, eat, sleep or use idle markers as the package flags allow.
 proc_sandbox :: proc(c: ^Proc_Context) -> Status {
 	return .Running
 }
 
-// (hole proc-furniture :tags ai :sev gap :needs (mover furniture-markers)) Find, Sit, Sleep, Eat and Acquire do nothing: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
+// (hole proc-furniture :tags ai :sev gap :needs furniture-markers) Find, Sit, Sleep, Eat and Acquire do nothing: wanted find a free bed, chair or food by object type (Chairs 550, Food 505, Beds 417), walk to its marker, face its heading and hold it.
 proc_furniture :: proc(c: ^Proc_Context, name: string) -> Status {
 	return .Done
 }
 
-// (hole proc-patrol :tags ai :sev gap :needs mover) Patrol does nothing: wanted walk the linked-ref chain of patrol markers, waiting at each.
+// (hole proc-patrol :tags ai :sev gap ) Patrol does nothing: wanted walk the linked-ref chain of patrol markers, waiting at each.
 proc_patrol :: proc(c: ^Proc_Context) -> Status {
 	return .Done
 }
 
-// (hole proc-idle-marker :tags ai :sev gap :needs mover) UseIdleMarker does nothing: wanted walk to the IDLM ref and play its idle (the idle itself is animation).
+// (hole proc-idle-marker :tags ai :sev gap ) UseIdleMarker does nothing: wanted walk to the IDLM ref and play its idle (the idle itself is animation).
 proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
 	return .Done
 }
@@ -84,7 +84,7 @@ proc_wait :: proc(c: ^Proc_Context) -> Status {
 	return .Done
 }
 
-// (hole proc-wander :tags ai :sev polish :needs mover) Wander does nothing (5 uses, all in Sit trees).
+// (hole proc-wander :tags ai :sev polish ) Wander does nothing (5 uses, all in Sit trees).
 proc_wander :: proc(c: ^Proc_Context) -> Status {
 	return .Done
 }
