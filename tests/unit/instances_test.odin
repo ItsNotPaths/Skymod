@@ -1437,6 +1437,8 @@ test_condition_reads_quest_member :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, is(&ctx, "::count_var", 5), "Count is 5")
 	testing.expect(t, !is(&ctx, "::count_var", 6), "Count is not 6")
+	testing.expect(t, is(&ctx, "::Count_var", 5), "the record's casing (Papyrus names fold case)")
+	testing.expect(t, !is(&ctx, "::Count_var", 6), "the record's casing reads the member, not a pass")
 	testing.expect(t, is(&ctx, "::untouched", 4), "a declared default")
 	testing.expect(t, is(&ctx, "::missing_var", 6), "no such member passes")
 }

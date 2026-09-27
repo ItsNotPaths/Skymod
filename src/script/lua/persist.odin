@@ -137,7 +137,8 @@ reload_scripts :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 }
 
 // quest_var reads a quest script member for GetVMQuestVariable (conditions.Quest_Vars); `data` is
-// the ^VM. Only int, float and bool members answer.
+// the ^VM. Only int, float and bool members answer. Papyrus names fold case: a condition asks for
+// `::EstablishScene_var`, the transpiled member is `::establishscene_var`.
 quest_var :: proc(data: rawptr, quest: script.Form_ID, name: string) -> (f32, bool) {
 	vm := cast(^VM)data
 	L := vm.L
@@ -146,7 +147,7 @@ quest_var :: proc(data: rawptr, quest: script.Form_ID, name: string) -> (f32, bo
 	defer lua.settop(L, top)
 	if !push_rt_fn(L, "quest_var") {return 0, false}
 	push_value(L, quest)
-	lua.pushstring(L, strings.clone_to_cstring(name, context.temp_allocator))
+	lua.pushstring(L, strings.clone_to_cstring(strings.to_lower(name, context.temp_allocator), context.temp_allocator))
 	if lua.pcall(L, 2, 1, 0) != 0 {
 		log.errorf("lua: rt.quest_var: %s", to_string(L, -1))
 		return 0, false
