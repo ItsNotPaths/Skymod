@@ -2,19 +2,22 @@ package audio
 
 // Output device, voices and sound decode. The engine reads WAV and Ogg (Opus) only, either one in
 // any sound slot: the installer converts xWMA, and a mod ships whichever it likes. SDL mixes:
-// each playing sound is an audio stream bound to the one device.
+// each playing sound is an audio stream bound to the one device, which SDL's audio thread asks for
+// stereo samples as it plays (feed). Any thread can play and stop; update, once a frame, places
+// the sounds around the listener and releases the finished ones.
 
+import "base:runtime"
+import "core:c"
 import "core:encoding/endian"
 import "core:log"
 import "core:math"
+import "core:math/linalg"
 import "core:math/rand"
+import "core:sync"
 import sdl "vendor:sdl3"
 import "../formats/ffmpeg"
 import "../gamedb"
 import "../vfs"
-
-// LOOP_AHEAD_S is how much of a looping sound stays queued: update tops it up every frame.
-LOOP_AHEAD_S :: 0.25
 
 // Sound is one decoded file: interleaved samples, and the smpl loop region in frames (0, 0 = none).
 Sound :: struct {
@@ -27,19 +30,32 @@ Sound :: struct {
 // Handle names a playing sound; 0 is none.
 Handle :: distinct u32
 
-Voice :: struct {
-	stream:  ^sdl.AudioStream,
-	sound:   Sound, // owned
-	handle:  Handle,
-	looping: bool, // repeats its loop region (or the whole file) until stopped
+// Placement puts a sound in the world: its position (game units) and its output model.
+Placement :: struct {
+	pos:    [3]f32,
+	output: gamedb.Sound_Output,
 }
 
-// (hole script-audio :tags (audio script) :sev gap) Audio is the main thread's: its voice list is unguarded, so the script thread (Sound natives, scene and bark lines) cannot play a sound.
+Voice :: struct {
+	stream:  ^sdl.AudioStream,
+	sound:   Sound, // owned; read by feed
+	handle:  Handle,
+	gain:    f32, // before placement
+	at:      Maybe(Placement), // nil: flat, as for UI sounds and the player's own voice
+	// Shared with feed on SDL's audio thread, which alone moves cursor.
+	cursor:  int,
+	looping: bool, // atomic: stop clears it, and the tail past the loop region plays out
+	done:    bool, // atomic: feed gave the last sample
+	gains:   [2]u32, // atomic f32 bits: the left and right level
+}
+
 Audio :: struct {
-	device: sdl.AudioDeviceID, // 0: no output, every play is silent
-	spec:   sdl.AudioSpec, // the device's format, every stream's output
-	voices: [dynamic]Voice,
-	last:   Handle,
+	device:   sdl.AudioDeviceID, // 0: no output, every play is silent
+	spec:     sdl.AudioSpec, // the device's format, every stream's output
+	mu:       sync.Mutex, // voices, last, listener
+	voices:   [dynamic]^Voice,
+	last:     Handle,
+	listener: [2][3]f32, // position, right
 }
 
 // init opens the default output device. Without one the game runs silent.
@@ -59,10 +75,7 @@ init :: proc(a: ^Audio) -> bool {
 }
 
 shutdown :: proc(a: ^Audio) {
-	for v in a.voices {
-		sdl.DestroyAudioStream(v.stream)
-		delete(v.sound.samples)
-	}
+	for v in a.voices {release(v)}
 	delete(a.voices)
 	if a.device != 0 {sdl.CloseAudioDevice(a.device)}
 	sdl.QuitSubSystem({.AUDIO})
@@ -71,60 +84,52 @@ shutdown :: proc(a: ^Audio) {
 
 // play starts s, which it owns from now; 0 when there is no device. ratio scales its speed and
 // pitch. A looping sound plays up to its loop end, then repeats the loop region until stopped.
-play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false) -> Handle {
+play :: proc(a: ^Audio, s: Sound, gain: f32 = 1, ratio: f32 = 1, loop := false, at: Maybe(Placement) = nil) -> Handle {
 	if a.device == 0 || len(s.samples) == 0 {
 		delete(s.samples)
 		return 0
 	}
-	src := sdl.AudioSpec{format = .F32, channels = i32(s.channels), freq = i32(s.rate)}
+	src := sdl.AudioSpec{format = .F32, channels = 2, freq = i32(s.rate)}
 	st := sdl.CreateAudioStream(&src, &a.spec)
 	if st == nil {
 		log.warnf("audio: %s", sdl.GetError())
 		delete(s.samples)
 		return 0
 	}
-	if loop {
-		put(st, s.samples[:region(s)[1]])
-	} else {
-		put(st, s.samples)
-		sdl.FlushAudioStream(st)
-	}
-	sdl.SetAudioStreamGain(st, gain)
+	v := new(Voice)
+	v^ = {stream = st, sound = s, gain = gain, at = at, looping = loop}
+	sync.guard(&a.mu)
+	store_gains(v, levels(a, v))
 	sdl.SetAudioStreamFrequencyRatio(st, ratio)
-	sdl.BindAudioStream(a.device, st)
+	sdl.SetAudioStreamGetCallback(st, feed, v)
 	a.last += 1
-	append(&a.voices, Voice{st, s, a.last, loop})
-	return a.last
+	v.handle = a.last
+	append(&a.voices, v)
+	sdl.BindAudioStream(a.device, st)
+	return v.handle
 }
 
-// (hole sound-3d :tags audio :sev gap) every sound plays flat, at full level wherever it is: no distance attenuation (SOPM output models, 86, are not decoded), no panning, no listener. So only the player's own activations make a sound.
 // play_descriptor plays one of a sound descriptor's files (SNDR) at its category's volume and
-// static attenuation, with a random part of its dB and frequency variance; 0 when it has none.
-play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.Form_ID) -> Handle {
+// static attenuation, with a random part of its dB and frequency variance; placed at `at` under
+// its output model, else flat. 0 when it has none.
+play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.Form_ID, at: Maybe([3]f32) = nil) -> Handle {
 	d, ok := db.sounds[sndr]
 	if !ok || len(d.files) == 0 || a.device == 0 {return 0}
+	if pos, placed := at.?; placed && d.loop == .None && gamedb.output_level(db.sound_outputs[d.output], distance(a, pos)) == 0 {
+		return 0 // out of earshot: a one-shot is never heard, so never decoded
+	}
 	s, found := open(v, rand.choice(d.files))
 	if !found {return 0}
 	down := d.attenuation + rand.float32() * d.db_variance
 	gain := gamedb.sound_volume(db, d.category) * math.pow(10, -down / 20)
 	ratio := 1 + d.freq_shift + (rand.float32() * 2 - 1) * d.freq_variance
-	return play(a, s, gain, max(ratio, 0.01), d.loop != .None)
-}
-
-// region is a sound's loop region in samples: its smpl loop, else the whole file.
-@(private = "file")
-region :: proc(s: Sound) -> [2]int {
-	frames := len(s.samples) / max(s.channels, 1)
-	if 0 <= s.loop[0] && s.loop[0] < s.loop[1] && s.loop[1] <= frames {return s.loop * s.channels}
-	return {0, len(s.samples)}
-}
-
-@(private = "file")
-put :: proc(st: ^sdl.AudioStream, samples: []f32) {
-	sdl.PutAudioStreamData(st, raw_data(samples), i32(len(samples) * size_of(f32)))
+	place: Maybe(Placement)
+	if pos, placed := at.?; placed {place = Placement{pos, db.sound_outputs[d.output]}}
+	return play(a, s, gain, max(ratio, 0.01), d.loop != .None, place)
 }
 
 playing :: proc(a: ^Audio, h: Handle) -> bool {
+	sync.guard(&a.mu)
 	for v in a.voices {
 		if v.handle == h {return true}
 	}
@@ -134,40 +139,112 @@ playing :: proc(a: ^Audio, h: Handle) -> bool {
 // stop ends a sound: at once, or for a looping one with a loop region, after its tail (the part
 // past the region) plays.
 stop :: proc(a: ^Audio, h: Handle) {
-	for &v, i in a.voices {
-		if v.handle != h {continue}
-		end := region(v.sound)[1]
-		if !v.looping || end == len(v.sound.samples) {
-			release(a, i)
-			return
+	gone: ^Voice
+	{
+		sync.guard(&a.mu)
+		for v, i in a.voices {
+			if v.handle != h {continue}
+			if sync.atomic_load(&v.looping) && region(v.sound)[1] < len(v.sound.samples) {
+				sync.atomic_store(&v.looping, false)
+			} else {
+				gone = v
+				ordered_remove(&a.voices, i)
+			}
+			break
 		}
-		put(v.stream, v.sound.samples[end:])
-		sdl.FlushAudioStream(v.stream)
-		v.looping = false
-		return
 	}
+	if gone != nil {release(gone)} // outside mu: destroying a stream waits for its feed
 }
 
-// update keeps looping sounds queued and releases the ones that played to their end.
-update :: proc(a: ^Audio) {
-	#reverse for v, i in a.voices {
-		queued := sdl.GetAudioStreamQueued(v.stream)
-		if v.looping {
-			ahead := i32(LOOP_AHEAD_S * f32(v.sound.rate * v.sound.channels * size_of(f32)))
-			for r := region(v.sound); queued < ahead; queued = sdl.GetAudioStreamQueued(v.stream) {
-				put(v.stream, v.sound.samples[r[0]:r[1]])
+// update places the sounds around the listener (its position and facing, game units) and
+// releases the ones that played to their end.
+update :: proc(a: ^Audio, pos, forward: [3]f32) {
+	gone := make([dynamic]^Voice, context.temp_allocator)
+	{
+		sync.guard(&a.mu)
+		a.listener = {pos, linalg.normalize0(linalg.cross(forward, [3]f32{0, 0, 1}))}
+		#reverse for v, i in a.voices {
+			if sync.atomic_load(&v.done) && sdl.GetAudioStreamQueued(v.stream) == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
+				append(&gone, v)
+				ordered_remove(&a.voices, i)
+				continue
 			}
-		} else if queued == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
-			release(a, i)
+			store_gains(v, levels(a, v))
 		}
 	}
+	for v in gone {release(v)}
+}
+
+// levels are a voice's left and right levels now: its gain, times its output model's level at its
+// distance from the listener, panned by which side of the listener it is on when the model pans.
+@(private = "file")
+levels :: proc(a: ^Audio, v: ^Voice) -> [2]f32 {
+	at, placed := v.at.?
+	if !placed {return v.gain}
+	to := at.pos - a.listener[0]
+	g := v.gain * gamedb.output_level(at.output, linalg.length(to))
+	if !at.output.pans {return g}
+	p := linalg.dot(linalg.normalize0(to), a.listener[1]) // -1 left .. 1 right
+	return {g * min(1, 1 - p), g * min(1, 1 + p)}
 }
 
 @(private = "file")
-release :: proc(a: ^Audio, i: int) {
-	sdl.DestroyAudioStream(a.voices[i].stream)
-	delete(a.voices[i].sound.samples)
-	ordered_remove(&a.voices, i)
+distance :: proc(a: ^Audio, pos: [3]f32) -> f32 {
+	sync.guard(&a.mu)
+	return linalg.length(pos - a.listener[0])
+}
+
+@(private = "file")
+store_gains :: proc(v: ^Voice, g: [2]f32) {
+	sync.atomic_store(&v.gains[0], transmute(u32)g[0])
+	sync.atomic_store(&v.gains[1], transmute(u32)g[1])
+}
+
+@(private = "file")
+release :: proc(v: ^Voice) {
+	sdl.DestroyAudioStream(v.stream)
+	delete(v.sound.samples)
+	free(v)
+}
+
+// feed is SDL's audio thread asking a voice's stream for more: stereo frames at the sound's rate,
+// at the voice's current levels, looping while it loops.
+@(private = "file")
+feed :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total: c.int) {
+	context = runtime.default_context()
+	v := (^Voice)(userdata)
+	s := v.sound
+	ch := max(s.channels, 1)
+	gl := transmute(f32)sync.atomic_load(&v.gains[0])
+	gr := transmute(f32)sync.atomic_load(&v.gains[1])
+	buf: [2048]f32
+	need := int(additional) / (2 * size_of(f32)) + 1
+	for need > 0 && !sync.atomic_load(&v.done) {
+		n := 0
+		for n < len(buf) / 2 && n < need {
+			r := region(s)
+			if sync.atomic_load(&v.looping) && v.cursor >= r[1] {v.cursor = r[0]}
+			if v.cursor >= len(s.samples) {
+				sync.atomic_store(&v.done, true)
+				break
+			}
+			l := s.samples[v.cursor]
+			buf[2 * n], buf[2 * n + 1] = l * gl, (s.samples[v.cursor + 1] if ch > 1 else l) * gr
+			v.cursor += ch
+			n += 1
+		}
+		sdl.PutAudioStreamData(stream, &buf[0], i32(2 * n * size_of(f32)))
+		need -= n
+		if n == 0 {break}
+	}
+}
+
+// region is a sound's loop region in samples: its smpl loop, else the whole file.
+@(private = "file")
+region :: proc(s: Sound) -> [2]int {
+	frames := len(s.samples) / max(s.channels, 1)
+	if 0 <= s.loop[0] && s.loop[0] < s.loop[1] && s.loop[1] <= frames {return s.loop * s.channels}
+	return {0, len(s.samples)}
 }
 
 seconds :: proc(s: Sound) -> f32 {
