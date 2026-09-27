@@ -116,7 +116,7 @@ is_projectile :: proc(g: ^Game, form: Form_ID) -> bool {
 
 @(private = "file")
 live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
-	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form)) && !worldstate.is_dead(&g.ws, form)
+	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form)) && !worldstate.is_dead(&g.ws, &g.db, form)
 }
 
 // frame_dev_shot fires an iron arrow from the crosshair for DEV_SHOT_DAMAGE.

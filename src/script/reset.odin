@@ -26,7 +26,7 @@ enter_cell :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, cell: Form_ID) {
 		for r in list {
 			if !gamedb.ref_respawns(db, r) {continue}
 			reset_ref(db, ws, r)
-			if !worldstate.is_dead(ws, r.form_id) {
+			if !worldstate.is_dead(ws, db, r.form_id) {
 				for loc in gamedb.special_ref_locations(db, r.form_id, formid.LOC_REF_BOSS) {delete_key(&ws.cleared, loc)} // it respawned (CK IsCleared)
 			}
 		}
@@ -119,7 +119,7 @@ boss_died :: proc(c: ^Call, ref: Form_ID) {
 	for loc in gamedb.special_ref_locations(c.db, ref, formid.LOC_REF_BOSS) {
 		all_dead := true
 		for boss in gamedb.location_special_refs(c.db, loc, formid.LOC_REF_BOSS) {
-			if !worldstate.is_dead(c.ws, boss) {all_dead = false}
+			if !worldstate.is_dead(c.ws, c.db, boss) {all_dead = false}
 		}
 		if !all_dead || c.ws.cleared[loc] {continue}
 		c.ws.cleared[loc] = true

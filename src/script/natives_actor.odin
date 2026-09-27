@@ -120,7 +120,7 @@ damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) 
 // check_death kills an actor at 0 Health, unless essential or protected (protected dies only to
 // the player). Every way Health drops ends here.
 check_death :: proc(c: ^Call, actor: Form_ID, attacker: Form_ID) {
-	if worldstate.is_dead(c.ws, actor) || worldstate.av_current(c.ws, c.db, actor, "Health") > 0 {return}
+	if worldstate.is_dead(c.ws, c.db, actor) || worldstate.av_current(c.ws, c.db, actor, "Health") > 0 {return}
 	if worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
 	if attacker != formid.PLAYER && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
 	kill(c, actor, attacker)

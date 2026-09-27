@@ -23,5 +23,5 @@ projectile_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
 	}
 	append(&c.ws.hits, worldstate.Hit{target, f.shooter, f.weapon, worldstate.ref_base(c.ws, c.db, f.ref)})
 	worldstate.strike(c.ws, target, f.shooter)
-	if !worldstate.is_dead(c.ws, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
+	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
 }

@@ -54,7 +54,7 @@ confront :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Age
 // wanted_by: the guard detects `other`, knows a bounty on it, and is not hostile to it.
 @(private = "file")
 wanted_by :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, guard, other: Form_ID) -> bool {
-	if other == 0 || other == guard || worldstate.is_dead(ws, other) || !worldstate.detected(ws, guard, other) {return false}
+	if other == 0 || other == guard || worldstate.is_dead(ws, db, other) || !worldstate.detected(ws, guard, other) {return false}
 	if worldstate.jailed_by(ws, other, worldstate.crime_faction(ws, db, guard)) {return false}
 	return worldstate.total(worldstate.bounty(ws, db, guard, other)) > 0 && !worldstate.hostile(ws, db, guard, other)
 }

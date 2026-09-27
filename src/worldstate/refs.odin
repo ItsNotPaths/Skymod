@@ -288,10 +288,11 @@ Death :: struct {
 	actor, killer: Form_ID,
 }
 
-// is_dead reads the Dead delta. No baseline "starts dead" is surfaced yet.
-is_dead :: proc(ws: ^World_State, form_id: Form_ID) -> bool {
-	d, ok := get(ws, form_id)
-	return ok && .Dead in d.live && d.dead
+// is_dead reads the Dead delta, else the placement's "Starts Dead" flag.
+is_dead :: proc(ws: ^World_State, db: ^gamedb.DB, form_id: Form_ID) -> bool {
+	if d, ok := get(ws, form_id); ok && .Dead in d.live {return d.dead}
+	r, placed := gamedb.ref_by_formid(db, form_id)
+	return placed && r.starts_dead
 }
 
 // dead_count is how many actors placed from the NPC_ `base` are dead.
@@ -307,7 +308,7 @@ dead_count :: proc(ws: ^World_State, db: ^gamedb.DB, base: Form_ID) -> i32 {
 ref_type_count :: proc(ws: ^World_State, db: ^gamedb.DB, location, ref_type: Form_ID, dead: bool) -> i32 {
 	n: i32
 	for ref in gamedb.location_special_refs(db, location, ref_type) {
-		if is_dead(ws, ref) == dead {n += 1}
+		if is_dead(ws, db, ref) == dead {n += 1}
 	}
 	return n
 }

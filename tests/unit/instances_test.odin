@@ -1484,7 +1484,7 @@ test_kill_events :: proc(t: ^testing.T) {
 	slua.tick_deaths(&f.vm, &f.ws)
 	slua.drain(&f.vm)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "dying;death;" and __killer === ref(0x14), __log)`), "OnDying then OnDeath, once")
-	testing.expect(t, worldstate.is_dead(&f.ws, VICTIM), "dead")
+	testing.expect(t, worldstate.is_dead(&f.ws, &f.db, VICTIM), "dead")
 }
 
 // A trigger box turned 90 degrees hears the player come in, then go out; a disabled one forgets;

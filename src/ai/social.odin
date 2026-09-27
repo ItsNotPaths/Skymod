@@ -33,7 +33,7 @@ tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 	chatty := make([dynamic]Form_ID, context.temp_allocator)
 	for actor in loaded {
 		a, ok := &w.agents[actor]
-		if !ok || worldstate.is_dead(ws, actor) || busy(ws, db, actor, a) {continue}
+		if !ok || worldstate.is_dead(ws, db, actor) || busy(ws, db, actor, a) {continue}
 		flags := interrupt_flags(db, a.pack)
 		feet := worldstate.ref_pos(ws, db, actor)
 		to_player := apart(ws, db, actor, formid.PLAYER, feet, player)
@@ -69,7 +69,7 @@ look_around :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 		if other == actor {continue}
 		d := apart(ws, db, actor, other, feet, worldstate.ref_pos(ws, db, other))
 		if d > CONVERSATION_RADIUS {continue}
-		if worldstate.is_dead(ws, other) {
+		if worldstate.is_dead(ws, db, other) {
 			if flags & INTERRUPT_GREET_CORPSE != 0 && !w.found[{actor, other}] && sight.has_los(ws, db, actor, other) {
 				w.found[{actor, other}] = true
 				worldstate.queue_story_event(ws, {type = worldstate.STORY_DEAD_BODY, ref1 = actor, ref2 = other, location1 = loc})

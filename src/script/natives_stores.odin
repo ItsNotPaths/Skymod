@@ -48,7 +48,7 @@ n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 kill :: proc(c: ^Call, actor, killer: Form_ID) {
-	if worldstate.is_dead(c.ws, actor) {return}
+	if worldstate.is_dead(c.ws, c.db, actor) {return}
 	crime := worldstate.report_crime(c.ws, c.db, killer, actor, .Murder, 0)
 	append(&c.ws.deaths, worldstate.Death{actor, killer})
 	c.ws.killers[actor] = killer
@@ -72,7 +72,7 @@ kill :: proc(c: ^Call, actor, killer: Form_ID) {
 }
 
 n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.is_dead(c.ws, c.self)
+	return worldstate.is_dead(c.ws, c.db, c.self)
 }
 
 // ── PlaceAtMe ──────────────────────────────────────────────────────────────────

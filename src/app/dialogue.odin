@@ -36,7 +36,7 @@ Conversation :: struct {
 // cannot be spoken to (CK Dialogue), nor one a script barred (AllowPCDialogue), nor a scene actor
 // flagged No Player Activation (CK Scenes Tab).
 open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
-	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, speaker) || speaker in g.ws.no_pc_dialogue {return}
+	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, &g.db, speaker) || speaker in g.ws.no_pc_dialogue {return}
 	if busy_in_scene(g, speaker) {
 		log.infof("%s is busy", worldstate.display_name(&g.ws, &g.db, speaker))
 		return
@@ -49,7 +49,7 @@ frame_force_greet :: proc(g: ^Game) {
 	fg := g.ws.force_greet
 	if fg.speaker == 0 || g.menu != .None {return}
 	g.ws.force_greet = {}
-	if !worldstate.is_dead(&g.ws, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
+	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
 }
 
 // start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`, or
@@ -76,7 +76,7 @@ start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype :
 // dialogue_menu draws the conversation: the subtitle while a line plays, else the choices.
 dialogue_menu :: proc(g: ^Game) {
 	t := &g.talk
-	if worldstate.is_dead(&g.ws, t.speaker) {
+	if worldstate.is_dead(&g.ws, &g.db, t.speaker) {
 		close_dialogue(g)
 		return
 	}

@@ -42,12 +42,15 @@ Ref :: struct {
 	// quest/alternate debris; the eventual quest system flips the parent live.
 	enable_parent:   Form_ID,
 	enable_opposite: bool,
+	starts_dead:  bool, // ACHR "Starts Dead": a corpse placed in the world
 }
 
 // REFR record-header flag: the ref starts disabled (an alternate-state placement).
 REFR_INITIALLY_DISABLED :: 0x0000_0800
 // Record-header DELETED flag — an override that removes a master's record (TESForm bit 5).
 REFR_DELETED :: 0x0000_0020
+// ACHR record-header flag: the actor is placed dead (a corpse, often posed by XRGD).
+ACHR_STARTS_DEAD :: 0x0000_0200
 // REFR/ACHR record-header flag: the ref does not reset with its cell.
 REFR_NO_RESPAWN :: 0x4000_0000
 
@@ -2164,6 +2167,7 @@ index_achr :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		deleted      = rec.flags & REFR_DELETED != 0,
 		persistent   = !ctx.temporary,
 		no_respawn   = rec.flags & REFR_NO_RESPAWN != 0,
+		starts_dead  = rec.flags & ACHR_STARTS_DEAD != 0,
 	}
 	if ep, has := esm.refr_enable_parent(fl); has {
 		ref.enable_parent = esm.remap_form(ctx.fm, ep.parent)

@@ -68,7 +68,7 @@ World :: struct {
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
 tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
 	a := agent_of(w, ws, db, actor)
-	if worldstate.is_dead(ws, actor) {return stop_dead(w, actor, a)}
+	if worldstate.is_dead(ws, db, actor) {return stop_dead(w, actor, a)}
 	clear(&a.trip)
 	a.planned = false
 	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
@@ -251,7 +251,7 @@ tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 
 @(private = "file")
 step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool, actor: Form_ID, dt: f32) {
-	if actor in loaded || worldstate.is_dead(ws, actor) || !worldstate.ref_enabled(ws, db, actor) {return}
+	if actor in loaded || worldstate.is_dead(ws, db, actor) || !worldstate.ref_enabled(ws, db, actor) {return}
 	a := agent_of(w, ws, db, actor)
 	feet := worldstate.ref_pos(ws, db, actor)
 	a.eval_in -= dt
@@ -298,7 +298,7 @@ skip_time :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB) {
 	if hours <= 0 {return}
 	seconds := f32(hours * 3600) / max(worldstate.global_value(ws, db, formid.TIMESCALE), 1)
 	for actor, &a in w.agents {
-		if worldstate.is_dead(ws, actor) || !worldstate.ref_enabled(ws, db, actor) {continue}
+		if worldstate.is_dead(ws, db, actor) || !worldstate.ref_enabled(ws, db, actor) {continue}
 		feet := worldstate.ref_pos(ws, db, actor)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(&a, db, pack, quest, ws.clock.hours, feet)}
 		clear(&a.trip)

@@ -26,7 +26,7 @@ track_cells :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, cell
 // pull_visitor moves an actor from outside the loaded cells to its package's place, if that is loaded.
 @(private = "file")
 pull_visitor :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) {
-	if worldstate.is_dead(ws, actor) || !worldstate.ref_enabled(ws, db, actor) {return}
+	if worldstate.is_dead(ws, db, actor) || !worldstate.ref_enabled(ws, db, actor) {return}
 	if worldstate.ref_grid_cell(ws, db, actor) in w.loaded {return}
 	if a, ok := w.agents[actor]; ok && a.trip_at < len(a.trip) {return} // walking there already
 	pack, quest := select_package(w, ws, db, actor)

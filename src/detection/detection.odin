@@ -32,10 +32,10 @@ tick :: proc(s: ^State, ws: ^worldstate.World_State, db: ^gamedb.DB, actors: map
 	looked := make(map[[2]Form_ID]bool, context.temp_allocator)
 	step := dt * GROUPS
 	for viewer in actors {
-		if !my_turn(s, viewer) || worldstate.is_dead(ws, viewer) {continue}
+		if !my_turn(s, viewer) || worldstate.is_dead(ws, db, viewer) {continue}
 		reach := sight.range(ws, db, viewer)
 		for target, v in speeds {
-			if target == viewer || worldstate.is_dead(ws, target) {continue}
+			if target == viewer || worldstate.is_dead(ws, db, target) {continue}
 			d := worldstate.ref_distance(ws, db, viewer, target)
 			if d > reach {continue}
 			senses := Senses {

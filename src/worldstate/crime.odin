@@ -156,7 +156,7 @@ report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID
 // witness gives `knower` the bounty its crime faction sets for the offence, if it counts one.
 @(private = "file")
 witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kind: Crime_Kind, value: i32) -> bool {
-	if knower == offender || is_dead(ws, knower) {return false}
+	if knower == offender || is_dead(ws, db, knower) {return false}
 	crime := crime_faction(ws, db, knower)
 	f, ok := faction(ws, db, crime)
 	if !ok || f.flags & esm.FACT_TRACK_CRIME == 0 || f.flags & (esm.FACT_DO_NOT_REPORT_CRIMES | IGNORES[kind]) != 0 {return false}
@@ -223,7 +223,7 @@ spread_bounties :: proc(ws: ^World_State, db: ^gamedb.DB) {
 	offenders := make(map[Form_ID][dynamic]Form_ID, context.temp_allocator) // knower -> what it knows of
 	gone := make([dynamic][2]Form_ID, context.temp_allocator)
 	for k in ws.known_bounties {
-		if is_dead(ws, k[0]) {append(&gone, k);continue}
+		if is_dead(ws, db, k[0]) {append(&gone, k);continue}
 		if k[0] not_in offenders {offenders[k[0]] = make([dynamic]Form_ID, context.temp_allocator)}
 		append(&offenders[k[0]], k[1])
 	}
@@ -231,7 +231,7 @@ spread_bounties :: proc(ws: ^World_State, db: ^gamedb.DB) {
 
 	for pair, a in ws.awareness {
 		known_of, ok := offenders[pair[0]]
-		if !a.detected || !ok || is_dead(ws, pair[1]) {continue}
+		if !a.detected || !ok || is_dead(ws, db, pair[1]) {continue}
 		for o in known_of {
 			k := ws.known_bounties[{pair[0], o}]
 			if o != pair[1] && crime_faction(ws, db, pair[1]) == k.faction {learn_bounty(ws, db, pair[1], o, k.bounty)}
@@ -296,7 +296,7 @@ crime_census :: proc(ws: ^World_State, db: ^gamedb.DB, faction: Form_ID) -> (liv
 	members, ok := ws.crime_members[faction]
 	if !ok {return}
 	for m in members {
-		if is_dead(ws, m) {continue}
+		if is_dead(ws, db, m) {continue}
 		living += 1
 		if in_faction(ws, db, m, formid.IS_GUARD_FACTION) {guards += 1}
 	}

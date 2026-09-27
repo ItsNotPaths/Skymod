@@ -17,7 +17,7 @@ FOLLOW_SPRINT :: f32(300) // fFollowStartSprintDistance: a follower this far beh
 proc_follow :: proc(c: ^Proc_Context, shift: int) -> Status {
 	ws, db := c.cond.ws, c.cond.db
 	target := input_target(c, 0)
-	if target == 0 || worldstate.is_dead(ws, target) {return .Failed}
+	if target == 0 || worldstate.is_dead(ws, db, target) {return .Failed}
 	if shift > 0 {
 		if end, ok := location(c); ok && reached(c, end) {
 			c.agent.mover.goal = {}
@@ -66,7 +66,7 @@ proc_escort :: proc(c: ^Proc_Context) -> Status {
 		near := max(input_value(c, 4, f32) or_else 0, ARRIVED)
 		c.w.escorts[who] = {c.cond.subject, near, max(input_value(c, 5, f32) or_else 0, near), input_value(c, 8, f32) or_else FOLLOW_SPRINT, ws.clock.played}
 	}
-	if who != 0 && !worldstate.is_dead(ws, who) {
+	if who != 0 && !worldstate.is_dead(ws, db, who) {
 		wait := input_value(c, 3, f32) or_else 0
 		if wait > 0 && linalg.length(worldstate.ref_pos(ws, db, who).xy - c.feet.xy) > wait {
 			c.agent.mover.goal = {}
@@ -114,7 +114,7 @@ proc_flee :: proc(c: ^Proc_Context) -> Status {
 		return .Running
 	}
 	threat := input_target(c, 0)
-	if threat == 0 || worldstate.is_dead(ws, threat) {return .Done}
+	if threat == 0 || worldstate.is_dead(ws, db, threat) {return .Done}
 	from := worldstate.ref_pos(ws, db, threat)
 	away := c.feet.xy - from.xy
 	d := linalg.length(away)
@@ -197,7 +197,7 @@ proc_say :: proc(c: ^Proc_Context) -> Status {
 proc_dialogue_activate :: proc(c: ^Proc_Context) -> Status {
 	ws, db, actor := c.cond.ws, c.cond.db, c.cond.subject
 	target := input_target(c, 0)
-	if target == 0 || worldstate.is_dead(ws, target) {return .Failed}
+	if target == 0 || worldstate.is_dead(ws, db, target) {return .Failed}
 	at := worldstate.ref_pos(ws, db, target)
 	from, _ := input_place(c, 1)
 	reach := max(from.radius, ARRIVED)

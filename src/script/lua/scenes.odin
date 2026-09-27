@@ -95,7 +95,7 @@ behavior :: proc(vm: ^VM, s: gamedb.Scene) -> Behavior {
 	for a in s.actors {
 		ref := worldstate.alias_ref(ws, s.quest, a.alias)
 		if ref == 0 {continue}
-		if worldstate.is_dead(ws, ref) && a.behavior & gamedb.SCENE_DEATH_END != 0 {return .End}
+		if worldstate.is_dead(ws, vm.ctx.db, ref) && a.behavior & gamedb.SCENE_DEATH_END != 0 {return .End}
 		if ws.talking != ref {continue}
 		if a.behavior & gamedb.SCENE_DIALOGUE_END != 0 {return .End}
 		if a.behavior & gamedb.SCENE_DIALOGUE_PAUSE != 0 {out = .Pause}
@@ -160,7 +160,7 @@ start_action :: proc(vm: ^VM, scene: script.Form_ID, s: gamedb.Scene, a: gamedb.
 	ref := worldstate.alias_ref(ws, s.quest, a.alias)
 	ar := worldstate.Action_Run{index = a.index, speaker = ref}
 	switch {
-	case ref == 0 || worldstate.is_dead(ws, ref) || !worldstate.ref_enabled(ws, vm.ctx.db, ref):
+	case ref == 0 || worldstate.is_dead(ws, vm.ctx.db, ref) || !worldstate.ref_enabled(ws, vm.ctx.db, ref):
 		ar.done = true
 	case a.kind == .Timer:
 		ar.left = a.seconds
@@ -209,7 +209,7 @@ advance_actions :: proc(vm: ^VM, scene: script.Form_ID, s: gamedb.Scene, dt: f32
 			cut_line(vm, &ar)
 			ar.done = true
 			if a.flags & gamedb.SCENE_ACTION_LOOPING != 0 {ar.left = rand.float32_range(a.loop_min, max(a.loop_min, a.loop_max) + 0.001)}
-		case a.flags & gamedb.SCENE_ACTION_LOOPING != 0 && ar.speaker != 0 && !worldstate.is_dead(vm.ctx.ws, ar.speaker):
+		case a.flags & gamedb.SCENE_ACTION_LOOPING != 0 && ar.speaker != 0 && !worldstate.is_dead(vm.ctx.ws, vm.ctx.db, ar.speaker):
 			speak(vm, &ar, a.topic)
 		}
 	}

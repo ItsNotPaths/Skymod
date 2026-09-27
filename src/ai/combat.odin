@@ -47,11 +47,11 @@ combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
 // (hole aggro-radius-targets :tags (ai combat) :sev polish) unsourced: whether the aggro radii warn and attack every actor that is not an ally, or only the player; they take every non-ally.
 @(private)
 next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: ^Combat, dt: f32) -> Combat_State {
-	if worldstate.is_dead(ws, actor) {
+	if worldstate.is_dead(ws, db, actor) {
 		c^ = {}
 		return .None
 	}
-	if by, ok := worldstate.take_struck(ws, actor); ok && !worldstate.is_dead(ws, by) {
+	if by, ok := worldstate.take_struck(ws, actor); ok && !worldstate.is_dead(ws, db, by) {
 		c.target, c.warned = by, 0
 		return engage(ws, db, actor)
 	}
@@ -68,7 +68,7 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		if other == actor {continue}
 		seen := worldstate.detected(ws, actor, other)
 		d := linalg.length(worldstate.ref_pos(ws, db, other).xy - feet.xy)
-		if !seen && d > reach || worldstate.is_dead(ws, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
+		if !seen && d > reach || worldstate.is_dead(ws, db, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
 		if seen && d < attack_d && attacks_on_sight(ws, db, actor, other) {attack, attack_d = other, d}
 		if d < near_d {near, near_d = other, d}
 	}
@@ -103,7 +103,7 @@ engage :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> C
 // keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
 @(private = "file")
 keeps :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: Combat, aggro: esm.Aggro) -> bool {
-	if c.target == 0 || worldstate.is_dead(ws, c.target) {return false}
+	if c.target == 0 || worldstate.is_dead(ws, db, c.target) {return false}
 	d := linalg.length(worldstate.ref_pos(ws, db, c.target).xy - feet.xy)
 	if c.state == .Flee {return d <= flee_distance(ws, db, actor)}
 	return worldstate.detected(ws, actor, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE

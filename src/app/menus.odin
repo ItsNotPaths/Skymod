@@ -376,7 +376,7 @@ map_menu :: proc(g: ^Game) {
 container_menu :: proc(g: ^Game) {
 	c := script.Call{ws = &g.ws, db = &g.db}
 	box := g.menu_target
-	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.ws, box) else .Container
+	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.ws, &g.db, box) else .Container
 	imgui.TextUnformatted(fmt.ctprintf("%s", label(g, box)))
 	for item in by_name(g, worldstate.inv_items(&g.ws, &g.db, box)) {
 		n := worldstate.inv_count(&g.ws, &g.db, box, item)

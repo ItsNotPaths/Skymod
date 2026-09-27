@@ -97,7 +97,7 @@ resolve_activation :: proc(g: ^Game) -> Activation_Target {
 	inst, dist, ok := world.probe_ray(scene, ro, rd)
 	if actor, adist, aok := pick_actor(g, ro, rd); aok && adist <= ACTIVATE_RANGE && (!ok || adist < dist) {
 		name := worldstate.display_name(&g.ws, &g.db, actor)
-		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, actor) else .Actor
+		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, &g.db, actor) else .Actor
 		return {kind = kind, name = name, form = actor, present = name != ""}
 	}
 	if !ok || dist > ACTIVATE_RANGE || inst.disabled {

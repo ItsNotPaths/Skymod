@@ -269,7 +269,7 @@ draw_actor_nametags :: proc(g: ^Game) {
 		top := feet + {0, 0, 2 * (b.capsule.half_h + b.capsule.radius) + 12}
 		clip := vp * [4]f32{top.x, top.y, top.z, 1}
 		if clip.w <= 0 {continue}
-		dead := worldstate.is_dead(&g.ws, f)
+		dead := worldstate.is_dead(&g.ws, &g.db, f)
 		name := fmt.ctprintf("%s (DEAD)" if dead else "%s", worldstate.display_name(&g.ws, &g.db, f))
 		size := imgui.CalcTextSize(name)
 		at := imgui.Vec2{(clip.x / clip.w * 0.5 + 0.5) * w - size.x / 2, (0.5 - clip.y / clip.w * 0.5) * h - size.y}
@@ -295,7 +295,7 @@ combat_marker :: proc(dl: ^imgui.DrawList, tip: imgui.Vec2, color: u32) {
 // dead are grey.
 @(private = "file")
 actor_color :: proc(g: ^Game, form: Form_ID) -> [4]f32 {
-	if worldstate.is_dead(&g.ws, form) {return {0.5, 0.5, 0.5, 1}}
+	if worldstate.is_dead(&g.ws, &g.db, form) {return {0.5, 0.5, 0.5, 1}}
 	hue := f32((u32(form) * 2654435761) >> 8) / (1 << 24) * 6
 	x := 1 - abs(math.mod(hue, 2) - 1)
 	rgb: [3]f32

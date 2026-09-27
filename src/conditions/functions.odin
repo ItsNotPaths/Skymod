@@ -333,7 +333,7 @@ fn_get_pc_is_sex :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f3
 
 @(private = "file")
 fn_get_dead :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(worldstate.is_dead(ctx.ws, on))
+	return yes(worldstate.is_dead(ctx.ws, ctx.db, on))
 }
 
 @(private = "file")
