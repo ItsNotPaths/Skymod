@@ -49,6 +49,7 @@ fill :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[Form_
 	case .External:
 		other, ok := formid.alias_handle(a.target, u32(a.alias))
 		form = c.ws.aliases[other] if ok && a.alias >= 0 else 0
+		if form in c.ws.carried {return 0, true} // inside a container it fails (CK Quest Alias Tab)
 		return form if fits(c, quest, a, form, used, new_game, true) else 0, true
 	case .Unique_Actor:
 		ref, _ := gamedb.unique_actor_ref(c.db, a.target)

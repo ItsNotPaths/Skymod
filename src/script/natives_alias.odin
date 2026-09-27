@@ -10,7 +10,7 @@ import "../formid"
 import "../gamedb"
 import "../worldstate"
 
-// (hole alias-fills :tags (script quest) :sev polish) Allow Destroyed is not honored (nothing tracks a destroyed ref), and an External fill takes a ref even while it sits in a container, where the CK says it fails.
+// (hole alias-fills :tags (script quest) :sev polish) Allow Destroyed is not honored: nothing tracks a destroyed ref (SetDestroyed is a stub).
 
 register_alias :: proc(reg: ^Registry) {
 	register(reg, "Quest", "GetAlias", n_quest_get_alias)
