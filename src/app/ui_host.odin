@@ -13,6 +13,8 @@ import "core:os"
 import "base:runtime"
 import "core:strings"
 import lua "../../vendor/lua"
+import "../audio"
+import "../gamedb"
 import "../input"
 import "../ui"
 import "../vfs"
@@ -51,6 +53,9 @@ UI_Host :: struct {
 	// nil and the prompt widget falls back to text.
 	imgr:           ^input.Manager,
 	pad_style:      input.Pad_Style, // zero value = .Xbox; hot-set from the pad's SDL type later
+	// engine.play_sound: set on the in-game sessions only; nil (the main menu) plays nothing.
+	audio:          ^audio.Audio,
+	db:             ^gamedb.DB,
 }
 
 ui_host_destroy :: proc(host: ^UI_Host) {
@@ -72,6 +77,7 @@ install_engine_api :: proc(vm: ^ui.VM) {
 	ui.register_host(L, vm, "load_progress", engine_load_progress)
 	ui.register_host(L, vm, "activation", engine_activation)
 	ui.register_host(L, vm, "prompt", engine_prompt)
+	ui.register_host(L, vm, "play_sound", engine_play_sound)
 	lua.setglobal(L, "engine") // pops engine
 }
 
@@ -83,6 +89,15 @@ install_engine_api :: proc(vm: ^ui.VM) {
 // or unknown action. The prompt{} widget (widget/prompt.lua) wraps this — screens rarely
 // call it directly.
 @(private = "file")
+// engine.play_sound(edid) plays a sound descriptor by editor id, flat ("UIMenuOKSD").
+engine_play_sound :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	if host.audio != nil {audio.ui_sound(host.audio, host.vf, host.db, string(lua.L_checkstring(L, 1)))}
+	return 0
+}
+
 engine_prompt :: proc "c" (L: ^lua.State) -> c.int {
 	vm := ui.vm_from_upvalue(L)
 	context = vm.host_ctx

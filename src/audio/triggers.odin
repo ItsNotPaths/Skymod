@@ -3,6 +3,7 @@ package audio
 // What starts a sound. Records name the sound; these say when.
 
 import "core:math/rand"
+import "core:strings"
 import "../formid"
 import "../gamedb"
 import "../vfs"
@@ -136,8 +137,12 @@ impact_sound :: proc(db: ^gamedb.DB, source, target: formid.Form_ID, pos: [3]f32
 // (hole anim-sounds :tags (audio animation unclaimed) :sev gap :needs (hkx-porter)) no animation plays a sound: SoundPlay/SoundStop/SoundPlayAt annotations (727 SNDR names over 800 SE clips; 90 of 183 dragon clips), weaponSwing (the WEAP attack sound) and FootLeft/FootRight (FSTS/FSTP footstep sets, by gait and ground material; not decoded) have no animation to fire them.
 anim_sound :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, actor: formid.Form_ID, event: string) {}
 
-// (hole ui-sounds :tags (audio ui) :sev gap) menus are silent: Skyrim's menus play SNDRs by editor ID (UIMenuOK...), and the Lua UI has no call to play one.
-ui_sound :: proc(db: ^gamedb.DB, edid: string) {}
+// (hole ui-button-sounds :tags (audio ui) :sev polish) menu buttons and list focus make no sound (UIMenuOKSD, UIMenuFocus, UIMenuPrevNextSD): the menus are ImGui placeholders with no per-widget hook.
+// ui_sound plays a sound descriptor by editor id, flat ("UIMenuOKSD"); 0 without a database.
+ui_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, edid: string) -> Handle {
+	if db == nil || edid == "" {return 0}
+	return play_descriptor(a, v, db, db.sound_by_edid[strings.to_lower(edid, context.temp_allocator)])
+}
 
 // say plays one response of a topic info in the speaker's voice, at the dialogue category's
 // volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP2), else flat.

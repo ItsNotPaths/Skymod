@@ -21,6 +21,7 @@ hud_init :: proc(g: ^Game) -> bool {
 	// engine.prompt (the prompt{} widget) resolves live bindings through the input manager —
 	// set AFTER open (ui_session_open rebuilds the host struct).
 	g.hud.host.imgr = &g.imgr
+	g.hud.host.audio, g.hud.host.db = &g.audio, &g.db
 	return true
 }
 

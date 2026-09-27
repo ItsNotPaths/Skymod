@@ -142,6 +142,11 @@ index_sound_descriptor :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 	if old, seen := db.sounds[rec.form_id]; seen {free_sound(db, old)}
+	if edid := esm.editor_id(fl); edid != "" {
+		key := strings.to_lower(edid, context.temp_allocator)
+		if key not_in db.sound_by_edid {key = strings.clone(key, db.allocator)}
+		db.sound_by_edid[key] = rec.form_id
+	}
 	s: Sound_Descriptor
 	files := make([dynamic]string, db.allocator)
 	for f in fl {
@@ -249,6 +254,8 @@ free_sound :: proc(db: ^DB, s: Sound_Descriptor) {
 free_sound_indexes :: proc(db: ^DB) {
 	for _, s in db.sounds {free_sound(db, s)}
 	delete(db.sounds)
+	for k in db.sound_by_edid {delete(k, db.allocator)}
+	delete(db.sound_by_edid)
 	delete(db.sound_markers)
 	delete(db.sound_categories)
 	delete(db.sound_outputs)

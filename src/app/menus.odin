@@ -36,18 +36,19 @@ Menu_Kind :: struct {
 	title:        cstring,
 	action:       string, // the input action that toggles it; "" = opened by something else
 	pauses_world: bool,
+	sounds:       [2]string, // the UI sounds (SNDR editor ids) it opens and closes with
 }
 
 MENUS := [Menu]Menu_Kind {
 	.None      = {},
-	.Tween     = {"##tween", "Tween", true},
-	.Inventory = {"Items", "Inventory", true},
-	.Magic     = {"Magic", "Magic", true},
-	.Skills    = {"Skills", "Skills", true},
-	.Map       = {"Map", "", true},
-	.Container = {"Container", "", true},
-	.Pause     = {"Paused", "", true},
-	.Dialogue  = {"Dialogue", "", false},
+	.Tween     = {"##tween", "Tween", true, {"UIMenuBladeOpenSD", "UIMenuBladeCloseSD"}},
+	.Inventory = {"Items", "Inventory", true, {"UIInventoryOpenSD", "UIMenuBladeCloseSD"}},
+	.Magic     = {"Magic", "Magic", true, {"UIMenuBladeOpenSD", "UIMenuBladeCloseSD"}},
+	.Skills    = {"Skills", "Skills", true, {"UIMenuBladeOpenSD", "UIMenuBladeCloseSD"}},
+	.Map       = {"Map", "", true, {"UIMenuBladeOpenSD", "UIMenuBladeCloseSD"}},
+	.Container = {"Container", "", true, {}}, // opens and closes with the container's own sounds
+	.Pause     = {"Paused", "", true, {"UIJournalOpen", "UIJournalClose"}},
+	.Dialogue  = {"Dialogue", "", false, {}},
 }
 
 // TWEEN is the cross and the menus it opens: Tab closes any of them.
@@ -81,7 +82,11 @@ open_container :: proc(g: ^Game, container: Form_ID) {
 // phase has joined, so worldstate is the main thread's.
 frame_menus :: proc(g: ^Game) {
 	was := g.menu
-	defer if was == .Container && g.menu != .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, g.menu_target, done = true)}
+	defer if g.menu != was {
+		audio.ui_sound(&g.audio, &g.v, &g.db, MENUS[was].sounds[1])
+		audio.ui_sound(&g.audio, &g.v, &g.db, MENUS[g.menu].sounds[0])
+		if was == .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, g.menu_target, done = true)}
+	}
 	for kind, m in MENUS {
 		if kind.action == "" || !input.fired(&g.imgr, kind.action) {continue}
 		closes := g.menu == m || (m == .Tween && g.menu in TWEEN)

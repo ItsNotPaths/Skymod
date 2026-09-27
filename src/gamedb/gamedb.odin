@@ -205,6 +205,7 @@ DB :: struct {
 	defaults:      map[[4]u8]Form_ID, // DOBJ: engine key ("DMWL", "PUSG") -> its form; read with default_object
 	sounds:           map[Form_ID]Sound_Descriptor, // SNDR formID -> its files and play values (owned)
 	sound_markers:    map[Form_ID]Form_ID, // SOUN formID -> its SNDR
+	sound_by_edid:    map[string]Form_ID, // lowercased SNDR editor id -> formID (key owned): UI sounds are named
 	sound_categories: map[Form_ID]Sound_Category, // SNCT formID -> its parent and volume
 	sound_outputs:    map[Form_ID]Sound_Output, // SOPM formID -> its distance curve and panning
 	acoustic_loops:   map[Form_ID]Form_ID, // ASPC formID -> its ambient loop (SNAM, SNDR)
@@ -796,6 +797,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		defaults         = make(map[[4]u8]Form_ID, 512, allocator),
 		sounds           = make(map[Form_ID]Sound_Descriptor, 4096, allocator),
 		sound_markers    = make(map[Form_ID]Form_ID, 2048, allocator),
+		sound_by_edid    = make(map[string]Form_ID, 4096, allocator),
 		sound_categories = make(map[Form_ID]Sound_Category, 32, allocator),
 		sound_outputs    = make(map[Form_ID]Sound_Output, 128, allocator),
 		acoustic_loops   = make(map[Form_ID]Form_ID, 64, allocator),
