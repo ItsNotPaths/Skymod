@@ -153,6 +153,7 @@ index_voice_type :: proc(db: ^DB, rec: esm.Record) {
 
 	flags, _ := esm.voice_type_flags(fl)
 	db.voice_types[rec.form_id] = flags
+	index_voice_edid(db, rec.form_id, fl)
 }
 
 // index_outfit decodes an OTFT's INAM item list, remapped — the gear an NPC wearing it spawns
@@ -376,6 +377,8 @@ free_actor_indexes :: proc(db: ^DB) {
 	}
 	delete(db.classes)
 	delete(db.voice_types)
+	for _, e in db.voice_edids {delete(e, db.allocator)}
+	delete(db.voice_edids)
 	for _, o in db.outfits {
 		delete(o, db.allocator)
 	}

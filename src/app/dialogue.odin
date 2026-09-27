@@ -7,6 +7,7 @@ package main
 import "core:fmt"
 import "core:log"
 import imgui "../../vendor/odin-imgui"
+import "../audio"
 import "../dialogue"
 import "../gamedb"
 import "../script"
@@ -22,6 +23,7 @@ Conversation :: struct {
 	info:      Form_ID, // the line being said; 0 while the player chooses
 	response:  int, // which of its responses shows
 	left_s:    f32, // how long that response stays up
+	voice:     audio.Handle, // the response's voice, while it plays
 	blocking:  Form_ID, // the Blocking or Exclusive branch the greeting came from
 	greeting:  bool, // the line is the greeting
 	last:      bool, // the conversation ends after this line
@@ -114,6 +116,7 @@ close_dialogue :: proc(g: ^Game) {
 		c := dialogue_call(g)
 		dialogue.finished(&c, g.talk.speaker, g.talk.info)
 	}
+	audio.stop(&g.audio, g.talk.voice)
 	g.talk.info = 0
 	g.ws.talking = 0
 	if g.menu == .Dialogue {g.menu = .None}
@@ -147,12 +150,29 @@ list_topics :: proc(g: ^Game) {
 next_response :: proc(g: ^Game) {
 	t := &g.talk
 	t.response += 1
+	audio.stop(&g.audio, t.voice)
 	lines := dialogue.responses(&g.db, t.info)
 	if t.response < len(lines) {
 		t.left_s = dialogue.line_seconds(lines[t.response].text)
+		if s, ok := voice_sound(g, t.info, lines[t.response].number); ok {
+			t.left_s = audio.seconds(s)
+			t.voice = audio.play(&g.audio, s)
+		}
 		return
 	}
 	line_done(g)
+}
+
+// voice_sound decodes the speaker's voice file of one response: the info's own, else that of the
+// info it shares (DNAM), whose responses it says.
+// (hole race-voice-types :tags (dialogue records audio) :sev gap) an NPC with no VTCK of its own speaks silently: a RACE's default voice types (male, female) are not decoded.
+@(private = "file")
+voice_sound :: proc(g: ^Game, info: Form_ID, number: u8) -> (audio.Sound, bool) {
+	voice := gamedb.actor_traits(&g.db, worldstate.ref_base(&g.ws, &g.db, g.talk.speaker)).voice
+	if s, ok := audio.open(&g.v, gamedb.voice_path(&g.db, voice, info, number)); ok {return s, true}
+	shared := g.db.infos[info].shared
+	if shared == 0 {return {}, false}
+	return audio.open(&g.v, gamedb.voice_path(&g.db, voice, shared, number))
 }
 
 // line_done follows a finished line (CK Topic Info, Link To): Goodbye ends the conversation,

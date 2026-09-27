@@ -203,6 +203,7 @@ DB :: struct {
 	default_move:  [2]Form_ID, // DOBJ: the walk and run MOVT of races without their own
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
+	voice_edids:   map[Form_ID]string, // QUST, DIAL and VTYP formID -> lowercased editor id: the parts of a voice file's path (owned)
 	outfits:       map[Form_ID][]Form_ID, // OTFT formID -> the gear it grants (owned; remapped)
 	actor_value_info:     map[Form_ID]Actor_Value_Info, // AVIF formID -> its identity (owned strings)
 	actor_value_by_index: map[i32]Form_ID, // engine ActorValue index -> its AVIF form
@@ -769,6 +770,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		movement      = make(map[Form_ID][2]f32, 128, allocator),
 		classes       = make(map[Form_ID]Class, 256, allocator),
 		voice_types   = make(map[Form_ID]u8, 256, allocator),
+		voice_edids   = make(map[Form_ID]string, 32768, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
 		actor_value_by_index = make(map[i32]Form_ID, 256, allocator),
@@ -1668,6 +1670,7 @@ index_quest :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 	index_edid(db, rec.form_id, fl)
+	index_voice_edid(db, rec.form_id, fl)
 
 	if old, existed := db.quest_baseline[rec.form_id]; existed {
 		free_quest_baseline(db, old) // override: free the previous clone

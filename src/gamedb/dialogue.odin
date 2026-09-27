@@ -4,6 +4,7 @@ package gamedb
 // the responses (INFO) a topic offers, each with its conditions and the lines an actor says. A
 // topic's INFOs are tried top to bottom; their order is the previous-INFO (PNAM) chain.
 
+import "core:fmt"
 import "core:slice"
 import "core:strings"
 import "../formats/esm"
@@ -68,6 +69,37 @@ Response :: struct {
 	listener_idle: Form_ID, // LNAM
 }
 
+// voice_path is the voice file of one response, said in voice type `voice`:
+// sound\voice\<plugin>\<voice type>\<quest>_<topic>_<info>_<response>.fuz. When the quest and
+// topic editor ids together pass 25 characters, the quest's is cut to 10 and the topic's to what
+// is left of 25. "" when a part is unknown.
+// (hole voice-stale-names :tags (dialogue audio) :sev polish) 117 of the 74,704 SE voice files whose info exists do not match this name: their quest or topic part (mq305, mq00) is not the one the data holds now (mq304). Unsourced whether Skyrim finds them.
+voice_path :: proc(db: ^DB, voice: Form_ID, info: Form_ID, number: u8) -> string {
+	id := info
+	topic := db.infos[id].topic
+	quest, vt := db.voice_edids[db.topics[topic].quest], db.voice_edids[voice]
+	name := db.voice_edids[topic]
+	if vt == "" {return ""}
+	if len(quest) + len(name) > 25 {
+		quest = quest[:min(len(quest), 10)]
+		name = name[:min(len(name), 25 - len(quest))]
+	}
+	plugin := ""
+	for p, slot in db.plugin_slots {
+		if slot == u32(id >> 32) {plugin = p}
+	}
+	if plugin == "" {return ""}
+	return fmt.tprintf("sound\\voice\\%s\\%s\\%s_%s_%08x_%d.fuz", plugin, vt, quest, name, u32(id), number)
+}
+
+@(private)
+index_voice_edid :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
+	edid := esm.editor_id(fl)
+	if edid == "" {return}
+	if old, seen := db.voice_edids[form]; seen {delete(old, db.allocator)}
+	db.voice_edids[form] = strings.to_lower(edid, db.allocator)
+}
+
 @(private)
 index_topic :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)
@@ -75,6 +107,7 @@ index_topic :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 	index_name(db, rec.form_id, fl) // FULL: the topic's text
+	index_voice_edid(db, rec.form_id, fl)
 	t := Topic{priority = 50}
 	for f in fl {
 		switch f.type {
