@@ -882,7 +882,8 @@ function rt.parent(self, class, name, ...)
     if p then return f(self, with_defaults(p, ...)) end
     return f(self, ...)
   end
-  warn_once("parent:" .. low(class) .. "." .. low(name), "no parent '" .. name .. "' above " .. class)
+  -- a patch that takes a parent's waits takes its OnTick too; a subclass's chained call finds none
+  if low(name) ~= "ontick" then warn_once("parent:" .. low(class) .. "." .. low(name), "no parent '" .. name .. "' above " .. class) end
   return None
 end
 
