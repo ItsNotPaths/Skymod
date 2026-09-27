@@ -24,6 +24,8 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Faction", "PlayerPayCrimeGold", n_player_pay_crime_gold)
 	register(reg, "Faction", "SetPlayerEnemy", n_set_player_enemy)
 	register(reg, "Game", "SetPlayerReportCrime", n_set_player_report_crime)
+	register(reg, "Faction", "SendPlayerToJail", n_send_player_to_jail)
+	register(reg, "Game", "ServeTime", n_serve_time)
 	register(reg, "Actor", "SendAssaultAlarm", n_send_assault_alarm)
 	register(reg, "Actor", "SetPlayerResistingArrest", n_set_player_resisting_arrest)
 	register(reg, "ObjectReference", "SendStealAlarm", n_send_steal_alarm)
@@ -118,11 +120,28 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes and the bounty
-// clears.
-// (hole pay-fine-args :tags combat :sev gap :needs (stolen-marks jail)) abRemoveStolenItems takes nothing (no item is marked stolen) and abGoToJail does nothing; unsourced what it does after a paid fine.
+// clears; abGoToJail takes the player outside the faction's jail (UESP: "transport outside the
+// nearest jail").
+// (hole pay-fine-args :tags combat :sev gap :needs (stolen-marks)) abRemoveStolenItems takes nothing: no item is marked stolen.
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	move_items(c, {base = formid.GOLD, from = formid.PLAYER, count = worldstate.total(player_bounty(c))})
 	worldstate.pay_bounty(c.ws, formid.PLAYER, c.self)
+	f, _ := worldstate.faction(c.ws, c.db, c.self)
+	if outside, ok := gamedb.ref_by_formid(c.db, f.jail); ok && arg_bool(args, 1, true) {
+		worldstate.relocate(c.ws, formid.PLAYER, outside.cell_form_id, outside.pos, outside.rot)
+	}
+	return nil
+}
+
+// SendPlayerToJail(abRemoveInventory = true, abRealJail = true): the guard the player talks to
+// takes it in.
+n_send_player_to_jail :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.send_to_jail(c.ws, c.db, formid.PLAYER, c.self, c.ws.talking)
+	return nil
+}
+
+n_serve_time :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.serve_time(c.ws, formid.PLAYER)
 	return nil
 }
 

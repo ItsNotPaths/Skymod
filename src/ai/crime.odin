@@ -39,6 +39,7 @@ confront :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Age
 		return true
 	}
 	a.mover.goal = {}
+	worldstate.queue_story_event(ws, {type = worldstate.STORY_ARREST, ref1 = guard, ref2 = c.target, location1 = worldstate.ref_location(ws, db, guard)})
 	if c.target == formid.PLAYER {
 		if ws.talking != 0 || ws.force_greet.speaker != 0 {return true}
 		ws.force_greet = {speaker = guard, subtype = "PFGT"}
@@ -53,6 +54,7 @@ confront :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Age
 @(private = "file")
 wanted_by :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, guard, other: Form_ID) -> bool {
 	if other == 0 || other == guard || worldstate.is_dead(ws, other) || !worldstate.detected(ws, guard, other) {return false}
+	if worldstate.jailed_by(ws, other, worldstate.crime_faction(ws, db, guard)) {return false}
 	return worldstate.total(worldstate.bounty(ws, db, guard, other)) > 0 && !worldstate.hostile(ws, db, guard, other)
 }
 
@@ -66,6 +68,6 @@ settle_bounty :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, guard, actor:
 		worldstate.inv_add(ws, actor, formid.GOLD, -owed)
 		worldstate.pay_bounty(ws, actor, faction)
 	} else {
-		worldstate.send_to_jail(ws, db, actor, faction)
+		worldstate.send_to_jail(ws, db, actor, faction, guard)
 	}
 }

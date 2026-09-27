@@ -200,6 +200,9 @@ STORY_SCRIPT :: Story_Type{'S', 'C', 'P', 'T'}
 STORY_CHANGE_LOCATION :: Story_Type{'C', 'L', 'O', 'C'}
 STORY_KILL :: Story_Type{'K', 'I', 'L', 'L'}
 STORY_ASSAULT :: Story_Type{'A', 'S', 'S', 'U'}
+STORY_ARREST :: Story_Type{'A', 'R', 'R', 'T'}
+STORY_JAIL :: Story_Type{'J', 'A', 'I', 'L'}
+STORY_ESCAPE_JAIL :: Story_Type{'E', 'S', 'J', 'A'}
 STORY_LEVEL :: Story_Type{'L', 'E', 'V', 'L'}
 STORY_SKILL :: Story_Type{'S', 'K', 'I', 'L'} // value1: the skill's actor value index
 STORY_CAST :: Story_Type{'C', 'A', 'S', 'T'}

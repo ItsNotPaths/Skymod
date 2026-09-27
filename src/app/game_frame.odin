@@ -147,6 +147,7 @@ game_tick :: proc(g: ^Game) {
 	script_run_pending(g)
 	player_follow(g)
 	tick_activations(g)
+	tick_jail(g)
 	frame_scene_select(g)
 	tick_locomotion(g)
 	tick_actor_bodies(g)

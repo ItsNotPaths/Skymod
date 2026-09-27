@@ -9,7 +9,7 @@ import "../gamedb"
 hostile :: proc(ws: ^World_State, db: ^gamedb.DB, actor, other: Form_ID) -> bool {
 	if faction_relation(ws, db, actor, other) == .Enemy {return true}
 	crime := crime_faction(ws, db, actor)
-	if crime == 0 {return false}
+	if crime == 0 || jailed_by(ws, other, crime) {return false}
 	if wanted(ws, other, crime).enemy {return true}
 	f, _ := faction(ws, db, crime)
 	if !f.crime.attack_on_detect {return false}

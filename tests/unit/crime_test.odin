@@ -192,3 +192,47 @@ test_crime_robbed :: proc(t: ^testing.T) {
 	ws.faction_set_rank(&s, CRIME_THIEF, SHOP, 0)
 	testing.expect_value(t, ws.robbed(&s, &db, CRIME_THIEF, LOOSE), gamedb.Form_ID(0))
 }
+
+// A faction with a jail queues the actor; serving skips the clock to the sentence's end, which
+// queues the release; a 7-day sentence clears every skill's progress.
+@(test)
+test_crime_jail :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	defer delete(db.factions)
+	db.factions[CRIME_TOWN] = {jail = 0x000267E5}
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+
+	testing.expect_value(t, ws.jail_days({nonviolent = 40}), i32(1))
+	testing.expect_value(t, ws.jail_days({violent = 1000, nonviolent = 5}), i32(7))
+	testing.expect(t, !ws.send_to_jail(&s, &db, CRIME_THIEF, 0x000FB009, CRIME_GUARD), "no jail, no order")
+	testing.expect(t, ws.send_to_jail(&s, &db, CRIME_THIEF, CRIME_TOWN, CRIME_GUARD), "jail ordered")
+	testing.expect_value(t, s.jail_orders[0], ws.Jail_Order{actor = CRIME_THIEF, faction = CRIME_TOWN, guard = CRIME_GUARD})
+	clear(&s.jail_orders)
+
+	// What the app does on the way in, then the bed.
+	s.jailed[CRIME_THIEF] = {faction = CRIME_TOWN, cell = 0x0004CE13, until = s.clock.hours + 48}
+	ws.relocate(&s, CRIME_THIEF, 0x0004CE13, {}, {})
+	ws.set_crime_faction(&s, CRIME_GUARD, CRIME_TOWN)
+	ws.set_wanted(&s, CRIME_THIEF, CRIME_TOWN, {enemy = true})
+	testing.expect(t, !ws.hostile(&s, &db, CRIME_GUARD, CRIME_THIEF), "a prisoner is left be")
+	ws.serve_time(&s, CRIME_THIEF)
+	ws.tick_crime(&s, &db, 0.1)
+	testing.expect_value(t, len(s.jail_orders), 1)
+	testing.expect(t, s.jail_orders[0].release, "served: released")
+	clear(&s.jail_orders)
+
+	// Out of the cell is an escape: not jailed, the bounty stays, ESJA goes out.
+	ws.relocate(&s, CRIME_THIEF, 0x0004CE14, {}, {})
+	ws.tick_crime(&s, &db, 0.1)
+	testing.expect(t, CRIME_THIEF not_in s.jailed, "escaped")
+	testing.expect(t, ws.wanted(&s, CRIME_THIEF, CRIME_TOWN).enemy, "bounty stays")
+	testing.expect_value(t, s.story_events[len(s.story_events) - 1].type, ws.STORY_ESCAPE_JAIL)
+
+	ws.av_set_base(&s, CRIME_THIEF, "SneakSkillAdvance", 12)
+	ws.av_set_base(&s, CRIME_THIEF, "AlchemySkillAdvance", 3)
+	ws.lose_skill_progress(&s, CRIME_THIEF, 7)
+	testing.expect_value(t, ws.av_base(&s, nil, CRIME_THIEF, "SneakSkillAdvance"), f32(0))
+	testing.expect_value(t, ws.av_base(&s, nil, CRIME_THIEF, "AlchemySkillAdvance"), f32(0))
+}

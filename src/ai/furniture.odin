@@ -232,6 +232,14 @@ markers_of :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ref: 
 	return w.furniture.markers(w.furniture.user, base)
 }
 
+// is_bed: the furniture ref has a marker to lie on.
+is_bed :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, ref: Form_ID) -> bool {
+	for m in markers_of(w, ws, db, ref) {
+		if m.kind == .Lay {return true}
+	}
+	return false
+}
+
 // input_slot is the input index of the node's k-th input when it is an ObjectList: the slot a Find writes.
 @(private = "file")
 input_slot :: proc(c: ^Proc_Context, k: int) -> (slot: u8, ok: bool) {

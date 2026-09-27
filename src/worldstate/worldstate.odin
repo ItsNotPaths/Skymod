@@ -108,6 +108,8 @@ Overlay :: struct {
 	wanted:          map[[2]Form_ID]Wanted,        // {offender, crime faction} -> the faction-wide bounty (crime.odin)
 	known_bounties:  map[[2]Form_ID]Known_Bounty,  // {knower, offender} -> a bounty only the knower holds (crime.odin)
 	victim_waits:    [dynamic]Victim_Wait,         // victims about to turn witness (crime.odin)
+	jailed:          map[Form_ID]Jailed,           // actors serving a sentence (crime.odin)
+	jail_orders:     [dynamic]Jail_Order,          // moves into and out of jail for the app; not saved
 	crime_members:   map[Form_ID][dynamic]Form_ID, // crime faction -> the actors in it; a cache, not saved (crime_census)
 	crime_members_built: int,                      // len(created) + 1 when crime_members was built; 0 = stale
 	unreported:      Form_Set,                     // offenders whose crimes nobody reports (SetPlayerReportCrime)
@@ -315,6 +317,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.owners = make(map[Form_ID]Form_ID)
 	o.crime_factions = make(map[Form_ID]Form_ID)
 	o.wanted = make(map[[2]Form_ID]Wanted)
+	o.jailed = make(map[Form_ID]Jailed)
 	o.faction_relations = make(map[[2]Form_ID]gamedb.Faction_Relation)
 	o.known_bounties = make(map[[2]Form_ID]Known_Bounty)
 	o.killers = make(map[Form_ID]Form_ID)
@@ -419,6 +422,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.display_names)
 	delete(o.courier_waits)
 	delete(o.victim_waits)
+	delete(o.jailed)
+	delete(o.jail_orders)
 	for _, m in o.crime_members {delete(m)}
 	delete(o.crime_members)
 	free_scene_runs(&o.scenes)

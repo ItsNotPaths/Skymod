@@ -179,6 +179,17 @@ set_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID, sle
 	if in_sleep_outfit(ws, db, actor) == sleep {dress(ws, db, actor, items, sleep)}
 }
 
+// restore_outfit puts an actor back in the outfit it wore before a jail outfit: a script's, or with
+// 0 its records'.
+restore_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID) {
+	if outfit != 0 {
+		set_outfit(ws, db, actor, outfit)
+		return
+	}
+	delete_key(&ws.outfits, actor)
+	dress(ws, db, actor, outfit_items(ws, db, actor), false)
+}
+
 // set_sleeping notes whether an actor sleeps now; one with a sleep outfit changes into it or out.
 set_sleeping :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, asleep: bool) {
 	set_in_set(&ws.ai.sleeping, actor, asleep)

@@ -55,7 +55,7 @@ end_first_tick :: proc(ws: ^World_State) {
 	if ws.clock.state == .Starting {ws.clock.state = .Running}
 }
 
-// (hole time-skip :tags world :sev gap) no Sleep/Wait menu, fast travel or jail calls skip_game_time; only the console `wait` and a script GameHour write do.
+// (hole time-skip :tags world :sev gap) no Sleep/Wait menu or fast travel calls skip_game_time; only jail, the console `wait` and a script GameHour write do.
 // skip_game_time jumps the clock forward. The next tick passes the hours to the script clocks.
 skip_game_time :: proc(ws: ^World_State, hours: f64) {
 	if hours <= 0 {return}

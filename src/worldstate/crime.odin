@@ -1,5 +1,6 @@
 package worldstate
 
+import "core:math/rand"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
@@ -197,6 +198,15 @@ tick_crime :: proc(ws: ^World_State, db: ^gamedb.DB, dt: f32) {
 		ordered_remove(&ws.victim_waits, i)
 	}
 	spread_bounties(ws, db)
+	escaped := make([dynamic]Form_ID, context.temp_allocator)
+	for actor, j in ws.jailed {
+		if ref_cell(ws, db, actor) != j.cell {
+			append(&escaped, actor)
+		} else if ws.clock.hours >= j.until {
+			append(&ws.jail_orders, Jail_Order{actor = actor, faction = j.faction, release = true})
+		}
+	}
+	for actor in escaped {escape_jail(ws, db, actor)}
 }
 
 // spread_bounties drops what dead knowers knew, passes each local bounty to the members of its
@@ -293,7 +303,63 @@ is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool
 	return false
 }
 
-// send_to_jail serves `actor`'s bounty with `faction`.
-// (hole jail :tags (combat world player) :sev gap :needs (time-skip)) nobody goes to jail: wanted the move to the jail marker, the items to PLCN and stolen ones to STOL, the JOUT outfit, bounty/100 days at most 7 (UESP), skill progress lost (more skills for longer sentences, UESP), the bounty cleared and the JAIL event; SendPlayerToJail and ClearPrison are its natives. The vanilla scripts only watch; the engine does it all.
-send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) {
+// Jailed is an actor serving a sentence. Its gear waits in the faction's evidence chest.
+Jailed :: struct {
+	faction: Form_ID,
+	cell:    Form_ID, // the cell it was put in; leaving it is an escape
+	until:   f64, // game hours when the sentence is served
+	outfit:  Form_ID, // the script outfit it wore before, 0 for its records'
+}
+
+// Jail_Order is a move into or out of jail for the app to carry out: the actor, its gear, its outfit.
+Jail_Order :: struct {
+	actor, faction, guard: Form_ID,
+	release:               bool,
+}
+
+// jailed_by: `actor` serves a sentence for `faction`, whose members leave it be.
+jailed_by :: proc(ws: ^World_State, actor, faction: Form_ID) -> bool {
+	j, ok := ws.jailed[actor]
+	return ok && j.faction == faction
+}
+
+// escape_jail is a prisoner out of its cell (user, 2026-09-27): no longer jailed, its bounty and
+// the gear in the evidence chest stay, and the ESJA event goes out.
+escape_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+	j := ws.jailed[actor]
+	delete_key(&ws.jailed, actor)
+	f, _ := faction(ws, db, j.faction)
+	queue_story_event(ws, {type = STORY_ESCAPE_JAIL, location1 = ref_location(ws, db, actor), form = f.crime_group})
+}
+
+// jail_days is the sentence for a bounty: 1 day per 100 gold, at most 7 (UESP).
+jail_days :: proc(b: Bounty) -> i32 {
+	return clamp(total(b) / 100, 1, 7)
+}
+
+// send_to_jail jails `actor` for its bounty with `faction`, whose jail's exterior marker (FACT
+// JAIL) leads to the prison marker inside the cell. A faction with no jail jails nobody.
+// (hole jail-escape :tags (combat player) :sev gap :needs (lockpicking)) no jailbreak bounty (CRVA escape) when a jail door is picked. SendPlayerToJail's abRealJail is read as true.
+send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, crime, guard: Form_ID) -> bool {
+	f, _ := faction(ws, db, crime)
+	if f.jail == 0 || actor in ws.jailed {return false}
+	append(&ws.jail_orders, Jail_Order{actor = actor, faction = crime, guard = guard})
+	return true
+}
+
+// serve_time is ServeTime and a jailed actor's bed: the clock skips to the end of the sentence.
+// Only the player's controller asks: a jailed NPC waits its days out on the running clock.
+// (hole jail-bed-prompt :tags (ui combat) :sev polish :needs (message-box-screen)) the bed serves the sentence at once: no JailBedMsg (MESG 0x3403D) asks first.
+serve_time :: proc(ws: ^World_State, actor: Form_ID) {
+	if j, ok := ws.jailed[actor]; ok {skip_game_time(ws, j.until - ws.clock.hours)}
+}
+
+// lose_skill_progress clears the progress toward the next level of random skills: all 18 for a
+// 7-day sentence, proportionally fewer for a shorter one (UESP).
+lose_skill_progress :: proc(ws: ^World_State, actor: Form_ID, days: i32) {
+	skills := gamedb.AV_NAMES[6:24]
+	order := rand.perm(len(skills), context.temp_allocator)
+	for i in order[:min(len(skills), int((i32(len(skills)) * days + 6) / 7))] {
+		if advance, ok := gamedb.skill_advance_av(skills[i]); ok {av_set_base(ws, actor, advance, 0)}
+	}
 }

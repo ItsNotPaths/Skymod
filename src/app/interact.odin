@@ -19,6 +19,7 @@ package main
 // so they stay proximity-fired in frame_traversal, exactly as before.
 
 import "core:log"
+import "../ai"
 import "../audio"
 import "../formats/esm"
 import "../gamedb"
@@ -177,6 +178,10 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		if by != formid.PLAYER {break}
 		if worldstate.is_dead(&g.ws, form) {open_container(g, form)} else {open_dialogue(g, form)}
 	case .None, .Activator:
+		if by == formid.PLAYER && by in g.ws.jailed && ai.is_bed(&g.agents, &g.ws, &g.db, form) {
+			worldstate.serve_time(&g.ws, by) // a jail bed: the player sleeps the sentence away
+			break
+		}
 		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
 }
