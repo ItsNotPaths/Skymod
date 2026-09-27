@@ -4,6 +4,7 @@ package audio
 
 import "core:math/rand"
 import "core:strings"
+import "core:thread"
 import "../formid"
 import "../gamedb"
 import "../vfs"
@@ -14,6 +15,7 @@ HEAD_Z :: 110
 
 // (hole music-events :tags (audio quest) :sev gap) no success or death music: completing a quest (DOBJ SCMS) and the player dying (DTMS) push no music type. Levelling up (LUMS) and clearing a dungeon (DCMS) do.
 
+// (hole music-fades :tags audio :sev gap) music does not fade in or out: a new track starts at full level, and the fade-out on a type change is not heard (reported 2026-09-27).
 // Music plays the wanted music type's tracks, one after another. The wanted type is the one with
 // the lowest priority number among those scripts added, battle music while the player is in
 // combat (DOBJ BTMS), and the player's cell's type, else its worldspace's, else the default (DFMS).
@@ -23,6 +25,17 @@ Music :: struct {
 	next:    int, // the type's next track, when it cycles
 	wait:    f32, // a silent track's seconds left
 	played:  bool, // a track of this type has started
+	loading: ^Music_Load, // a track decoding on a worker: minutes of Opus take ~300 ms
+}
+
+@(private = "file")
+Music_Load :: struct {
+	thread: ^thread.Thread,
+	v:      ^vfs.VFS,
+	file:   string, // the database's
+	kind:   formid.Form_ID, // the type it was picked for
+	sound:  Sound,
+	ok:     bool,
 }
 
 music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool, dt: f32) {
@@ -30,7 +43,18 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	if want := wanted_music(a, db, ws, in_combat); want != m.current {
 		t := db.music_types[want]
 		stop(a, m.track, 0 if t.flags & gamedb.MUSIC_ABRUPT != 0 else max(t.fade, 0.01))
-		m^ = {current = want}
+		m^ = {current = want, loading = m.loading}
+	}
+	if l := m.loading; l != nil {
+		if !thread.is_done(l.thread) {return}
+		thread.destroy(l.thread)
+		m.loading = nil
+		if l.ok && l.kind == m.current {
+			m.track = play(a, l.sound, gamedb.sound_volume(db, gamedb.default_object(db, "MDSC")))
+		} else {
+			delete(l.sound.samples)
+		}
+		free(l)
 	}
 	if m.current == 0 || playing(a, m.track) {return}
 	if m.wait > 0 {
@@ -55,7 +79,10 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	case .Silent:
 		m.wait = track.duration
 	case .Single:
-		if s, ok := open(v, track.file); ok {m.track = play(a, s, gamedb.sound_volume(db, gamedb.default_object(db, "MDSC")))}
+		l := new(Music_Load)
+		l^ = {v = v, file = track.file, kind = m.current}
+		l.thread = thread.create_and_start_with_poly_data(l, proc(l: ^Music_Load) {l.sound, l.ok = open(l.v, l.file)}, init_context = context)
+		m.loading = l
 	case .Palette:
 	}
 }
@@ -131,6 +158,14 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 	}
 }
 
+music_destroy :: proc(m: ^Music) {
+	if l := m.loading; l != nil {
+		thread.destroy(l.thread) // joins
+		delete(l.sound.samples)
+		free(l)
+	}
+}
+
 ambient_destroy :: proc(am: ^Ambient) {
 	delete(am.markers)
 }
@@ -155,6 +190,7 @@ ui_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, edid: string) -> Handle
 	return play_descriptor(a, v, db, db.sound_by_edid[strings.to_lower(edid, context.temp_allocator)])
 }
 
+// (hole dialogue-cutoff :tags (dialogue audio) :sev gap) voiced dialogue cuts off at the wrong time (reported 2026-09-27); not yet traced.
 // say plays one response of a topic info in the speaker's voice, at the dialogue category's
 // volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP2), else flat.
 // The voice file is the info's own, else that of the info it shares (DNAM). Its handle and
