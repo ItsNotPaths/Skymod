@@ -79,6 +79,7 @@ Audio :: struct {
 	listener:   [2][3]f32, // position, right
 	categories: map[gamedb.Form_ID]Category_State,
 	music:      [dynamic]gamedb.Form_ID, // the music types scripts added (MusicType.Add), oldest first
+	speaking:   map[gamedb.Form_ID]Handle, // each speaker's last line: a new line stops it
 	jobs:       [dynamic]Job, // sounds waiting for the decode thread
 	wake:       sync.Sema, // one post per job, and one to quit
 	quit:       bool,
@@ -130,6 +131,7 @@ shutdown :: proc(a: ^Audio) {
 	for v in a.voices {release(v)}
 	delete(a.voices)
 	delete(a.categories)
+	delete(a.speaking)
 	delete(a.music)
 	if a.device != 0 {sdl.CloseAudioDevice(a.device)}
 	sdl.QuitSubSystem({.AUDIO})

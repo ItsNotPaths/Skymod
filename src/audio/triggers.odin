@@ -4,6 +4,7 @@ package audio
 
 import "core:math/rand"
 import "core:strings"
+import "core:sync"
 import "../formats/ffmpeg"
 import "../formid"
 import "../gamedb"
@@ -157,11 +158,11 @@ ui_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, edid: string) -> Handle
 	return play_descriptor(a, v, db, db.sound_by_edid[strings.to_lower(edid, context.temp_allocator)])
 }
 
-// (hole dialogue-cutoff :tags (dialogue audio) :sev gap) voiced dialogue cuts off at the wrong time (reported 2026-09-27); not yet traced.
 // say plays one response of a topic info in the speaker's voice, at the dialogue category's
 // volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP2), else flat.
-// The voice file is the info's own, else that of the info it shares (DNAM). Its handle and
-// length in seconds; 0, 0 when the line has no voice file.
+// The voice file is the info's own, else that of the info it shares (DNAM). A speaker says one
+// line at a time: a new line stops the one before, and a line nothing follows plays to its end.
+// Its handle and length in seconds; 0, 0 when the line has no voice file.
 say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, speaker, info: formid.Form_ID, number: u8, placed: bool) -> (Handle, f32) {
 	if a.device == 0 {return 0, 0}
 	at: Maybe(Placement)
@@ -183,5 +184,13 @@ say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State,
 		delete(data)
 		return 0, 0
 	}
-	return queue(a, v, data, gamedb.sound_volume(db, gamedb.default_object(db, "DDSC")), at = at), secs
+	h := queue(a, v, data, gamedb.sound_volume(db, gamedb.default_object(db, "DDSC")), at = at)
+	prev: Handle
+	{
+		sync.guard(&a.mu)
+		prev = a.speaking[speaker]
+		a.speaking[speaker] = h
+	}
+	stop(a, prev)
+	return h, secs
 }

@@ -23,7 +23,6 @@ Conversation :: struct {
 	info:      Form_ID, // the line being said; 0 while the player chooses
 	response:  int, // which of its responses shows
 	left_s:    f32, // how long that response stays up
-	voice:     audio.Handle, // the response's voice, while it plays
 	blocking:  Form_ID, // the Blocking or Exclusive branch the greeting came from
 	greeting:  bool, // the line is the greeting
 	last:      bool, // the conversation ends after this line
@@ -116,7 +115,6 @@ close_dialogue :: proc(g: ^Game) {
 		c := dialogue_call(g)
 		dialogue.finished(&c, g.talk.speaker, g.talk.info)
 	}
-	audio.stop(&g.audio, g.talk.voice)
 	g.talk.info = 0
 	g.ws.talking = 0
 	if g.menu == .Dialogue {g.menu = .None}
@@ -150,12 +148,11 @@ list_topics :: proc(g: ^Game) {
 next_response :: proc(g: ^Game) {
 	t := &g.talk
 	t.response += 1
-	audio.stop(&g.audio, t.voice)
 	lines := dialogue.responses(&g.db, t.info)
 	if t.response < len(lines) {
 		t.left_s = dialogue.line_seconds(lines[t.response].text)
 		if h, secs := audio.say(&g.audio, &g.v, &g.db, &g.ws, t.speaker, t.info, lines[t.response].number, placed = false); h != 0 {
-			t.left_s, t.voice = secs, h
+			t.left_s = secs
 		}
 		return
 	}
