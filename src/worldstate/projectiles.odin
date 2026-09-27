@@ -25,6 +25,18 @@ Hit :: struct {
 	target, aggressor, source, projectile: Form_ID,
 }
 
+// strike records that `attacker` hit `victim`, for the victim's combat to answer.
+strike :: proc(ws: ^World_State, victim, attacker: Form_ID) {
+	if attacker != 0 && attacker != victim {ws.struck[victim] = attacker}
+}
+
+// take_struck is who last hit `victim`, once.
+take_struck :: proc(ws: ^World_State, victim: Form_ID) -> (Form_ID, bool) {
+	by, ok := ws.struck[victim]
+	if ok {delete_key(&ws.struck, victim)}
+	return by, ok
+}
+
 // Fire is a Weapon.Fire the app has not resolved yet: the source ref's ProjectileNode is in its model.
 Fire :: struct {
 	source, weapon, ammo: Form_ID,

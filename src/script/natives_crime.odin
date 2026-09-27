@@ -5,6 +5,7 @@ package script
 
 import "../formats/esm"
 import "../formid"
+import "../gamedb"
 import "../worldstate"
 
 register_crime :: proc(reg: ^Registry) {
@@ -23,6 +24,8 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Faction", "PlayerPayCrimeGold", n_player_pay_crime_gold)
 	register(reg, "Faction", "SetPlayerEnemy", n_set_player_enemy)
 	register(reg, "Game", "SetPlayerReportCrime", n_set_player_report_crime)
+	register(reg, "Actor", "SendAssaultAlarm", n_send_assault_alarm)
+	register(reg, "ObjectReference", "SendStealAlarm", n_send_steal_alarm)
 }
 
 n_get_reaction :: proc(c: ^Call, args: []Value) -> Value {
@@ -131,5 +134,22 @@ n_set_player_enemy :: proc(c: ^Call, args: []Value) -> Value {
 
 n_set_player_report_crime :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.set_reports_crime(c.ws, formid.PLAYER, arg_bool(args, 0, true))
+	return nil
+}
+
+// SendAssaultAlarm: this actor was assaulted by the player; it reports it and fights back.
+n_send_assault_alarm :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.report_crime(c.ws, c.db, formid.PLAYER, c.self, .Assault, 0)
+	worldstate.strike(c.ws, c.self, formid.PLAYER)
+	return nil
+}
+
+// SendStealAlarm(akThief): akThief stole this ref (an item or a container) from its owner.
+n_send_steal_alarm :: proc(c: ^Call, args: []Value) -> Value {
+	thief := arg_form(args, 0)
+	victim := worldstate.robbed(c.ws, c.db, thief, c.self)
+	if victim == 0 {victim = worldstate.owner(c.ws, c.db, c.self)}
+	value, _ := gamedb.value_of(c.db, worldstate.ref_base(c.ws, c.db, c.self))
+	worldstate.report_crime(c.ws, c.db, thief, victim, .Steal, value)
 	return nil
 }

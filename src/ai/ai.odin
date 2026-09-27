@@ -85,7 +85,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	}
 	confront(w, ws, db, actor)
 	was := a.combat.state
-	a.combat.state = next_combat(ws, db, actor, feet, &a.combat, dt)
+	a.combat.state = next_combat(w, ws, db, actor, feet, &a.combat, dt)
 	if was != .None && a.combat.state == .None {interrupt(w, actor)}
 	if a.combat.state != .None {
 		leave(a)

@@ -137,7 +137,7 @@ Crime_Status :: enum i32 {
 // Trespass), worth `value` gold for a theft. Each member of a crime faction that detects the
 // offender learns the bounty its faction's CRVA sets. The victim of a violent crime learns it
 // VICTIM_DELAY later, if it is still alive. A hit or kill between hostile actors is no crime.
-// (hole crime-alarms :tags (combat script) :sev gap :needs (combat-any-target)) SendAssaultAlarm, SendStealAlarm and StopCombatAlarm (84 calls) do nothing: an alarm is a crime reported against the player plus combat, and combat has no target but the player.
+// (hole crime-alarms :tags (combat script) :sev gap :needs (ai-combat-natives)) StopCombatAlarm (84 calls) and Faction.SendAssaultAlarm do nothing: no script reaches an actor's combat state.
 report_crime :: proc(ws: ^World_State, db: ^gamedb.DB, offender, victim: Form_ID, kind: Crime_Kind, value: i32) -> Crime_Status {
 	if offender == 0 || offender == victim || offender in ws.unreported {return .None}
 	if kind in VIOLENT_CRIMES && (hostile(ws, db, victim, offender) || hostile(ws, db, offender, victim)) {return .None}

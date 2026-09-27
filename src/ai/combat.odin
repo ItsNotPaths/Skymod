@@ -1,8 +1,7 @@
 package ai
 
-// Combat state toward the player: when an actor warns, attacks or flees, and where it moves. No
-// attacks land yet.
-// (hole combat-any-target :tags (ai combat) :sev gap) combat is only toward the player: an actor never picks another actor as its target, so a guard cannot fight a wanted NPC, factions at war never meet, and no victim remembers who hit it.
+// Combat state toward a target, any actor: when an actor warns, attacks or flees, and where it
+// moves. No attacks land yet.
 
 // (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage)) the brain is a stand-in: close, swing in reach, flee on low confidence. Wanted: real tactics (block, dodge, ranged, spells, groups) behind the same seam, from someone who knows combat AI.
 
@@ -15,22 +14,23 @@ import "../worldstate"
 Combat_State :: enum u8 {
 	None,
 	Warn, // inside its warn radius: holds
-	Combat, // closes on the player
-	Flee, // runs from the player
+	Combat, // closes on the target
+	Flee, // runs from the target
 }
 
 Combat :: struct {
 	state:  Combat_State,
-	warned: f32, // seconds inside the warn/attack radius
+	target: Form_ID, // whom it warns, fights or flees
+	warned: f32, // seconds the target has spent inside the warn/attack radius
 }
 
-COMBAT_LEAVE :: f32(1.5) // combat ends when the player is lost and past this times the aggro radius (guess)
+COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
 // player_in_combat: some actor fights the player.
 player_in_combat :: proc(w: ^World) -> bool {
 	for _, a in w.agents {
-		if a.combat.state == .Combat {return true}
+		if a.combat.state == .Combat && a.combat.target == formid.PLAYER {return true}
 	}
 	return false
 }
@@ -40,37 +40,80 @@ combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
 	return a.combat.state if ok else .None
 }
 
-// next_combat is the actor's combat state this tick, from its distance to the player, its
-// aggression and confidence, its aggro radii and its factions' reaction to the player.
+// next_combat is the actor's combat state this tick. An actor that was hit turns on whoever hit
+// it. Otherwise it keeps its fight while the target stays near, else attacks the nearest actor it
+// has detected that its aggression lets it attack, else warns or attacks the nearest non-ally
+// inside its aggro radii.
+// (hole aggro-radius-targets :tags (ai combat) :sev polish) unsourced: whether the aggro radii warn and attack every actor that is not an ally, or only the player; they take every non-ally.
 @(private)
-next_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: ^Combat, dt: f32) -> Combat_State {
-	if worldstate.is_dead(ws, actor) || worldstate.faction_relation(ws, db, actor, formid.PLAYER) >= .Ally {return .None}
-	d := linalg.length(worldstate.ref_pos(ws, db, formid.PLAYER).xy - feet.xy)
+next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: ^Combat, dt: f32) -> Combat_State {
+	if worldstate.is_dead(ws, actor) {
+		c^ = {}
+		return .None
+	}
+	if by, ok := worldstate.take_struck(ws, actor); ok && !worldstate.is_dead(ws, by) {
+		c.target, c.warned = by, 0
+		return engage(ws, db, actor)
+	}
 	aggro := actor_aggro(ws, db, actor)
-	switch c.state {
-	case .Flee:
-		return .Flee if d <= flee_distance(ws, db, actor) else .None
-	case .Combat:
-		return .Combat if worldstate.detected(ws, actor, formid.PLAYER) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE else .None
-	case .None, .Warn:
+	if c.state == .Combat || c.state == .Flee {
+		if keeps(ws, db, actor, feet, c^, aggro) {return c.state}
+		c^ = {}
 	}
-	if !starts_combat(ws, db, actor, aggro, d, c, dt) {
-		return .Warn if aggro.on && d <= max(aggro.warn, aggro.warn_attack) else .None
+
+	attack, near := Form_ID(0), Form_ID(0)
+	attack_d, near_d := max(f32), max(f32)
+	for other in candidates(w) {
+		if other == actor || worldstate.is_dead(ws, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
+		d := linalg.length(worldstate.ref_pos(ws, db, other).xy - feet.xy)
+		if d < attack_d && attacks_on_sight(ws, db, actor, other) {attack, attack_d = other, d}
+		if d < near_d {near, near_d = other, d}
 	}
-	return .Flee if worldstate.av_current(ws, db, actor, "Confidence") == 0 else .Combat // Cowardly
+	if attack != 0 {
+		c.target, c.warned = attack, 0
+		return engage(ws, db, actor)
+	}
+	if !aggro.on || near == 0 || near_d > max(aggro.warn, aggro.warn_attack, aggro.attack) {
+		c^ = {}
+		return .None
+	}
+	if near != c.target {c.target, c.warned = near, 0}
+	if near_d <= aggro.warn_attack {c.warned += dt} else {c.warned = 0}
+	if near_d <= aggro.attack || c.warned >= gamedb.setting_float(db, "fWarningTimer", 5) {return engage(ws, db, actor)}
+	return .Warn
 }
 
-// starts_combat: Aggressive attacks Enemies it has detected, Very Aggressive Neutrals too, Frenzied anyone;
-// the aggro radii start it whatever the aggression.
+// candidates are the actors combat looks at: the loaded ones and the player.
 @(private = "file")
-starts_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, aggro: esm.Aggro, d: f32, c: ^Combat, dt: f32) -> bool {
+candidates :: proc(w: ^World) -> []Form_ID {
+	out := make([dynamic]Form_ID, 0, len(w.agents) + 1, context.temp_allocator)
+	for a in w.agents {append(&out, a)}
+	if formid.PLAYER not_in w.agents {append(&out, formid.PLAYER)}
+	return out[:]
+}
+
+// engage is Combat, or Flee for a Cowardly actor.
+@(private = "file")
+engage :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> Combat_State {
+	return .Flee if worldstate.av_current(ws, db, actor, "Confidence") == 0 else .Combat
+}
+
+// keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
+@(private = "file")
+keeps :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: Combat, aggro: esm.Aggro) -> bool {
+	if c.target == 0 || worldstate.is_dead(ws, c.target) {return false}
+	d := linalg.length(worldstate.ref_pos(ws, db, c.target).xy - feet.xy)
+	if c.state == .Flee {return d <= flee_distance(ws, db, actor)}
+	return worldstate.detected(ws, actor, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE
+}
+
+// attacks_on_sight: Aggressive attacks the hostile actors it has detected, Very Aggressive
+// neutrals too, Frenzied anyone.
+@(private = "file")
+attacks_on_sight :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor, other: Form_ID) -> bool {
+	if !worldstate.detected(ws, actor, other) {return false}
 	aggression := worldstate.av_current(ws, db, actor, "Aggression")
-	enemy := worldstate.hostile(ws, db, actor, formid.PLAYER)
-	if worldstate.detected(ws, actor, formid.PLAYER) && (aggression >= 2 || (aggression >= 1 && enemy)) {return true}
-	if !aggro.on {return false}
-	if d > aggro.warn_attack {c.warned = 0}
-	if d <= aggro.warn_attack {c.warned += dt}
-	return d <= aggro.attack || c.warned >= gamedb.setting_float(db, "fWarningTimer", 5)
+	return aggression >= 2 || aggression >= 1 && worldstate.hostile(ws, db, actor, other)
 }
 
 // actor_aggro is the actor's aggro radii, through its AI data template.
@@ -89,19 +132,19 @@ flee_distance :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_I
 	return gamedb.setting_float(db, "fFleeDistanceExterior", 5000)
 }
 
-// combat_goal aims the mover for a combat state: at the player, away from it, or nowhere.
+// combat_goal aims the mover for a combat state: at the target, away from it, or nowhere.
 @(private)
 combat_goal :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, feet: [3]f32) {
-	player := worldstate.ref_pos(ws, db, formid.PLAYER)
+	target := worldstate.ref_pos(ws, db, a.combat.target)
 	switch a.combat.state {
 	case .None:
 	case .Warn:
 		a.mover.goal = {}
 	case .Combat:
-		a.mover.goal = {active = true, point = player, radius = gamedb.setting_float(db, "fCombatDistance", 141), gait = .Run}
+		a.mover.goal = {active = true, point = target, radius = gamedb.setting_float(db, "fCombatDistance", 141), gait = .Run}
 	case .Flee:
 		if a.mover.goal.active && !a.mover.arrived && !a.mover.stuck {return}
-		away := linalg.normalize0(feet.xy - player.xy)
+		away := linalg.normalize0(feet.xy - target.xy)
 		a.mover.goal = {active = true, point = feet + {away.x, away.y, 0} * FLEE_STEP, radius = ARRIVED, gait = .Run}
 	}
 }
