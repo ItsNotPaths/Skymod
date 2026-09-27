@@ -33,7 +33,7 @@ play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
 	b.response += 1
 	lines := dialogue.responses(c.db, b.info)
 	if int(b.response) < len(lines) && !worldstate.is_dead(c.ws, b.speaker) {
-		b.left = dialogue.line_seconds(lines[b.response].text)
+		b.left = say_line(vm, b.speaker, b.info, int(b.response))
 		return true
 	}
 	dialogue.finished(c, b.speaker, b.info)

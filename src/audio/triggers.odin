@@ -7,6 +7,9 @@ import "../gamedb"
 import "../vfs"
 import "../worldstate"
 
+// HEAD_Z is how far above an actor's origin its voice comes from, game units.
+HEAD_Z :: 110
+
 // (hole music-system :tags audio :sev gap :needs (music-records)) no music: nothing picks a MUSC type (DOBJ battle BTMS, death, success, level-up, dungeon-cleared; cell XCMO, worldspace ZNAM; script MusicType.Add by priority) or plays its MUST tracks.
 music_update :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {}
 
@@ -28,3 +31,24 @@ anim_sound :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, actor: formid.Fo
 
 // (hole ui-sounds :tags (audio ui) :sev gap) menus are silent: Skyrim's menus play SNDRs by editor ID (UIMenuOK...), and the Lua UI has no call to play one.
 ui_sound :: proc(db: ^gamedb.DB, edid: string) {}
+
+// (hole race-voice-types :tags (dialogue records audio) :sev gap) an NPC with no VTCK of its own speaks silently: a RACE's default voice types (male, female) are not decoded.
+// say plays one response of a topic info in the speaker's voice, at the dialogue category's
+// volume (DOBJ DDSC): placed at the speaker's head under the 3D dialogue model (DOP3), else flat.
+// The voice file is the info's own, else that of the info it shares (DNAM). Its handle and
+// length in seconds; 0, 0 when the line has no voice file.
+say :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, speaker, info: formid.Form_ID, number: u8, placed: bool) -> (Handle, f32) {
+	if a.device == 0 {return 0, 0}
+	at: Maybe(Placement)
+	if placed {
+		p := Placement{worldstate.ref_pos(ws, db, speaker) + {0, 0, HEAD_Z}, db.sound_outputs[gamedb.default_object(db, "DOP3")]}
+		if gamedb.output_level(p.output, distance(a, p.pos)) == 0 {return 0, 0} // out of earshot
+		at = p
+	}
+	voice := gamedb.actor_traits(db, worldstate.ref_base(ws, db, speaker)).voice
+	s, ok := open(v, gamedb.voice_path(db, voice, info, number))
+	if shared := db.infos[info].shared; !ok && shared != 0 {s, ok = open(v, gamedb.voice_path(db, voice, shared, number))}
+	if !ok {return 0, 0}
+	secs := seconds(s)
+	return play(a, s, gamedb.sound_volume(db, gamedb.default_object(db, "DDSC")), at = at), secs
+}

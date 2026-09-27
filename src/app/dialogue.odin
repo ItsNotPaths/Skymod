@@ -154,25 +154,12 @@ next_response :: proc(g: ^Game) {
 	lines := dialogue.responses(&g.db, t.info)
 	if t.response < len(lines) {
 		t.left_s = dialogue.line_seconds(lines[t.response].text)
-		if s, ok := voice_sound(g, t.info, lines[t.response].number); ok {
-			t.left_s = audio.seconds(s)
-			t.voice = audio.play(&g.audio, s)
+		if h, secs := audio.say(&g.audio, &g.v, &g.db, &g.ws, t.speaker, t.info, lines[t.response].number, placed = false); h != 0 {
+			t.left_s, t.voice = secs, h
 		}
 		return
 	}
 	line_done(g)
-}
-
-// voice_sound decodes the speaker's voice file of one response: the info's own, else that of the
-// info it shares (DNAM), whose responses it says.
-// (hole race-voice-types :tags (dialogue records audio) :sev gap) an NPC with no VTCK of its own speaks silently: a RACE's default voice types (male, female) are not decoded.
-@(private = "file")
-voice_sound :: proc(g: ^Game, info: Form_ID, number: u8) -> (audio.Sound, bool) {
-	voice := gamedb.actor_traits(&g.db, worldstate.ref_base(&g.ws, &g.db, g.talk.speaker)).voice
-	if s, ok := audio.open(&g.v, gamedb.voice_path(&g.db, voice, info, number)); ok {return s, true}
-	shared := g.db.infos[info].shared
-	if shared == 0 {return {}, false}
-	return audio.open(&g.v, gamedb.voice_path(&g.db, voice, shared, number))
 }
 
 // line_done follows a finished line (CK Topic Info, Link To): Goodbye ends the conversation,

@@ -35,7 +35,6 @@ import "../formid"
 // (hole flora-seasons :tags (world records) :sev polish) harvesting ignores FLOR PFPC, the chance to yield per season; it always yields.
 // (hole flora-harvested-look :tags (render world) :sev polish) a harvested plant looks the same; Skyrim swaps it to its harvested model or hides the produce.
 // (hole story-flatter-event :tags (quest dialogue) :sev polish :needs persuasion) no FLAT story event is queued when a flatter check passes.
-// (hole dialogue-voice :tags (dialogue audio) :sev gap) scene and bark lines are silent and last as long as their text: script/lua/scenes.odin and barks.odin time them with line_seconds and play no voice file. The player's conversation is voiced.
 
 // GRAB_HOLD_S: an Activate press held longer than this on a physics item promotes from a tap
 // (collect) to a telekinesis grab. Short enough to feel like a deliberate hold, long enough that a

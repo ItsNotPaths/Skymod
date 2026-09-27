@@ -242,7 +242,7 @@ levels :: proc(a: ^Audio, v: ^Voice) -> [2]f32 {
 	return {g * min(1, 1 - p), g * min(1, 1 + p)}
 }
 
-@(private = "file")
+@(private)
 distance :: proc(a: ^Audio, pos: [3]f32) -> f32 {
 	sync.guard(&a.mu)
 	return linalg.length(pos - a.listener[0])

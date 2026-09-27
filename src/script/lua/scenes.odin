@@ -8,6 +8,7 @@ package script_lua
 import "core:math/rand"
 import "core:slice"
 import script ".."
+import "../../audio"
 import "../../conditions"
 import "../../dialogue"
 import "../../formats/esm"
@@ -202,7 +203,7 @@ advance_actions :: proc(vm: ^VM, scene: script.Form_ID, s: gamedb.Scene, dt: f32
 			ar.response += 1
 			lines := dialogue.responses(vm.ctx.db, ar.info)
 			if int(ar.response) < len(lines) {
-				ar.left = dialogue.line_seconds(lines[ar.response].text)
+				ar.left = say_line(vm, ar.speaker, ar.info, int(ar.response))
 				continue
 			}
 			cut_line(vm, &ar)
@@ -220,10 +221,22 @@ speak :: proc(vm: ^VM, ar: ^worldstate.Action_Run, topic: script.Form_ID) -> boo
 	info := dialogue.pick(&vm.ctx, ar.speaker, topic)
 	if info == 0 {return false}
 	dialogue.said(&vm.ctx, ar.speaker, info)
-	lines := dialogue.responses(vm.ctx.db, info)
 	ar.info, ar.response = info, 0
-	ar.left = dialogue.line_seconds(lines[0].text) if len(lines) > 0 else 0
+	ar.left = say_line(vm, ar.speaker, info, 0)
 	return true
+}
+
+// (hole cut-line-voice :tags (dialogue audio) :sev polish) a scene line cut short (cut_line) or a bark whose speaker dies keeps its voice playing to the end: the saved run holds no audio handle.
+// say_line starts one response in the speaker's voice, placed at the speaker, and is how long the
+// line stays up: its voice's length, else its text's; 0 past the last response.
+say_line :: proc(vm: ^VM, speaker, info: script.Form_ID, response: int) -> f32 {
+	lines := dialogue.responses(vm.ctx.db, info)
+	if response >= len(lines) {return 0}
+	if vm.ctx.audio != nil {
+		c := vm.ctx
+		if h, secs := audio.say(c.audio, c.vfs, c.db, c.ws, speaker, info, lines[response].number, placed = true); h != 0 {return secs}
+	}
+	return dialogue.line_seconds(lines[response].text)
 }
 
 // cut_line ends the line an action is saying, its end fragment included.
