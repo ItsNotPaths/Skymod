@@ -246,7 +246,10 @@ test_crime_jail :: proc(t: ^testing.T) {
 test_stolen_stacks :: proc(t: ^testing.T) {
 	AXE :: gamedb.Form_ID(0x000E0001)
 	THIEF, CHEST :: gamedb.Form_ID(0x000E0002), gamedb.Form_ID(0x000E0003)
+	CHEST_OWNER, OWNER_REF :: gamedb.Form_ID(0x000E0004), gamedb.Form_ID(0x000E0005)
 	db: gamedb.DB
+	db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	db.ref_by_id[OWNER_REF] = {form_id = OWNER_REF, base = CHEST_OWNER}
 	s: ws.World_State
 	ws.init(&s)
 	defer ws.destroy(&s)
@@ -255,7 +258,7 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	ws.inv_add(&s, THIEF, AXE, 3)
 	ws.inv_add(&s, CHEST, AXE, 1)
 	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1})
-	ws.mark_stolen(&s, &db, THIEF, AXE, 1) // what a theft does after the move
+	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 1) // what a theft does after the move
 	stacks := ws.inv_stacks(&s, &db, THIEF)
 	testing.expect_value(t, len(stacks), 2)
 	testing.expect_value(t, stacks[0], ws.Item_Stack{AXE, false, 3})
@@ -269,6 +272,15 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.stolen_count(&s, &db, CHEST, AXE), 1)
 	script.move_items(&c, {base = AXE, from = THIEF, count = 5, stolen = true}) // nothing stolen left to take
 	testing.expect_value(t, ws.inv_count(&s, &db, THIEF, AXE), 1)
+
+	// Dropped, a stolen axe is still its owner's; given back to its owner, it is clean.
+	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1, stolen = true})
+	dropped := script.drop_object(&c, THIEF, AXE, 0, 1, true)
+	testing.expect_value(t, ws.owner(&s, &db, dropped), CHEST_OWNER)
+	ws.inv_add(&s, THIEF, AXE, 1)
+	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 1)
+	script.move_items(&c, {base = AXE, from = THIEF, to = OWNER_REF, count = 1, stolen = true})
+	testing.expect_value(t, ws.stolen_count(&s, &db, OWNER_REF, AXE), 0)
 }
 
 // An owned interior that is not public is off limits while its owner has a load door locked. A

@@ -400,9 +400,9 @@ container_menu :: proc(g: ^Game) {
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", stack_label(g, {s.item, s.stolen, 1}), s.count))
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Take##%x%v", s.item, s.stolen)) {
-			theft := script.report_theft(&c, formid.PLAYER, box, s.item, s.count)
-			script.move_items(&c, {base = s.item, from = box, to = formid.PLAYER, count = s.count, via = .Steal if theft else via, stolen = s.stolen})
-			if theft && !s.stolen {worldstate.mark_stolen(&g.ws, &g.db, formid.PLAYER, s.item, s.count)}
+			victim := script.report_theft(&c, formid.PLAYER, box, s.item, s.count)
+			script.move_items(&c, {base = s.item, from = box, to = formid.PLAYER, count = s.count, via = .Steal if victim != 0 else via, stolen = s.stolen})
+			if !s.stolen {worldstate.mark_stolen(&g.ws, &g.db, formid.PLAYER, s.item, victim, s.count)}
 		}
 	}
 	imgui.Separator()

@@ -175,6 +175,7 @@ witness :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID, kin
 	return true
 }
 
+// (hole crime-groups :tags combat :sev gap) a crime group (FACT CRGR, an FLST) does nothing but ride along in the JAIL and ESJA events, and GetInSharedCrimeFaction (13 quest conditions) reads 0. Unsourced what sharing one means: vanilla's one list (CrimeFactionsList) holds the 9 holds, Imperial, Sons and PlayerFaction, so it cannot mean shared bounties.
 // counts is the crime faction `knower` reports `kind` to, if it tracks crime, reports and does not
 // ignore that crime.
 @(private = "file")

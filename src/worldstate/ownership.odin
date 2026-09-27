@@ -1,5 +1,6 @@
 package worldstate
 
+import "core:slice"
 import "../gamedb"
 
 // set_owner is SetActorOwner or SetFactionOwner on a ref or a cell; 0 clears the owner.
@@ -30,18 +31,51 @@ owns :: proc(ws: ^World_State, db: ^gamedb.DB, actor, owner: Form_ID) -> bool {
 	return is_faction && in_faction(ws, db, actor, owner)
 }
 
-// (hole stolen-owner :tags (combat player) :sev gap) a stolen mark does not remember whose the item was: dropped, it lands clean (vanilla keeps the victim as its owner), handing it back does not clear it, and GetStolenItemValue(Crime/NoCrime) cannot split by faction.
-// stolen_count is how many of the `item`s `holder` holds are stolen.
-stolen_count :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item: Form_ID) -> i32 {
-	inner, _ := ws.stolen[holder]
-	return min(inner[item], inv_count(ws, db, holder, item))
+// (hole stolen-item-value :tags combat :sev polish) GetStolenItemValue (and Faction.GetStolenItemValueCrime/NoCrime) read 0: a mark knows whose item it was, not whether the theft was seen.
+// Stolen is how many of one item a holder holds that were stolen from one owner.
+Stolen :: struct {
+	owner: Form_ID,
+	count: i32,
 }
 
-// mark_stolen changes how many of `holder`'s `item`s are stolen.
-mark_stolen :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item: Form_ID, n: i32) {
-	inner := delta_upsert(&ws.stolen, holder)
-	left := stolen_count(ws, db, holder, item) + n
-	if left <= 0 {delete_key(inner, item)} else {inner^[item] = left}
+// stolen_count is how many of the `item`s `holder` holds are stolen, from anyone.
+stolen_count :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item: Form_ID) -> i32 {
+	n: i32
+	for k, count in ws.stolen[holder] or_else nil {
+		if k[0] == item {n += count}
+	}
+	return min(n, inv_count(ws, db, holder, item))
+}
+
+// mark_stolen marks `n` of `holder`'s `item`s as stolen from `owner`; an owner getting its own
+// things back, or its faction's, holds them clean.
+mark_stolen :: proc(ws: ^World_State, db: ^gamedb.DB, holder, item, owner: Form_ID, n: i32) {
+	if n <= 0 || owner == 0 || owns(ws, db, holder, owner) {return}
+	if holder not_in ws.stolen {ws.stolen[holder] = make(map[[2]Form_ID]i32)}
+	(&ws.stolen[holder])^[{item, owner}] += n
+}
+
+// unmark_stolen takes `n` stolen marks off `holder`'s `item`s, the lowest owner first, and returns
+// whose they were (temp-allocated).
+unmark_stolen :: proc(ws: ^World_State, holder, item: Form_ID, n: i32) -> []Stolen {
+	out := make([dynamic]Stolen, context.temp_allocator)
+	marks, ok := &ws.stolen[holder]
+	if !ok {return nil}
+	owners := make([dynamic]Form_ID, context.temp_allocator)
+	for k in marks {
+		if k[0] == item {append(&owners, k[1])}
+	}
+	slice.sort(owners[:])
+	left := n
+	for o in owners {
+		if left <= 0 {break}
+		have := marks[{item, o}]
+		take := min(have, left)
+		append(&out, Stolen{o, take})
+		left -= take
+		if take == have {delete_key(marks, [2]Form_ID{item, o})} else {marks[{item, o}] = have - take}
+	}
+	return out[:]
 }
 
 // stolen_moved is how many of a move's items are stolen: the stolen stack's, else the stolen ones

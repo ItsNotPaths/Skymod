@@ -20,7 +20,6 @@ Script_Faction :: struct {
 
 // make_faction is the script faction called `name`, made from `f` when there is none yet; one that
 // exists comes back unchanged. `f`'s ranks become the store's.
-// (hole script-faction-crime-group :tags (mods combat) :sev polish) a script faction joins no record crime group (CRGR is an FLST in the records), and none shares its own.
 make_faction :: proc(ws: ^World_State, name: string, f: gamedb.Faction) -> (Form_ID, bool) {
 	n: u32
 	for id, s in ws.script_factions {

@@ -166,6 +166,11 @@ Saved_Rank :: struct {
 	male, female: string,
 }
 
+Saved_Stolen :: struct {
+	holder, item, owner: Form_ID,
+	count:               i32,
+}
+
 Saved_Jailed :: struct {
 	actor:  Form_ID,
 	jailed: Jailed,
@@ -302,7 +307,7 @@ Save_Body :: struct {
 	globals:       []Saved_Global,
 	quests:        []Saved_Quest,
 	inventory:     []Saved_Inv,
-	stolen:        []Saved_Inv,
+	stolen_marks:  []Saved_Stolen,
 	spells:        []Saved_Inv,   // actor -> spell, GIVEN / REMOVED
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
@@ -539,6 +544,10 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
 	relations := make([dynamic]Saved_Relation, 0, len(ws.faction_relations), context.temp_allocator)
 	for k, r in ws.faction_relations {append(&relations, Saved_Relation{k[0], r})}
+	stolen_marks := make([dynamic]Saved_Stolen, 0, len(ws.stolen), context.temp_allocator)
+	for holder, marks in ws.stolen {
+		for k, n in marks {append(&stolen_marks, Saved_Stolen{holder, k[0], k[1], n})}
+	}
 	faction_defs := make([dynamic]Saved_Faction_Def, 0, len(ws.script_factions), context.temp_allocator)
 	for id, sf in ws.script_factions {
 		f := sf.data
@@ -572,7 +581,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		globals       = globals,
 		quests        = quests,
 		inventory     = save_deltas(ws.inventories),
-		stolen        = save_deltas(ws.stolen),
+		stolen_marks  = stolen_marks[:],
 		spells        = save_deltas(ws.spells),
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
@@ -1047,7 +1056,14 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// each directed entry is set on its own. Entries keyed on a missing mod drop; a secondary ref
 	// (item/faction/b) that won't resolve keeps its saved value (dangles).
 	load_deltas(&ws.inventories, body.inventory, remap, have_remap, rf)
-	load_deltas(&ws.stolen, body.stolen, remap, have_remap, rf)
+	for r in body.stolen_marks {
+		h, hok := rf(remap, have_remap, r.holder)
+		i, iok := rf(remap, have_remap, r.item)
+		o, ook := rf(remap, have_remap, r.owner)
+		if !hok || !iok || !ook {continue}
+		if h not_in ws.stolen {ws.stolen[h] = make(map[[2]Form_ID]i32)}
+		(&ws.stolen[h])^[{i, o}] += r.count
+	}
 	load_deltas(&ws.spells, body.spells, remap, have_remap, rf)
 	for a in body.actor_values {
 		actor, kok := rf(remap, have_remap, a.actor)
@@ -1088,7 +1104,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for g in body.globals {add_slot(&seen, g.id)}
 	for q in body.quests {add_slot(&seen, q.form_id)}
 	for r in body.inventory {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
-	for r in body.stolen {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
+	for r in body.stolen_marks {add_slot(&seen, r.holder);add_slot(&seen, r.item);add_slot(&seen, r.owner)}
 	for r in body.spells {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
