@@ -101,9 +101,10 @@ MAX_TICKS_PER_FRAME :: 5
 // Tick is the fixed-step clock: how much real time is still unsimulated, and how far past the
 // last completed tick the frame being drawn sits.
 Tick :: struct {
-	accum: f32, // unsimulated seconds carried into the next frame; always < TICK_DT after the loop
+	accum: f32, // unsimulated seconds carried into the next frame; < TICK_DT after the loop unless a menu paused it
 	alpha: f32, // accum/TICK_DT — what physics + the camera interpolate on
 	total: u64, // ticks since session start: the logic clock script deadlines will count in
+	temp:  runtime.Default_Temp_Allocator, // the tick's context.temp_allocator, wiped after each tick
 }
 
 // Per-frame derived state, recomputed at the top of every game_frame and shared between the
@@ -614,6 +615,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 // every step. Replaces run_game's old declaration-order-is-load-bearing defer stack.
 game_teardown :: proc(g: ^Game) {
 	script_thread_destroy(g)
+	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)
 	slua.transitions_destroy(&g.trans)

@@ -12,6 +12,8 @@ package main
 // drawing) runs once per frame around it. What the frame draws is the last tick's state blended
 // forward by g.tick.alpha.
 
+import "base:runtime"
+
 import "core:log"
 import "core:math"
 import "core:os"
@@ -131,8 +133,7 @@ game_frame :: proc(g: ^Game) {
 	// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 	// exactly one frame — UI string formatting, draw lists, transient buffers.
 	// Wiped here, every frame.
-	// (hole sim-temp-allocator :tags threading :sev gap) the tick's temp allocations (ray_hits, xform_points, add_static_mesh) live until this per-frame wipe, and loadui_frame wipes temp in the middle of a tick. Wanted: the tick gets its own temp arena, reset per tick.
-	free_all(context.temp_allocator)
+		free_all(context.temp_allocator)
 }
 
 // (hole tick-profile :tags threading :sev polish) game_tick has one phys timer, and g.prof is written by both sides; each tick part (jail, activations, scene select, locomotion, actor bodies, projectiles, physics, traversal, scripts) needs its own timer in a sim-owned profile.
@@ -142,8 +143,10 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (input-latch camera-from-sim sight-view-input command-queue activate-command cast-command grab-command console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts sim-temp-allocator dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (input-latch camera-from-sim sight-view-input command-queue activate-command cast-command grab-command console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
+	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
+	defer free_all(context.temp_allocator)
 	script_run_pending(g)
 	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
 	player_follow(g)
@@ -619,7 +622,7 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	if g.char_ok {physics.character_set_position(&g.character, feet)}
 }
 
-// (hole transition-request :tags (threading world) :sev gap :needs (sim-drain sim-events)) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
+// (hole transition-request :tags (threading world) :sev gap :needs (sim-drain sim-events)) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. loadui_frame also wipes the tick's temp arena mid-tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
