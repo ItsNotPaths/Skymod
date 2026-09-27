@@ -17,6 +17,7 @@ Geometry :: struct {
 	normals:   [][3]f32, // empty if absent
 	tangents:  [][4]f32, // authored tangent-space basis: xyz = tangent, w = bitangent handedness (±1); empty if absent
 	uvs:       [][2]f32, // first UV set, empty if absent
+	alphas:    []u8,     // vertex colour alpha, empty if absent
 	triangles: []u16,    // 3 indices per triangle, flattened
 	center:    [3]f32,
 	radius:    f32,
@@ -27,6 +28,7 @@ destroy_geometry :: proc(g: ^Geometry) {
 	delete(g.normals)
 	delete(g.tangents)
 	delete(g.uvs)
+	delete(g.alphas)
 	delete(g.triangles)
 	g^ = {}
 }
@@ -100,11 +102,12 @@ parse_tri_shape_data :: proc(b: []u8, allocator := context.allocator) -> (g: Geo
 
 	has_colors := read_u8(&r) != 0
 	if has_colors {
-		for _ in 0 ..< num_verts { // Color4 = 4 floats
+		g.alphas = make([]u8, num_verts)
+		for i in 0 ..< num_verts { // Color4 = 4 floats
 			_ = read_u32(&r)
 			_ = read_u32(&r)
 			_ = read_u32(&r)
-			_ = read_u32(&r)
+			g.alphas[i] = u8(clamp(read_f32(&r), 0, 1) * 255)
 		}
 	}
 
@@ -270,6 +273,7 @@ parse_bs_geometry :: proc(
 	if has_uv {g.uvs = make([][2]f32, head.num_verts)}
 	if has_normal {g.normals = make([][3]f32, head.num_verts)}
 	if has_normal && has_tangent {g.tangents = make([][4]f32, head.num_verts)}
+	if flags & VA_COLORS != 0 {g.alphas = make([]u8, head.num_verts)}
 
 	byte_to_snorm :: proc(v: u8) -> f32 {return f32(v) / 255 * 2 - 1}
 
@@ -312,7 +316,7 @@ parse_bs_geometry :: proc(
 			}
 		}
 		if flags & VA_COLORS != 0 {
-			_ = read_u32(&r)
+			g.alphas[i] = u8(read_u32(&r) >> 24)
 		}
 		if flags & VA_SKINNED != 0 {
 			_ = read_u32(&r) // 4 half weights +
