@@ -110,11 +110,16 @@ n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// damage_health takes Health; at 0 the actor dies, unless essential or protected (protected dies
-// only to the player).
 damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) {
 	worldstate.av_damage(c.ws, c.db, actor, "Health", amount)
-	if worldstate.av_current(c.ws, c.db, actor, "Health") > 0 || worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
+	check_death(c, actor, attacker)
+}
+
+// check_death kills an actor at 0 Health, unless essential or protected (protected dies only to
+// the player). Every way Health drops ends here.
+check_death :: proc(c: ^Call, actor: Form_ID, attacker: Form_ID) {
+	if worldstate.is_dead(c.ws, actor) || worldstate.av_current(c.ws, c.db, actor, "Health") > 0 {return}
+	if worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
 	if attacker != formid.PLAYER && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
 	kill(c, actor, attacker)
 }

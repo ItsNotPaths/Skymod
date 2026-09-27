@@ -136,6 +136,7 @@ tick_effects :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 	for h, e in ws.effects {
 		if int(e.elapsed + dt) != int(e.elapsed) {script.recheck_effect(&c, h)} // each second
 		worldstate.advance_effect(ws, vm.ctx.db, h, dt)
+		if gamedb.is_actor(c.db, worldstate.ref_base(ws, c.db, e.target)) {script.check_death(&c, e.target, e.caster)}
 		if e.finished && !ticking(vm, h) {append(&gone, h)}
 	}
 	for h in gone {
