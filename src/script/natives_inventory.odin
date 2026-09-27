@@ -91,6 +91,10 @@ give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
 
 // take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
 take :: proc(c: ^Call, form, base, by: Form_ID) {
+	if worldstate.stolen(c.ws, c.db, by, form) {
+		value, _ := gamedb.value_of(c.db, base)
+		worldstate.report_crime(c.ws, c.db, by, worldstate.owner(c.ws, c.db, form), .Steal, value * worldstate.stack_count(c.ws, c.db, form))
+	}
 	move_items(c, {base = base, ref = form, to = by, count = worldstate.stack_count(c.ws, c.db, form), via = .World})
 	worldstate.set_disabled(c.ws, form, worldstate.ref_cell(c.ws, c.db, form), true)
 	worldstate.mark_scene_dirty(c.ws, form)

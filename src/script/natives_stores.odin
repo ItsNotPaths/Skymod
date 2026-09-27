@@ -49,6 +49,7 @@ n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 
 kill :: proc(c: ^Call, actor, killer: Form_ID) {
 	if worldstate.is_dead(c.ws, actor) {return}
+	if killer != 0 {worldstate.report_crime(c.ws, c.db, killer, actor, .Murder, 0)}
 	append(&c.ws.deaths, worldstate.Death{actor, killer})
 	c.ws.killers[actor] = killer
 	worldstate.set_dead(c.ws, actor, worldstate.ref_cell(c.ws, c.db, actor), true)

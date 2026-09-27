@@ -17,8 +17,8 @@ import smath "../math"
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
-// (hole crime-reads :tags combat :sev gap) no read for Faction.SetPlayerEnemy, SetPlayerResistingArrest, ClearPrison, SetPlayerReportCrime: there is no crime system.
-// (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-reads)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): there is no crime system.
+// (hole crime-reads :tags combat :sev gap :needs (crime-store actor-crime-faction)) no crime gold or crime faction natives: Get/Set/ModCrimeGold (and Violent, NonViolent), PlayerPayCrimeGold, SetPlayerEnemy, GetCrimeFaction (89 calls), SetCrimeFaction (40), SetPlayerReportCrime. The Player-named ones act on ref 0x14's row.
+// (hole story-crime-events :tags (quest combat) :sev gap :needs (crime-report crime-arrest jail)) no ASSU, ARRT, JAIL or ESJA story events (JailQuest, EscapeJailQuest, DB03GetArrestedQuest, WIAssault): nothing sends them.
 // (hole ai-reads :tags ai :sev gap) no read for SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.

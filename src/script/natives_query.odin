@@ -292,7 +292,7 @@ n_get_actor_owner :: proc(c: ^Call, args: []Value) -> Value {
 
 n_get_faction_owner :: proc(c: ^Call, args: []Value) -> Value {
 	o := worldstate.owner(c.ws, c.db, c.self)
-	_, faction := gamedb.faction_of(c.db, o)
+	_, faction := worldstate.faction(c.ws, c.db, o)
 	return o if faction else nil
 }
 

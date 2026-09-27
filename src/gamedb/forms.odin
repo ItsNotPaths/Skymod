@@ -152,6 +152,7 @@ linked_ref :: proc(db: ^DB, ref: Form_ID, keyword: Form_ID = 0) -> (Form_ID, boo
 // the rank ladder. Ranks need an ORDERED walk — an RNAM declares a rank index and the MNAM /
 // FNAM that follow are its male / female titles (the same tags mean other things elsewhere in
 // the record), so this mirrors index_quest's INDX/QSDT pattern rather than using find_field.
+// (hole fact-crime-fields :tags (records combat) :sev gap) not decoded: JAIL and WAIT markers, STOL and PLCN chests, CRGR crime group, JOUT jail outfit, the 16 and 12 byte CRVA (114 factions read has_crime=false), and DATA flags 0x1000, 0x8000, 0x10000. Only track-crime (0x40, 74) makes a crime faction; 1406 of 1407 carry CRVA. build/out/wsK/crime_measure.md.
 @(private)
 index_faction :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	fl, backing, ok := esm.fields(rec)

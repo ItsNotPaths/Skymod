@@ -68,6 +68,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	detection.tick(&g.detection, &g.ws, &g.db, seen, TICK_DT) // before combat reads it
+	worldstate.spread_crime(&g.ws, &g.db)
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.actor_bodies {
 		if form in seen {

@@ -2,6 +2,7 @@ package ai
 
 // Combat state toward the player: when an actor warns, attacks or flees, and where it moves. No
 // attacks land yet.
+// (hole combat-any-target :tags (ai combat) :sev gap :needs (hostility)) combat is only toward the player: an actor never picks another actor as its target, so a guard cannot fight a wanted NPC, a victim cannot fight back at an NPC and factions at war never meet.
 
 // (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage)) the brain is a stand-in: close, swing in reach, flee on low confidence. Wanted: real tactics (block, dodge, ranged, spells, groups) behind the same seam, from someone who knows combat AI.
 
@@ -64,7 +65,7 @@ next_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID,
 @(private = "file")
 starts_combat :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, aggro: esm.Aggro, d: f32, c: ^Combat, dt: f32) -> bool {
 	aggression := worldstate.av_current(ws, db, actor, "Aggression")
-	enemy := worldstate.faction_relation(ws, db, actor, formid.PLAYER) == .Enemy
+	enemy := worldstate.hostile(ws, db, actor, formid.PLAYER)
 	if worldstate.detected(ws, actor, formid.PLAYER) && (aggression >= 2 || (aggression >= 1 && enemy)) {return true}
 	if !aggro.on {return false}
 	if d > aggro.warn_attack {c.warned = 0}

@@ -454,7 +454,7 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 	return worldstate.package_target_ref(c.cond.ws, c.cond.db, t, c.cond.subject, c.cond.quest)
 }
 
-// (hole proc-guard :tags (ai combat) :sev gap) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
+// (hole proc-guard :tags (ai combat) :sev gap :needs (trespass)) Guard only walks to its post and stands: no watching the area, no warning or attacking trespassers.
 // proc_guard walks to the package location and holds it.
 proc_guard :: proc(c: ^Proc_Context) -> Status {
 	if proc_travel(c) == .Failed {return .Failed}
