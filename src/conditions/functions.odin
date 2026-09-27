@@ -553,16 +553,7 @@ fn_loc_alias_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID
 fn_get_faction_relation :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	other, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
-	theirs := worldstate.actor_factions_now(ctx.ws, ctx.db, other)
-	for mine in worldstate.actor_factions_now(ctx.ws, ctx.db, on) {
-		f, _ := gamedb.faction_of(ctx.db, mine)
-		for r in f.relations {
-			for t in theirs {
-				if r.faction == t {return f32(r.combat), true}
-			}
-		}
-	}
-	return 0, true
+	return f32(worldstate.faction_relation(ctx.ws, ctx.db, on, other)), true
 }
 
 @(private = "file")
