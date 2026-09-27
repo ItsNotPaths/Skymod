@@ -56,6 +56,5 @@ destroy :: proc(w: ^World) {
 		delete(a.route)
 	}
 	delete(w.agents)
-	delete(w.mesh.cells)
-	delete(w.mesh.meshes)
+	nav.destroy(&w.mesh)
 }

@@ -19,11 +19,12 @@ Goal :: struct {
 	point:  [3]f32,
 	radius: f32, // arrived inside this distance
 	gait:   Gait,
+	door:   Form_ID, // a load door to go through on arrival
 }
 
 Mover :: struct {
 	goal:    Goal,
-	path:    [dynamic]nav.Corner,
+	path:    [dynamic][3]f32,
 	heading: f32, // radians about Z
 	arrived: bool,
 	stuck:   bool,
@@ -41,7 +42,7 @@ gait_speed :: proc(g: Gait) -> f32 {
 	return 0
 }
 
-// (hole mover :tags ai :sev blocker :needs nav-path) the mover never paths or steers (combat AI will drive it too, and adds nothing to it): wanted re-path when the goal moves past its radius, follow the corners, turn toward the next one, report arrived or stuck, stop at a load door.
+// (hole mover :tags ai :sev blocker) the mover never paths or steers (combat AI will drive it too, and adds nothing to it): wanted re-path when the goal moves past its radius, follow the corners, turn toward the next one, report arrived or stuck, stop at a load door.
 // mover_step is the XY velocity that walks the feet one tick toward the goal.
 mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, dt: f32) -> (vel: [2]f32) {
 	return bump_turn(m, vel, false)

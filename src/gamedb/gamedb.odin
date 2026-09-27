@@ -234,6 +234,9 @@ DB :: struct {
 	world_location: map[Form_ID]Form_ID, // WRLD formID -> its XLCN location (a cell without one is here)
 	cell_at_grid:  map[Grid_Key]Form_ID, // (world, gx, gy) -> exterior cell formID (streaming)
 	cell_heights:  map[Form_ID][]f32, // cell formID -> LAND_GRID² cumulative heightmap (owned)
+	navmeshes:     map[Form_ID][dynamic]Navmesh, // cell formID -> its NAVMs (owned)
+	navmesh_cell:  map[Form_ID]Form_ID, // NAVM formID -> the cell it is in
+	nav_index:     map[Form_ID]Nav_Info, // NAVM formID -> its NAVI entry, merged over plugins (owned)
 	cell_base_tex: map[Form_ID][4]Form_ID, // cell formID -> per-quadrant base LTEX formID (0=none)
 	cell_dominant: map[Form_ID][]Form_ID, // cell formID -> LAND_GRID² dominant LTEX per vertex (owned)
 	ltex_txst:     map[Form_ID]Form_ID, // LTEX formID -> its TXST texture-set formID
@@ -1055,6 +1058,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.ref_types)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	free_query_indexes(db) // owners, activate parents, package templates, ingredients
+	free_nav_indexes(db)
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	db^ = {}
 }
@@ -1461,6 +1465,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		if _, ok := db.cells[ctx.cell_form_id]; ok {
 			index_achr(db, rec, ctx)
 		}
+	case s == "NAVM":
+		if ctx.cell_form_id != 0 {index_navmesh(db, rec, ctx.cell_form_id, ctx.fm)}
+	case s == "NAVI":
+		index_nav_index(db, rec, ctx.fm)
 	case s == "LAND":
 		// Exterior terrain heightmap. LAND lives in its cell's children GRUP, so
 		// ctx.cell_form_id names the owning cell (set before this record is reached).
