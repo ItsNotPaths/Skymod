@@ -548,6 +548,7 @@ index_quest_aliases :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Qu
 			factions     = remap_formid_list(db, esm.formid_list(a.body, "ALFC"), fm),
 			keywords     = remap_formid_list(db, esm.keywords(a.body), fm),
 			packages     = remap_formid_list(db, esm.formid_list(a.body, "ALPC"), fm),
+			overrides    = override_packages(a.body, fm),
 			spells       = remap_formid_list(db, esm.formid_list(a.body, "ALSP"), fm),
 			items        = remap_contents(db, esm.container_contents(a.body), fm),
 			display_name = esm.remap_form(fm, display_name),

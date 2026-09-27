@@ -365,6 +365,7 @@ Actor_Base :: struct {
 	perks:         []Form_ID, // PRKR (owned)
 	packages:      []Form_ID, // PKID AI packages (owned; empty on the player — control is our engine's package)
 	default_packages: Form_ID, // DPLT: an FLST of packages
+	overrides:     Override_Packages,
 	inventory:     []Content_Entry, // CNTO starting inventory (owned)
 	factions:      []Faction_Membership, // SNAM baseline faction ranks (owned; the overlay diverges from these)
 }
@@ -468,7 +469,6 @@ Linked_Ref :: struct {
 	ref:     Form_ID,
 }
 
-// (hole alias-override-packages :tags (quest ai combat) :sev gap :needs combat-brain) an alias's override package lists are not decoded (219 in Skyrim.esm: 218 ECOR combat, 1 SPOR spectator), nor NPC_ ones: they replace combat, spectator, corpse and guard-warn behaviour, which only the combat brain runs.
 // Quest_Alias is one alias slot of a quest — the handle a quest script addresses by id
 // (ReferenceAlias.GetReference) — and its AUTHORED fill rule (esm.Alias_Fill, esm.Quest_Alias);
 // the quest engine fills it at start. `name` and `conditions` are owned by the DB.
@@ -487,6 +487,7 @@ Quest_Alias :: struct {
 	factions:     []Form_ID, // ALFC: the holder counts as a member while in the alias (owned)
 	keywords:     []Form_ID, // KWDA: the holder has these keywords while in the alias (owned)
 	packages:     []Form_ID, // ALPC: the holder may run these while in the alias (owned)
+	overrides:    Override_Packages, // replace the holder's own while in the alias
 	spells:       []Form_ID, // ALSP: the holder knows these while in the alias (owned)
 	items:        []Content_Entry, // CNTO: added to the holder when it fills the alias, and kept (owned)
 	display_name: Form_ID, // ALDN: the MESG whose title renames the holder
@@ -2699,6 +2700,7 @@ index_npc :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if g, gok := esm.subrecord_formid(fl, "GNAM"); gok {a.gift_filter = esm.remap_form(fm, g)}
 	if t, tok := esm.subrecord_formid(fl, "TPLT"); tok {a.template = esm.remap_form(fm, t)}
 	if d, dok := esm.subrecord_formid(fl, "DPLT"); dok {a.default_packages = esm.remap_form(fm, d)}
+	a.overrides = override_packages(fl, fm)
 
 	// SPLO spells + PKID packages: repeated single-formID subrecords, remapped in order.
 	a.spells = remap_formid_list(db, esm.formid_list(fl, "SPLO", context.allocator), fm)

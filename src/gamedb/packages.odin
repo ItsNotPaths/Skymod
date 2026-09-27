@@ -396,6 +396,25 @@ package_input :: proc(db: ^DB, pack: Form_ID, index: u8) -> (Package_Input, bool
 	return {}, false
 }
 
+// (hole override-packages-use :tags (ai combat unclaimed) :sev gap :needs combat-brain) decoded and never run: nothing swaps in the combat, spectator, corpse or guard-warn list (vanilla: 218 alias + 181 NPC_ ECOR, 3 SPOR), and an NPC_ template's lists are not inherited.
+// Override_Packages are FLSTs of packages that replace an actor's own in one situation.
+Override_Packages :: struct {
+	combat:     Form_ID, // ECOR
+	spectator:  Form_ID, // SPOR
+	corpse:     Form_ID, // OCOR
+	guard_warn: Form_ID, // GWOR
+}
+
+// override_packages reads an alias's or an NPC_'s override lists.
+@(private)
+override_packages :: proc(fl: []esm.Field, fm: ^esm.Form_Map) -> (o: Override_Packages) {
+	if f, ok := esm.subrecord_formid(fl, "ECOR"); ok {o.combat = esm.remap_form(fm, f)}
+	if f, ok := esm.subrecord_formid(fl, "SPOR"); ok {o.spectator = esm.remap_form(fm, f)}
+	if f, ok := esm.subrecord_formid(fl, "OCOR"); ok {o.corpse = esm.remap_form(fm, f)}
+	if f, ok := esm.subrecord_formid(fl, "GWOR"); ok {o.guard_warn = esm.remap_form(fm, f)}
+	return
+}
+
 // actor_packages is an actor base's own PKID list and its DPLT default package list, each through
 // its template flag; `pick` stands in for a leveled template.
 actor_packages :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> (own, defaults: []Form_ID) {
