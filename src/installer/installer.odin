@@ -25,6 +25,8 @@ import "core:time"
 CONTENT_DIR    :: "content"      // <base>/content — the installed data root
 SCRIPTS_MOD    :: "basescripts"  // <base>/content/basescripts — the content mod holding the base game's scripts
 SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>.lua and <name>.patch.lua
+AUDIO_MOD      :: "baseaudio"    // <base>/content/baseaudio — the content mod holding converted game audio
+BETHASSETS_DIR :: "bethassets"   // a content mod's VFS-mounted asset root
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
 FORMAT_VERSION :: 3 // bump when converted output changes, so an older install re-runs
 
@@ -103,9 +105,6 @@ install :: proc(source, base: string) -> bool {
 	// through these — `content/` stays an index, not a copy of the game.
 	//
 	// (hole load-order-files :tags mods :sev gap) the installer lists plugins and orders script archives masters-then-plugins by name; plugins.txt and loadorder.txt are not read, so an existing install's order is not imported into the mod list.
-	// TODO(Milestone C): true load order from plugins.txt/loadorder.txt; for now
-	// masters (.esm) before plugins (.esp), each name-sorted. TODO(Milestone B+):
-	// run the lazy audio/HKX converters into content/ here.
 	data := data_path(source)
 	defer delete(data)
 	archives := list_by_ext(data, ".bsa")
@@ -119,6 +118,17 @@ install :: proc(source, base: string) -> bool {
 		return false
 	}
 	log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
+
+	archive_paths := make([]string, len(archives), context.temp_allocator)
+	for a, i in archives {
+		archive_paths[i], _ = filepath.join({data, a}, context.temp_allocator)
+	}
+	audio_dir, _ := filepath.join({content, AUDIO_MOD, BETHASSETS_DIR}, context.temp_allocator)
+	ast, aok := converters.convert_audio(archive_paths, audio_dir)
+	if !aok {
+		return false
+	}
+	log.infof("installer: converted %d sound(s) to Ogg, %d unreadable", ast.converted, ast.failed)
 
 	m := manifest_path(base)
 	defer delete(m)

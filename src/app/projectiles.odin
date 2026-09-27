@@ -2,6 +2,7 @@ package main
 
 import "core:log"
 import "core:math/linalg"
+import "../audio"
 import "../assetdb"
 import "../formid"
 import "../gamedb"
@@ -78,6 +79,7 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 	for h in physics.ray_hits(s.phys, from, to) {
 		target := Form_ID(h.owner)
 		if target == f.ref || target == f.shooter || is_projectile(g, target) {continue}
+		audio.impact_sound(&g.db, inst.base, target, from + (to - from) * h.fraction)
 		if live_actor(g, target) {
 			script.projectile_hit(c, f^, target)
 			worldstate.set_deleted(&g.ws, f.ref, worldstate.ref_cell(&g.ws, &g.db, f.ref))

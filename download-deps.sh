@@ -15,6 +15,7 @@
 #   - kenney input prompts : CC0 button-prompt glyph art (keyboard/mouse + every
 #                pad family Kenney draws). build/bake_prompts.sh packs the 64px
 #                tier into src/prompts/prompts.pak, which the binary #load's.
+# (hole ffmpeg-dep :tags audio :sev gap) ffmpeg is not vendored yet. It must be a static, trimmed ffmpeg (xwma demux + wmav2 decode, wav and ogg/opus both ways, libopus) so the installer converts xWMA and the engine decodes Ogg with nothing on the user's machine.
 #
 # vendor/ is download-only: never hand-write code there. (.gitignore drops it.)
 set -euo pipefail
