@@ -53,6 +53,10 @@ sync_physics :: proc(s: ^Scene, cache: ^assetdb.Cache, budget := PHYS_BUDGET) ->
 			if m == nil {
 				m = assetdb.model_ptr(cache, inst.model_path)
 			}
+			if m == nil && assetdb.is_failed(cache, inst.model_path) {
+				inst.phys_built = true // a model that decoded to nothing has no collision; waiting on it would hold the chunk forever
+				continue
+			}
 			if m == nil {
 				all_built = false // model not uploaded yet — revisit next frame
 				continue
@@ -70,6 +74,16 @@ sync_physics :: proc(s: ^Scene, cache: ^assetdb.Cache, budget := PHYS_BUDGET) ->
 		}
 	}
 	return made
+}
+
+// collision_ready_near is whether every instance of the chunk within `radius` of p has its collision
+// built (an actor placed before the ground under it falls through).
+collision_ready_near :: proc(chunk: ^Chunk, p: smath.Vec3, radius: f32) -> bool {
+	if chunk.phys_done {return true}
+	for &inst in chunk.instances {
+		if !inst.phys_built && linalg.distance(inst.pos, p) < radius {return false}
+	}
+	return true
 }
 
 // Phys_Stats is a snapshot of physics-side counts for the leak probe. If `bodies` or

@@ -55,13 +55,12 @@ tick_actor_bodies :: proc(g: ^Game) {
 	ai.track_cells(&g.agents, &g.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
-		ready := chunk.phys_done // a capsule made before its ground's collision falls through it
 		for form in chunk.actors {
-			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, ready)}
+			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, &chunk)}
 		}
-		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen, ready)}
+		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen, &chunk)}
 		for form in worldstate.refs_in(&g.ws, cell) {
-			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, ready)} // moved in by a script
+			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
 		}
 	}
 	// (hole ai-agent :tags ai :sev blocker) NPCs select packages and walk (travel, sandbox wander, load doors), but nobody has watched it in game yet.
@@ -126,14 +125,15 @@ actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32) {
 	b.placed = feet
 }
 
+READY_RADIUS :: f32(1024) // collision this near must exist before a capsule appears
 SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit under the ground; the capsule settles
 
 @(private = "file")
-actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, ready: bool) {
+actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, chunk: ^world.Chunk) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.ws, &g.db, form) {return}
 	seen[form] = true
-	if form not_in g.actor_bodies && !ready {return} // loaded, waiting for its cell's collision
 	pos := worldstate.ref_pos(&g.ws, &g.db, form)
+	if form not_in g.actor_bodies && !world.collision_ready_near(chunk, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
 	capsule := actor_capsule(g, form)
 	if b, ok := &g.actor_bodies[form]; ok && b.capsule == capsule {
 		if b.placed != pos {
