@@ -38,7 +38,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	56  = fn_get_quest_running,
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
-	61  = fn_resting,
+	61  = fn_get_alarmed,
 	62  = fn_resting,
 	66  = fn_resting,
 	67  = fn_get_in_cell,
@@ -263,6 +263,12 @@ fn_can_pay_crime_gold :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 	return yes(worldstate.inv_count(ctx.ws, ctx.db, ctx.target, formid.GOLD) >= worldstate.total(b))
 }
 
+// GetAlarmed: the actor fights someone, or a guard confronts someone.
+@(private = "file")
+fn_get_alarmed :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on in ctx.ws.alarmed)
+}
+
 // GetQuestVariable is deprecated and does not work in Skyrim (CK wiki): it reads 0.
 @(private = "file")
 fn_get_quest_variable :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
@@ -349,7 +355,7 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (trespass)) IsTrespassing, GetTrespassWarningLevel, GetInSharedCrimeFaction, IsActorAVictim, IsBribedbyPlayer, GetArrestingActor, GetArrestedState and GetDaysInJail read 0: there is no crime system.
-// (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetAlarmed, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
+// (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (animation combat unclaimed) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.

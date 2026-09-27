@@ -37,6 +37,11 @@ take_struck :: proc(ws: ^World_State, victim: Form_ID) -> (Form_ID, bool) {
 	return by, ok
 }
 
+// set_alarmed is whom `actor` fights or confronts; 0 calms it.
+set_alarmed :: proc(ws: ^World_State, actor, at: Form_ID) {
+	if at == 0 {delete_key(&ws.alarmed, actor)} else {ws.alarmed[actor] = at}
+}
+
 // Fire is a Weapon.Fire the app has not resolved yet: the source ref's ProjectileNode is in its model.
 Fire :: struct {
 	source, weapon, ammo: Form_ID,
