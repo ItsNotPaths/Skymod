@@ -1,11 +1,18 @@
 package script
 
-// Crime natives. Vanilla names them for the player: a Faction's crime gold is ref 0x14's bounty.
+// Faction relations and crime. Vanilla names the crime natives for the player: a Faction's crime
+// gold is ref 0x14's bounty.
 
+import "../formats/esm"
 import "../formid"
 import "../worldstate"
 
 register_crime :: proc(reg: ^Registry) {
+	register(reg, "Faction", "GetReaction", n_get_reaction)
+	register(reg, "Faction", "SetReaction", n_set_reaction)
+	register(reg, "Faction", "ModReaction", n_mod_reaction)
+	register(reg, "Faction", "SetEnemy", n_set_enemy)
+	register(reg, "Faction", "SetAlly", n_set_ally)
 	register(reg, "Faction", "GetCrimeGold", n_get_crime_gold)
 	register(reg, "Faction", "GetCrimeGoldViolent", n_get_crime_gold_violent)
 	register(reg, "Faction", "GetCrimeGoldNonViolent", n_get_crime_gold_nonviolent)
@@ -16,6 +23,51 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Faction", "PlayerPayCrimeGold", n_player_pay_crime_gold)
 	register(reg, "Faction", "SetPlayerEnemy", n_set_player_enemy)
 	register(reg, "Game", "SetPlayerReportCrime", n_set_player_report_crime)
+}
+
+n_get_reaction :: proc(c: ^Call, args: []Value) -> Value {
+	r, _ := worldstate.relation(c.ws, c.db, c.self, arg_form(args, 0))
+	return r.modifier
+}
+
+n_set_reaction :: proc(c: ^Call, args: []Value) -> Value {
+	other := arg_form(args, 0)
+	r, _ := worldstate.relation(c.ws, c.db, c.self, other)
+	r.modifier = arg_i32(args, 1, 0)
+	worldstate.set_relation(c.ws, c.self, other, r)
+	return nil
+}
+
+n_mod_reaction :: proc(c: ^Call, args: []Value) -> Value {
+	other := arg_form(args, 0)
+	r, _ := worldstate.relation(c.ws, c.db, c.self, other)
+	r.modifier += arg_i32(args, 1, 0)
+	worldstate.set_relation(c.ws, c.self, other, r)
+	return nil
+}
+
+// SetEnemy(akOther, abSelfIsNeutralToOther = false, abOtherIsNeutralToSelf = false)
+n_set_enemy :: proc(c: ^Call, args: []Value) -> Value {
+	set_combat_both(c, arg_form(args, 0), .Neutral if arg_bool(args, 1, false) else .Enemy, .Neutral if arg_bool(args, 2, false) else .Enemy)
+	return nil
+}
+
+// SetAlly(akOther, abSelfIsFriendToOther = false, abOtherIsFriendToSelf = false)
+n_set_ally :: proc(c: ^Call, args: []Value) -> Value {
+	set_combat_both(c, arg_form(args, 0), .Friend if arg_bool(args, 1, false) else .Ally, .Friend if arg_bool(args, 2, false) else .Ally)
+	return nil
+}
+
+// set_combat_both sets how this faction treats `other` and how `other` treats it, keeping each
+// direction's modifier.
+@(private = "file")
+set_combat_both :: proc(c: ^Call, other: Form_ID, mine, theirs: esm.Combat_Reaction) {
+	r, _ := worldstate.relation(c.ws, c.db, c.self, other)
+	r.combat = mine
+	worldstate.set_relation(c.ws, c.self, other, r)
+	back, _ := worldstate.relation(c.ws, c.db, other, c.self)
+	back.combat = theirs
+	worldstate.set_relation(c.ws, other, c.self, back)
 }
 
 @(private = "file")

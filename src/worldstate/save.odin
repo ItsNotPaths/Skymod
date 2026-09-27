@@ -144,6 +144,11 @@ Saved_Bounty :: struct {
 	enemy:                     bool,
 }
 
+Saved_Relation :: struct {
+	from:     Form_ID,
+	relation: gamedb.Faction_Relation,
+}
+
 Saved_Awareness :: struct {
 	viewer, target: Form_ID,
 	awareness:      Awareness,
@@ -329,6 +334,7 @@ Save_Body :: struct {
 	packages_done: []Saved_Said,    // speaker = the actor, info = the package
 	awareness:     []Saved_Awareness,
 	bounties:      []Saved_Bounty,
+	relations:     []Saved_Relation,
 	unreported:    []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -505,6 +511,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, hour in ws.packages_done {append(&packages_done, Saved_Said{k[0], k[1], hour})}
 	awareness := make([dynamic]Saved_Awareness, 0, len(ws.awareness), context.temp_allocator)
 	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
+	relations := make([dynamic]Saved_Relation, 0, len(ws.faction_relations), context.temp_allocator)
+	for k, r in ws.faction_relations {append(&relations, Saved_Relation{k[0], r})}
 	bounties := make([dynamic]Saved_Bounty, 0, len(ws.wanted) + len(ws.known_bounties), context.temp_allocator)
 	for k, w in ws.wanted {append(&bounties, Saved_Bounty{offender = k[0], faction = k[1], bounty = w.bounty, enemy = w.enemy})}
 	for k, b in ws.known_bounties {append(&bounties, Saved_Bounty{offender = k[1], knower = k[0], faction = b.faction, bounty = b.bounty})}
@@ -583,6 +591,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		packages_done = packages_done[:],
 		awareness     = awareness[:],
 		bounties      = bounties[:],
+		relations     = relations[:],
 		unreported    = save_set(ws.unreported),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -827,6 +836,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		}
 	}
 	load_set(&ws.unreported, body.unreported, remap, have_remap, rf)
+	for r in body.relations {
+		from, fok := rf(remap, have_remap, r.from)
+		to, tok := rf(remap, have_remap, r.relation.faction)
+		if fok && tok {set_relation(ws, from, to, r.relation)}
+	}
 	// A rolled item from a missing mod drops; the owner keeps the rest.
 	for r in body.rolled {
 		owner, ook := rf(remap, have_remap, r.owner)
@@ -1057,6 +1071,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for r in body.awareness {add_slot(&seen, r.viewer);add_slot(&seen, r.target)}
 	for r in body.bounties {add_slot(&seen, r.offender);add_slot(&seen, r.knower);add_slot(&seen, r.faction)}
 	for a in body.unreported {add_slot(&seen, a)}
+	for r in body.relations {add_slot(&seen, r.from);add_slot(&seen, r.relation.faction)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for z in body.zone_levels {add_slot(&seen, z.zone)}
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}

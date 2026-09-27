@@ -91,7 +91,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_stores(reg) // GlobalVariable / Actor life / PlaceAtMe (A-tier overlay)
 	register_inventory(reg) // ObjectReference/Actor inventory store
 	register_actor(reg) // Actor values + faction/relationship store
-	register_crime(reg) // bounties
+	register_crime(reg) // faction relations and bounties
 	register_ai(reg)
 	register_ref_reads(reg) // position, links, cell and location of a ref
 	register_forms(reg) // FormList, Location, keywords, race, game time

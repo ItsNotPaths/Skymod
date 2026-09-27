@@ -446,15 +446,13 @@ allowed_to_fly :: proc(ws: ^World_State, actor: Form_ID) -> bool {
 	return actor not_in ws.grounded
 }
 
-// faction_relation is how one of `actor`'s factions stands toward one of `other`'s (FACT XNAM).
-// The first relation found answers; none is Neutral.
-// (hole faction-reactions :tags (script combat save) :sev gap) relations are only the records' XNAM: SetEnemy (131 calls), SetAlly (66), SetReaction and ModReaction change nothing, and nothing saves a changed relation. Build them as deltas on faction().
+// faction_relation is how one of `actor`'s factions stands toward one of `other`'s (XNAM, or a
+// script's change). The first relation found answers; none is Neutral.
 faction_relation :: proc(ws: ^World_State, db: ^gamedb.DB, actor, other: Form_ID) -> esm.Combat_Reaction {
 	theirs := actor_factions_now(ws, db, other)
 	for mine in actor_factions_now(ws, db, actor) {
-		f, _ := faction(ws, db, mine)
-		for r in f.relations {
-			if slice.contains(theirs, r.faction) {return r.combat}
+		for t in theirs {
+			if r, ok := relation(ws, db, mine, t); ok {return r.combat}
 		}
 	}
 	return .Neutral

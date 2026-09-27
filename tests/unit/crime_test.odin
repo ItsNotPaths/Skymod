@@ -2,6 +2,7 @@ package unit_tests
 
 import "core:os"
 import "core:testing"
+import "../../src/formats/esm"
 import ws "../../src/worldstate"
 
 CRIME_TOWN :: ws.Form_ID(0x000267EA)
@@ -45,4 +46,22 @@ test_crime_bounty_store :: proc(t: ^testing.T) {
 	ws.pay_bounty(&s, CRIME_THIEF, CRIME_TOWN)
 	testing.expect_value(t, ws.bounty(&s, nil, CRIME_CITIZEN, CRIME_THIEF), ws.Bounty{})
 	testing.expect_value(t, len(s.wanted), 0)
+}
+
+// A script's SetEnemy between two factions turns their members hostile, one direction at a time.
+@(test)
+test_faction_relation_delta :: proc(t: ^testing.T) {
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	a_fac, b_fac := ws.Form_ID(0x000FA001), ws.Form_ID(0x000FA002)
+	ws.faction_set_rank(&s, CRIME_GUARD, a_fac, 0)
+	ws.faction_set_rank(&s, CRIME_THIEF, b_fac, 0)
+	testing.expect_value(t, ws.faction_relation(&s, nil, CRIME_GUARD, CRIME_THIEF), esm.Combat_Reaction.Neutral)
+
+	ws.set_relation(&s, a_fac, b_fac, {combat = .Enemy, modifier = -10})
+	testing.expect_value(t, ws.faction_relation(&s, nil, CRIME_GUARD, CRIME_THIEF), esm.Combat_Reaction.Enemy)
+	testing.expect_value(t, ws.faction_relation(&s, nil, CRIME_THIEF, CRIME_GUARD), esm.Combat_Reaction.Neutral)
+	r, ok := ws.relation(&s, nil, a_fac, b_fac)
+	testing.expect(t, ok && r.modifier == -10 && r.faction == b_fac, "relation delta read back")
 }
