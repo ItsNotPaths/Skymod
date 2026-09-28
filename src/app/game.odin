@@ -46,6 +46,8 @@ import slog "../log"
 import "../script"
 import slua "../script/lua"
 import "../settings"
+import "../sight"
+import "../sighthost"
 import "../tools"
 import "../vfs"
 import "../world"
@@ -608,6 +610,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
 	g.sim.combat = combat.BUILTIN
 	plugin.apply(&g.plugins, combat.SEAM, combat.VERSION, &g.sim.combat)
+	plugin.apply(&g.plugins, sight.SEAM, sight.VERSION, &sighthost.table)
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)

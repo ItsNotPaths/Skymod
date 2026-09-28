@@ -5,7 +5,7 @@ package script
 
 import "core:math"
 import "../gamedb"
-import "../sight"
+import "../sighthost"
 import smath "../math"
 import "../worldstate"
 
@@ -61,7 +61,7 @@ n_get_distance :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_has_los :: proc(c: ^Call, args: []Value) -> Value {
-	return sight.has_los(c.ws, c.db, c.self, arg_form(args, 0))
+	return sighthost.has_los(c.ws, c.db, c.self, arg_form(args, 0))
 }
 
 // n_get_sight_level is ours, not Papyrus: Actor.GetSightLevel(akTarget, aiMode) is how much this
@@ -69,8 +69,8 @@ n_has_los :: proc(c: ^Call, args: []Value) -> Value {
 // (awareness).
 n_get_sight_level :: proc(c: ^Call, args: []Value) -> Value {
 	mode := arg_i32(args, 1, 0)
-	if mode < 0 || mode > i32(max(sight.Mode)) {return f32(0)}
-	return sight.level(c.ws, c.db, c.self, arg_form(args, 0), sight.Mode(mode))
+	if mode < 0 || mode > i32(max(sighthost.Mode)) {return f32(0)}
+	return sighthost.level(c.ws, c.db, c.self, arg_form(args, 0), sighthost.Mode(mode))
 }
 
 n_is_detected_by :: proc(c: ^Call, args: []Value) -> Value {

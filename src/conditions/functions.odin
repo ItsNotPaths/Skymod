@@ -9,7 +9,7 @@ import "../actorstate"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
-import "../sight"
+import "../sighthost"
 import "../worldstate"
 
 // (hole condition-functions :tags (records dialogue query) :sev polish) no body for GetClothingValue (2 uses, build/out/wsQ/measure14.py), so it passes: the CK wiki gives no formula for how an item's value is scaled by the slots it covers.
@@ -1047,7 +1047,7 @@ fn_get_detected :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32
 fn_get_line_of_sight :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	other, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
-	return yes(sight.has_los(ctx.ws, ctx.db, on, other))
+	return yes(sighthost.has_los(ctx.ws, ctx.db, on, other))
 }
 
 // IsLinkedTo(ref, keyword): `on`'s link on that keyword is the ref.

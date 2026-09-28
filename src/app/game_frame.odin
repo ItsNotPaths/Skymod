@@ -38,7 +38,7 @@ import "../render"
 import slog "../log"
 import slua "../script/lua"
 import "../settings"
-import "../sight"
+import "../sighthost"
 import "../tools"
 import "../world"
 import "../worldstate"
@@ -169,7 +169,7 @@ game_tick :: proc(g: ^Game) {
 	tick_activations(g)
 	lap(g, .Activations, &t)
 	frame_scene_select(g)
-	sight.view = {g.sim.cur_phys, player_feet(g) + {0, 0, EYE_HEIGHT}, g.sim.input.view}
+	sighthost.view = {g.sim.cur_phys, player_feet(g) + {0, 0, EYE_HEIGHT}, g.sim.input.view}
 	lap(g, .Scene, &t)
 	tick_actor_bodies(g) // laps its own parts
 	t = time.tick_now()

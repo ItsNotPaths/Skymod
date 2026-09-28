@@ -7,7 +7,7 @@ import "core:math/linalg"
 import "../actorstate"
 import "../formid"
 import "../gamedb"
-import "../sight"
+import "../sighthost"
 import "../worldstate"
 
 FOLLOW_SPRINT :: f32(300) // fFollowStartSprintDistance: a follower this far behind runs
@@ -140,7 +140,7 @@ proc_keep_an_eye_on :: proc(c: ^Proc_Context) -> Status {
 	at := worldstate.ref_pos(ws, db, target)
 	watch, wok := input_place(c, 1)
 	end, eok := input_place(c, 2)
-	if !wok || !inside(c, target, at, watch) || eok && inside(c, target, at, end) || sight.has_los(ws, db, actor, target) {return .Running}
+	if !wok || !inside(c, target, at, watch) || eok && inside(c, target, at, end) || sighthost.has_los(ws, db, actor, target) {return .Running}
 	c.agent.mover.goal = {active = true, point = at, radius = ARRIVED, gait = .Jog, cell = worldstate.ref_grid_cell(ws, db, target)}
 	return .Running
 }

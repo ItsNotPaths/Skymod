@@ -8,7 +8,7 @@ import "core:math/linalg"
 import "core:math/rand"
 import "../formid"
 import "../gamedb"
-import "../sight"
+import "../sighthost"
 import "../worldstate"
 
 // PKDT interrupt flags (xEdit wbPKDTInterruptFlags).
@@ -54,7 +54,7 @@ tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 @(private = "file")
 hello :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, a: ^Agent, to_player: f32) {
 	if to_player > 2 * SOCIAL_EVENT_DISTANCE {a.greeted = false}
-	if a.greeted || to_player > SOCIAL_EVENT_DISTANCE || !sight.has_los(ws, db, actor, ws.player) {return}
+	if a.greeted || to_player > SOCIAL_EVENT_DISTANCE || !sighthost.has_los(ws, db, actor, ws.player) {return}
 	a.greeted = true
 	append(&ws.barks, worldstate.Bark{speaker = actor, to = ws.player, subtype = HELO})
 }
@@ -70,7 +70,7 @@ look_around :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 		d := apart(ws, db, actor, other, feet, worldstate.ref_pos(ws, db, other))
 		if d > CONVERSATION_RADIUS {continue}
 		if worldstate.is_dead(ws, db, other) {
-			if flags & INTERRUPT_GREET_CORPSE != 0 && !w.found[{actor, other}] && sight.has_los(ws, db, actor, other) {
+			if flags & INTERRUPT_GREET_CORPSE != 0 && !w.found[{actor, other}] && sighthost.has_los(ws, db, actor, other) {
 				w.found[{actor, other}] = true
 				worldstate.queue_story_event(ws, {type = worldstate.STORY_DEAD_BODY, ref1 = actor, ref2 = other, location1 = loc})
 			}

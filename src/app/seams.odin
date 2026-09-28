@@ -9,7 +9,7 @@ import "../detection"
 import "../gamedb"
 import smath "../math"
 import "../plugin"
-import "../sight"
+import "../sighthost"
 import "../worldstate"
 
 // Actor_Snapshot is the loaded actors as the seams see them, rebuilt each tick.
@@ -73,21 +73,21 @@ detection_tick :: proc(t: ^detection.Table, s: ^Actor_Snapshot, ws: ^worldstate.
 detection_sight :: proc "c" (data: rawptr, viewer, target: Form_ID) -> f32 {
 	h := (^Detection_Host)(data)
 	context = h.ctx
-	return sight.level(h.ws, h.db, viewer, target, .Cone)
+	return sighthost.level(h.ws, h.db, viewer, target, .Cone)
 }
 
 @(private = "file")
 detection_range :: proc "c" (data: rawptr, viewer: Form_ID) -> f32 {
 	h := (^Detection_Host)(data)
 	context = h.ctx
-	return sight.range(h.ws, h.db, viewer)
+	return sighthost.range(h.ws, h.db, viewer)
 }
 
 @(private = "file")
 detection_light :: proc "c" (data: rawptr, target: Form_ID) -> f32 {
 	h := (^Detection_Host)(data)
 	context = h.ctx
-	return sight.light_at(h.ws, h.db, worldstate.ref_pos(h.ws, h.db, target))
+	return sighthost.light(h.ws, h.db, target)
 }
 
 @(private = "file")
