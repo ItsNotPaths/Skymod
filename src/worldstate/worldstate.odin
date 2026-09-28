@@ -16,6 +16,8 @@ package worldstate
 // Files: refs (per-ref deltas, created refs), quests, actors (inventory, AVs, factions,
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
+import "base:runtime"
+import "core:log"
 import "../formid"
 import "../formula"
 import "../gamedb"
@@ -188,10 +190,39 @@ Runtime :: struct {
 @(thread_local)
 on_script_thread: bool
 
-// (hole owner-asserts :tags threading :sev gap) only get, upsert, created_in, get_created and activation_blocked assert the owner; direct field reads (jailed, barks, talking, force_greet, quests) go unchecked. Wanted: every worldstate entry point asserts the sim thread, or main while parked.
-// assert_owner checks that the calling thread owns worldstate (script_phase).
+// sim_depth counts the sim contexts this thread is inside: a tick, a park, setup. Main code
+// outside all of them must not touch worldstate.
+@(thread_local)
+sim_depth: int
+
+sim_enter :: proc() {sim_depth += 1}
+sim_leave :: proc() {sim_depth -= 1}
+
+// assert_owner checks that the calling thread owns worldstate. A script phase is a real race today,
+// so it asserts; main code outside the sim warns once per call site, until every such path is gone.
 assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
-	when ODIN_DEBUG {assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)}
+	when ODIN_DEBUG {
+		assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)
+		if !on_script_thread && sim_depth == 0 {warn_owner(loc)}
+	}
+}
+
+@(private)
+warned: struct {
+	at: [64]runtime.Source_Code_Location,
+	n:  int,
+}
+
+@(private)
+warn_owner :: proc(loc: runtime.Source_Code_Location) {
+	for w in warned.at[:warned.n] {
+		if w == loc {return}
+	}
+	if warned.n < len(warned.at) {
+		warned.at[warned.n] = loc
+		warned.n += 1
+	}
+	log.warnf("worldstate: touched outside the sim at %v", loc)
 }
 
 Keyword_Key :: struct {

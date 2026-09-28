@@ -286,6 +286,8 @@ Game :: struct {
 // false if the user quit at a boot screen or an init failed; game_teardown (run by the
 // caller in both cases) destroys whatever `up` records.
 game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: runtime.Allocator, base: string) -> bool {
+	worldstate.sim_enter() // no sim runs yet: setup builds its state
+	defer worldstate.sim_leave()
 	g.logging, g.cfg, g.base = logging, cfg, base
 
 	ok: bool
@@ -641,6 +643,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 // header comment for why each ordering exists). Safe after a partial setup: `up` gates
 // every step. Replaces run_game's old declaration-order-is-load-bearing defer stack.
 game_teardown :: proc(g: ^Game) {
+	worldstate.sim_enter()
+	defer worldstate.sim_leave()
 	script_thread_destroy(g)
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	queue_destroy(&g.commands)

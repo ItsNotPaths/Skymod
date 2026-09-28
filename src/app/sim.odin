@@ -309,6 +309,7 @@ handle_events :: proc(g: ^Game) {
 // commands apply and a snapshot goes out. Until the matching sim_resume no tick runs and main
 // owns every piece of sim state. Holds nest.
 sim_drain :: proc(g: ^Game) {
+	worldstate.sim_enter()
 	if g.parks == 0 {
 		script_run_pending(g)
 		apply_commands(g)
@@ -321,6 +322,7 @@ sim_drain :: proc(g: ^Game) {
 sim_resume :: proc(g: ^Game) {
 	g.parks -= 1
 	if g.parks == 0 {publish_snapshot(g)}
+	worldstate.sim_leave()
 }
 
 // park_for_menu holds the sim parked while an open menu pauses the world, so the menu's actions

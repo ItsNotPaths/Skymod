@@ -49,6 +49,8 @@ script_start :: proc(g: ^Game) {
 	st := &g.scripts
 	if !st.pending || st.th == nil {return}
 	st.pending = false
+	worldstate.sim_enter() // the phase's setup is sim work that main still does
+	defer worldstate.sim_leave()
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
