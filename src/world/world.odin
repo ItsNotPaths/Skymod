@@ -16,7 +16,6 @@ package world
 // the streamer leaves it nil and the model pops in as the worker delivers it.
 
 import "core:fmt"
-import "core:log"
 import "core:math/linalg"
 import "core:strings"
 
@@ -615,18 +614,6 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	return n
 }
 
-// load_worldspace loads every cell of a bounded exterior worldspace (e.g.
-// WhiterunWorld) synchronously, as chunks. Returns the total instance count.
-load_worldspace :: proc(s: ^Scene, db: ^gamedb.DB, world_form_id: Form_ID) -> int {
-	cells := gamedb.cells_of(db, world_form_id)
-	total := 0
-	for cid in cells {
-		total += load_cell(s, db, cid)
-	}
-	log.infof("world: worldspace 0x%08X → %d cells, %d instances", world_form_id, len(cells), total)
-	return total
-}
-
 // (hole loaded-cells-handoff :tags (threading world script) :sev gap :needs (cell-handoff)) the streamer appends g.loaded_cells on main and script_start swaps it; the sim must take loaded cells from its own live set.
 // note_loaded tells whoever listens that a cell is now resident at full detail.
 @(private)
@@ -1024,19 +1011,6 @@ ray_triangle :: proc(o, d, v0, v1, v2: smath.Vec3) -> (t: f32, hit: bool) {
 	return t, true
 }
 
-// pick selects the nearest instance along the ray (for the Inspector). Returns the instance
-// and the index of the SHAPE the ray hit (-1 if unknown). ok=false on a miss.
-pick :: proc(s: ^Scene, origin, dir: smath.Vec3) -> (inst: ^Instance, shape: int, ok: bool) {
-	cell, idx, shp, _, hit := pick_nearest(s, origin, dir)
-	if !hit {
-		s.has_sel = false
-		return nil, -1, false
-	}
-	s.sel_cell, s.sel_inst, s.has_sel = cell, idx, true
-	chunk := &s.chunks[cell]
-	return &chunk.instances[idx], shp, true
-}
-
 // hover_pick records the nearest instance along the ray as the HOVERED one (cursor inspect
 // mode) without changing the selection. Returns the instance + the hit SHAPE index (-1 if
 // unknown). ok=false on a miss (clears the hover). The hovered instance is drawn highlighted.
@@ -1075,14 +1049,3 @@ select_instance :: proc(s: ^Scene) {
 	}
 }
 
-// selected returns the currently-selected instance, if any.
-selected :: proc(s: ^Scene) -> (^Instance, bool) {
-	if !s.has_sel {
-		return nil, false
-	}
-	chunk, ok := &s.chunks[s.sel_cell]
-	if !ok || s.sel_inst < 0 || s.sel_inst >= len(chunk.instances) {
-		return nil, false
-	}
-	return &chunk.instances[s.sel_inst], true
-}

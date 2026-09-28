@@ -132,12 +132,6 @@ disable_ref :: proc(s: ^Scene, form_id, cell: Form_ID, disabled: bool) -> bool {
 	return true
 }
 
-// enable_ref re-enables a previously-disabled ref — the inverse of disable_ref (restores rendering +
-// flags collision for rebuild). Thin alias so callers/scripts read symmetrically.
-enable_ref :: proc(s: ^Scene, form_id, cell: Form_ID) -> bool {
-	return disable_ref(s, form_id, cell, false)
-}
-
 // rebuild_instance_collision drops a resident instance's current bodies and flags it (+ its chunk)
 // for a fresh build by sync_physics — used after a live transform change (move/scale) so collision
 // follows the new placement. No-op without a physics world.
@@ -149,80 +143,6 @@ rebuild_instance_collision :: proc(s: ^Scene, chunk: ^Chunk, inst: ^Instance) {
 	remove_instance_bodies(s.phys, chunk, inst)
 	inst.phys_built = false
 	chunk.phys_done = false
-}
-
-// move_ref relocates a ref: records a Moved delta (persists + reapplies on load) and, when resident,
-// moves the instance live — render follows immediately, collision rebuilds at the new transform.
-move_ref :: proc(s: ^Scene, form_id, cell: Form_ID, world: smath.Mat4, pos: smath.Vec3) -> bool {
-	if s.ws == nil {
-		return false
-	}
-	worldstate.set_moved(s.ws, form_id, cell, world, pos)
-	if inst, chunk, ok := find_resident(s, form_id); ok {
-		inst.world = world
-		inst.pos = pos
-		rebuild_instance_collision(s, chunk, inst)
-	}
-	return true
-}
-
-// scale_ref sets a ref's uniform scale: records a Scaled delta and, when resident, rescales live
-// (recomputes the placement from pos/rot/scale; collision rebuilds at the new size).
-scale_ref :: proc(s: ^Scene, form_id, cell: Form_ID, scale: f32) -> bool {
-	if s.ws == nil {
-		return false
-	}
-	worldstate.set_scale(s.ws, form_id, cell, scale)
-	if inst, chunk, ok := find_resident(s, form_id); ok {
-		inst.scale = scale
-		inst.world = smath.trs(inst.pos, inst.rot, scale)
-		rebuild_instance_collision(s, chunk, inst)
-	}
-	return true
-}
-
-// delete_ref destroys an ESM ref: records a Deleted delta (so the cell-build suppresses it forever)
-// and, when resident, removes the live instance + its collision immediately. The permanent sibling of
-// disable_ref (a deleted ref can't be re-enabled).
-delete_ref :: proc(s: ^Scene, form_id, cell: Form_ID) -> bool {
-	if s.ws == nil {
-		return false
-	}
-	worldstate.set_deleted(s.ws, form_id, cell)
-	if _, chunk, ok := find_resident(s, form_id); ok {
-		for i in 0 ..< len(chunk.instances) {
-			if chunk.instances[i].form_id == form_id {
-				remove_instance_bodies(s.phys, chunk, &chunk.instances[i])
-				assetdb.model_release(&s.cache, chunk.instances[i].model_path) // D1: drop this ref's model ref
-				unordered_remove(&chunk.instances, i)
-				break
-			}
-		}
-		delete_key(&s.resident, form_id)
-		index_instances(s, chunk) // indices shifted by unordered_remove
-	}
-	return true
-}
-
-// open_ref / lock_ref record door/container open-state + lock-state deltas. RECORD-ONLY for now: the
-// visible open/close (animation/pose) and the activation-time lock check land with the door/container
-// + activation systems (game-logic). The state persists today, and Layer 2 can already call these —
-// see docs/live-state.md "triggered movables" (state-not-transform). Resident live-apply is a no-op
-// until those systems exist.
-open_ref :: proc(s: ^Scene, form_id, cell: Form_ID, open: bool) -> bool {
-	if s.ws == nil {
-		return false
-	}
-	worldstate.set_open(s.ws, form_id, cell, open)
-	return true
-}
-
-lock_ref :: proc(s: ^Scene, form_id, cell: Form_ID, locked: bool) -> bool {
-	if s.ws == nil {
-		return false
-	}
-	worldstate.set_locked(s.ws, form_id, cell, locked)
-	return true
 }
 
 // (hole instance-events :tags (threading world render) :sev gap :needs (sim-cell render-chunk scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
