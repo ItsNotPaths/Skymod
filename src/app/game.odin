@@ -238,6 +238,9 @@ Game :: struct {
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	carried:     Cmd_Carry, // the dev carry, as the sim holds it
+	snaps:       Latest(Snapshot), // the sim's newest snapshot, for main to take
+	snap_back:   Snapshot, // the one the sim fills
+	snap:        Snapshot, // the one main draws from
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
 	menu_pick:   [Pane]int, // the selected row of each list pane (menus.odin)
@@ -584,6 +587,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		g.character, g.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(formid.PLAYER))
 	}
 	g.noclip = !g.char_ok
+	publish_snapshot(g)
 
 	// Gameplay script registry + the dev-console REPL on top of it (Phase 4). The REPL
 	// evaluates typed console lines on the same VM transpiled scripts will run on, so

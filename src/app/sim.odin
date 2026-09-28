@@ -7,6 +7,7 @@ import "core:sync"
 
 import "../ai"
 import smath "../math"
+import "../physics"
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
 // its controls only from here. Buttons are held state: the sim finds a press by comparing ticks.
@@ -84,4 +85,53 @@ apply_commands :: proc(g: ^Game) {
 			ai.interrupt(&g.agents, v.actor)
 		}
 	}
+}
+
+// Latest is a value one side publishes and the other takes the newest of. Three buffers turn —
+// the publisher's back, the shared slot and the taker's current — so nothing is copied.
+Latest :: struct($T: typeid) {
+	mu:    sync.Mutex,
+	slot:  T,
+	fresh: bool,
+}
+
+// publish hands `back` over as the newest and gets an old buffer back to fill next.
+publish :: proc(l: ^Latest($T), back: ^T) {
+	sync.guard(&l.mu)
+	l.slot, back^ = back^, l.slot
+	l.fresh = true
+}
+
+// take swaps the newest into `cur`, if one arrived since the last take.
+take :: proc(l: ^Latest($T), cur: ^T) -> bool {
+	sync.guard(&l.mu)
+	if !l.fresh {return false}
+	l.slot, cur^ = cur^, l.slot
+	l.fresh = false
+	return true
+}
+
+// Snapshot is what the sim shows main after a tick. A pose is the segment it moved along in that
+// tick, so main blends inside the newest snapshot and a teleport (from == to) never slides.
+Snapshot :: struct {
+	tick:   u64,
+	player: Segment, // the player's feet
+}
+
+Segment :: struct {
+	from, to: smath.Vec3,
+}
+
+// blend is the point `alpha` (0..1) of the way along a segment.
+blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
+	return s.from + (s.to - s.from) * clamp(alpha, 0, 1)
+}
+
+// publish_snapshot shows main the sim as it stands. The tick calls it last, and so does any change
+// main makes to the sim between ticks (a teleport).
+publish_snapshot :: proc(g: ^Game) {
+	s := &g.snap_back
+	s.tick = g.tick.total
+	if g.char_ok {s.player = {g.character.prev, physics.character_position(&g.character)}}
+	publish(&g.snaps, s)
 }

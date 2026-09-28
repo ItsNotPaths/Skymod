@@ -713,7 +713,7 @@ deactivate :: proc(w: ^World, b: Body) {
 	jolt.BodyInterface_DeactivateBody(w.bodies, b)
 }
 
-// (hole body-pose-snapshot :tags (threading render physics) :sev gap :needs (snapshot-buffer)) render reads Jolt live, and the blend state (World.prev, awake, alpha) sits in physics. Wanted: moved and awake body poses by form ID in the snapshot; physics loses its render state.
+// (hole body-pose-snapshot :tags (threading render physics) :sev gap) render reads Jolt live, and the blend state (World.prev, awake, alpha) sits in physics. Wanted: moved and awake body poses by form ID in the snapshot; physics loses its render state.
 // body_transform returns a body's RENDER transform (position + orientation, no scale) as a
 // 4×4 matrix — translation in column 3, matching the engine's render matrices. Blended toward
 // the pose the last step started from by set_render_alpha, so a body drawn between fixed ticks

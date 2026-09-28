@@ -125,7 +125,7 @@ close_dialogue :: proc(g: ^Game) {
 	if g.menu == .Dialogue {g.menu = .None}
 }
 
-// (hole dialogue-commands :tags (threading dialogue) :sev gap :needs (snapshot-buffer)) dialogue does not pause the world, but say (dialogue.said, set_talked_to_pc) and the topic list (conditions on the VM through dialogue_call) run on main. Wanted: a choice is a command, the topic list is published.
+// (hole dialogue-commands :tags (threading dialogue) :sev gap) dialogue does not pause the world, but say (dialogue.said, set_talked_to_pc) and the topic list (conditions on the VM through dialogue_call) run on main. Wanted: a choice is a command, the topic list is published.
 @(private = "file")
 say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 	t := &g.talk
@@ -195,7 +195,7 @@ line_done :: proc(g: ^Game) {
 	if len(t.choices) == 0 {list_topics(g)}
 }
 
-// (hole subtitles-snapshot :tags (threading ui dialogue) :sev gap :needs (snapshot-buffer)) subtitles read ws.scenes, ws.barks and ws.attached on main; they must read published lines.
+// (hole subtitles-snapshot :tags (threading ui dialogue) :sev gap) subtitles read ws.scenes, ws.barks and ws.attached on main; they must read published lines.
 // (hole scene-subtitles :tags (ui dialogue) :sev gap) scene lines show in an ImGui box for every speaker in an attached cell, however far away; Skyrim shows them near the player unless the line forces its subtitle, and the real screen is dialogue-screen.
 // frame_subtitles shows the lines scenes and barks are saying now.
 frame_subtitles :: proc(g: ^Game) {

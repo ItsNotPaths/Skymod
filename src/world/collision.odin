@@ -285,7 +285,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 	}
 }
 
-// (hole collision-debug-snapshot :tags (threading physics) :sev gap :needs (snapshot-buffer)) the K hitbox view reads Jolt shapes and body transforms from render. Wanted: the sim publishes the debug lines while the view is on.
+// (hole collision-debug-snapshot :tags (threading physics) :sev gap) the K hitbox view reads Jolt shapes and body transforms from render. Wanted: the sim publishes the debug lines while the view is on.
 // draw_collision_debug draws the collision wireframe: cached per-chunk STATIC geometry, plus a
 // per-frame rebuild of the DYNAMIC bodies at their LIVE pose (so a shoved item's box follows it).
 // The dynamic mesh is the same geometry the physics build used, drawn at instance_world (= the body's

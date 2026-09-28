@@ -225,7 +225,7 @@ lock_ref :: proc(s: ^Scene, form_id, cell: Form_ID, locked: bool) -> bool {
 	return true
 }
 
-// (hole instance-events :tags (threading world render) :sev gap :needs (sim-cell render-chunk snapshot-buffer scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
+// (hole instance-events :tags (threading world render) :sev gap :needs (sim-cell render-chunk scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
 // apply_pending_scene_ops drains the worldstate deferred-apply queue and live-applies each change to
 // THIS scene (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write
 // the overlay synchronously (read-your-writes) but don't touch the live scene; this is what makes the

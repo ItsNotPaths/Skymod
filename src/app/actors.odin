@@ -240,7 +240,7 @@ pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f
 	return
 }
 
-// (hole actor-view :tags (threading render ai) :sev gap :needs (snapshot-buffer)) draw_actor_bodies and draw_actor_nametags walk g.actor_bodies, Jolt characters, worldstate (name, dead) and ai combat state on main. Wanted: an actor view in the snapshot (form, pose, capsule, name, dead, combat).
+// (hole actor-view :tags (threading render ai) :sev gap) draw_actor_bodies and draw_actor_nametags walk g.actor_bodies, Jolt characters, worldstate (name, dead) and ai combat state on main. Wanted: an actor view in the snapshot (form, pose, capsule, name, dead, combat).
 // draw_actor_bodies draws each NPC capsule see-through in its own colour; the hovered one is near opaque.
 draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	render.release_mesh(&g.r, g.actor_mesh)
