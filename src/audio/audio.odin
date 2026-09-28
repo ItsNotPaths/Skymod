@@ -38,10 +38,13 @@ Sound :: struct {
 // Handle names a playing sound; 0 is none.
 Handle :: distinct u32
 
-// Placement puts a sound in the world: its position (game units) and its output model.
+// Placement puts a sound in the world: its position (game units) and its output model. A sound on
+// a ref follows it, `lift` units above its origin.
 Placement :: struct {
 	pos:    [3]f32,
 	output: gamedb.Sound_Output,
+	ref:    gamedb.Form_ID,
+	lift:   f32,
 }
 
 Voice :: struct {
@@ -241,7 +244,7 @@ play_descriptor :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, sndr: gamedb.For
 	gain := gamedb.sound_volume(db, d.category) * math.pow(10, -down / 20)
 	ratio := 1 + d.freq_shift + (rand.float32() * 2 - 1) * d.freq_variance
 	place: Maybe(Placement)
-	if pos, placed := at.?; placed {place = Placement{pos, db.sound_outputs[d.output]}}
+	if pos, placed := at.?; placed {place = Placement{pos, db.sound_outputs[d.output], source, 0}}
 	chain: [4]gamedb.Form_ID
 	for c, i := d.category, 0; c != 0 && i < len(chain); c, i = db.sound_categories[c].parent, i + 1 {chain[i] = c}
 	return queue(a, v, strings.clone(rand.choice(d.files)), gain, max(ratio, 0.01), d.loop != .None, place, chain)
@@ -324,16 +327,19 @@ stop :: proc(a: ^Audio, h: Handle, fade: f32 = 0) {
 	if gone != nil {release(gone)} // outside mu: destroying a stream waits for its feed
 }
 
-// (hole audio-emitter-follow :tags (threading audio) :sev gap) a sound on a moving ref needs that ref's position each frame. Wanted: audio reads emitter positions from the published poses, not from worldstate.
-// update places the sounds around the listener (its position and facing, game units) and
-// releases the ones that played to their end.
-update :: proc(a: ^Audio, pos, forward: [3]f32, dt: f32) {
+// update places the sounds around the listener (its position and facing, game units), moves each
+// sound on a ref to that ref's origin in `emitters` (a ref not there stays put), and releases the
+// ones that played to their end.
+update :: proc(a: ^Audio, pos, forward: [3]f32, dt: f32, emitters: map[gamedb.Form_ID][3]f32) {
 	gone := make([dynamic]^Voice, context.temp_allocator)
 	{
 		sync.guard(&a.mu)
 		a.listener = {pos, linalg.normalize0(linalg.cross(forward, [3]f32{0, 0, 1}))}
 		#reverse for v, i in a.voices {
 			if v.stream == nil {continue} // decoding
+			if at, placed := &v.at.?; placed {
+				if p, ok := emitters[at.ref]; ok && at.ref != 0 {at.pos = p + {0, 0, at.lift}}
+			}
 			if v.fade > 0 {v.faded += dt}
 			if v.fade > 0 && v.faded >= v.fade || sync.atomic_load(&v.done) && sdl.GetAudioStreamQueued(v.stream) == 0 && sdl.GetAudioStreamAvailable(v.stream) == 0 {
 				append(&gone, v)

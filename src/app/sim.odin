@@ -246,6 +246,7 @@ Snapshot :: struct {
 	phys:    world.Phys_Stats, // the exterior's bodies
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
+	controlled: Form_ID, // the actor the player controls
 	bodies: world.Poses, // every dynamic body of the active scene's refs
 	drops:  int, // the dev drop-test balls, posed in `bodies` as ref 0
 	actors: [dynamic]Actor_View,
@@ -296,6 +297,7 @@ publish_snapshot :: proc(g: ^Game) {
 	s.phys = world.phys_stats(&g.sim.ext)
 	body, has_body := &g.sim.actor_bodies[g.sim.ws.player]
 	s.walking = has_body && !g.sim.noclip
+	s.controlled = g.sim.ws.player
 	clear(&s.text)
 	if has_body {s.player.from, s.player.to = physics.character_step(&body.char)}
 	world.capture_poses(active_space(g), &s.bodies)

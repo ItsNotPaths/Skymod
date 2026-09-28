@@ -110,7 +110,7 @@ game_frame :: proc(g: ^Game) {
 	frame_actor_grab(g)
 	frame_dev_shot(g)
 	frame_hud(g) // publish g.snap.act to the prompt; draws into the UI drawlist end_frame composites
-	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam), g.p.dt)
+	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam), g.p.dt, emitters(g))
 	draw_actor_nametags(g)
 
 	g.elapsed += g.p.dt
@@ -1012,4 +1012,16 @@ proc_rss_mb :: proc() -> int {
 		i += 1
 	}
 	return n * 4096 / (1024 * 1024)
+}
+
+// emitters are where the snapshot's moving refs are this frame, for sounds that follow them.
+emitters :: proc(g: ^Game) -> map[Form_ID][3]f32 {
+	at := make(map[Form_ID][3]f32, allocator = context.temp_allocator)
+	at[g.snap.controlled] = blend(g.snap.player, g.fr.alpha)
+	for v in g.snap.actors {at[v.form] = blend(v.feet, g.fr.alpha)}
+	for key in g.snap.bodies.at {
+		if key.part != world.WHOLE {continue}
+		if m, ok := world.posed(&g.snap.bodies, key, g.fr.alpha); ok {at[key.form] = (m * [4]f32{0, 0, 0, 1}).xyz}
+	}
+	return at
 }
