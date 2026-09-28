@@ -96,6 +96,7 @@ player_feet :: proc(g: ^Game) -> smath.Vec3 {
 	return physics.character_position(&g.sim.character) if g.sim.char_ok && !g.sim.noclip else g.sim.input.eye - {0, 0, EYE_HEIGHT}
 }
 
+// (hole sim-primitives-package :tags threading :sev struct) sim.odin holds generic concurrency primitives (Queue, Latest) beside the sim boundary protocol; the primitives want a small package of their own, so this file reads as the protocol only.
 // Queue is a list one side appends to and the other drains whole.
 Queue :: struct($T: typeid) {
 	mu:    sync.Mutex,

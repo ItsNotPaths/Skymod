@@ -151,6 +151,7 @@ Frame_State :: struct {
 // on run_game's stack, always passed as ^Game — several subsystems hold pointers INTO it
 // (scene.phys → phys, scene.ws → ws, the REPL closure → noclip, save_bridge → save_ft),
 // so its address must be stable for the session. Fields are declared in bring-up order.
+// (hole game-struct-split :sev struct) Game holds main's view, menus, dev tools, tuning and the sim boundary in one struct; per-concern structs (Dev, Menus) would make each field's owner plain.
 Game :: struct {
 	// borrowed from main() for the whole session
 	logging: ^slog.Logging,

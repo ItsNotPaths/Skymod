@@ -1,5 +1,6 @@
 package assetdb
 
+// (hole collision-store-package :tags (threading assets) :sev struct) the collision store is sim data inside the render asset package (assetdb), and world imports assetdb partly to reach it; once the streamer is a loader it is the loader-to-sim handoff and wants its own package beside the streamer.
 // Collision_Store holds what the sim builds and aims bodies from, apart from the GPU cache so the
 // sim never reads render data: each model's collision and bounds, put when its decode lands, and
 // its furniture markers and ProjectileNode, read from the NIF on first ask (the AI asks about
