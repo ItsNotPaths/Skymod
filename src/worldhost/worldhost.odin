@@ -35,6 +35,7 @@ world :: proc(d: ^Data) -> plugin.World {
 		global        = global,
 		setting       = setting,
 		game_hours    = game_hours,
+		record        = record,
 	}
 }
 

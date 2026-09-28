@@ -2,9 +2,9 @@ package plugin
 
 // World is the read-only world every seam's Host embeds: what a plugin may ask of any ref, actor,
 // faction, quest or setting. The first cut covers what the built-ins and the script natives read
-// most; writes go through each seam's own commands. Each proc gets `data` back.
+// most, and record views of the game data (records.odin); writes go through each seam's own
+// commands. Each proc gets `data` back.
 
-// (hole world-api-records :tags (plugins mods records) :sev wish) World reads no record data: package trees, AI data, spells, effects, form lists' contents and leveled lists are gamedb shapes a plugin cannot see. Wanted when a plugin needs them (user 2026-09-28): record reads in plain data, shaped per record type.
 World :: struct {
 	data:          rawptr,
 	player:        Form_ID, // the actor the player controls
@@ -24,6 +24,7 @@ World :: struct {
 	global:        proc "c" (data: rawptr, global: Form_ID) -> f32,
 	setting:       proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32, // a GMST
 	game_hours:    proc "c" (data: rawptr) -> f64, // since day 0
+	record:        proc "c" (data: rawptr, form: Form_ID, kind: Record_Kind, out: rawptr) -> bool, // see records.odin
 }
 
 // Ref is what the world says of one ref.

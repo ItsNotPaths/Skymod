@@ -46,11 +46,13 @@ echo "==> holes (swiss sync: ws.md)"
 # src/transpile must stay liftable into its own repo: core:* and formats/pex, nothing else
 # (docs/papyrus-transpiler.md, "The detachable contract").
 # The plugin seams see the world only through their Host (ws.md Workstream H): core:*, base:*,
-# formid and plugin, nothing else.
+# formid and plugin, nothing else; plugin's record views also use formats/esm's fixed format types.
 echo "==> seam imports"
 for pkg in plugin detection combat sight condfn actorstate; do
+    allowed='^(core:|base:|\.\./formid$|\.\./plugin$)'
+    [ "$pkg" = plugin ] && allowed='^(core:|base:|\.\./formid$|\.\./formats/esm$)'
     bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/$pkg/*.odin \
-           | grep -vE '^(core:|base:|\.\./formid$|\.\./plugin$)' || true)"
+           | grep -vE "$allowed" || true)"
     if [ -n "$bad" ]; then
         echo "  src/$pkg imports outside its seam:" >&2
         echo "$bad" | sed 's/^/    /' >&2
