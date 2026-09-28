@@ -70,13 +70,11 @@ Interact :: struct {
 	dist:     f32, // current reach (wheel-adjusted)
 }
 
-// (hole activate-input :tags (threading input player) :sev gap :needs (hud-target)) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: Sim_Input holds the Activate button; on a press the sim appends its resolved target to ws.activations, like a script's Activate.
-// frame_interact resolves the crosshair target for this frame and drives the Activate action against
-// it. Runs after frame_traversal (auto doors) and frame_inspect, before frame_hud (which publishes
-// g.fr.act to the prompt and draws). A no-op'd target just leaves the reticle.
+// (hole activate-input :tags (threading input player) :sev gap) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: Sim_Input holds the Activate button; on a press the sim appends its resolved target to ws.activations, like a script's Activate.
+// frame_interact drives the Activate action against the crosshair target the sim resolved
+// (g.snap.act). A no-op'd target just leaves the reticle.
 frame_interact :: proc(g: ^Game) {
 	if g.menu != .None {return}
-	g.fr.act = resolve_activation(g)
 	act_down := input.held(&g.imgr, "Activate")
 
 	// 1) Already grabbing: steer the body while Activate stays down; release = drop.
@@ -108,8 +106,8 @@ frame_interact :: proc(g: ^Game) {
 
 	// 3) A fresh Activate edge on what the crosshair is on. An unblocked physics item waits to learn
 	//    tap (activate) from hold (grab); anything else activates now.
-	if input.fired(&g.imgr, "Activate") && g.fr.act.present {
-		tgt := g.fr.act
+	if input.fired(&g.imgr, "Activate") && g.snap.act.present {
+		tgt := g.snap.act
 		if tgt.dyn_body != 0 && !worldstate.activation_blocked(&g.ws, tgt.form) {
 			g.interact.pressing = true
 			g.interact.press_body = tgt.dyn_body
@@ -128,7 +126,7 @@ frame_cast :: proc(g: ^Game) {
 	if g.menu != .None {return}
 	if input.fired(&g.imgr, "Sneak") {worldstate.set_sneaking(&g.ws, formid.PLAYER, !worldstate.is_sneaking(&g.ws, formid.PLAYER))}
 	c := script.Call{ws = &g.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
-	target := g.fr.act.form if g.fr.act.present else 0
+	target := g.snap.act.form if g.snap.act.present else 0
 	if input.fired(&g.imgr, "CastLeft") {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
 	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
 }

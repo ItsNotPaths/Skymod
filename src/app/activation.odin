@@ -49,16 +49,16 @@ activate_kind_tag := [Activate_Kind]string {
 	.Book      = "book",
 }
 
-// Activation_Target is the resolved crosshair target for one frame. `present` false = nothing
-// activatable is targeted (the HUD shows just the reticle). `name` is the object's own FULL name;
-// `dest` is a door's destination place name ("Riverwood Trader"). `form` is the targeted REFR, for
-// the activate action / future menus. `dyn_body` is the movable-clutter physics body carrying the
-// target (0 = static/none) — non-zero means it can be picked up / manoeuvred (frame_interact).
+// Activation_Target is the resolved crosshair target, as the snapshot carries it to main. `present`
+// false = nothing activatable is targeted (the HUD shows just the reticle). `name` is the object's
+// own FULL name; `dest` is a door's destination place name ("Riverwood Trader"). `form` is the
+// targeted REFR, for the activate action / future menus. `dyn_body` is the movable-clutter physics
+// body carrying the target (0 = static/none) — non-zero means it can be picked up (frame_interact).
 Activation_Target :: struct {
 	present:  bool,
 	kind:     Activate_Kind,
-	name:     string,
-	dest:     string,
+	name:     Text_Span, // in Snapshot.text
+	dest:     Text_Span,
 	locked:   bool,
 	form:     gamedb.Form_ID,
 	dyn_body: physics.Body, // movable-clutter body under the crosshair (0 = not grabbable)
@@ -85,41 +85,46 @@ classify_base :: proc(db: ^gamedb.DB, base: gamedb.Form_ID) -> Activate_Kind {
 	return .Activator
 }
 
-// (hole hud-target :tags (threading ui) :sev gap) the crosshair target is resolved on main from worldstate, actor bodies and Jolt picks. Wanted: the sim resolves it from the latched look ray and publishes it.
-// resolve_activation casts a ray down the screen centre and resolves what it hits into an
-// Activation_Target for this frame. No world state is mutated (uses world.probe_ray). Names come
-// from gamedb; strings are borrowed (valid for the DB's lifetime) — no allocation.
-resolve_activation :: proc(g: ^Game) -> Activation_Target {
+// aim_at is what the crosshair (screen centre) is on, within reach: main's half of targeting, since
+// the pick tests drawn geometry. The sim gets it as Sim_Input.aim and resolves what it means.
+aim_at :: proc(g: ^Game) -> Form_ID {
 	scene := g.fr.active_scene
-	if scene == nil {
-		return {}
-	}
-	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0}) // {0,0} = screen centre (the crosshair)
+	if scene == nil {return 0}
+	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
 	inst, dist, ok := world.probe_ray(scene, ro, rd)
 	if actor, adist, aok := pick_actor(g, ro, rd); aok && adist <= ACTIVATE_RANGE && (!ok || adist < dist) {
-		name := worldstate.display_name(&g.ws, &g.db, actor)
-		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, &g.db, actor) else .Actor
-		return {kind = kind, name = name, form = actor, present = name != ""}
+		return actor
 	}
-	if !ok || dist > ACTIVATE_RANGE || inst.disabled {
-		return {}
-	}
+	if !ok || dist > ACTIVATE_RANGE || inst.disabled {return 0}
+	return inst.form_id
+}
 
-	ref_form := gamedb.Form_ID(inst.form_id)
+// resolve_activation turns the aimed-at ref into the facts the HUD prompt and Activate need, copying
+// its strings into the snapshot being filled. The sim's half of targeting.
+resolve_activation :: proc(g: ^Game, s: ^Snapshot, form: Form_ID) -> Activation_Target {
+	if form == 0 {return {}}
+	if form in g.actor_bodies {
+		name := worldstate.display_name(&g.ws, &g.db, form)
+		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, &g.db, form) else .Actor
+		return {kind = kind, name = add_text(s, name), form = form, present = name != ""}
+	}
+	inst, _, ok := world.find_resident(g.fr.active_scene, form)
+	if !ok || inst.disabled {return {}}
+	name := gamedb.name_of(&g.db, form)
 	t := Activation_Target {
 		kind     = .Door if inst.has_tp else classify_base(&g.db, gamedb.Form_ID(inst.base)),
-		name     = gamedb.name_of(&g.db, ref_form),
-		locked   = worldstate.is_locked(&g.ws, &g.db, ref_form),
-		form     = ref_form,
+		name     = add_text(s, name),
+		locked   = worldstate.is_locked(&g.ws, &g.db, form),
+		form     = form,
 		dyn_body = inst.dyn_body, // non-zero → this REFR is carried by a movable clutter body (grabbable)
 	}
 	if inst.has_tp {
 		// A load door with a mesh (manual door / city gate). Its destination place name is the prompt
 		// subject ("Open Riverwood Trader"). Auto/cave markers have no mesh → never picked → no prompt.
-		t.dest = door_dest_label(&g.trav, gamedb.Form_ID(inst.tp_door))
+		t.dest = add_text(s, door_dest_label(&g.trav, gamedb.Form_ID(inst.tp_door)))
 	}
 	// Only surface a prompt for something worth naming: a door always (it has a destination), else
 	// an object with an actual FULL name. Unnamed clutter/activators show nothing (just the reticle).
-	t.present = t.kind == .Door || t.name != ""
+	t.present = t.kind == .Door || name != ""
 	return t
 }

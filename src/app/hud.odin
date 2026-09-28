@@ -29,8 +29,7 @@ hud_destroy :: proc(g: ^Game) {
 	ui_session_close(&g.hud)
 }
 
-// frame_hud publishes the crosshair target (already resolved this frame by frame_interact into
-// g.fr.act) to the HUD host (engine.activation) and draws the HUD. Runs each gameplay frame before
+// frame_hud publishes the crosshair target (resolved by the sim into g.snap.act) to the HUD host (engine.activation) and draws the HUD. Runs each gameplay frame before
 // frame_render composites the UI drawlist. Activate itself is handled in frame_interact; this only
 // shows the prompt. A no-op when the session failed to init.
 frame_hud :: proc(g: ^Game) {
@@ -44,11 +43,11 @@ frame_hud :: proc(g: ^Game) {
 		return
 	}
 
-	tgt := g.fr.act
+	tgt := g.snap.act
 	g.hud.host.act_present = tgt.present
 	g.hud.host.act_kind = activate_kind_tag[tgt.kind]
-	g.hud.host.act_name = tgt.name
-	g.hud.host.act_dest = tgt.dest
+	g.hud.host.act_name = text(&g.snap, tgt.name)
+	g.hud.host.act_dest = text(&g.snap, tgt.dest)
 	g.hud.host.act_locked = tgt.locked
 
 	w, h := ui_screen_size()

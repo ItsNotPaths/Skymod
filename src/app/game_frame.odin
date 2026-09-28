@@ -109,11 +109,11 @@ game_frame :: proc(g: ^Game) {
 	frame_persistence(g)
 	frame_stream(g)
 	frame_inspect(g)
-	frame_interact(g) // resolve the crosshair target + drive Activate (doors, pickup, grab); sets g.fr.act
+	frame_interact(g) // drive Activate on the sim's crosshair target (doors, pickup, grab)
 	frame_actor_grab(g)
 	frame_dev_shot(g)
 	frame_cast(g)
-	frame_hud(g) // publish g.fr.act to the prompt; draws into the UI drawlist end_frame composites
+	frame_hud(g) // publish g.snap.act to the prompt; draws into the UI drawlist end_frame composites
 	audio.music_update(&g.music, &g.audio, &g.v, &g.db, &g.ws, ai.player_in_combat(&g.agents), g.p.dt)
 	audio.ambient_update(&g.ambient, &g.audio, &g.v, &g.db, &g.ws)
 	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam), g.p.dt)
@@ -151,7 +151,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (activate-input cast-input grab-input console-command force-greet-event dialogue-commands sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (activate-input cast-input grab-input console-command force-greet-event dialogue-commands sim-clock pick-on-render subtitles-snapshot audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)

@@ -18,11 +18,12 @@ Sim_Input :: struct {
 	yaw:    f32, // the camera's: main owns the look
 	eye:    smath.Vec3, // the camera's; in noclip, where main flew the player
 	view:   smath.Mat4, // the camera's view-projection: what the player can see
+	aim:    Form_ID, // the ref the crosshair is on, within reach (aim_at); 0 = none
 }
 
 // latch_input is this frame's Sim_Input.
 latch_input :: proc(g: ^Game) -> Sim_Input {
-	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r))}
+	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r)), aim_at(g)}
 	if g.fr.kb_cap {si.move = {}}
 	return si
 }
@@ -127,6 +128,7 @@ Snapshot :: struct {
 	player:  Segment, // the player's feet
 	bodies: physics.Poses, // every dynamic body in the active world
 	actors: [dynamic]Actor_View,
+	act:    Activation_Target, // what the crosshair is on
 	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
 }
 
@@ -175,6 +177,7 @@ publish_snapshot :: proc(g: ^Game) {
 		clear(&s.bodies.at)
 	}
 	view_actors(g, s)
+	s.act = resolve_activation(g, s, g.input.aim)
 	publish(&g.snaps, s)
 }
 
