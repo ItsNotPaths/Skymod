@@ -26,7 +26,7 @@ Pair :: struct {
 
 // Host is what the engine answers and takes; each proc gets `data` back.
 Host :: struct {
-	world: plugin.World, // the awareness store before this tick is world.awareness
+	world: ^plugin.World, // the awareness store before this tick is world.awareness
 	data:  rawptr,
 	sight: proc "c" (data: rawptr, viewer, target: Form_ID) -> f32, // sight.Mode.Cone, 0..1
 	range: proc "c" (data: rawptr, viewer: Form_ID) -> f32, // how far the viewer sees

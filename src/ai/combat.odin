@@ -53,8 +53,9 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 	}
 	h := Combat_Host{context, ws, db, make([dynamic]combat.Fighter, context.temp_allocator)}
 	wd := worldhost.Data{context, ws, db}
+	view := worldhost.world(&wd)
 	inp := combat.Input {
-		host     = {worldhost.world(&wd), &h, combat_aggro, combat_set},
+		host     = {&view, &h, combat_aggro, combat_set},
 		table    = t,
 		dt       = dt,
 		actors   = plugin.span(actors),

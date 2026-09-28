@@ -21,13 +21,15 @@ test_detection_stub_model :: proc(t: ^testing.T) {
 
 // Fake_Host sees everything in range and keeps what detection sets.
 Fake_Host :: struct {
+	world: plugin.World,
 	ctx:  runtime.Context,
 	sets: [dynamic]detection.Pair,
 }
 
 fake_host :: proc(h: ^Fake_Host) -> detection.Host {
+	h.world = fake_world(h)
 	return {
-		fake_world(h),
+		&h.world,
 		h,
 		proc "c" (data: rawptr, viewer, target: detection.Form_ID) -> f32 {return 1},
 		proc "c" (data: rawptr, viewer: detection.Form_ID) -> f32 {return 1000},
@@ -42,7 +44,7 @@ fake_host :: proc(h: ^Fake_Host) -> detection.Host {
 
 // detect runs one tick in which viewer 0xA2 (its group's turn at tick 6) looks at the player.
 detect :: proc(t: ^testing.T, table: ^detection.Table, known: []detection.Pair, player_space: detection.Form_ID) -> []detection.Pair {
-	h := Fake_Host{context, make([dynamic]detection.Pair, context.temp_allocator)}
+	h := Fake_Host{ctx = context, sets = make([dynamic]detection.Pair, context.temp_allocator)}
 	actors := []plugin.Actor{{id = 0xA2, space = 1}, {id = 0x14, space = player_space, pos = {100, 0, 0}}}
 	inp := detection.Input {
 		host   = fake_host(&h),

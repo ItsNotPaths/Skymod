@@ -34,7 +34,7 @@ MAX_HITS :: 32
 
 // Host is what the engine answers; each proc gets `data` back.
 Host :: struct {
-	world: plugin.World,
+	world: ^plugin.World, // a pointer, so World grows without moving this Host's fields
 	data:  rawptr,
 	eye:   [3]f32, // the player's camera
 	vp:    matrix[4, 4]f32, // the player's view-projection

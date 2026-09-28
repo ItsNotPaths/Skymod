@@ -59,8 +59,9 @@ detection_tick :: proc(t: ^detection.Table, s: ^Actor_Snapshot, ws: ^worldstate.
 	for k, a in ws.awareness {append(&known, detection.Pair{k[0], k[1], {a.level, a.detected}})}
 	h := Detection_Host{context, ws, db, make([dynamic]detection.Pair, context.temp_allocator)}
 	wd := worldhost.Data{context, ws, db}
+	w := worldhost.world(&wd)
 	inp := detection.Input {
-		host   = {worldhost.world(&wd), &h, detection_sight, detection_range, detection_light, detection_set},
+		host   = {&w, &h, detection_sight, detection_range, detection_light, detection_set},
 		table  = t,
 		tick   = s.ticks,
 		dt     = dt,

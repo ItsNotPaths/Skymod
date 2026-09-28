@@ -41,7 +41,7 @@ Aggro :: struct {
 
 // Host is what the engine answers and takes; each proc gets `data` back.
 Host :: struct {
-	world: plugin.World,
+	world: ^plugin.World, // a pointer, so World grows without moving this Host's fields
 	data:  rawptr,
 	aggro: proc "c" (data: rawptr, actor: Form_ID) -> Aggro,
 	set:   proc "c" (data: rawptr, actor: Form_ID, f: Fight), // applied after tick returns

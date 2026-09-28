@@ -30,7 +30,7 @@ Answer :: struct {
 
 // Host is what the engine answers.
 Host :: struct {
-	world: plugin.World,
+	world: ^plugin.World, // a pointer, so World grows without moving this Host's fields
 }
 
 Table :: struct {

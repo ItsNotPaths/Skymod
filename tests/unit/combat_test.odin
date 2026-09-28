@@ -7,6 +7,7 @@ import "../../src/plugin"
 
 // Fake_Combat answers every query the same way for every actor and keeps what the brain sets.
 Fake_Combat :: struct {
+	world:      plugin.World,
 	ctx:        runtime.Context,
 	detected:   bool,
 	hostile:    bool,
@@ -17,7 +18,8 @@ Fake_Combat :: struct {
 }
 
 fake_combat_host :: proc(h: ^Fake_Combat) -> combat.Host {
-	w := fake_world(h)
+	h.world = fake_world(h)
+	w := &h.world
 	w.awareness = proc "c" (data: rawptr, viewer, target: plugin.Form_ID) -> plugin.Awareness {return {0, (^Fake_Combat)(data).detected}}
 	w.hostile = proc "c" (data: rawptr, a, b: plugin.Form_ID) -> bool {return (^Fake_Combat)(data).hostile}
 	w.actor_value = proc "c" (data: rawptr, actor: plugin.Form_ID, name: cstring, part: plugin.AV_Part) -> f32 {

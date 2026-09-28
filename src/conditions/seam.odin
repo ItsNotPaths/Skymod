@@ -16,7 +16,8 @@ plugin_ms: f64 // time in table.eval since the profile last took it
 @(private)
 ask :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (value: f32, answered: bool) {
 	wd := worldhost.Data{context, ctx.ws, ctx.db}
-	h := condfn.Host{worldhost.world(&wd)}
+	w := worldhost.world(&wd)
+	h := condfn.Host{&w}
 	call := condfn.Call{c.function, on, ctx.subject, ctx.target, ctx.quest, c.param1, c.param2, c.param3, plugin.span(transmute([]u8)c.text)}
 	t := time.tick_now()
 	a := table.eval(&h, call)

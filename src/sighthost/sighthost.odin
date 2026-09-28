@@ -6,6 +6,7 @@ package sighthost
 import "core:time"
 import "../gamedb"
 import "../physics"
+import "../plugin"
 import "../sight"
 import "../worldhost"
 import "../worldstate"
@@ -26,28 +27,32 @@ ms: f64 // time in the table's procs since the profile last took it
 
 level :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, mode: Mode) -> f32 {
 	d := worldhost.Data{context, ws, db}
-	h := host(&d)
+	w := worldhost.world(&d)
+	h := host(&d, &w)
 	defer timed(time.tick_now())
 	return table.level(&h, viewer, target, mode)
 }
 
 has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
 	d := worldhost.Data{context, ws, db}
-	h := host(&d)
+	w := worldhost.world(&d)
+	h := host(&d, &w)
 	defer timed(time.tick_now())
 	return table.has_los(&h, viewer, target)
 }
 
 range :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID) -> f32 {
 	d := worldhost.Data{context, ws, db}
-	h := host(&d)
+	w := worldhost.world(&d)
+	h := host(&d, &w)
 	defer timed(time.tick_now())
 	return table.range(&h, viewer)
 }
 
 light :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, ref: Form_ID) -> f32 {
 	d := worldhost.Data{context, ws, db}
-	h := host(&d)
+	w := worldhost.world(&d)
+	h := host(&d, &w)
 	defer timed(time.tick_now())
 	return table.light(&h, ref)
 }
@@ -58,8 +63,8 @@ timed :: proc(from: time.Tick) {
 }
 
 @(private = "file")
-host :: proc(d: ^worldhost.Data) -> sight.Host {
-	return {worldhost.world(d), d, view.eye, view.vp, view.space != nil, hits}
+host :: proc(d: ^worldhost.Data, w: ^plugin.World) -> sight.Host {
+	return {w, d, view.eye, view.vp, view.space != nil, hits}
 }
 
 @(private = "file")

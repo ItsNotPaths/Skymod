@@ -7,12 +7,14 @@ import "../../src/sight"
 // Fake_Sight: an NPC 0xA1 at the origin facing +y, a target 0xB1 100 units ahead or behind, and
 // whatever one ray crosses.
 Fake_Sight :: struct {
+	world:  plugin.World,
 	behind: bool,
 	hits:   []sight.Hit,
 }
 
 fake_sight_host :: proc(f: ^Fake_Sight) -> sight.Host {
-	w := fake_world(f)
+	f.world = fake_world(f)
+	w := &f.world
 	w.ref = proc "c" (data: rawptr, ref: plugin.Form_ID) -> plugin.Ref {
 		f := (^Fake_Sight)(data)
 		y := f32(-100) if f.behind else 100
@@ -42,6 +44,7 @@ test_sight_model :: proc(t: ^testing.T) {
 	f.hits = {{}, {owner = 0xB1}}
 	testing.expect(t, !tb.has_los(&h, 0xA1, 0xB1), "a solid blocks")
 	f = {behind = true, hits = {{owner = 0xB1}}}
+	h = fake_sight_host(&f)
 	testing.expect_value(t, tb.level(&h, 0xA1, 0xB1, .Cone), 0) // outside the view cone
 	testing.expect_value(t, tb.level(&h, 0xA1, 0xB1, .Raw), 1)
 	testing.expect_value(t, tb.level(&h, 0xA1, 0xB1, .Detect), 0.25)
