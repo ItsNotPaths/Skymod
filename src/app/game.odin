@@ -30,6 +30,8 @@ import "../ai"
 import "../assetdb"
 import "../collisions"
 import "../combat"
+import "../condfn"
+import "../conditions"
 import "../detection"
 import "../formid"
 import "../gamedb"
@@ -611,6 +613,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.sim.combat = combat.BUILTIN
 	plugin.apply(&g.plugins, combat.SEAM, combat.VERSION, &g.sim.combat)
 	plugin.apply(&g.plugins, sight.SEAM, sight.VERSION, &sighthost.table)
+	plugin.apply(&g.plugins, condfn.SEAM, condfn.VERSION, &conditions.table)
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)

@@ -10,9 +10,11 @@ package unit_tests
 
 import "core:testing"
 import "../../src/actorstate"
+import "../../src/condfn"
 import "../../src/conditions"
 import "../../src/formats/esm"
 import "../../src/gamedb"
+import "../../src/plugin"
 import "../../src/script"
 import "../../src/worldstate"
 import "../../src/formid"
@@ -960,4 +962,25 @@ test_conditions_package_data :: proc(t: ^testing.T) {
 	testing.expect(t, conditions.all(&ctx, must), "the Bool slot reads 1")
 	worldstate.set_awareness(&ws, NPC, ws.player, {1, true})
 	testing.expect(t, conditions.all(&ctx, detected), "detected through the data slot")
+}
+
+// A plugin adds a condition function; the engine's still answer the rest.
+@(test)
+test_conditions_plugin :: proc(t: ^testing.T) {
+	p: plugin.Plugins
+	defer plugin.destroy(&p)
+	plugin.load(&p, {TEST_PLUGINS})
+	was := conditions.table
+	defer conditions.table = was
+	plugin.apply(&p, condfn.SEAM, condfn.VERSION, &conditions.table)
+
+	db: gamedb.DB
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player}
+	worldstate.av_set_base(&ws, ws.player, "Health", 50)
+	testing.expect(t, conditions.all(&ctx, {{function = 4000, op = .Equal, value = 50}}), "the plugin's function answers")
+	testing.expect(t, !conditions.all(&ctx, {{function = 4000, op = .Equal, value = 49}}), "and is compared")
+	testing.expect(t, !conditions.all(&ctx, {{function = 448, op = .Equal, value = 1, param1 = 0xA1}}), "HasPerk is still the engine's")
 }

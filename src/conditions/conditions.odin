@@ -68,8 +68,7 @@ all :: proc(ctx: ^Context, conds: []gamedb.Condition) -> bool {
 
 // test evaluates ONE condition: resolve which object it runs on, ask the function, compare.
 test :: proc(ctx: ^Context, c: gamedb.Condition) -> bool {
-	fn, known := lookup(c.function)
-	if !known || ctx.ws == nil || ctx.db == nil {
+	if ctx.ws == nil || ctx.db == nil {
 		warn_once(ctx, c.function)
 		return true // never hide content over a question we cannot answer
 	}
@@ -79,7 +78,7 @@ test :: proc(ctx: ^Context, c: gamedb.Condition) -> bool {
 	if !known_on {
 		return true
 	}
-	got, answered := fn(ctx, c, on)
+	got, answered := ask(ctx, c, on)
 	if !answered {
 		warn_once(ctx, c.function)
 		return true

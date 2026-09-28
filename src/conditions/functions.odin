@@ -169,7 +169,6 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	726 = fn_does_not_exist,
 }
 
-// (hole conditions-seam :tags (plugins mods) :sev struct) TABLE is fixed at compile time: a plugin can neither add a condition function nor replace one. Wanted: plugin entries by function index, plain-data in and out, with host queries for what Context reads.
 @(private)
 lookup :: proc(index: u16) -> (Eval, bool) {
 	if int(index) >= len(TABLE) {return nil, false}
