@@ -195,6 +195,7 @@ Snapshot :: struct {
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
 	bodies: physics.Poses, // every dynamic body in the active world
+	drops:  [dynamic]physics.Body, // the dev drop-test balls, posed in `bodies`
 	actors: [dynamic]Actor_View,
 	act:    Act_View, // what the crosshair is on
 	subtitles: [dynamic]Text_Span, // the lines being said now
@@ -204,6 +205,7 @@ Snapshot :: struct {
 
 snapshot_destroy :: proc(s: ^Snapshot) {
 	physics.poses_destroy(&s.bodies)
+	delete(s.drops)
 	delete(s.actors)
 	delete(s.subtitles)
 	delete(s.talk.choices)
@@ -248,6 +250,8 @@ publish_snapshot :: proc(g: ^Game) {
 		clear(&s.bodies.list)
 		clear(&s.bodies.at)
 	}
+	clear(&s.drops)
+	append(&s.drops, ..g.sim.drops[:])
 	view_actors(g, s)
 	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
 	view_subtitles(g, s)

@@ -868,7 +868,7 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			for b in g.sim.drops {
+			for b in g.snap.drops {
 				if m, ok := physics.posed(&g.snap.bodies, b, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
 			}
 			t_objdraw := time.tick_now()
