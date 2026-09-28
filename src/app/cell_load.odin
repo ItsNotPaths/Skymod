@@ -1080,7 +1080,6 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	t.interior = world.scene_init(t.r, t.v, t.ext_scene.collisions)
 	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
 	if t.int_phys_ok {t.interior.space = &t.int_space} // the interior's bhk* collision builds into the reusable world
-	t.interior.ws = t.ws // baseline ⊕ overlay: moved clutter reappears where it settled (Phase 3c)
 	t.interior.loaded_cells = t.ext_scene.loaded_cells // outlives this scene: an undrained cell is not lost
 	world.load_cell(&t.interior, t.db, cell_id, t.progress, t.progress_user) // reports decode progress to the load screen
 	// Build all of the interior's static collision NOW (load_cell resolved every model

@@ -65,7 +65,6 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 	s: world.Scene
 	s.chunks = make(map[gamedb.Form_ID]world.Chunk)
 	s.resident = make(map[gamedb.Form_ID]world.Resident_Ref)
-	s.ws = &state
 	defer {
 		for _, &c in s.chunks {delete(c.instances)}
 		delete(s.chunks)
@@ -173,7 +172,6 @@ test_dirty_created_ref_spawns_live :: proc(t: ^testing.T) {
 	s: world.Scene
 	s.chunks = make(map[gamedb.Form_ID]world.Chunk)
 	s.resident = make(map[gamedb.Form_ID]world.Resident_Ref)
-	s.ws = &state
 	defer {
 		for _, &c in s.chunks {delete(c.instances)}
 		delete(s.chunks)

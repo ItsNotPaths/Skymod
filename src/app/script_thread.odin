@@ -57,6 +57,7 @@ script_start :: proc(g: ^Game) {
 	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
 	clear(&g.loaded_cells)
 	clear(&st.attached)
+	// (hole loaded-cells-handoff) the attached cells come from the active scene's render chunks; the sim must take them from its own live set.
 	for cid, &c in g.fr.active_scene.chunks {
 		if c.lod == 0 {append(&st.attached, cid)}
 	}

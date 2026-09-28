@@ -149,7 +149,7 @@ Frame_State :: struct {
 
 // Game is the whole session: everything that lives from setup to teardown. One instance,
 // on run_game's stack, always passed as ^Game — several subsystems hold pointers INTO it
-// (scene.phys → phys, scene.ws → ws, the REPL closure → noclip, save_bridge → save_ft),
+// (space.phys → phys, space.ws → ws, the REPL closure → noclip, save_bridge → save_ft),
 // so its address must be stable for the session. Fields are declared in bring-up order.
 // (hole game-struct-split :sev struct) Game holds main's view, menus, dev tools, tuning and the sim boundary in one struct; per-concern structs (Dev, Menus) would make each field's owner plain.
 Game :: struct {
@@ -519,7 +519,6 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// reach loaded_cells.
 	worldstate.init(&g.sim.ws)
 	g.up.ws = true
-	g.scene.ws = &g.sim.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
 	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 
 	g.cam = Camera{yaw = 2.3, pitch = -0.3}

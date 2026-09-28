@@ -25,7 +25,6 @@ import "../gamedb"
 import smath "../math"
 import "../render"
 import "../vfs"
-import "../worldstate"
 
 // Hardcoded marker base forms (invisible editor helpers): XMarker / XMarkerHeading.
 XMARKER :: 0x0000_003B
@@ -275,7 +274,6 @@ Scene :: struct {
 	alpha:    f32, // how far into that step the frame being drawn sits
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
 	has_dyn_debug: bool,
-	ws:       ^worldstate.World_State, // borrowed world-state overlay (Phase 3c); nil = no persistence layer for this scene
 	// resident maps a ref's formID -> where its live Instance currently sits, so a runtime mutation
 	// (a Layer-1 verb) can find a loaded ref without scanning every chunk. It's a SELF-HEALING CACHE:
 	// find_resident validates each hit against the chunk map and falls back to a scan on a stale/missing
@@ -308,7 +306,6 @@ scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^assetdb.Collis
 	}
 }
 
-// (hole render-chunk :tags (threading render) :sev gap) cull_begin keeps ^Chunk pointers the tick can invalidate, and the draw passes write inst.model, hover, sel and dyn_debug into shared structs. Wanted: render chunks main owns.
 // cull_begin rebuilds the per-frame flat chunk list (s.frame_chunks) from the chunk map — one
 // map walk that every subsequent draw/shadow pass reuses instead of walking the map itself. Call
 // ONCE per frame for a scene, AFTER all streaming/loading mutations and BEFORE its first draw
@@ -791,7 +788,6 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	}
 }
 
-// (hole pick-on-render :tags (threading render) :sev gap :needs (render-chunk)) hover_pick, pick and probe_ray walk chunks with live Jolt poses; picking on main must use render chunks and published poses.
 // pick_nearest ray-casts (origin + t·dir, dir normalized) against loaded instances and
 // returns the nearest hit's chunk + index, by PRECISE ray-vs-FACE — so small detail
 // meshes and foliage are selectable, not just whatever has the biggest bounding sphere.
