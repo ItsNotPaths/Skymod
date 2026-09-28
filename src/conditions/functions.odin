@@ -909,19 +909,21 @@ fn_loc_alias_is_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID
 	return yes(loc != 0 && loc == gamedb.condition_param2_form(c))
 }
 
-// GetIsEditorLocation(location): the ref was placed in that location.
+// GetIsEditorLocation(location): the ref was placed in that location or one inside it. Records check
+// whole holds (HjaalmarchHoldLocation) on actors placed in their towns, so an exact match never fits.
 @(private = "file")
 fn_get_is_editor_location :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	loc := gamedb.editor_location(ctx.db, on)
-	return yes(loc != 0 && loc == p1(c))
+	return yes(loc != 0 && gamedb.location_within(ctx.db, loc, p1(c)))
 }
 
-// GetIsEditorLocAlias(location alias): the ref was placed in what the alias holds.
+// GetIsEditorLocAlias(location alias): as GetIsEditorLocation, on what the alias holds.
 @(private = "file")
 fn_get_is_editor_loc_alias :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	loc, ok := alias_ref(ctx, i32(c.param1))
+	area, ok := alias_ref(ctx, i32(c.param1))
 	if !ok {return 0, false}
-	return yes(loc != 0 && loc == gamedb.editor_location(ctx.db, on))
+	loc := gamedb.editor_location(ctx.db, on)
+	return yes(area != 0 && loc != 0 && gamedb.location_within(ctx.db, loc, area))
 }
 
 // HasSameEditorLocAsRef(ref, keyword) and HasSameEditorLocAsRefAlias(ref alias, keyword): both refs
