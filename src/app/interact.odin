@@ -42,7 +42,7 @@ import "../formid"
 // normal tap-to-collect never trips it.
 GRAB_HOLD_S :: f32(0.18)
 
-// Telekinesis servo: each frame we drive the held body's velocity toward the aim point (a spot down
+// Telekinesis servo: each tick we drive the held body's velocity toward the aim point (a spot down
 // the crosshair ray at `dist`) rather than teleporting it — so it shoves through the world instead
 // of tunnelling, and the existing clutter velocity clamps keep it stable. GRAB_GAIN is the spring
 // stiffness (1/s); GRAB_MAX_VEL caps the servo speed so a far snap can't fling it.
@@ -70,12 +70,11 @@ Interact :: struct {
 	dist:     f32, // current reach (wheel-adjusted)
 }
 
-// (hole activate-input :tags (threading input player) :sev gap) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: Sim_Input holds the Activate button; on a press the sim appends its resolved target to ws.activations, like a script's Activate.
-// frame_interact drives the Activate action against the crosshair target the sim resolved
-// (g.snap.act). A no-op'd target just leaves the reticle.
-frame_interact :: proc(g: ^Game) {
-	if g.menu != .None {return}
-	act_down := input.held(&g.imgr, "Activate")
+// tick_interact drives the Activate button against the crosshair target: a tap activates it, a
+// hold on a movable item grabs it with telekinesis until the button is let go.
+tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
+	if g.input.in_menu {return}
+	act_down := g.input.activate
 
 	// 1) Already grabbing: steer the body while Activate stays down; release = drop.
 	if g.interact.grabbing {
@@ -92,7 +91,7 @@ frame_interact :: proc(g: ^Game) {
 	//    still down → promote to a grab; release before that → it was a tap → collect.
 	if g.interact.pressing {
 		if act_down {
-			g.interact.held_s += g.p.dt
+			g.interact.held_s += TICK_DT
 			if g.interact.held_s >= GRAB_HOLD_S {
 				grab_begin(g)
 				g.interact.pressing = false
@@ -106,8 +105,7 @@ frame_interact :: proc(g: ^Game) {
 
 	// 3) A fresh Activate edge on what the crosshair is on. An unblocked physics item waits to learn
 	//    tap (activate) from hold (grab); anything else activates now.
-	if input.fired(&g.imgr, "Activate") && g.snap.act.present {
-		tgt := g.snap.act
+	if act_down && !g.input_was.activate && tgt.present {
 		if tgt.dyn_body != 0 && !worldstate.activation_blocked(&g.ws, tgt.form) {
 			g.interact.pressing = true
 			g.interact.press_body = tgt.dyn_body
@@ -119,16 +117,16 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
-// (hole cast-input :tags (threading input magic) :sev gap) casting and the sneak toggle call set_sneaking and script.cast_hand on main. Wanted: Sim_Input holds the cast and sneak buttons, and the sim acts on their state.
-// frame_cast casts the spell in a hand when its button fires, at what the crosshair is on, and
-// the Sneak key puts the player in or out of sneak mode.
-frame_cast :: proc(g: ^Game) {
-	if g.menu != .None {return}
-	if input.fired(&g.imgr, "Sneak") {worldstate.set_sneaking(&g.ws, formid.PLAYER, !worldstate.is_sneaking(&g.ws, formid.PLAYER))}
+// tick_cast casts the spell in a hand when its button goes down, at what the crosshair is on, and
+// the Sneak button puts the player in or out of sneak mode.
+tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
+	if g.input.in_menu {return}
+	in_, was := g.input, g.input_was
+	if in_.sneak && !was.sneak {worldstate.set_sneaking(&g.ws, formid.PLAYER, !worldstate.is_sneaking(&g.ws, formid.PLAYER))}
 	c := script.Call{ws = &g.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
-	target := g.snap.act.form if g.snap.act.present else 0
-	if input.fired(&g.imgr, "CastLeft") {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
-	if input.fired(&g.imgr, "CastRight") {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
+	target := tgt.form if tgt.present else 0
+	if in_.cast_left && !was.cast_left {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
+	if in_.cast_right && !was.cast_right {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
 }
 
 // (hole lockpicking :tags (ui player) :sev gap) a locked door or container opens like any other: no key check, no lockpicking screen, no Lockpicking XP.
@@ -207,17 +205,14 @@ grab_begin :: proc(g: ^Game) {
 	log.infof("grab: holding 0x%08X — mouse to aim, wheel for reach, release to drop", u32(g.interact.press_form))
 }
 
-// (hole grab-input :tags (threading input physics) :sev gap) telekinesis kicks a Jolt body from main every frame. Wanted: Sim_Input holds the grab button and reach; the sim holds the grab target and servos it each tick.
 // grab_update servos the held body toward the aim point (down the crosshair ray at the wheel-set
 // reach) each frame. Velocity-driven (not teleported) so it collides on the way and the clutter
 // clamps keep it stable; the body stays awake because we set its velocity every frame.
 @(private = "file")
 grab_update :: proc(g: ^Game) {
-	if g.p.input.scroll != 0 {
-		g.interact.dist = clamp(g.interact.dist + g.p.input.scroll * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
-	}
-	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0}) // crosshair
-	target := ro + rd * g.interact.dist
+	turned := g.input.wheel - g.input_was.wheel
+	g.interact.dist = clamp(g.interact.dist + turned * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
+	target := g.input.eye + g.input.aim_dir * g.interact.dist
 	cur := physics.body_position(g.fr.active_scene.phys, g.interact.body)
 	vel := (target - cur) * GRAB_GAIN
 	if sp := smath.length3(vel); sp > GRAB_MAX_VEL {

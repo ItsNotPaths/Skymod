@@ -6,6 +6,7 @@ package main
 import "core:sync"
 
 import "../ai"
+import "../input"
 import smath "../math"
 import "../physics"
 import "../render"
@@ -19,11 +20,31 @@ Sim_Input :: struct {
 	eye:    smath.Vec3, // the camera's; in noclip, where main flew the player
 	view:   smath.Mat4, // the camera's view-projection: what the player can see
 	aim:    Form_ID, // the ref the crosshair is on, within reach (aim_at); 0 = none
+	aim_dir: smath.Vec3, // the crosshair ray from `eye`
+	activate, sneak, cast_left, cast_right: bool,
+	wheel:   f32, // wheel notches turned since the session began
+	in_menu: bool, // a menu is open (dialogue does not park the sim, but blocks interaction)
 }
 
 // latch_input is this frame's Sim_Input.
 latch_input :: proc(g: ^Game) -> Sim_Input {
-	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r)), aim_at(g)}
+	g.wheel += g.p.input.scroll
+	_, dir := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	si := Sim_Input {
+		move       = g.p.input.move,
+		sprint     = g.p.input.fast,
+		yaw        = g.cam.yaw,
+		eye        = g.cam.pos,
+		view       = camera_view_proj(g.cam, render.aspect(&g.r)),
+		aim        = aim_at(g),
+		aim_dir    = dir,
+		activate   = input.held(&g.imgr, "Activate"),
+		sneak      = input.held(&g.imgr, "Sneak"),
+		cast_left  = input.held(&g.imgr, "CastLeft"),
+		cast_right = input.held(&g.imgr, "CastRight"),
+		wheel      = g.wheel,
+		in_menu    = g.menu != .None,
+	}
 	if g.fr.kb_cap {si.move = {}}
 	return si
 }
@@ -128,7 +149,7 @@ Snapshot :: struct {
 	player:  Segment, // the player's feet
 	bodies: physics.Poses, // every dynamic body in the active world
 	actors: [dynamic]Actor_View,
-	act:    Activation_Target, // what the crosshair is on
+	act:    Act_View, // what the crosshair is on
 	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
 }
 
@@ -177,7 +198,7 @@ publish_snapshot :: proc(g: ^Game) {
 		clear(&s.bodies.at)
 	}
 	view_actors(g, s)
-	s.act = resolve_activation(g, s, g.input.aim)
+	s.act = view_act(s, resolve_activation(g, g.input.aim))
 	publish(&g.snaps, s)
 }
 

@@ -234,6 +234,8 @@ Game :: struct {
 	cur_phys: ^physics.World,
 	published: Placement, // the player's cell and feet as player_publish last wrote them
 	input:       Sim_Input, // the controls the tick reads (sim.odin)
+	input_was:   Sim_Input, // the last tick's: a press is down now and up then
+	wheel:       f32, // main's running total of wheel notches, latched into Sim_Input
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	events:      Queue(Sim_Event), // what the sim told main since main last looked

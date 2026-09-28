@@ -30,7 +30,7 @@ hud_destroy :: proc(g: ^Game) {
 }
 
 // frame_hud publishes the crosshair target (resolved by the sim into g.snap.act) to the HUD host (engine.activation) and draws the HUD. Runs each gameplay frame before
-// frame_render composites the UI drawlist. Activate itself is handled in frame_interact; this only
+// frame_render composites the UI drawlist. Activate itself is handled in tick_interact; this only
 // shows the prompt. A no-op when the session failed to init.
 frame_hud :: proc(g: ^Game) {
 	if !g.hud.ok {
