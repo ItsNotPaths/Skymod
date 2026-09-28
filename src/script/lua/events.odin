@@ -371,8 +371,11 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	vm.steps = {}
 	at := time.tick_now()
 	hours := advance_clocks(vm, db, ws, dt)
-	worldstate.av_regen(ws, db, play_seconds(db, ws, dt, hours))
 	step(vm, .Clocks, &at)
+	call_rt(vm, "advance", f64(dt), hours)
+	step(vm, .Script_Clocks, &at)
+	worldstate.av_regen(ws, db, play_seconds(db, ws, dt, hours))
+	step(vm, .Regen, &at)
 	sync_refs(vm)
 	step(vm, .Refs, &at)
 	tick_effects(vm, ws, dt)
@@ -408,6 +411,8 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 // Event_Step is a part of tick_begin, for the profile.
 Event_Step :: enum {
 	Clocks,
+	Script_Clocks,
+	Regen,
 	Refs,
 	Effects,
 	Attach,
@@ -452,8 +457,8 @@ drain :: proc(vm: ^VM) -> int {
 	return call_rt(vm, "drain")
 }
 
-// advance_clocks moves the game clock by one tick at TimeScale, then every script clock field by
-// the real and game time that passed. Returns the game hours. A new game or an old save starts the
+// advance_clocks moves the game clock by one tick at TimeScale and returns the game hours that
+// passed (rt.advance moves the script clock fields by them). A new game or an old save starts the
 // clock from the globals.
 @(private = "file")
 advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32) -> f64 {
@@ -471,7 +476,6 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 	before := ws.clock.hours
 	hours := worldstate.advance_clock(ws, dt, g(ws, db, formid.TIMESCALE))
 	if math.floor(before) != math.floor(ws.clock.hours) {script.restock_vendors(db, ws)}
-	call_rt(vm, "advance", f64(dt), hours)
 	return hours
 }
 
