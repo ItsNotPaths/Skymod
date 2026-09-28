@@ -28,9 +28,11 @@ transitions_destroy :: proc(t: ^Transitions) {
 	delete(t.persistent)
 }
 
-// tick_location sends OnLocationChange(old, new) to an actor and its aliases, and queues a Change
-// Location story event (actor 1 the actor, location 1 the old, location 2 the new): for the player
-// when its location differs from the last tick's, for NPCs as the AI saw them move.
+// tick_location sends OnLocationChange(old, new) to an actor and its aliases: the player when its
+// location differs from the last tick's, NPCs as the AI saw them move. Only the player's controller
+// queues a Change Location story event (actor 1 the actor, location 1 the old, location 2 the new):
+// none of the 166 vanilla CLOC quest nodes checks that actor 1 is the player, so an NPC's move would
+// start the bounty and dungeon quests.
 tick_location :: proc(vm: ^VM, ws: ^worldstate.World_State, t: ^Transitions, now: script.Form_ID) {
 	if old, known := t.location.?; known && old != now {location_changed(vm, ws, formid.PLAYER, old, now)}
 	t.location = now
@@ -41,7 +43,9 @@ tick_location :: proc(vm: ^VM, ws: ^worldstate.World_State, t: ^Transitions, now
 @(private = "file")
 location_changed :: proc(vm: ^VM, ws: ^worldstate.World_State, actor, old, now: script.Form_ID) {
 	send(vm, actor, "OnLocationChange", old, now)
-	worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = actor, location1 = old, location2 = now})
+	if actor == formid.PLAYER {
+		worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = actor, location1 = old, location2 = now})
+	}
 }
 
 // tick_transitions compares `now`, the cells attached this tick, with ws.attached and queues the
