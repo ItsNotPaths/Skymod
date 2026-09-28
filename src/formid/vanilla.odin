@@ -2,6 +2,7 @@ package formid
 
 // Skyrim.esm forms the engine names directly. Skyrim.esm is slot 0, so the Form_ID is its local id.
 
+// (hole player-controller :tags player :sev blocker) no controller: 163 `== PLAYER` compares in ~45 files stand in for "the actor input drives", so no NPC can take over the player or be taken over. Wanted: a saved, movable controller store that 0x14 and Game.GetPlayer() resolve through; sort each compare into controlled-actor or a stated fixed-0x14 reason.
 PLAYER :: Form_ID(0x14)
 PLAYER_BASE :: Form_ID(0x7) // the NPC_ the player ref places
 GOLD :: Form_ID(0xF) // Gold001
