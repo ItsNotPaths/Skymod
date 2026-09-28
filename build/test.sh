@@ -45,7 +45,20 @@ echo "==> holes (swiss sync: ws.md)"
 
 # src/transpile must stay liftable into its own repo: core:* and formats/pex, nothing else
 # (docs/papyrus-transpiler.md, "The detachable contract").
-# (hole seam-import-check :tags plugins :sev struct) nothing checks the seam packages' imports: plugin, detection, combat, sight, condfn and actorstate may import only core:*, base:*, formid and plugin, but an import of worldstate would compile. Wanted: a check like the one below.
+# The plugin seams see the world only through their Host (ws.md Workstream H): core:*, base:*,
+# formid and plugin, nothing else.
+echo "==> seam imports"
+for pkg in plugin detection combat sight condfn actorstate; do
+    bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/$pkg/*.odin \
+           | grep -vE '^(core:|base:|\.\./formid$|\.\./plugin$)' || true)"
+    if [ -n "$bad" ]; then
+        echo "  src/$pkg imports outside its seam:" >&2
+        echo "$bad" | sed 's/^/    /' >&2
+        exit 1
+    fi
+done
+echo "  clean"
+
 echo "==> transpile detachability"
 bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/transpile/*.odin \
        | grep -vE '^(core:|base:|\.\./formats/pex$)' || true)"
