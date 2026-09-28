@@ -19,6 +19,10 @@ Form_ID :: gamedb.Form_ID
 
 EVAL_EVERY :: f32(1) // seconds between package selections
 
+// OFFSCREEN_TURNS: actors outside the loaded cells step in turns, each once every this many ticks
+// with that many ticks' time (10 Hz at 60), the way detection's viewers look.
+OFFSCREEN_TURNS :: 6
+
 // Agent is an actor's running package. None of it is saved.
 Agent :: struct {
 	pack:      Form_ID,
@@ -50,6 +54,7 @@ Agent :: struct {
 World :: struct {
 	agents:     map[Form_ID]Agent,
 	persistent: [dynamic]Form_ID, // the persistent actor placements, which live while unloaded
+	turn:       u64, // counts tick_unloaded's ticks: whose turn it is (OFFSCREEN_TURNS)
 	present:    [dynamic]Form_ID, // the loaded actors and the player this tick: whom combat and guards look at
 	mesh:       nav.Path_Mesh,
 	routes:     nav.Route_Index,
@@ -249,9 +254,13 @@ tick_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 			if r, ok := gamedb.ref_by_formid(db, id); ok && gamedb.is_actor(db, r.base) {append(&w.persistent, id)}
 		}
 	}
-	for id in w.persistent {step_unloaded(w, ws, db, loaded, id, dt)}
+	w.turn += 1
+	step := dt * OFFSCREEN_TURNS
+	for id in w.persistent {
+		if (u64(id) + w.turn) % OFFSCREEN_TURNS == 0 {step_unloaded(w, ws, db, loaded, id, step)}
+	}
 	for id, cr in ws.created {
-		if gamedb.is_actor(db, cr.base) {step_unloaded(w, ws, db, loaded, id, dt)}
+		if (u64(id) + w.turn) % OFFSCREEN_TURNS == 0 && gamedb.is_actor(db, cr.base) {step_unloaded(w, ws, db, loaded, id, step)}
 	}
 }
 
