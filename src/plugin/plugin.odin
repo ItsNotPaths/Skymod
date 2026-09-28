@@ -99,6 +99,52 @@ destroy :: proc(p: ^Plugins) {
 	delete(p.owners)
 }
 
+// A plugin that keeps state across saves exports skymod_id (its ID, such as "pluginname.UUID"),
+// skymod_save and skymod_load. Saves key its data by that ID.
+Id_Proc :: #type proc "c" () -> cstring
+Save_Proc :: #type proc "c" (out: [^]u8, cap: int) -> int // the size it needs; written only when that fits in cap
+Load_Proc :: #type proc "c" (data: [^]u8, len: int) // len 0: no saved data, start fresh
+
+// save_data puts each saving plugin's data into `blobs` under its ID. The data of plugins that are
+// gone stays as it is.
+save_data :: proc(p: ^Plugins, blobs: ^map[string][]u8) {
+	for pl in p.list {
+		id, save, _, ok := saves(pl)
+		if !ok {continue}
+		n := save(nil, 0)
+		data := make([]u8, max(n, 0))
+		if n > 0 && save(raw_data(data), n) != n {
+			log.errorf("plugin: %s changed its save size while saving; its data is not saved", pl.path)
+			delete(data)
+			continue
+		}
+		if old, had := blobs[id]; had {
+			delete(old)
+			blobs[id] = data
+		} else {
+			blobs[strings.clone(id)] = data
+		}
+	}
+}
+
+// load_data hands each saving plugin its data from `blobs`, or none.
+load_data :: proc(p: ^Plugins, blobs: map[string][]u8) {
+	for pl in p.list {
+		id, _, load, ok := saves(pl)
+		if !ok {continue}
+		data := blobs[id]
+		load(raw_data(data), len(data))
+	}
+}
+
+@(private = "file")
+saves :: proc(pl: Plugin) -> (id: string, save: Save_Proc, load: Load_Proc, ok: bool) {
+	id_sym := dynlib.symbol_address(pl.lib, "skymod_id") or_return
+	save_sym := dynlib.symbol_address(pl.lib, "skymod_save") or_return
+	load_sym := dynlib.symbol_address(pl.lib, "skymod_load") or_return
+	return string((Id_Proc(id_sym))()), Save_Proc(save_sym), Load_Proc(load_sym), true
+}
+
 // owner is the plugin that owns a seam, or "built-in".
 owner :: proc(p: ^Plugins, seam: string) -> string {
 	return p.owners[seam] or_else "built-in"

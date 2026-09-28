@@ -104,6 +104,7 @@ Overlay :: struct {
 	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
 	no_pc_dialogue:  Form_Set,                     // Actor.AllowPCDialogue(false): will not talk to the player
 	states:          actorstate.Model,             // what each actor does with its body
+	plugin_blobs:    map[string][]u8,              // native plugins' saved data by plugin ID, orphans too
 	grounded:        Form_Set,                     // Actor.SetAllowFlying(false): may not fly
 	dont_move:       Form_Set,                     // Actor.SetDontMove: stands (ai_link.odin)
 	restrained:      Form_Set,                     // Actor.SetRestrained: stands
@@ -343,6 +344,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.teammates = make(Form_Set)
 	o.no_pc_dialogue = make(Form_Set)
 	actorstate.init(&o.states)
+	o.plugin_blobs = make(map[string][]u8)
 	o.unreported = make(Form_Set)
 	o.grounded = make(Form_Set)
 	o.dont_move = make(Form_Set)
@@ -447,6 +449,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.teammates)
 	delete(o.no_pc_dialogue)
 	actorstate.destroy(&o.states)
+	for id, data in o.plugin_blobs {delete(id);delete(data)}
+	delete(o.plugin_blobs)
 	delete(o.unreported)
 	delete(o.grounded)
 	delete(o.dont_move)

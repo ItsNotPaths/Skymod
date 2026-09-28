@@ -652,6 +652,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	} else {
 		log.info("menu: New Game")
 	}
+	plugin.load_data(&g.plugins, g.sim.ws.plugin_blobs) // a new game hands them none
 
 	// Quests, aliases and persistent refs get their scripts: OnInit for the forms a Continue's save
 	// does not know, saved members for the ones it does.

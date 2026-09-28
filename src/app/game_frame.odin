@@ -554,6 +554,7 @@ quicksave :: proc(g: ^Game) {
 		game_cell    = player.cell,
 	}
 	if g.repl_ok {slua.save_scripts(&g.sim.repl.vm)}
+	plugin.save_data(&g.plugins, &g.sim.ws.plugin_blobs)
 	if worldstate.save_to_file(&g.sim.ws, g.quicksave_path, man, &g.save_bridge) {
 		g.save_no += 1
 		log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.sim.ws))
@@ -572,6 +573,7 @@ quickload :: proc(g: ^Game) {
 	}
 	log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
 	if g.repl_ok {slua.reload_scripts(&g.sim.repl.vm, &g.db)}
+	plugin.load_data(&g.plugins, g.sim.ws.plugin_blobs)
 	g.sim.trans.location = nil
 	// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
 	// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).

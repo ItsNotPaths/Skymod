@@ -70,7 +70,7 @@ run_mod_manager :: proc(
 		}
 		profiles := discover_profiles(base, context.temp_allocator)
 
-		// (hole save-orphan-cleanup :tags (mods save ui) :sev gap :needs (plugin-save-blob)) no button cleans a save of what removed mods left in it: plugin blobs whose plugin is gone, and script state of scripts no mod ships any more (user 2026-09-28).
+		// (hole save-orphan-cleanup :tags (mods save ui) :sev gap) no button cleans a save of what removed mods left in it: plugin blobs whose plugin is gone, and script state of scripts no mod ships any more (user 2026-09-28).
 		res := tools.mod_manager_screen(profiles, active, mods_view, plugins_view, missing_view)
 
 		// vanilla is the immutable baseline: drop any plugin-list edits (switch/create still apply).

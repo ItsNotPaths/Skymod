@@ -24,6 +24,7 @@ import "core:hash"
 import "core:log"
 import "core:os"
 import "core:reflect"
+import "core:slice"
 import "core:strings"
 import "../actorstate"
 import "../formid"
@@ -258,6 +259,10 @@ Saved_Inv :: struct {
 	item:  Form_ID,
 	count: i32,
 }
+Saved_Blob :: struct {
+	plugin: string, // the plugin's ID
+	data:   []u8,
+}
 Saved_Flags :: struct {
 	form:  Form_ID,
 	flags: Flag_Override,
@@ -357,6 +362,7 @@ Save_Body :: struct {
 	teammates:     []Form_ID,
 	no_pc_dialogue: []Form_ID,
 	actor_states:  []actorstate.Saved,
+	plugin_blobs:  []Saved_Blob,
 	grounded:      []Form_ID,
 	dont_move:     []Form_ID,
 	restrained:    []Form_ID,
@@ -390,7 +396,6 @@ Save_Body :: struct {
 // save_to_file writes the overlay + manifest to `path` as a `.skysave`. The manifest's delta_count
 // is filled from the overlay (the caller need only set save_number/created_unix/game_cell). Returns
 // false on a marshal or write failure.
-// (hole plugin-save-blob :tags (plugins save) :sev gap) a plugin has no saved state. Wanted: one opaque blob per plugin in the save; the save still loads with the plugin gone.
 save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^Form_Bridge = nil) -> bool {
 	man := m
 	man.schema_version = FORMAT_VERSION
@@ -640,6 +645,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		teammates     = save_set(ws.teammates),
 		no_pc_dialogue = save_set(ws.no_pc_dialogue),
 		actor_states  = actorstate.saved(&ws.states),
+		plugin_blobs  = saved_blobs(ws),
 		grounded      = save_set(ws.grounded),
 		dont_move     = save_set(ws.dont_move),
 		restrained    = save_set(ws.restrained),
@@ -848,6 +854,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
 	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
+	for b in body.plugin_blobs {ws.plugin_blobs[strings.clone(b.plugin)] = slice.clone(b.data)}
 	for s in body.actor_states {
 		if actor, ok := rf(remap, have_remap, s.actor); ok {actorstate.restore(&ws.states, {actor, s.state})}
 	}
@@ -1336,4 +1343,11 @@ array_to_mat :: proc(a: [16]f32) -> matrix[4, 4]f32 {
 		}
 	}
 	return m
+}
+
+@(private = "file")
+saved_blobs :: proc(ws: ^World_State) -> []Saved_Blob {
+	out := make([dynamic]Saved_Blob, 0, len(ws.plugin_blobs), context.temp_allocator)
+	for id, data in ws.plugin_blobs {append(&out, Saved_Blob{id, data})}
+	return out[:]
 }
