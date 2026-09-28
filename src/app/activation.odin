@@ -49,11 +49,9 @@ activate_kind_tag := [Activate_Kind]string {
 	.Book      = "book",
 }
 
-// Activation_Target is the resolved crosshair target. `present` false = nothing activatable is
-// targeted (the HUD shows just the reticle). `name` is the object's own FULL name; `dest` is a door's
-// destination place name ("Riverwood Trader"), both borrowed from the sim. `form` is the targeted
-// REFR. `dyn_body` is the movable-clutter physics body carrying the target (0 = static/none) —
-// non-zero means it can be picked up (tick_interact).
+// Activation_Target is the resolved crosshair target; `present` false shows just the reticle. `dest` is
+// a door's destination ("Riverwood Trader"); both strings are borrowed from the sim. A non-zero
+// `dyn_body` can be picked up.
 Activation_Target :: struct {
 	present:  bool,
 	kind:     Activate_Kind,
@@ -120,19 +118,19 @@ resolve_activation :: proc(g: ^Game, form: Form_ID) -> Activation_Target {
 		kind := Activate_Kind.Body if worldstate.is_dead(&g.sim.ws, &g.db, form) else .Actor
 		return {kind = kind, name = name, form = form, present = name != ""}
 	}
-	inst, _, ok := world.find_ref(active_space(g), form)
-	if !ok || inst.disabled {return {}}
+	r, _, ok := world.find_ref(active_space(g), form)
+	if !ok || r.disabled {return {}}
 	t := Activation_Target {
-		kind     = .Door if inst.has_tp else classify_base(&g.db, gamedb.Form_ID(inst.base)),
+		kind     = .Door if r.has_tp else classify_base(&g.db, gamedb.Form_ID(r.base)),
 		name     = gamedb.name_of(&g.db, form),
 		locked   = worldstate.is_locked(&g.sim.ws, &g.db, form),
 		form     = form,
-		dyn_body = inst.dyn_body, // non-zero → this REFR is carried by a movable clutter body (grabbable)
+		dyn_body = r.dyn_body, // non-zero → this REFR is carried by a movable clutter body (grabbable)
 	}
-	if inst.has_tp {
+	if r.has_tp {
 		// A load door with a mesh (manual door / city gate). Its destination place name is the prompt
 		// subject ("Open Riverwood Trader"). Auto/cave markers have no mesh → never picked → no prompt.
-		t.dest = door_dest_label(&g.trav, gamedb.Form_ID(inst.tp_door))
+		t.dest = door_dest_label(&g.trav, gamedb.Form_ID(r.tp_door))
 	}
 	// Only surface a prompt for something worth naming: a door always (it has a destination), else
 	// an object with an actual FULL name. Unnamed clutter/activators show nothing (just the reticle).

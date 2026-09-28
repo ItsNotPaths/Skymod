@@ -198,7 +198,6 @@ take :: proc(l: ^Latest($T), cur: ^T) -> bool {
 // Snapshot is what the sim shows main after a tick. A pose is the segment it moved along in that
 // tick, so main blends inside the newest snapshot and a teleport (from == to) never slides.
 Snapshot :: struct {
-	tick:    u64,
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
 	bodies: world.Poses, // every dynamic body of the active scene's refs
@@ -246,7 +245,6 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 // main makes to the sim between ticks (a teleport).
 publish_snapshot :: proc(g: ^Game) {
 	s := &g.sim.snap_back
-	s.tick = g.tick.total
 	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
 	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}

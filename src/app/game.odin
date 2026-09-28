@@ -107,7 +107,6 @@ Tick :: struct {
 	prof:  Tick_Profile,
 }
 
-// Tick_Part is a timed part of game_tick.
 Tick_Part :: enum {
 	Commands,
 	Jail,

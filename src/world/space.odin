@@ -76,18 +76,19 @@ space_destroy :: proc(sp: ^Space) {
 // terrain body. Object bodies follow in sync_physics.
 add_cell :: proc(sp: ^Space, db: ^gamedb.DB, chunk: ^Chunk) {
 	remove_cell(sp, chunk.cell_form_id)
-	c := Sim_Cell {
-		cell     = chunk.cell_form_id,
-		gx       = chunk.gx,
-		gy       = chunk.gy,
-		has_grid = chunk.has_grid,
-		actors   = chunk.actors,
-	}
-	chunk.actors = nil
-	for inst in chunk.instances {append(&c.refs, ref_of(sp, inst))}
+	c := Sim_Cell{cell = chunk.cell_form_id, gx = chunk.gx, gy = chunk.gy, has_grid = chunk.has_grid}
+	take_refs(sp, &c, chunk)
 	build_terrain_body(sp, db, &c)
 	sp.cells[c.cell] = c
 	index_refs(sp, &sp.cells[c.cell])
+}
+
+// take_refs fills a cell with copies of a render chunk's instances and takes its actors.
+@(private)
+take_refs :: proc(sp: ^Space, c: ^Sim_Cell, chunk: ^Chunk) {
+	for inst in chunk.instances {append(&c.refs, ref_of(sp, inst))}
+	delete(c.actors)
+	c.actors, chunk.actors = chunk.actors, nil
 }
 
 // ref_of is the sim's copy of a render instance.
@@ -127,10 +128,7 @@ rebuild_cell :: proc(sp: ^Space, chunk: ^Chunk) {
 	for &r in c.refs {remove_ref_bodies(sp.phys, c, &r)}
 	deindex_refs(sp, c)
 	clear(&c.refs)
-	for inst in chunk.instances {append(&c.refs, ref_of(sp, inst))}
-	delete(c.actors)
-	c.actors = chunk.actors
-	chunk.actors = nil
+	take_refs(sp, c, chunk)
 	index_refs(sp, c)
 	c.phys_done = false
 }
@@ -159,8 +157,8 @@ remove_ref :: proc(sp: ^Space, form: Form_ID) {
 	index_refs(sp, c)
 }
 
-// find_ref is the live sim ref for a form, and its cell. The resident index is a cache: a stale or
-// missing entry falls back to a scan.
+// find_ref is the live sim ref for a form, and its cell; none in a nil space. The resident index is
+// a cache: a stale or missing entry falls back to a scan.
 find_ref :: proc(sp: ^Space, form: Form_ID) -> (r: ^Sim_Ref, cell: ^Sim_Cell, ok: bool) {
 	if sp == nil || form == 0 {return}
 	if loc, hit := sp.resident[form]; hit {

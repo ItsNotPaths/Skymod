@@ -472,7 +472,7 @@ drop_ball :: proc(g: ^Game, at: smath.Vec3) {
 }
 
 // shove kicks nearby movable clutter so it scatters and resettles — a visible check of the 3b
-// dynamic-body path (interiors only, where clutter is dynamic).
+// dynamic-body path.
 shove :: proc(g: ^Game, at: smath.Vec3) {
 	t_shove := time.tick_now()
 	sp := active_space(g)
@@ -683,7 +683,6 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
 // (like Skyrim's city load). An exterior return is instant (kept-warm window) — nothing to do.
-// Package-visible: the door event handler calls it too.
 traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	switch kind {
 	case .City, .Jump:

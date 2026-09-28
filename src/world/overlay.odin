@@ -122,7 +122,7 @@ disable_ref :: proc(s: ^Scene, form_id, cell: Form_ID, disabled: bool) -> bool {
 		inst.disabled = disabled
 		inst.vis = .Hidden if disabled else .Show
 	}
-	if s.space != nil {set_ref_disabled(s.space, form_id, disabled)}
+	set_ref_disabled(s.space, form_id, disabled)
 	return true
 }
 
@@ -210,34 +210,29 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 			delete_key(&s.resident, form_id)
 			index_instances(s, chunk)
 		}
-		if s.space != nil {remove_ref(s.space, form_id)}
+		remove_ref(s.space, form_id)
 		return
 	}
 	inst, _, res := find_resident(s, form_id)
 	if !res {
 		return
 	}
-	// Disabled wins over transform (a hidden ref ignores Moved/Scaled, as in apply_overlay).
-	if .Disabled in d.live && d.disabled {
-		inst.disabled = true
-		inst.vis = .Hidden
-		if s.space != nil {set_ref_disabled(s.space, form_id, true)}
-		return
+	if .Disabled in d.live {
+		inst.disabled = d.disabled
+		inst.vis = .Hidden if d.disabled else .Show
+		set_ref_disabled(s.space, form_id, d.disabled)
+		if d.disabled {return} // a hidden ref ignores Moved/Scaled, as in apply_overlay
 	}
-	// Re-enable a previously-hidden ref (its collision rebuilds).
-	if .Disabled in d.live && !d.disabled && inst.disabled {
-		inst.disabled = false
-		inst.vis = .Show
-		if s.space != nil {set_ref_disabled(s.space, form_id, false)}
-	}
-	if .Moved in d.live {
-		inst.world = d.world
-		inst.pos = d.pos
-	} else if .Scaled in d.live {
+	switch {
+	case .Moved in d.live:
+		inst.world, inst.pos = d.world, d.pos
+	case .Scaled in d.live:
 		inst.scale = d.scale
 		inst.world = smath.trs(inst.pos, inst.rot, d.scale)
+	case:
+		return
 	}
-	if s.space != nil && (.Moved in d.live || .Scaled in d.live) {place_ref(s.space, form_id, inst.world, inst.pos, inst.scale)}
+	place_ref(s.space, form_id, inst.world, inst.pos, inst.scale)
 }
 
 // --- created refs (the ADDITIVE half of baseline ⊕ overlay; docs/live-state.md §6 created-ref store) ---

@@ -65,13 +65,13 @@ tick_actor_bodies :: proc(g: ^Game) {
 	ai.track_cells(&g.sim.agents, &g.sim.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
 	ai.skip_time(&g.sim.agents, &g.sim.ws, &g.db)
 	seen := make(map[Form_ID]bool, context.temp_allocator)
-	for cell, &chunk in sp.cells {
-		for form in chunk.actors {
-			if d, ok := worldstate.get(&g.sim.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, &chunk)}
+	for id, &cell in sp.cells {
+		for form in cell.actors {
+			if d, ok := worldstate.get(&g.sim.ws, form); !ok || .Moved not_in d.live || d.cell == id {actor_body_keep(g, phys, form, &seen, &cell)}
 		}
-		for form in worldstate.created_in(&g.sim.ws, cell) {actor_body_keep(g, phys, form, &seen, &chunk)}
-		for form in worldstate.refs_in(&g.sim.ws, cell) {
-			if d, _ := worldstate.get(&g.sim.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
+		for form in worldstate.created_in(&g.sim.ws, id) {actor_body_keep(g, phys, form, &seen, &cell)}
+		for form in worldstate.refs_in(&g.sim.ws, id) {
+			if d, _ := worldstate.get(&g.sim.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &cell)} // moved in by a script
 		}
 	}
 	lap(g, .Actors, &t)
@@ -155,11 +155,11 @@ READY_RADIUS :: f32(1024) // collision this near must exist before a capsule app
 SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit under the ground; the capsule settles
 
 @(private = "file")
-actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, chunk: ^world.Sim_Cell) {
+actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, cell: ^world.Sim_Cell) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := worldstate.ref_pos(&g.sim.ws, &g.db, form)
-	if form not_in g.sim.actor_bodies && !world.collision_ready_near(chunk, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
+	if form not_in g.sim.actor_bodies && !world.collision_ready_near(cell, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
 	capsule := actor_capsule(g, form)
 	if b, ok := &g.sim.actor_bodies[form]; ok && b.capsule == capsule {
 		if b.placed != pos {
