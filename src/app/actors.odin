@@ -6,6 +6,7 @@ package main
 import "core:fmt"
 import "core:math"
 import "core:math/linalg"
+import "core:time"
 import imgui "../../vendor/odin-imgui"
 import "../ai"
 import "../assetdb"
@@ -56,9 +57,12 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 tick_actor_bodies :: proc(g: ^Game) {
 	phys := g.fr.active_scene.phys
 	if phys == nil {return}
+	t := time.tick_now()
+	defer lap(g, .Actors, &t)
 	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
 	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
 	nav.rebuild(&g.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
+	lap(g, .Nav, &t)
 	ai.track_cells(&g.agents, &g.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
 	ai.skip_time(&g.agents, &g.ws, &g.db)
 	seen := make(map[Form_ID]bool, context.temp_allocator)
@@ -71,7 +75,9 @@ tick_actor_bodies :: proc(g: ^Game) {
 			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
 		}
 	}
+	lap(g, .Actors, &t)
 	detection.tick(&g.detection, &g.ws, &g.db, seen, TICK_DT) // before combat reads it
+	lap(g, .Detection, &t)
 	ai.set_present(&g.agents, seen)
 	worldstate.tick_crime(&g.ws, &g.db, TICK_DT)
 	gone := make([dynamic]Form_ID, context.temp_allocator)

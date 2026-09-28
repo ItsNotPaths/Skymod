@@ -70,9 +70,8 @@ Game_Up :: struct {
 // Per-phase frame-time profile (ms summed over the diag window, averaged on print). Finds
 // "what's eating fps": which phase's average grows as the session runs. frames = denominator.
 Frame_Profile :: struct {
-	frames:                      int,
-	ticks:                       int, // fixed sim ticks over the window — ≈60/s when the sim keeps up
-	stream, phys, render, frame: f64, // accumulated ms
+	frames:                int,
+	stream, render, frame: f64, // accumulated ms; the sim's own time is Tick.prof
 	// Per-pass CPU command-recording times (subset of render). `acquire` is the swapchain
 	// acquire — it BLOCKS when the GPU is behind, so a high acquire with low pass times means
 	// GPU-bound; high pass times mean CPU(draw-submission)-bound. Sum of passes + acquire vs
@@ -83,7 +82,7 @@ Frame_Profile :: struct {
 // Slow-frame detector (diagnostic): snapshot of the accumulated phase timers at the previous
 // frame end, so a >SLOW_FRAME_MS frame can be attributed to its phase (which ate the hitch).
 Slow_Snap :: struct {
-	stream, phys, render, acquire: f64,
+	stream, sim, render, acquire: f64,
 }
 
 // Fixed simulation tick (docs/shipped.md §E). Logic and physics advance in whole
@@ -105,6 +104,36 @@ Tick :: struct {
 	alpha: f32, // accum/TICK_DT — what physics + the camera interpolate on
 	total: u64, // ticks since session start: the logic clock script deadlines will count in
 	temp:  runtime.Default_Temp_Allocator, // the tick's context.temp_allocator, wiped after each tick
+	prof:  Tick_Profile,
+}
+
+// Tick_Part is a timed part of game_tick.
+Tick_Part :: enum {
+	Jail,
+	Follow,
+	Activations,
+	Scene,
+	Locomotion,
+	Nav,
+	Detection,
+	Actors,
+	Projectiles,
+	Physics,
+	Traversal,
+}
+
+// Tick_Profile is the sim's time over the diag window, in accumulated ms. The script phases are
+// apart from the parts: they run on the script thread, over render.
+Tick_Profile :: struct {
+	ticks:   int,
+	ms:      [Tick_Part]f64,
+	scripts: f64,
+}
+
+// sim_ms is the profile's main-thread sim time: every part, without the script phases.
+sim_ms :: proc(p: Tick_Profile) -> (ms: f64) {
+	for v in p.ms {ms += v}
+	return
 }
 
 // Per-frame derived state, recomputed at the top of every game_frame and shared between the

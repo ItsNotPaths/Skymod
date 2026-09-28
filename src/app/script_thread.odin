@@ -7,6 +7,7 @@ package main
 import "base:runtime"
 import "core:sync"
 import "core:thread"
+import "core:time"
 
 import "../render"
 import slua "../script/lua"
@@ -19,6 +20,7 @@ Script_Thread :: struct {
 	quit:     bool,
 	pending:  bool, // a tick's script phase is due and has not started
 	running:  bool, // started, not joined
+	ms:       f64, // the last phase's time, written by the script thread before `done`
 	// The phase's inputs, owned here: the main thread's copies change or free while it runs.
 	loaded:   [dynamic]Form_ID,
 	attached: [dynamic]Form_ID,
@@ -72,6 +74,7 @@ script_join :: proc(g: ^Game) {
 	if !st.running {return}
 	sync.sema_wait(&st.done)
 	st.running = false
+	g.tick.prof.scripts += st.ms
 	g.ws.script_phase = false
 }
 
@@ -92,8 +95,10 @@ script_thread_proc :: proc(t: ^thread.Thread) {
 	for {
 		sync.sema_wait(&st.go)
 		if st.quit {return}
+		t := time.tick_now()
 		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, st.loaded[:], st.attached[:], TICK_DT)
 		slua.tick_end(&g.repl.vm, TICK_DT)
+		st.ms = time.duration_milliseconds(time.tick_since(t))
 		free_all(context.temp_allocator)
 		sync.sema_post(&st.done)
 	}

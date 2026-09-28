@@ -14,6 +14,7 @@ package main
 
 import "base:runtime"
 
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:os"
@@ -89,7 +90,7 @@ game_frame :: proc(g: ^Game) {
 	for g.tick.accum >= TICK_DT && !world_paused(g) {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1
-		g.prof.ticks += 1
+		g.tick.prof.ticks += 1
 		game_tick(g)
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
@@ -120,15 +121,16 @@ game_frame :: proc(g: ^Game) {
 
 	// Slow-frame detector: attribute any hitch to its phase (which one's delta dominates points
 	// at the cause — physics, render/GPU-stall, or streaming). Fires on the H-shove freeze.
+	sim := sim_ms(g.tick.prof)
 	if fms := time.duration_milliseconds(time.tick_since(frame_t0)); fms > SLOW_FRAME_MS {
 		log.warnf(
-			"SLOW FRAME %.0fms — stream=%.1f phys=%.1f render=%.1f (acquire=%.1f)",
+			"SLOW FRAME %.0fms — stream=%.1f sim=%.1f render=%.1f (acquire=%.1f)",
 			fms,
-			g.prof.stream - g.slowsnap.stream, g.prof.phys - g.slowsnap.phys,
+			g.prof.stream - g.slowsnap.stream, sim - g.slowsnap.sim,
 			g.prof.render - g.slowsnap.render, g.prof.acquire - g.slowsnap.acquire,
 		)
 	}
-	g.slowsnap = {g.prof.stream, g.prof.phys, g.prof.render, g.prof.acquire}
+	g.slowsnap = {g.prof.stream, sim, g.prof.render, g.prof.acquire}
 
 	// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 	// exactly one frame — UI string formatting, draw lists, transient buffers.
@@ -136,7 +138,6 @@ game_frame :: proc(g: ^Game) {
 		free_all(context.temp_allocator)
 }
 
-// (hole tick-profile :tags threading :sev polish) game_tick has one phys timer, and g.prof is written by both sides; each tick part (jail, activations, scene select, locomotion, actor bodies, projectiles, physics, traversal, scripts) needs its own timer in a sim-owned profile.
 // game_tick is ONE fixed simulation step — everything whose outcome must not depend on the
 // display rate. The previous tick's scripts finish first and their activations run (a door
 // crossing is a transition, between ticks). Then scene select re-homes the capsule before it
@@ -147,17 +148,34 @@ game_frame :: proc(g: ^Game) {
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
-	script_run_pending(g)
+	script_run_pending(g) // timed as scripts, at the join
+	t := time.tick_now()
 	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
+	lap(g, .Jail, &t)
 	player_follow(g)
+	lap(g, .Follow, &t)
 	tick_activations(g)
+	lap(g, .Activations, &t)
 	frame_scene_select(g)
+	lap(g, .Scene, &t)
 	tick_locomotion(g)
-	tick_actor_bodies(g)
+	lap(g, .Locomotion, &t)
+	tick_actor_bodies(g) // laps its own parts
+	t = time.tick_now()
 	tick_projectiles(g)
+	lap(g, .Projectiles, &t)
 	frame_physics(g)
+	lap(g, .Physics, &t)
 	frame_traversal(g)
+	lap(g, .Traversal, &t)
 	g.scripts.pending = true
+}
+
+// lap adds the time since `t` to a tick part and restarts `t`.
+lap :: proc(g: ^Game, part: Tick_Part, t: ^time.Tick) {
+	now := time.tick_now()
+	g.tick.prof.ms[part] += time.duration_milliseconds(time.tick_diff(t^, now))
+	t^ = now
 }
 
 // frame_diag emits the periodic memory/cache/leak probe + the frame-time profile (every ~3s).
@@ -185,9 +203,9 @@ frame_diag :: proc(g: ^Game) {
 	if g.prof.frames > 0 {
 		inv := 1.0 / f64(g.prof.frames)
 		log.infof(
-			"prof: frame=%.2fms stream=%.2f phys=%.2f render=%.2f (avg/%d frames, %d sim ticks)",
-			g.prof.frame * inv, g.prof.stream * inv, g.prof.phys * inv, g.prof.render * inv, g.prof.frames,
-			g.prof.ticks,
+			"prof: frame=%.2fms stream=%.2f sim=%.2f render=%.2f (avg/%d frames, %d sim ticks)",
+			g.prof.frame * inv, g.prof.stream * inv, sim_ms(g.tick.prof) * inv, g.prof.render * inv,
+			g.prof.frames, g.tick.prof.ticks,
 		)
 		// Render breakdown (ms): acquire = GPU-bound stall; the rest are CPU draw-submission
 		// per pass. If acquire ≫ passes, we're GPU-bound (fix = fewer/cheaper draws + verts);
@@ -198,7 +216,15 @@ frame_diag :: proc(g: ^Game) {
 			g.prof.objdraw * inv, g.prof.grass * inv, g.prof.water * inv, g.prof.effects * inv,
 		)
 	}
+	if tp := g.tick.prof; tp.ticks > 0 {
+		// Sim breakdown (avg ms per tick): the part that climbs is what stalls the frame.
+		inv := 1.0 / f64(tp.ticks)
+		b := strings.builder_make(context.temp_allocator)
+		for ms, part in tp.ms {fmt.sbprintf(&b, " %v=%.2f", part, ms * inv)}
+		log.infof("prof.tick:%s scripts=%.2f (avg/%d ticks)", strings.to_string(b), tp.scripts * inv, tp.ticks)
+	}
 	g.prof = {}
+	g.tick.prof = {}
 	// Leak probe: bodies/instances should be FLAT when the player stands still. Δ is the
 	// change since the last window — a persistent + climb with no movement = a missing
 	// release path (chunks not freeing bodies, instances re-accumulating).
@@ -556,7 +582,6 @@ player_restore :: proc(g: ^Game) -> Traversal_Kind {
 // the exterior keeps building as cells stream in.
 @(private = "file")
 frame_physics :: proc(g: ^Game) {
-	t_phys := time.tick_now()
 	if g.cur_phys != nil {
 		// New cells streaming in add static bodies; rebuild the broadphase the frames they
 		// do (made > 0) so the quad-tree stays balanced — without this the exterior tree
@@ -586,7 +611,6 @@ frame_physics :: proc(g: ^Game) {
 			)
 		}
 	}
-	g.prof.phys += time.duration_milliseconds(time.tick_since(t_phys))
 }
 
 // frame_traversal drives the PROXIMITY half of base door traversal: invisible auto-load doors
