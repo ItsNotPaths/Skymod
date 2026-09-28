@@ -9,6 +9,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:strings"
+import "../actorstate"
 import "../combat"
 import "../conditions"
 import smath "../math"
@@ -43,7 +44,7 @@ Agent :: struct {
 	done:      bool, // the package tree finished
 	found:     map[u8]Form_ID, // ObjectList input -> the ref a Find put there
 	seat:      Seat, // the furniture marker it claimed
-	posture:   Posture, // on `seat` unless Standing
+	posture:   actorstate.State_ID, // the state it holds `seat` in; STAND until it settles
 	lead_at:   [3]f32, // where the leader it follows stood last tick
 	combat:    combat.Fight, // toward its target (tick_combat); the package waits while it is not None
 	confront:  Confront, // a guard after a wanted actor; the package waits while it walks up
@@ -130,8 +131,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	note_location(ws, db, a, actor)
 	ws.ai.packages[actor] = a.pack
 	worldstate.set_in_set(&ws.ai.moving, actor, vel != {})
-	worldstate.set_in_set(&ws.ai.sitting, actor, a.posture == .Sitting)
-	worldstate.set_sleeping(ws, db, actor, a.posture == .Sleeping)
+	hold_seat(&ws.states, actor, a.posture)
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
 	note_cell(w, ws, db, a, actor, "loaded")
 	return vel

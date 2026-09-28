@@ -4,6 +4,7 @@ package main
 // each seam's host procs over worldstate.
 
 import "base:runtime"
+import "../actorstate"
 import "../detection"
 import "../gamedb"
 import smath "../math"
@@ -32,7 +33,7 @@ actor_snapshot :: proc(s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gam
 			pos      = pos,
 			speed    = smath.length3(pos - was) / dt if moved else 0,
 			dead     = worldstate.is_dead(ws, db, a),
-			sneaking = worldstate.is_sneaking(ws, a),
+			sneaking = actorstate.current(&ws.states, a) == actorstate.SNEAK,
 		})
 	}
 	clear(&s.last)

@@ -17,6 +17,7 @@ package worldstate
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
 import "core:fmt"
+import "../actorstate"
 import "../formid"
 import "../formula"
 import "../gamedb"
@@ -102,7 +103,7 @@ Overlay :: struct {
 	talked_to_pc:    Form_Set,                     // actors that have spoken to the player
 	teammates:       Form_Set,                     // Actor.SetPlayerTeammate: followers
 	no_pc_dialogue:  Form_Set,                     // Actor.AllowPCDialogue(false): will not talk to the player
-	sneaking:        Form_Set,                     // actors in sneak mode (actors.odin)
+	states:          actorstate.Model,             // what each actor does with its body
 	grounded:        Form_Set,                     // Actor.SetAllowFlying(false): may not fly
 	dont_move:       Form_Set,                     // Actor.SetDontMove: stands (ai_link.odin)
 	restrained:      Form_Set,                     // Actor.SetRestrained: stands
@@ -341,7 +342,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.talked_to_pc = make(Form_Set)
 	o.teammates = make(Form_Set)
 	o.no_pc_dialogue = make(Form_Set)
-	o.sneaking = make(Form_Set)
+	actorstate.init(&o.states)
 	o.unreported = make(Form_Set)
 	o.grounded = make(Form_Set)
 	o.dont_move = make(Form_Set)
@@ -445,7 +446,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.talked_to_pc)
 	delete(o.teammates)
 	delete(o.no_pc_dialogue)
-	delete(o.sneaking)
+	actorstate.destroy(&o.states)
 	delete(o.unreported)
 	delete(o.grounded)
 	delete(o.dont_move)

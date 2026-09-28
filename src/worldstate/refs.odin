@@ -2,6 +2,7 @@ package worldstate
 
 import "core:math"
 import "core:slice"
+import "../actorstate"
 import "../formats/esm"
 import smath "../math"
 import "../gamedb"
@@ -271,9 +272,8 @@ set_dead :: proc(ws: ^World_State, form_id, cell: Form_ID, dead: bool) {
 
 // stop_doing ends whatever a dying actor was doing or holding a pose for.
 stop_doing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
-	set_sleeping(ws, db, actor, false)
-	set_sneaking(ws, actor, false)
-	for s in ([]^Form_Set{&ws.ai.moving, &ws.ai.sitting, &ws.ai.evaluate, &ws.ai.to_package}) {delete_key(s, actor)}
+	actorstate.reset(&ws.states, actor)
+	for s in ([]^Form_Set{&ws.ai.moving, &ws.ai.evaluate, &ws.ai.to_package}) {delete_key(s, actor)}
 	delete_key(&ws.ai.paths, actor)
 	delete_key(&ws.ai.offsets, actor)
 	delete_key(&ws.ai.packages, actor)

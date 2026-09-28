@@ -2,6 +2,7 @@ package unit_tests
 
 import "core:os"
 import "core:testing"
+import "../../src/actorstate"
 import "../../src/gamedb"
 import "../../src/worldstate"
 
@@ -193,16 +194,19 @@ test_sleep_outfit :: proc(t: ^testing.T) {
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
 
-	worldstate.set_sleeping(&ws, &db, NPC, true)
+	actorstate.request(&ws.states, NPC, actorstate.SLEEP)
+	worldstate.apply_state_changes(&ws, &db)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, robes) && !worldstate.is_equipped(&ws, &db, NPC, hood), "asleep in the sleep outfit")
-	testing.expect_value(t, worldstate.sleep_state(&ws, NPC), worldstate.SEATED)
+	testing.expect_value(t, actorstate.sleep_state(&ws.states, NPC), actorstate.SEATED)
 
 	path := "test_sleep_outfit.skysave"
 	defer os.remove(path)
 	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
 	_, ok := worldstate.load_from_file(&ws, path)
 	testing.expect(t, ok, "load")
-	worldstate.set_sleeping(&ws, &db, NPC, false)
+	testing.expect_value(t, actorstate.current(&ws.states, NPC), actorstate.SLEEP) // saved by name
+	actorstate.leave(&ws.states, NPC, actorstate.SLEEP)
+	worldstate.apply_state_changes(&ws, &db)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, hood) && !worldstate.is_equipped(&ws, &db, NPC, robes), "awake in the day outfit")
 }
 

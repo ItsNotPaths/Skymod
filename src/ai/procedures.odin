@@ -4,6 +4,7 @@ package ai
 // and the ones a mod writes in Lua.
 
 import "core:math/linalg"
+import "../actorstate"
 import "../formid"
 import "../gamedb"
 import "../sight"
@@ -44,7 +45,7 @@ follow_goal :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, acto
 	} else if d > far && g == .Walk {
 		g = .Jog
 	}
-	worldstate.set_sneaking(ws, actor, worldstate.is_sneaking(ws, leader))
+	if actorstate.current(&ws.states, leader) == actorstate.SNEAK {actorstate.request(&ws.states, actor, actorstate.SNEAK)} else {actorstate.leave(&ws.states, actor, actorstate.SNEAK)}
 	a.mover.goal = {active = true, point = at, radius = near, gait = g, cell = worldstate.ref_grid_cell(ws, db, leader)}
 }
 

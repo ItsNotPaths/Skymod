@@ -448,16 +448,6 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) sneaking is a set here; it folds into src/actorstate.
-// set_sneaking puts an actor in or out of sneak mode.
-set_sneaking :: proc(ws: ^World_State, actor: Form_ID, on: bool) {
-	set_in_set(&ws.sneaking, actor, on)
-}
-
-is_sneaking :: proc(ws: ^World_State, actor: Form_ID) -> bool {
-	return actor in ws.sneaking
-}
-
 // (hole flight :tags (animation combat unclaimed) :sev gap) the flag is stored, and nothing flies to obey it.
 set_allow_flying :: proc(ws: ^World_State, actor: Form_ID, allow: bool) {
 	set_in_set(&ws.grounded, actor, !allow)

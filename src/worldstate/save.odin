@@ -25,6 +25,7 @@ import "core:log"
 import "core:os"
 import "core:reflect"
 import "core:strings"
+import "../actorstate"
 import "../formid"
 import "../formats/esm"
 import "../gamedb"
@@ -355,7 +356,7 @@ Save_Body :: struct {
 	talked_to_pc:  []Form_ID,
 	teammates:     []Form_ID,
 	no_pc_dialogue: []Form_ID,
-	sneaking:      []Form_ID,
+	actor_states:  []actorstate.Saved,
 	grounded:      []Form_ID,
 	dont_move:     []Form_ID,
 	restrained:    []Form_ID,
@@ -638,7 +639,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		talked_to_pc  = save_set(ws.talked_to_pc),
 		teammates     = save_set(ws.teammates),
 		no_pc_dialogue = save_set(ws.no_pc_dialogue),
-		sneaking      = save_set(ws.sneaking),
+		actor_states  = actorstate.saved(&ws.states),
 		grounded      = save_set(ws.grounded),
 		dont_move     = save_set(ws.dont_move),
 		restrained    = save_set(ws.restrained),
@@ -847,7 +848,9 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.talked_to_pc, body.talked_to_pc, remap, have_remap, rf)
 	load_set(&ws.teammates, body.teammates, remap, have_remap, rf)
 	load_set(&ws.no_pc_dialogue, body.no_pc_dialogue, remap, have_remap, rf)
-	load_set(&ws.sneaking, body.sneaking, remap, have_remap, rf)
+	for s in body.actor_states {
+		if actor, ok := rf(remap, have_remap, s.actor); ok {actorstate.restore(&ws.states, {actor, s.state})}
+	}
 	load_set(&ws.grounded, body.grounded, remap, have_remap, rf)
 	load_set(&ws.dont_move, body.dont_move, remap, have_remap, rf)
 	load_set(&ws.restrained, body.restrained, remap, have_remap, rf)
@@ -1165,7 +1168,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.talked_to_pc {add_slot(&seen, a)}
 	for a in body.teammates {add_slot(&seen, a)}
 	for a in body.no_pc_dialogue {add_slot(&seen, a)}
-	for a in body.sneaking {add_slot(&seen, a)}
+	for s in body.actor_states {add_slot(&seen, s.actor)}
 	for a in body.grounded {add_slot(&seen, a)}
 	for a in body.dont_move {add_slot(&seen, a)}
 	for a in body.restrained {add_slot(&seen, a)}

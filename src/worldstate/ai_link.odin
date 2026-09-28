@@ -14,8 +14,6 @@ AI_Link :: struct {
 	packages:   map[Form_ID]Form_ID, // actor -> the package it runs (AI)
 	loaded:     Form_Set, // actors with a capsule this tick (app)
 	moving:     Form_Set, // actors walking this tick (AI)
-	sitting:    Form_Set, // actors on a seat (AI)
-	sleeping:   Form_Set, // actors asleep in a bed (AI)
 	moves:      [dynamic]Location_Move, // NPCs that changed location since the VM last looked (AI)
 	skipped:    f64, // game hours a wait or GameHour write skipped that the AI has not walked yet
 }
@@ -56,20 +54,6 @@ done_today :: proc(ws: ^World_State, actor, pack: Form_ID) -> bool {
 	return ok && math.floor(hour / 24) == math.floor(ws.clock.hours / 24)
 }
 
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) sitting and sleeping are sets here; they fold into src/actorstate.
-// SEATED is the sit and sleep state "in the furniture"; getting in and out (1, 2, 4) are animation.
-SEATED :: 3
-
-// sit_state is GetSitting and GetSitState.
-sit_state :: proc(ws: ^World_State, actor: Form_ID) -> i32 {
-	return SEATED if actor in ws.ai.sitting else 0
-}
-
-// sleep_state is GetSleeping and GetSleepState.
-sleep_state :: proc(ws: ^World_State, actor: Form_ID) -> i32 {
-	return SEATED if actor in ws.ai.sleeping else 0
-}
-
 // Keep_Offset is a KeepOffsetFromActor: hold `offset` (x right, y ahead, z up) in the target's frame,
 // turned `angle` from its heading; run while farther than `catch_up`, stop within `follow`.
 Keep_Offset :: struct {
@@ -103,7 +87,5 @@ destroy_ai_link :: proc(l: ^AI_Link) {
 	delete(l.packages)
 	delete(l.loaded)
 	delete(l.moving)
-	delete(l.sitting)
-	delete(l.sleeping)
 	delete(l.moves)
 }

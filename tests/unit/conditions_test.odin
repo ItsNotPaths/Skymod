@@ -9,6 +9,7 @@ package unit_tests
 // perk — the exact vanilla requirements. See docs/conditions.md.
 
 import "core:testing"
+import "../../src/actorstate"
 import "../../src/conditions"
 import "../../src/formats/esm"
 import "../../src/gamedb"
@@ -892,7 +893,7 @@ test_condition_tail :: proc(t: ^testing.T) {
 	testing.expect(t, conditions.all(&ctx, cond(449, OTHER, 1)), "GetFactionRelation: enemies")
 	testing.expect(t, conditions.all(&ctx, cond(503)), "GetAllowWorldInteractions rests at 1")
 	testing.expect(t, conditions.all(&ctx, cond(125)), "IsGuard: in IsGuardFaction")
-	worldstate.set_sneaking(&ws, GUARD, true)
+	actorstate.request(&ws.states, GUARD, actorstate.SNEAK)
 	testing.expect(t, conditions.all(&ctx, cond(286)), "IsSneaking")
 	testing.expect(t, conditions.all(&ctx, cond(62, 0, 0)), "IsRaining rests at 0")
 

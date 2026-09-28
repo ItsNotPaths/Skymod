@@ -4,6 +4,7 @@ package script
 // `self` is the actor. Relationships aren't indexed yet, so an unset relationship reads 0.
 
 import "core:log"
+import "../actorstate"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
@@ -212,19 +213,19 @@ n_set_crime_faction :: proc(c: ^Call, args: []Value) -> Value {
 // ── relationship rank ──────────────────────────────────────────────────────────
 
 n_is_sneaking :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.is_sneaking(c.ws, c.self)
+	return actorstate.current(&c.ws.states, c.self) == actorstate.SNEAK
 }
 
 n_get_sit_state :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.sit_state(c.ws, c.self)
+	return actorstate.sit_state(&c.ws.states, c.self)
 }
 
 n_get_sleep_state :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.sleep_state(c.ws, c.self)
+	return actorstate.sleep_state(&c.ws.states, c.self)
 }
 
 n_start_sneaking :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_sneaking(c.ws, c.self, true)
+	actorstate.request(&c.ws.states, c.self, actorstate.SNEAK)
 	return nil
 }
 

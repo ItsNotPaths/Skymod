@@ -23,6 +23,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
+import "../actorstate"
 import "../ai"
 import "../audio"
 import "../formid"
@@ -458,8 +459,8 @@ input_move :: proc(g: ^Game) -> (vel: [2]f32, jump: bool) {
 	cy, sy := math.cos(g.sim.input.yaw), math.sin(g.sim.input.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	if g.sim.input.sprint {worldstate.set_sneaking(&g.sim.ws, g.sim.ws.player, false)} // sprinting stands up
-	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.sim.ws, g.sim.ws.player) else RUN_SPEED
+	if g.sim.input.sprint {actorstate.leave(&g.sim.ws.states, g.sim.ws.player, actorstate.SNEAK)} // sprinting stands up
+	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if actorstate.current(&g.sim.ws.states, g.sim.ws.player) == actorstate.SNEAK else RUN_SPEED
 	if mag > 0.001 {vel = {dir.x / mag * speed, dir.y / mag * speed}}
 	return vel, move.z > 0.5
 }

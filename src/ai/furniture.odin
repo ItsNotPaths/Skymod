@@ -8,6 +8,7 @@ package ai
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
+import "../actorstate"
 import "../formats/nif"
 import "../gamedb"
 import smath "../math"
@@ -17,15 +18,6 @@ import "../worldstate"
 Furniture_Hook :: struct {
 	user:    rawptr,
 	markers: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_Marker,
-}
-
-// Posture is how an actor holds its seat.
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) Posture is AI-only; it folds into src/actorstate.
-Posture :: enum u8 {
-	Standing,
-	Sitting,
-	Sleeping,
-	Idling, // at an idle marker
 }
 
 // Seat is one marker of a furniture ref, or an idle marker ref (marker 0).
@@ -144,7 +136,7 @@ taken :: proc(c: ^Proc_Context, s: Seat) -> bool {
 @(private)
 claim :: proc(c: ^Proc_Context, s: Seat) -> bool {
 	if taken(c, s) {return false}
-	if c.agent.seat != s {c.agent.seat, c.agent.posture = s, .Standing}
+	if c.agent.seat != s {c.agent.seat, c.agent.posture = s, actorstate.STAND}
 	c.w.seats[s] = c.cond.subject
 	return true
 }
@@ -152,7 +144,7 @@ claim :: proc(c: ^Proc_Context, s: Seat) -> bool {
 // leave gives up the actor's seat.
 @(private)
 leave :: proc(a: ^Agent) {
-	a.seat, a.posture = {}, .Standing
+	a.seat, a.posture = {}, actorstate.STAND
 }
 
 // settle walks to the claimed seat and takes it. True once on it.
@@ -161,7 +153,7 @@ settle :: proc(c: ^Proc_Context) -> bool {
 	a := c.agent
 	pos, _ := seat_pose(c.w, c.cond.ws, c.cond.db, a.seat)
 	d := linalg.length(c.feet.xy - pos.xy)
-	if a.posture != .Standing || d <= SEAT_REACH || a.mover.stuck && d <= SEAT_NEAR {
+	if a.posture != actorstate.STAND || d <= SEAT_REACH || a.mover.stuck && d <= SEAT_NEAR {
 		a.posture = posture_on(c.w, c.cond.ws, c.cond.db, a.seat)
 		a.mover.goal = {}
 		return true
@@ -199,10 +191,21 @@ proc_idle_marker :: proc(c: ^Proc_Context) -> Status {
 
 // posture_on is how an actor holds a seat: an idle marker stands, a Lay marker sleeps.
 @(private = "file")
-posture_on :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Seat) -> Posture {
+posture_on :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Seat) -> actorstate.State_ID {
 	markers := markers_of(w, ws, db, s.furniture)
-	if s.marker >= len(markers) {return .Idling}
-	return .Sleeping if markers[s.marker].kind == .Lay else .Sitting
+	if s.marker >= len(markers) {return actorstate.IDLE_MARKER}
+	return actorstate.SLEEP if markers[s.marker].kind == .Lay else actorstate.SIT
+}
+
+// hold_seat asks for the state the actor holds its seat in, or leaves the seat state once it holds none.
+@(private)
+hold_seat :: proc(m: ^actorstate.Model, actor: Form_ID, posture: actorstate.State_ID) {
+	now := actorstate.current(m, actor)
+	if posture != actorstate.STAND {
+		if now != posture {actorstate.request(m, actor, posture)}
+	} else if now == actorstate.SIT || now == actorstate.SLEEP || now == actorstate.IDLE_MARKER {
+		actorstate.leave(m, actor, now)
+	}
 }
 
 // seat_pose is where a seat puts an actor's feet in the world, and the way it faces.
@@ -220,7 +223,7 @@ seat_pose :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, s: Sea
 // seated is the pose an actor on its seat holds; the app pins its capsule there.
 seated :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> (pos: [3]f32, heading: f32, ok: bool) {
 	a, has := &w.agents[actor]
-	if !has || a.posture == .Standing {return}
+	if !has || a.posture == actorstate.STAND {return}
 	pos, heading = seat_pose(w, ws, db, a.seat)
 	return pos, heading, true
 }

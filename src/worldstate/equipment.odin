@@ -6,6 +6,7 @@ package worldstate
 // reset puts the outfit back.
 
 import "../gamedb"
+import "../actorstate"
 
 // (hole gear-stats :tags (combat player) :sev gap :needs (combat-damage)) armor rating (ARMO DNAM) is not read and weapon damage (Equip_Slot.damage) is not applied; worn gear only brings its constant-effect enchantment (script.sync_constant_effects).
 // (hole npc-auto-equip :tags ai :sev gap :needs gear-stats) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
@@ -190,9 +191,18 @@ restore_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor, outfit: Form_ID)
 	dress(ws, db, actor, outfit_items(ws, db, actor), false)
 }
 
-// set_sleeping notes whether an actor sleeps now; one with a sleep outfit changes into it or out.
-set_sleeping :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, asleep: bool) {
-	set_in_set(&ws.ai.sleeping, actor, asleep)
+// apply_state_changes does what follows the actor-state changes since the last call: an actor with
+// a sleep outfit changes into it or out.
+apply_state_changes :: proc(ws: ^World_State, db: ^gamedb.DB) {
+	changes := make([dynamic]actorstate.Change, context.temp_allocator)
+	actorstate.drain(&ws.states, &changes)
+	for c in changes {
+		if (c.from == actorstate.SLEEP) != (c.to == actorstate.SLEEP) {sleep_outfit(ws, db, c.actor, c.to == actorstate.SLEEP)}
+	}
+}
+
+@(private = "file")
+sleep_outfit :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, asleep: bool) {
 	if asleep == in_sleep_outfit(ws, db, actor) || len(outfit_items(ws, db, actor, true)) == 0 {return}
 	dress(ws, db, actor, outfit_items(ws, db, actor, asleep), asleep)
 }

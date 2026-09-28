@@ -5,6 +5,7 @@ package conditions
 // selected. A body reads the same worldstate proc as the matching Papyrus native.
 
 import "core:math/rand"
+import "../actorstate"
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
@@ -692,7 +693,7 @@ fn_is_guard :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bo
 
 @(private = "file")
 fn_is_sneaking :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(worldstate.is_sneaking(ctx.ws, on))
+	return yes(actorstate.current(&ctx.ws.states, on) == actorstate.SNEAK)
 }
 
 // IsInList(list): the ref, or its base, is a member of the form list.
@@ -718,12 +719,12 @@ fn_is_moving :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, b
 
 @(private = "file")
 fn_get_sitting :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return f32(worldstate.sit_state(ctx.ws, on)), true
+	return f32(actorstate.sit_state(&ctx.ws.states, on)), true
 }
 
 @(private = "file")
 fn_get_sleeping :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return f32(worldstate.sleep_state(ctx.ws, on)), true
+	return f32(actorstate.sleep_state(&ctx.ws.states, on)), true
 }
 
 @(private = "file")

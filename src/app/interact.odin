@@ -19,6 +19,7 @@ package main
 // so they stay proximity-fired in frame_traversal, exactly as before.
 
 import "core:log"
+import "../actorstate"
 import "../ai"
 import "../audio"
 import "../formats/esm"
@@ -120,7 +121,10 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	if g.sim.input.in_menu {return}
 	in_, was := g.sim.input, g.sim.input_was
-	if in_.sneak && !was.sneak {worldstate.set_sneaking(&g.sim.ws, g.sim.ws.player, !worldstate.is_sneaking(&g.sim.ws, g.sim.ws.player))}
+	if in_.sneak && !was.sneak {
+		states, player := &g.sim.ws.states, g.sim.ws.player
+		if actorstate.current(states, player) == actorstate.SNEAK {actorstate.leave(states, player, actorstate.SNEAK)} else {actorstate.request(states, player, actorstate.SNEAK)}
+	}
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := tgt.form if tgt.present else 0
 	if in_.cast_left && !was.cast_left {script.cast_hand(&c, g.sim.ws.player, .LeftHand, target)}
