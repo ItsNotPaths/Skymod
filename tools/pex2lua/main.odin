@@ -39,18 +39,21 @@ main :: proc() {
 	if len(os.args) < 2 {
 		fmt.eprintln(
 			"usage: pex2lua <script.pex | dir | archive.bsa> [-o <outdir>]" +
-			" [--lines] [--no-inline] [--split <list.tsv>]",
+			" [--lines] [--no-inline] [--split <list.tsv>] [--rates <tickrates.tsv>]",
 		)
 		os.exit(2)
 	}
 	path := os.args[1]
-	outdir, split_list := "", ""
+	outdir, split_list, rates := "", "", ""
 	for a, i in os.args {
 		if a == "-o" && i + 1 < len(os.args) {
 			outdir = os.args[i + 1]
 		}
 		if a == "--split" && i + 1 < len(os.args) {
 			split_list = os.args[i + 1]
+		}
+		if a == "--rates" && i + 1 < len(os.args) {
+			rates = os.args[i + 1]
 		}
 	}
 	opt := transpile.Options {
@@ -64,6 +67,14 @@ main :: proc() {
 			os.exit(1)
 		}
 		opt.split = transpile.parse_split_list(string(text))
+	}
+	if rates != "" {
+		text, err := os.read_entire_file(rates, context.allocator)
+		if err != nil {
+			fmt.eprintfln("could not read %s: %v", rates, err)
+			os.exit(1)
+		}
+		opt.tick_rates = transpile.parse_tick_rates(string(text))
 	}
 
 	jobs := make([dynamic]Job)

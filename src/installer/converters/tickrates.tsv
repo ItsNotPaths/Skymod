@@ -1,0 +1,551 @@
+# generated: tools/tickrates.py over the installed SE scripts and --vmad-props of every plugin
+# script	hz	why	waits
+abforswornbriarheartscript	20	literal waits	0.25
+altarofmolagbalscript	10	literal waits	5
+astridendscript	10	literal waits	1
+blackreachelevatorbuttonscript	10	literal waits	1
+bwclightdamagescript	10	literal waits	0.5
+bwcnightingaleghostscript	20	waits and plugin values of fdelayend	1 1.65
+byohbreezehomenavcutmanager	10	literal waits	0.5
+byohfishhatcherycontainerscript	10	literal waits	0
+byohhousebuildingscript	10	literal waits	1
+byohhousecraftingtriggerscript	10	literal waits	1
+byohproudspirenavcutmanager	10	literal waits	0.5
+byohurchincarryscriptcheck	10	literal waits	10
+c00jorrvaskrfightathisscript	10	literal waits	4
+c00jorrvaskrfightscenescript	10	random wait	1
+c00jorrvasrkstopfighttriggerscript	10	literal waits	5
+c00vilkasentertrainingareatriggerscrip	10	literal waits	10
+c00vilkastrainingscript	10	literal waits	5
+c03sacredfontscript	10	literal waits	1.5
+c04glenmorilwitchheadscript	10	literal waits	0.1
+c06ysgramorstatuescript	10	literal waits	10
+carriagesystemscript	10	literal waits	0.5 2 3 6
+cartdriverscript	10	literal waits	0.5 3
+ccbgssse001_crabmq4battlezonescript	20	literal waits	0.25
+ccbgssse001_crabmq4crabctrlr	10	literal waits	1
+ccbgssse001_crabmq4crabspawner	10	literal waits	0.1
+ccbgssse001_critterspawn	20	literal waits	0.25
+ccbgssse001_itemcollectobjectivescript	10	literal waits	0.1
+ccbgssse001_tif__05000ec3	10	literal waits	1
+ccbgssse025_manholecoversfxscript	10	literal waits	0.5
+ccbgssse025_staadaquestscript	10	literal waits	1 2
+companionsbladefragmenttracking	10	literal waits	0.1
+critterdragonfly	10	literal waits	0.1
+critterfish	10	literal waits	0.1
+cwattackcityscript	10	literal waits	5
+cwcatapultweaponfirescript	10	waits and plugin values of waittimer	0
+cwfieldcocrimefactionscript	10	literal waits	1
+cwmission07stewardscript	10	literal waits	5
+cwreinforcementcontrollerscript	10	waits and plugin values of reinforcementinterval	5
+cwsiegecitydoorscript	10	literal waits	1
+da02script	10	literal waits	0.5 1 3
+da05questingbeastscript	10	literal waits	3
+da06hammertriggerscript	10	literal waits	2
+da09gemscript	10	literal waits	1
+da10ghosttrap	30	waits and plugin values of initialdelay	0.02
+da11verulusscript	10	literal waits	3
+da13dremorafxwhenenabledscript	10	literal waits	1
+da16barriereffectscript	10	literal waits	5
+da16dreamguardianambush	10	literal waits	2
+da16magicbarrier	10	literal waits	2
+da16torporeffectscript	10	literal waits	0.1
+darkwatercavernderkeethusmovescript	10	literal waits	10
+db05fallingstatueactivate	10	literal waits	0.2
+db10playerpinnedtriggerscript	10	literal waits	2
+dbdawnstarciceronoattacktrigscript	10	literal waits	20
+dbrecurringcontrolquestscript	10	literal waits	2
+dbsanctuarydb10loadcheck	10	random wait	
+dbsanctuaryfireshakerumble	10	random wait	
+dbshadowmeretriggerscript	10	literal waits	12
+defaultactivatedelayedtogglelinkedref	10	waits and plugin values of disabledelay, enabledelay	0 5
+defaultactivateonload	20	literal waits	0.25
+defaultautosavescript	10	literal waits	0.5
+defaultbipressureplate	20	waits and plugin values of targetdelay	0 0.25
+defaultcastatlinkontriggerscript	10	waits and plugin values of delaybetween	0
+defaultcastfromlinkonactivatescript	10	waits and plugin values of delaybetween	0
+defaultcastfromlinkontriggerscript	10	waits and plugin values of delaybetween	0
+defaultcastontriggerscript	10	waits and plugin values of delaybetween	0
+defaultdisableonloadafterwait	10	waits and plugin values of timebeforedisable	1
+defaultdisplayuniqueitemscript	10	literal waits	0.1
+defaultenabledisablelinkedref	10	waits and plugin values of delay	0 1
+defaultforceevaluatepackagetrigger	10	literal waits	0.1
+defaultghostscriptrefalias	10	computed wait: time	0.2
+defaultinteriordoorshutscript	10	literal waits	3
+defaultnpcruntotrig	10	literal waits	5
+defaultrumbleonactivate	20	waits and plugin values of duration	0.25 1
+defaultsealeddoor	10	literal waits	0.5
+defaultsetstageactrefaliasscript	10	waits and plugin values of delay	0
+defaultsetstageactscript	10	waits and plugin values of delay	0 2 4
+defaultstartsceneaterdelaytrigscript	10	waits and plugin values of secondstodelay	0 6
+defaultstartsceneifnocombattrigscript	10	literal waits	1
+defaultteleportability	10	literal waits	0.5
+disintegratewhenspellwearsoff	10	literal waits	0.4
+dlc01soulcairncratterscript	10	waits and plugin values of fdelay	0 5 30
+dlc01soulcairnlightningrodscript	20	literal waits	1 1.25 1.5
+dlc01soulcairnreapertrigscript	60	literal waits	0.1 0.18 0.2 0.25
+dlc01teleportscript	20	literal waits	0.05 0.1 2
+dlc01wesc03script	10	literal waits	1
+dlc01wesc04script	10	literal waits	1
+dlc01wesc08script	10	literal waits	1
+dlc01wesc09script	10	literal waits	5
+dlc1_bf_fallingdebriscontrollerscript	10	waits and plugin values of timebeforeeachplayercheck	6
+dlc1_bf_falmerstatuescript	20	literal waits	0.25
+dlc1_bf_icechunkscript	10	waits and plugin values of timebeforedisable	3
+dlc1_bf_iceshieldtrigscript	10	literal waits	0.1
+dlc1_prkf_dlc1vampiricgrip_0100599a	10	literal waits	2
+dlc1_qf_dlc1_wesc01_010034de	10	literal waits	6
+dlc1_qf_dlc1_wesc06_01003511	10	literal waits	5
+dlc1_qf_dlc1dunredwaterdenqst_01007c4f	10	waits and plugin values of knockoutdelay	3 4.5 7 90
+dlc1_qf_dlc1ld_01005817	10	literal waits	1
+dlc1_qf_dlc1ldicedragonfight0_01019dd2	10	literal waits	1 2 10
+dlc1_qf_dlc1ldicedragonfight_010088e5	10	literal waits	1 10
+dlc1_qf_dlc1rh06_01007201	10	literal waits	2
+dlc1_qf_dlc1vq08post_0101a1c1	10	literal waits	1
+dlc1_sf_dlc1_bf_duntempleqsts_01006c16	10	literal waits	1.5
+dlc1_sf_dlc1hunterbaseintroen_01008a8c	10	literal waits	0.5
+dlc1activatorflameonscript	10	literal waits	1
+dlc1arkngthamzdestructionscript	20	literal waits	0.25
+dlc1aurielblessexplosionplacescript	10	literal waits	0.1
+dlc1cavewormtriggercontrolscript	10	literal waits	1
+dlc1crystalcasterscript	20	literal waits	0.25
+dlc1dbdunnorpullbarsacrificescript	20	literal waits	1 1.25
+dlc1deerfxglowscript	10	literal waits	1 5
+dlc1drainbloodpointscript	10	literal waits	0.1
+dlc1dunharkonbossbattle	10	literal waits	1 4 10
+dlc1dunharkonreanimatedminions	20	literal waits	0.75 1.65
+dlc1dunredwaterskoomaeffectscript	10	waits and plugin values of timedelay	0 30
+dlc1dunstatuehitscript	10	literal waits	1
+dlc1dunwaygatedoorscript	10	literal waits	1
+dlc1dunwaygatescript	10	literal waits	2
+dlc1elfhousedropscript	10	literal waits	6.7
+dlc1fadingghostscript	60	literal waits	0.01 2 2.5
+dlc1fxdeathhoundscript	10	literal waits	1.5 3
+dlc1fxdwarvencenturionscript	10	literal waits	8
+dlc1gargoylebossscript	10	literal waits	5
+dlc1gargoylebrutehandfxscript	10	literal waits	0.1
+dlc1horsequestgetskullscript	10	literal waits	0
+dlc1huntercavepressureplate	10	literal waits	0.5
+dlc1huntercavepressureplatetimed	10	waits and plugin values of timer	0.5 5
+dlc1ld_doortriggertogglescript	10	literal waits	60
+dlc1ld_forgemasterbossbattle	10	literal waits	1
+dlc1ld_lavaimodscript	30	waits and plugin values of fdelay	0.2 0.83
+dlc1ld_puzzlehinttriggerscript	10	literal waits	10 25
+dlc1ld_towerrumbleshakemanager	10	literal waits	2 5
+dlc1lycanthropyregiftquestscript	10	literal waits	2.1 3
+dlc1magicharkondeathfxscript	10	literal waits	1.5 6
+dlc1magicplaysoundoneffectstart	10	waits and plugin values of fdelay	0
+dlc1magicsoulrendscript	10	literal waits	0.1 0.5
+dlc1magicvampdrainfxrangescript	10	waits and plugin values of fupdatetime	0.1
+dlc1magieffectshaderdistancescript	10	computed wait: __temp1 * self.vars["::ffullwaittime_var"]	
+dlc1nvampirebloodplaguescript	20	waits and plugin values of fdelayend	1.65
+dlc1nvampirenecklacegargoylescript	10	literal waits	30
+dlc1onaddhorseskull	10	literal waits	0.5
+dlc1radiantscript	10	literal waits	1
+dlc1rnpcondeathplaysceneafterdelay	10	waits and plugin values of secondstowait	0 5 6
+dlc1rnpcplaysceneafterinterval	10	waits and plugin values of secondstowait	0 8 9 10 20
+dlc1sabrecatfxglowscript	10	literal waits	1 5
+dlc1skeletonambushscript	10	literal waits	1
+dlc1soulcairncreaturefx	10	literal waits	2
+dlc1vq01puzzlebuttonscript	10	literal waits	3
+dlc1vq01puzzlecoffinscript	10	literal waits	1 2.2
+dlc1vq03mothpriestfightscript	10	waits and plugin values of fighttimer	5
+dlc1vq04portalareaeffecttriggerscript	10	literal waits	0.5
+dlc1vq05dragondeathscript	10	literal waits	6
+dlc1vq06questscript	10	literal waits	2 3 38
+dlc1zfvpoientracetrigscript	10	literal waits	0
+dlc2_pf_dlc2mq06miraakwhirlwi_0202a6c9	10	waits and plugin values of waittime	0.1 0.3 1.7
+dlc2_qf_dlc2cultistambush_0203546d	10	literal waits	0.2
+dlc2_qf_dlc2dunkolbjornqst_0201810b	10	literal waits	1 2 3
+dlc2_qf_dlc2dunnchardaktracki_020173be	10	literal waits	6
+dlc2_qf_dlc2mq07_020179d7	10	literal waits	0.5 2
+dlc2_qf_dlc2rr00_0201bfe9	10	literal waits	3
+dlc2_qf_dlc2sv01_02019b4a	10	literal waits	5
+dlc2_qf_dlc2tt1_02017e8d	10	literal waits	1
+dlc2_qf_dlc2we09_020331c0	10	literal waits	0.2
+dlc2_tif__0201cdc9	10	literal waits	2
+dlc2_tif__0201cdd5	10	literal waits	7
+dlc2_tif__02033c5f	10	literal waits	7
+dlc2ashspawnconstantfx	10	literal waits	1.5 3
+dlc2ashspawndeathscript	20	waits and plugin values of fdelay, fdelayend	0.75 1.65
+dlc2attachashpileondeath25	20	waits and plugin values of fdelay, fdelayend	0.75 1.25 1.65
+dlc2bbstoprunescript	10	waits and plugin values of timer	0 10
+dlc2bloodskalbladescript	10	literal waits	0.1
+dlc2book01dungeongendeathtrackerparent	10	waits and plugin values of waitbeforeenabledisable	2
+dlc2book02dungeonbridgetrigger	10	literal waits	2 3
+dlc2burtspigganfxscript	20	literal waits	0.25 0.4
+dlc2dbancientdragonbornscript	10	waits and plugin values of timer	0 20
+dlc2dbbooklevelenabledisablescript	10	waits and plugin values of delay	0
+dlc2dbconjureancientsscript	10	literal waits	0.1
+dlc2dbsummonancientscript	10	waits and plugin values of waittimer	0 30
+dlc2defaultaddspell	10	literal waits	3
+dlc2disableonloadafterwait	10	literal waits	1
+dlc2dunbook02tunnelscriptenabledisable	10	waits and plugin values of mytimer01, mytimer02	0 2
+dlc2dundbdeadactortrig	20	literal waits	0.5 1 1.15
+dlc2dunenabledisablelinkrefonacttimer	10	waits and plugin values of mytimer	0
+dlc2dunfahlbtharzhelmeffectscript	10	waits and plugin values of recasttime	0.2
+dlc2dunfahlbtharztowersimplescript	10	waits and plugin values of waittimer	3
+dlc2dunfrostmoontransformscript	10	random wait	2
+dlc2dunhighpointcasttrigscript	20	literal waits	0.25 1
+dlc2dunildariscript	10	literal waits	5
+dlc2dunkarstaagbattlescript	10	literal waits	3
+dlc2dunkarstaagbonefxscript	10	literal waits	1.5
+dlc2dunkarstaagghostscript	20	waits and plugin values of fdelayend	1.65
+dlc2dunkarstaagicewraithparticles	10	literal waits	2
+dlc2dunkolbjorncataleverpuzzle	10	literal waits	2
+dlc2dunkolbjornrotdoorchainscript	10	literal waits	1
+dlc2dunnchardakaqueductcontroller	20	literal waits	1.75
+dlc2dunseekerinvisscript	10	literal waits	1
+dlc2duntempleofmiraakrumblescript	10	literal waits	2 5
+dlc2explodingspidereggscript	10	literal waits	0.5
+dlc2expspiderdeadspiderscript	10	literal waits	0.1
+dlc2fishmanscript	10	literal waits	1
+dlc2foxblessingscript	10	literal waits	0.5
+dlc2fxinsturmentsattachscript	20	literal waits	0.25
+dlc2fxinsturmentssummonscript	10	literal waits	0.5 2
+dlc2fxscrib	10	literal waits	0.2
+dlc2fxscribscript	10	literal waits	1.5 3
+dlc2hmdaedradeathscript	20	waits and plugin values of fdelayend	3.65
+dlc2kagrumezgemscript	10	literal waits	1 2
+dlc2kagrumezlightningscript	10	random wait	
+dlc2miraakfxtestscript	10	literal waits	0.1 1 2 3 6 10
+dlc2mkmiraakmaskshoutscript	10	literal waits	30
+dlc2mkmiraakrobeabilityeffectscript	10	waits and plugin values of waittimer	0 5
+dlc2nb01corpseforce	10	literal waits	1
+dlc2rr02questscript	10	literal waits	0.5
+dlc2spectraldragondeathscript	10	literal waits	1
+dlc2spectraldragonsummonscript	10	waits and plugin values of timer	0 30
+dlc2standingstonefx	10	literal waits	1 5
+dlc2summondremoramerchantscript	10	literal waits	1
+dlc2toldarstombpuzzleplatescript	20	literal waits	0.25
+dlc2toldarstombpuzzleplatmasterscript	20	literal waits	0.25
+dlc2ttr4bspelleffectscript	10	waits and plugin values of delay	0 2 3
+dlc2wb01torkildscript	10	literal waits	20
+dlc2wecultistambushplayerscript	10	literal waits	1
+dlcmoteareascript	10	literal waits	1
+dragonpriestactorscript	10	literal waits	1 2
+dragonpriestambushscript	10	literal waits	1
+dunbloatedmansindingscript	10	literal waits	1 3
+duncgfxbirdfleescript	10	literal waits	0.5
+duncgplayerinsquaretriggerscript	10	literal waits	5
+dunda14portalscript	10	literal waits	1 2
+dundarklightilliaunlockscript	10	literal waits	1
+dundarklightleverscript	10	literal waits	1
+dundeadmensrespitesealeddoor	10	literal waits	0.5
+dundeadmensrotatingdoormanager	10	literal waits	2
+dunfellglowbossbattle	20	literal waits	0.25
+dunfolgunthurbossbattlespell	10	literal waits	0.5
+dunfolgunthurbosstrigger	20	literal waits	0.25
+dunfolgunthurdragonkeyholeactivator	10	literal waits	3
+dunforsakencavems12script	10	literal waits	1
+dungeirmundduplicatespellmanager	10	literal waits	0.5
+dungeirmundsbosstrigger	20	literal waits	0.25
+dunhagsendhagravenbattlemanager	20	literal waits	0.25
+dunhalldirbossbattle2	10	literal waits	1 2.5
+dunhalldirbossbattleforms	10	literal waits	3
+dunhalldirbossformghostscript	10	literal waits	0.2
+dunhalldirghostambushscript	10	literal waits	2
+dunhaltedstreamcampghostdebris	30	waits and plugin values of initialdelay	0.02
+dunharmugstahlspider	10	literal waits	1
+dunharmugstahlspiderdead	10	literal waits	0.5
+dunhillgrundstombendcontroller	10	literal waits	1
+dunilinaltassecondbossscript	10	literal waits	1
+dunkagrenzelanimationactivationscript	20	waits and plugin values of waitend, waitmid, waitslow	0.1 0.2 0.5 1 1.25 2 3 4 5
+dunkarthshamanscript	30	literal waits	0.025 1 2 59
+dunkarthspirelighttunnelscript	10	literal waits	1
+dunkilkreathbeamshooterscript	10	waits and plugin values of waittimebeam, waittimedoor, waittimenextbeam	0 1
+dunkilkreathcrystalnodescript	10	waits and plugin values of waittimebeam, waittimedoor, waittimenextbeam	1
+dunkilkreathcrystalpedastalscript	10	waits and plugin values of waittimebeam, waittimedoor, waittimenextbeam	0.5 1.5
+dunlabyrinthianelementaldoor	20	literal waits	0.1 0.15
+dunlabyrinthianwoodenmaskscript	10	literal waits	2.5
+dunlostechocaveburnmushrooms	10	literal waits	0.5 1
+dunmarkarthwizardbipressureplate	20	literal waits	1.25
+dunmarkarthwizardplatesystemmanager	20	literal waits	1 1.25
+dunmarkarthwizardscenepolldetection	10	literal waits	1
+dunmiddenatronachforgescript	10	literal waits	3
+dunmiddenrewardchestscript	30	literal waits	0.33
+dunmossmothervaldrinjured	10	literal waits	1
+dunmzinchaleftgateattentionscript	10	literal waits	1 5
+dunmzinchaleftpuzzlecompletionscript	10	literal waits	2
+dunpitanimationactivationscript	10	literal waits	1 9
+dunpoiavalanche	10	literal waits	5 12
+dunpoiraiders	10	literal waits	1
+dunpoisoldiersraidonstart	10	literal waits	1
+dunpoitrollbattleonstart	10	literal waits	2
+dunpoitundramarshdogscript	10	literal waits	2
+dunpoiwarlockcaptivescript	10	literal waits	2
+dunraldbtharwebtriggerscript	10	literal waits	0.5
+dunrannveigsfasttrapdoorscript	10	literal waits	4
+dunreachwaterrockenabledelegate	10	literal waits	1
+dunreachwaterrockghostscript	10	literal waits	0.2
+dunreachwaterrockpedestalmanager	20	literal waits	0.15 0.5
+dunriftenjailloadcheck	10	literal waits	1
+dunsaarthalmasterscript	10	literal waits	0.2
+dunserpentsbluffpressureplate	10	literal waits	1
+dunshafttrapscript	10	literal waits	0
+dunshimmermistbossscript	10	literal waits	1 3
+dunshimmermistfalmerbossscript	10	literal waits	1
+dunshroudhearthspinnerpuzzlecontroller	10	waits and plugin values of refactonsuccess01delay, refactonsuccess02delay	0 2
+dunsightlesspitbossscript	10	literal waits	1 3
+dunstonehilllairdelayedlever	10	waits and plugin values of delay	0 3.5
+duntransmogrifyanimal	10	literal waits	15
+dunustengravrumblescript	10	literal waits	2
+dunustengravstatuescript	10	literal waits	1 2
+dunvalthumebloodbowl	10	literal waits	1
+dunvalthumeresurrection	10	literal waits	0.5 1 2 4
+dunyngolglow	10	literal waits	0.2 0.4
+dunyngolhelmetscript	10	literal waits	3
+dunyngollightsoutscript	30	literal waits	0.03 0.05
+dwespherecenturionportscript	10	literal waits	2
+e3arveltrapscript	10	literal waits	10
+e3demojumpaheadscript	10	waits and plugin values of floaddelay	3
+e3demowolfencounterscript	20	literal waits	0.14 0.24 1.55 2
+favorquestscript	10	literal waits	1
+fcaddingrediantanddeletescript	10	literal waits	0.1
+ferrysystemscript	10	literal waits	2 6
+flameatronacheffectscript	10	literal waits	0.1 0.5 1 3
+fxalduinscript	60	literal waits	0.001 1 1.3 2 2.7 3.5 4 5.5 11
+fxatronachstormscript	10	literal waits	1.5 3
+fxbirdfleeonactivatescript	10	literal waits	0.5
+fxbirdfleescript	10	literal waits	0.5
+fxchargenfxscript	10	literal waits	10 65 75
+fxdragonmoundscript	10	literal waits	0.1 0.5 1 1.5 4 4.5 8 10
+fxdustdroponactivatescript	10	literal waits	0.3 3 3.3
+fxdustdroptrigscript	10	waits and plugin values of rndwaittimer	0 0.5 3.5
+fxdwarvencenturionscript	10	literal waits	8
+fxdwarvenspherescript	10	literal waits	4
+fxmagicanomalyscript	10	literal waits	1
+fxreadelderscrollscript	10	literal waits	0.2 1 2 3 4 8
+fxsetblendvariablescript	10	waits and plugin values of mywaittime	0
+fxskeletonnecroscript	10	literal waits	2
+ghosttrap	30	waits and plugin values of initialdelay	0.02
+hallofstorieskeyholescript	10	literal waits	3
+hangingkeyattachonload	10	literal waits	5
+helgenhallcollapsescript	10	literal waits	2 4
+helgenrandomsoundscript	10	computed wait: myTimer	
+howlsummonwolffxsscript	10	literal waits	1
+icewraithparticlesscript	10	literal waits	1 2
+karthspireredoubtcagedoorscript	20	literal waits	0.25 0.5
+magicattachashpile	30	waits and plugin values of fdelay	0.83
+magicattachashpileondeath	20	waits and plugin values of fdelay, fdelayend	0.75 1.25 1.65
+magicbanishscript	10	waits and plugin values of secondsbeforedelete	0 4
+magiccastanotherspellscript	10	random wait	
+magicdispelspellonhitscript	10	literal waits	0.5
+magiceffectshaderapply	20	waits and plugin values of fdelay	0 2.25
+magicimodbeginloopend	30	waits and plugin values of fdelay	0.83 1.1 1.75 1.9 2.75 2.85
+magicimodonplayerhitscript	10	literal waits	5
+magicimodscript	20	waits and plugin values of fstaticdelay	0 0.15
+magicnighteyescript	30	waits and plugin values of fdelay	0.83 0.96
+magicsoultrapfxscript	20	literal waits	0.25
+mannequinactivatorscript	10	literal waits	0.1
+markarthwarrensdoorscript	10	literal waits	15
+mg01questscript	10	literal waits	1
+mg01tolfdirscript	10	literal waits	5
+mg02tolfdiraliasscript	10	literal waits	10
+mg03questscript	10	literal waits	20
+mg07labyrinthianbarrierscript	10	literal waits	1
+mg07savosghosttrigger1script	10	literal waits	0.1
+mg07wavetriggerscript	20	literal waits	0.75 1.5
+mg08barrierrefscript	10	literal waits	3.4
+mg08paralysisabilityeffectscript	10	literal waits	5
+mg08paralysiseffectscript	10	literal waits	5
+mgrappb01spelleffectscript	10	waits and plugin values of fdelay	0
+mgritual02effectscript	10	waits and plugin values of fdelay	0
+mgritual04augurtriggerscript	10	literal waits	2
+mgritualdremorascript	30	literal waits	0.33
+mq101dragonattackquestscript	10	literal waits	2
+mq104playerscript	10	literal waits	6
+mq105tombscript	10	literal waits	0.1 4
+mq304lostsoulscript	10	literal waits	2
+mqgreybeardabsorbscript	10	literal waits	0.1 1 2 4
+mqhrothgarpilgrimmagetabletscript	10	literal waits	0.1
+mqtotwhazardscript	30	literal waits	2.13
+ms04ghostshaderobject	10	literal waits	0.1 0.5
+ms04ghostshaderscript	10	literal waits	0.1 0.5
+ms10shipdestructorscript	10	literal waits	1
+patchdlc1doorfixscript	10	literal waits	10
+pdbentrancequestscript	10	literal waits	3
+pf_db09giannapostsoupstandpa_001058ac	10	literal waits	1
+pf_dunsnowypoighosttravelpack_00039162	10	literal waits	2
+pf_tg08akarliahopengatepackag_000dcae5	10	literal waits	2
+physicstrap	10	waits and plugin values of initialdelay	0.2
+playerbookshelfcontainerscript	20	literal waits	0 0.25
+playerpotionrackcontainerscript	20	literal waits	0 0.1 0.25
+poi_iceformscript	10	literal waits	1
+powershrinescript	10	literal waits	2 15
+qf_ccbgssse001_crab_mq2_050009da	10	literal waits	2
+qf_ccbgssse001_misc_falkreat_050009ec	10	literal waits	1 3
+qf_ccbgssse001_misc_windhelm_050009d5	10	literal waits	4
+qf_ccbgssse025_elytrapetacqu_050010c0	10	literal waits	1.9
+qf_ccbgssse025_elytrapetacqu_050010c3	10	literal waits	1.9
+qf_ccbgssse025_miscquest_ner_050010bf	10	literal waits	1
+qf_ccbgssse025_questb_02000913	10	literal waits	1
+qf_companionsmiscobjective_000d19b9	10	literal waits	5
+qf_da01_00028ad6	10	literal waits	2
+qf_da03_0001bfc4	10	literal waits	1
+qf_da07_000240b8	10	literal waits	1 2 3
+qf_da14_0001bb9b	10	literal waits	1
+qf_da15return_0010ff8f	10	literal waits	5
+qf_da16_000242af	10	literal waits	0 6
+qf_darkbrotherhoodsanctuaryre_00087ba2	10	literal waits	5
+qf_db01_0001ea50	10	literal waits	5
+qf_db01misc_0001ea4f	10	literal waits	5
+qf_db01miscobjective_000bc8b6	10	literal waits	5
+qf_db01objective_000bc8b7	10	literal waits	5
+qf_db02_0001ea51	10	literal waits	5
+qf_db02a_00022f47	10	literal waits	5
+qf_db03_0001ea52	10	literal waits	5
+qf_db04a_0002ad16	10	literal waits	5
+qf_db05_0001ea54	10	literal waits	5
+qf_db06_0001ea55	10	literal waits	5
+qf_db07_0001ea56	10	literal waits	5
+qf_db08_0001ea57	10	literal waits	5
+qf_db09_0001ea58	10	literal waits	5
+qf_db10_0003ceda	20	literal waits	0.1 0.5 1.15 5
+qf_dbdestroy_000934fb	10	literal waits	5
+qf_dbeviction_0006f9a5	10	literal waits	5
+qf_dbolavareadingmiscobjectiv_0002e655	10	literal waits	5
+qf_dbolavareadingtreasureobje_0002e656	10	literal waits	5
+qf_dbrecurring_0001ea5a	10	literal waits	5
+qf_dbrecurringcontrolquest_00097256	10	literal waits	5
+qf_dbrecurringintromisc_00097255	10	literal waits	5
+qf_dbsidecontract01_0001ea5b	10	literal waits	5
+qf_dbsidecontract02_0001ea5e	10	literal waits	5
+qf_dbsidecontract03_0001ea5f	10	literal waits	5
+qf_dbsidecontract04_0001ea60	10	literal waits	5
+qf_dbsidecontract05_0001ea61	10	literal waits	5
+qf_dbsidecontract06_0001ea62	10	literal waits	5
+qf_dbsidecontract07_0001ea63	10	literal waits	5
+qf_dbsidecontract08_0001ea64	10	literal waits	5
+qf_dbsidecontract09_0001ea65	10	literal waits	5
+qf_dbsidecontract10_0001ea66	10	literal waits	5
+qf_dbsidecontract11_0001ea67	10	literal waits	5
+qf_dbsidecontract12_0001ea68	10	literal waits	5
+qf_dbtorturetreasuremiscobjec_00037a2d	10	literal waits	5
+qf_dbtorturetreasuremiscobjec_00037a51	10	literal waits	5
+qf_dbtorturetreasuremiscobjec_00037a53	10	literal waits	5
+qf_dbtorturetreasuremiscobjec_00037ae3	10	literal waits	5
+qf_dunbardsleapsummitqst_000ae014	10	literal waits	3
+qf_dunblindcliffqst_00039b3b	10	literal waits	1
+qf_dundarklightqst_0003fa89	10	literal waits	1
+qf_dunforelhostqst_00035354	10	literal waits	0.5
+qf_dunfrostflowabyssqst_00048121	10	literal waits	5
+qf_dungauldursonqst_000e4d31	10	literal waits	0.5 1 3
+qf_dunhalldirscairnqst_0003ad4a	10	literal waits	0.1
+qf_dunhillgrundstombqst_0003e897	10	literal waits	2
+qf_dunlabyrinthian_00091f1a	10	literal waits	5
+qf_dunliarsretreatqst_000aa5d6	10	literal waits	0.1
+qf_dunmidden01qst_00055977	30	literal waits	0.2 0.33
+qf_dunragnqst_0003763c	10	literal waits	1 2
+qf_dunravenscarqst_0003d26c	10	literal waits	4
+qf_dunstonehillbarrowqst_000cf915	10	literal waits	0.5 1 2 5
+qf_duntalkingstoneqst_0004ba6c	10	literal waits	20 30
+qf_dunthrowvoiceqst_001075b1	10	literal waits	1
+qf_dunustengravqst_0002125b	10	literal waits	1
+qf_dunvaltheimkeepqst_000adfe7	10	literal waits	60
+qf_e3demo_00093637	10	literal waits	0.1 1
+qf_freeformwhiterunquest01_000934f9	10	literal waits	5
+qf_freeformwhiterunquest02_0009380b	10	literal waits	5
+qf_freeformwhiterunquest03_000946fd	10	literal waits	5
+qf_freeformwhiterunquest04_00094e3c	10	literal waits	5
+qf_freeformwhiterunquest05_00094e3f	10	literal waits	5
+qf_mg01shoutupdate_000b812e	10	literal waits	3
+qf_mg02_0001f252	10	literal waits	1
+qf_mg04monkscenequest_00076f39	10	waits and plugin values of fdelay	0 1.9
+qf_mg08_0001f258	10	literal waits	0.1
+qf_mgritual03_00099f27	30	literal waits	0.33
+qf_mq101dragonattack_000d0593	10	literal waits	1
+qf_mq103a_0002d75c	60	literal waits	0.78
+qf_mq103b_0002610b	60	literal waits	0.78
+qf_mq305_00046ef2	10	literal waits	2.5
+qf_ms02_00040a5e	10	literal waits	3
+qf_tg05_00021551	10	literal waits	10
+qf_tg09_00021555	10	literal waits	1 5
+qf_tg09post_000e1782	10	literal waits	5
+qf_vc01_0005c625	10	literal waits	1
+qf_we31_000753ca	10	literal waits	3
+qf_wedl01_000b8141	10	literal waits	2
+qf_wedl01b_000bfb61	10	literal waits	2
+qf_wedl07_000b91e3	10	random wait	
+qf_wedl08_000bbd9d	10	literal waits	3
+qf_weroad01_001034df	10	literal waits	0
+qf_wicastmagic01_00070217	10	literal waits	320
+sf_c03postrampage_000aec02	10	literal waits	3
+sf_ciceronightmothertalkscene_0003bb83	10	literal waits	1
+sf_da15pelagiusend_0002ac6e	10	literal waits	1
+sf_da15pelagiusmeet_0002ac6d	10	literal waits	1
+sf_db09potageeatscene_0001bcba	10	literal waits	1
+sf_drgscene_000e670a	10	literal waits	2
+sf_dungauldursonqst_finale_000ecee0	10	literal waits	0.1 0.5
+sf_duntalkingstoneqst_attack_000b5f85	10	literal waits	5
+sf_mg04augurspeakscene_0004fbf4	10	literal waits	1.5
+sf_mg06doorscene_0004d8d0	10	literal waits	1 3.4
+sf_mg06visionscene_00034ccd	10	literal waits	1
+sf_mg08monkscene_0005a413	10	literal waits	0.5 1 3
+sf_mgrarniel04finalscene_000e0d0b	10	literal waits	0.2
+sf_tg05spkillscene_00032e64	10	literal waits	3 7.5
+skyhavensconcescript	10	literal waits	1
+snowveilkeyholescript	10	literal waits	3
+sovngardewatcherscript	10	literal waits	1
+sprigganfxscript	10	literal waits	1 2 3 10
+statsplayerposition	10	literal waits	10
+summonskeletonlegionscript	10	literal waits	5
+summontargetfxactivatorscript	10	literal waits	1 5
+survival_beasttransformwatcherscript	10	literal waits	1
+survival_magicimodbeginloopend	20	waits and plugin values of delay	0 0.85 1.65 3.65
+survival_playerhitinfo	10	literal waits	0.1
+survival_playerlocationinfo	10	literal waits	0.5
+survival_regionchangescript	10	literal waits	0.5
+t01dibellasaltarscript	10	literal waits	20
+t02amuletscript	10	literal waits	0.1 1
+t03rootblockeractivatorscript	10	literal waits	1
+testphilhealerhealcheckeffectscript	10	literal waits	5
+tg03brewingvatscript	10	literal waits	5
+tg05lockeddoorscript	10	literal waits	1
+tg05ruinsdoorscript	10	literal waits	1
+tg08bencountertrigger01script	10	literal waits	1
+tg08bfightcontroller	10	waits and plugin values of updatetimer	0.5 60
+tg08binvisibilityexplosioneffectscript	10	waits and plugin values of looptime	0.3
+tg08bmercerinvisibilityeffectscript	10	waits and plugin values of looptime	0.3
+tg08btowerfallscript	10	literal waits	2 4
+tif__0002b836	10	literal waits	1
+tif__00037b5e	10	literal waits	3
+tif__00039830	10	literal waits	0.1
+tif__000618a9	10	literal waits	3
+tif__000618aa	10	literal waits	3
+tif__000618ac	10	literal waits	3
+tif__000618ad	10	literal waits	3
+tif__000618af	10	literal waits	3
+tif__000618b0	10	literal waits	3
+tif__000618b2	10	literal waits	3
+tif__000618b3	10	literal waits	3
+tif__000618b5	10	literal waits	3
+tif__000618b8	10	literal waits	3
+tif__000618b9	10	literal waits	3
+tif__000618bc	10	literal waits	3
+tif__000618be	10	literal waits	3
+tif__000618bf	10	literal waits	3
+tif__000618c1	10	literal waits	3
+tif__000618c2	10	literal waits	3
+tif__000618c4	10	literal waits	3
+tif__000618c5	10	literal waits	3
+tif__000d3e7d	10	literal waits	3
+tif__000d3e82	10	literal waits	3
+tif__000d3e83	10	literal waits	3
+tif__000f500b	10	literal waits	3
+tif__000ff125	10	literal waits	3
+tif__000ff127	10	literal waits	3
+tif__000ff129	10	literal waits	3
+trailerdragonflyoffscript	10	literal waits	19
+trapbreakawaybase	10	waits and plugin values of initialdelay	0.5
+trappoisongas	10	waits and plugin values of timetoclear	0
+trappoisongascough	10	random wait	
+traptriggertimeinterval	10	literal waits	0
+valthumecontainerpuzzlescript	10	literal waits	1
+vampiresunismdeffectscript	10	literal waits	2
+werewolfpusheffectscript	10	literal waits	0.1
+werewolftransformvisual	10	literal waits	10
+wifunctionsscript	10	literal waits	1
+wispactorscript	10	literal waits	0.1 0.5 0.9
+wispshadeactorscript	10	literal waits	0.1
+wrdrawbridge01script	10	literal waits	3

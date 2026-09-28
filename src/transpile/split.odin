@@ -177,6 +177,11 @@ emit_split_fields :: proc(e: ^Emitter, o: ^pex.Object, splits: []Split) {
 			sbprint(e, " }\n")
 		}
 	}
+	hz := e.opt.tick_rates[strings.to_lower(o.name, context.temp_allocator)]
+	if len(splits) > 0 && hz > 0 && hz < 60 {
+		write_mangled(e, o.name)
+		sbprintf(e, ".__vars.TickRate = rt.float(1 / %d)\n", hz)
+	}
 }
 
 // emit_split_ticks writes each split function's tick: the guard on its timer, then its code from
@@ -331,6 +336,22 @@ parse_split_list :: proc(text: string, allocator := context.allocator) -> map[st
 			out[key] = make([dynamic]u32, 0, 1, allocator)
 			append(&out[key], u32(h))
 		}
+	}
+	return out
+}
+
+// parse_tick_rates reads tickrates.tsv (script, Hz, why, waits) into Options.tick_rates. '#' lines
+// are comments; a malformed row is skipped.
+parse_tick_rates :: proc(text: string, allocator := context.allocator) -> map[string]int {
+	out := make(map[string]int, allocator = allocator)
+	rest := text
+	for line in strings.split_lines_iterator(&rest) {
+		if line == "" || line[0] == '#' {continue}
+		cols := strings.split(line, "\t", context.temp_allocator)
+		if len(cols) < 2 {continue}
+		hz, ok := strconv.parse_int(cols[1])
+		if !ok {continue}
+		out[strings.to_lower(cols[0], allocator)] = hz
 	}
 	return out
 }

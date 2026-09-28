@@ -25,6 +25,8 @@ Options :: struct {
 	// lowercase, to the code hashes the list was made from (`pexlatent --emit-split`), one per
 	// compiled form (LE and SE can differ).
 	split:         map[string][dynamic]u32,
+	// tick_rates is each split class's OnTick rate in Hz, script lowercase (tickrates.tsv).
+	tick_rates:    map[string]int,
 }
 
 Stats :: struct {

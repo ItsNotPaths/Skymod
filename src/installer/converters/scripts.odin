@@ -35,10 +35,14 @@ EFFECT_CLASSES := #load_directory("../../script/effects")
 // --emit-split).
 SPLIT_LIST :: #load("split.tsv", string)
 
-// rewrites_hash identifies the shipped rewrites, effect classes and split list, so an install made with others
-// runs again.
+// TICK_RATES gives each split class its OnTick rate (generated: tools/tickrates).
+TICK_RATES :: #load("tickrates.tsv", string)
+
+// rewrites_hash identifies the shipped rewrites, effect classes, split list and tick rates, so an
+// install made with others runs again.
 rewrites_hash :: proc() -> u64 {
 	h := hash.fnv64a(transmute([]u8)string(SPLIT_LIST))
+	h = hash.fnv64a(transmute([]u8)string(TICK_RATES), h)
 	for files in ([2][]runtime.Load_Directory_File{REWRITES, EFFECT_CLASSES}) {
 		for f in files {
 			h = hash.fnv64a(transmute([]u8)f.name, h)
@@ -96,13 +100,18 @@ convert_scripts :: proc(archives: []string, out_dir: string, progress: ^Progress
 	defer virtual.arena_destroy(&scratch)
 	context.temp_allocator = virtual.arena_allocator(&scratch)
 
-	opt := transpile.Options{split = transpile.parse_split_list(SPLIT_LIST)}
+	opt := transpile.Options {
+		split      = transpile.parse_split_list(SPLIT_LIST),
+		tick_rates = transpile.parse_tick_rates(TICK_RATES),
+	}
 	defer {
 		for k, v in opt.split {
 			delete(k)
 			delete(v)
 		}
 		delete(opt.split)
+		for k in opt.tick_rates {delete(k)}
+		delete(opt.tick_rates)
 	}
 	progress_step(progress, "Converting scripts", len(winner))
 	for stem, src in winner {
