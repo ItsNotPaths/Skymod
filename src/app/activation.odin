@@ -12,6 +12,7 @@ package main
 // as before.
 
 import "../gamedb"
+import smath "../math"
 import "../physics"
 import "../render"
 import "../world"
@@ -95,12 +96,19 @@ classify_base :: proc(db: ^gamedb.DB, base: gamedb.Form_ID) -> Activate_Kind {
 	return .Activator
 }
 
+// aim_ray is the crosshair ray from the followed head: in third person the camera sits `boom` back
+// along the same line, so reach counts from the head, not the camera.
+aim_ray :: proc(g: ^Game) -> (origin, dir: smath.Vec3) {
+	origin, dir = camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	return origin + dir * g.snap.boom, dir
+}
+
 // aim_at is what the crosshair (screen centre) is on, within reach: main's half of targeting, since
 // the pick tests drawn geometry. The sim gets it as Sim_Input.aim and resolves what it means.
 aim_at :: proc(g: ^Game) -> Form_ID {
 	scene := g.fr.active_scene
 	if scene == nil {return 0}
-	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	ro, rd := aim_ray(g)
 	inst, dist, ok := world.probe_ray(scene, ro, rd)
 	if actor, adist, aok := pick_actor(g, ro, rd); aok && adist <= ACTIVATE_RANGE && (!ok || adist < dist) {
 		return actor

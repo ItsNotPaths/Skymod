@@ -142,7 +142,7 @@ frame_actor_grab :: proc(g: ^Game) {
 		g.actor_grab = {}
 		return
 	}
-	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	ro, rd := aim_ray(g)
 	if g.actor_grab.actor == 0 {
 		form, dist, ok := pick_actor(g, ro, rd)
 		if !ok {return}

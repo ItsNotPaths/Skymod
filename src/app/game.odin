@@ -240,6 +240,7 @@ Game :: struct {
 	hover_actor: Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
 	actor_grab:  Actor_Grab, // the dev carry (hold DevGrabActor)
 	wheel:       f32, // main's running total of wheel notches, latched into Sim_Input
+	zoom_in, zoom_out: u32, // times each fired, latched into Sim_Input
 
 	// the boundary with the sim (sim.odin)
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick

@@ -341,6 +341,7 @@ Save_Body :: struct {
 	books_read:    []Form_ID,
 	words:         []Saved_Inv,   // actor -> word, WORD_* bits
 	beast_form:    bool,
+	camera:        Camera,
 	vampires:      []Form_ID,
 	werewolves:    []Form_ID,
 	restocks:      []Saved_Restock,
@@ -622,6 +623,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		books_read    = save_set(ws.books_read),
 		words         = save_deltas(ws.words),
 		beast_form    = ws.beast_form,
+		camera        = ws.camera,
 		vampires      = save_set(ws.vampires),
 		werewolves    = save_set(ws.werewolves),
 		restocks      = restocks[:],
@@ -796,6 +798,8 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	load_set(&ws.books_read, body.books_read, remap, have_remap, rf)
 	load_deltas(&ws.words, body.words, remap, have_remap, rf)
 	ws.beast_form = body.beast_form
+	ws.camera = body.camera
+	ws.camera.target, _ = rf(remap, have_remap, body.camera.target)
 	load_set(&ws.vampires, body.vampires, remap, have_remap, rf)
 	load_set(&ws.werewolves, body.werewolves, remap, have_remap, rf)
 	for r in body.restocks {

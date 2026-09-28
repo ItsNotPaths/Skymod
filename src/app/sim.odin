@@ -97,18 +97,23 @@ Sim_Input :: struct {
 	aim_dir: smath.Vec3, // the crosshair ray from `eye`
 	activate, sneak, cast_left, cast_right: bool,
 	wheel:   f32, // wheel notches turned since the session began
+	zoom_in, zoom_out: u32, // times each fired since the session began
 	in_menu: bool, // a menu is open (dialogue does not park the sim, but blocks interaction)
 }
 
 // latch_input is this frame's Sim_Input.
 latch_input :: proc(g: ^Game) -> Sim_Input {
 	g.wheel += g.p.input.scroll
-	_, dir := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	if g.actor_grab.actor == 0 { // the dev carry's wheel sets its reach
+		if input.fired(&g.imgr, "ZoomIn") {g.zoom_in += 1}
+		if input.fired(&g.imgr, "ZoomOut") {g.zoom_out += 1}
+	}
+	eye, dir := aim_ray(g)
 	si := Sim_Input {
 		move       = g.p.input.move,
 		sprint     = g.p.input.fast,
 		yaw        = g.cam.yaw,
-		eye        = g.cam.pos,
+		eye        = eye,
 		view       = camera_view_proj(g.cam, render.aspect(&g.r)),
 		aim        = aim_at(g),
 		aim_dir    = dir,
@@ -117,6 +122,8 @@ latch_input :: proc(g: ^Game) -> Sim_Input {
 		cast_left  = input.held(&g.imgr, "CastLeft"),
 		cast_right = input.held(&g.imgr, "CastRight"),
 		wheel      = g.wheel,
+		zoom_in    = g.zoom_in,
+		zoom_out   = g.zoom_out,
 		in_menu    = g.menu != .None,
 	}
 	if g.fr.kb_cap {si.move = {}}
@@ -246,6 +253,8 @@ Snapshot :: struct {
 	phys:    world.Phys_Stats, // the exterior's bodies
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
+	follow:  Segment, // the feet the camera follows: the player's, or a SetCameraTarget actor's
+	boom:    f32, // how far behind the followed head the camera sits; 0 in first person
 	controlled: Form_ID, // the actor the player controls
 	bodies: world.Poses, // every dynamic body of the active scene's refs
 	drops:  int, // the dev drop-test balls, posed in `bodies` as ref 0
@@ -300,6 +309,9 @@ publish_snapshot :: proc(g: ^Game) {
 	s.controlled = g.sim.ws.player
 	clear(&s.text)
 	if has_body {s.player.from, s.player.to = physics.character_step(&body.char)}
+	s.follow = s.player
+	if b, ok := &g.sim.actor_bodies[g.sim.ws.camera.target]; ok {s.follow.from, s.follow.to = physics.character_step(&b.char)}
+	s.boom = camera_boom(g, s.follow.to + {0, 0, EYE_HEIGHT})
 	world.capture_poses(active_space(g), &s.bodies)
 	for b, i in g.sim.drops {world.add_pose(&s.bodies, &g.phys, {0, i32(i)}, b)}
 	s.drops = len(g.sim.drops)

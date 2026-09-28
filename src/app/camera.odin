@@ -6,6 +6,8 @@ package main
 
 import "core:math"
 import smath "../math"
+import "../physics"
+import "../worldstate"
 
 Camera :: struct {
 	pos:   smath.Vec3,
@@ -77,4 +79,29 @@ camera_view_proj :: proc(c: Camera, aspect: f32) -> smath.Mat4 {
 	view := smath.look_at_rh(eye, center, {0, 0, 1})
 	proj := smath.perspective_rh_zo_rev(CAM_FOV_Y, aspect, CAM_NEAR, CAM_FAR)
 	return proj * view
+}
+
+// The point of view, sim side: the wheel ramps worldstate.Camera.dist, and the tick works out how
+// far back the camera fits.
+
+CAMERA_CLEARANCE :: f32(10) // off the wall that pulled the camera in
+
+// tick_view moves the camera a notch for each ZoomIn and ZoomOut since the last tick.
+tick_view :: proc(g: ^Game) {
+	in_, was := g.sim.input, g.sim.input_was
+	if in_.in_menu || g.sim.interact.grabbing {return} // the grab's wheel sets its reach
+	for _ in was.zoom_in ..< in_.zoom_in {worldstate.zoom(&g.sim.ws.camera, out = false)}
+	for _ in was.zoom_out ..< in_.zoom_out {worldstate.zoom(&g.sim.ws.camera, out = true)}
+}
+
+// camera_boom is how far behind `head` the camera sits: its dist, pulled in before the first solid
+// body behind the head.
+camera_boom :: proc(g: ^Game, head: smath.Vec3) -> f32 {
+	dist := g.sim.ws.camera.dist
+	if dist == 0 || g.sim.noclip || g.sim.cur_phys == nil {return 0}
+	for h in physics.ray_hits(g.sim.cur_phys, head, head - g.sim.input.aim_dir * dist) {
+		if h.owner == u64(g.sim.ws.player) || h.owner == u64(g.sim.ws.camera.target) {continue}
+		return max(h.fraction * dist - CAMERA_CLEARANCE, 0)
+	}
+	return dist
 }

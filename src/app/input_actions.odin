@@ -29,6 +29,8 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"CastLeft",      "gameplay", .Button, "mouse1"},
 	{"CastRight",     "gameplay", .Button, "mouse2"},
 	{"Sneak",         "gameplay", .Button, "lctrl"},
+	{"ZoomIn",        "gameplay", .Button, "wheelup"},
+	{"ZoomOut",       "gameplay", .Button, "wheeldown"},
 	{"ToggleOverlay", "global",   .Button, "grave"},
 	{"ToggleProfiler", "global",  .Button, "f3"},
 	{"NoClip",        "gameplay", .Button, "v"},

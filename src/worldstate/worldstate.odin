@@ -88,6 +88,7 @@ Overlay :: struct {
 	drops:           u32,                          // items dropped so far, which spreads them round the dropper (not saved)
 	words:           Deltas,                       // actor -> word of power -> WORD_TAUGHT | WORD_UNLOCKED
 	beast_form:      bool,                         // Game.SetBeastForm: the player is a werewolf or vampire lord now
+	camera:          Camera,                       // the player's point of view (camera.odin)
 	vampires:        Form_Set,                     // SendVampirismStateChanged(true)
 	werewolves:      Form_Set,                     // SendLycanthropyStateChanged(true)
 	restocks:        map[Form_ID]f64,              // vendor chest -> the game hour it last restocked

@@ -15,7 +15,6 @@ import smath "../math"
 // (hole anim-natives :tags (animation unclaimed) :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 
-// (hole camera-mode-state :tags (threading player render) :sev gap) the camera mode (first or third person, a forced target, the first-person body shown) has no owner. Wanted: the sim stores what scripts and the player request and publishes it; main's camera obeys it, and script reads answer from the sim.
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
@@ -69,6 +68,9 @@ register_builtins :: proc(reg: ^Registry) {
 
 	// Game / Debug — the top globals (callstatic), self is unused (0).
 	register(reg, "Game", "GetPlayer", n_get_player)
+	register(reg, "Game", "ForceFirstPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = 0; return nil})
+	register(reg, "Game", "ForceThirdPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = max(c.ws.camera.dist, worldstate.THIRD_MIN); return nil})
+	register(reg, "Game", "SetCameraTarget", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.target = arg_form(args, 0); return nil})
 	register(reg, "Game", "GetFormFromFile", n_get_form_from_file)
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)

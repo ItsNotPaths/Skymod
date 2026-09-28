@@ -761,6 +761,46 @@ test_registry_get_form_from_file :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Game", "GetFormFromFile", &c, {i32(0x016691), "Nope.esp"}), nil)
 }
 
+// The camera is one distance: the wheel ramps it and skips the gap between first person and the
+// closest third person. The natives set it, and it saves.
+@(test)
+test_registry_camera :: proc(t: ^testing.T) {
+	cam: worldstate.Camera
+	worldstate.zoom(&cam, out = false)
+	testing.expect_value(t, cam.dist, 0)
+	worldstate.zoom(&cam, out = true)
+	testing.expect_value(t, cam.dist, worldstate.THIRD_MIN)
+	worldstate.zoom(&cam, out = true)
+	testing.expect_value(t, cam.dist, worldstate.THIRD_MIN + worldstate.ZOOM_STEP)
+	for _ in 0 ..< 20 {worldstate.zoom(&cam, out = true)}
+	testing.expect_value(t, cam.dist, worldstate.THIRD_MAX)
+	cam.dist = worldstate.THIRD_MIN
+	worldstate.zoom(&cam, out = false)
+	testing.expect(t, worldstate.first_person(cam), "in from the closest third person is first person")
+
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+	NPC :: script.Form_ID(0x700)
+	c := script.Call{ws = &ws, db = &db}
+
+	script.call(&reg, "Game", "ForceThirdPerson", &c, {})
+	script.call(&reg, "Game", "SetCameraTarget", &c, {NPC})
+	path := "test_camera.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
+	ws.camera = {}
+	_, ok := worldstate.load_from_file(&ws, path)
+	testing.expect(t, ok, "load")
+	testing.expect_value(t, ws.camera, worldstate.Camera{dist = worldstate.THIRD_MIN, target = NPC})
+	script.call(&reg, "Game", "ForceFirstPerson", &c, {})
+	testing.expect(t, worldstate.first_person(ws.camera), "first person")
+}
+
 // Words of power: taught is not unlocked. Beast form and the vampire and werewolf states are kept,
 // and all of it saves.
 @(test)

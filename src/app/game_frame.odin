@@ -161,6 +161,7 @@ game_tick :: proc(g: ^Game) {
 	lap(g, .Follow, &t)
 	tgt := resolve_activation(g, g.sim.input.aim)
 	tick_interact(g, tgt)
+	tick_view(g)
 	tick_cast(g, tgt)
 	tick_dialogue(g)
 	tick_activations(g)
@@ -468,7 +469,8 @@ input_move :: proc(g: ^Game) -> (vel: [2]f32, jump: bool) {
 @(private = "file")
 frame_camera :: proc(g: ^Game) {
 	if g.snap.walking {
-		g.cam.pos = blend(g.snap.player, g.fr.alpha) + {0, 0, EYE_HEIGHT}
+		head := blend(g.snap.follow, g.fr.alpha) + {0, 0, EYE_HEIGHT}
+		g.cam.pos = head - camera_forward(g.cam) * g.snap.boom
 		return
 	}
 	move := g.p.input.move
