@@ -34,11 +34,11 @@ UI_ASSETS := [?]UI_Asset{
 
 	// ── Shapes (by per-edition character id) ──
 	// Bethesda Game Studios logo — startmenu, 621×292 #bbbdbf, used as-is.
-	{dest = "interface/bethesdalogo.dds", swf = "interface/startmenu.swf", le = 78},
+	{dest = "interface/bethesdalogo.dds", swf = "interface/startmenu.swf", le = 78, se = 554},
 	// Stat-bar deco FRAME — hudmenu, 358×25 #990000 (red border + knotwork ENDS, 3-sliced: the ends stay
 	// fixed, the middle stretches to any width — there is NO separate end-cap). Re-rasterized WHITE so a
 	// bar can tint it per stat (red × tint stays red, hence the recolour).
-	{dest = "interface/bar_frame.dds", swf = "interface/exported/hudmenu.gfx", le = 395, recolor = {255, 255, 255, 255}},
+	{dest = "interface/bar_frame.dds", swf = "interface/exported/hudmenu.gfx", le = 395, se = 446, recolor = {255, 255, 255, 255}},
 	// Stat-bar BG — hudmenu, 366×30 #010101 (the frame's black background companion), used as-is.
-	{dest = "interface/bar_bg.dds", swf = "interface/exported/hudmenu.gfx", le = 416},
+	{dest = "interface/bar_bg.dds", swf = "interface/exported/hudmenu.gfx", le = 416, se = 467},
 }
