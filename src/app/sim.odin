@@ -8,6 +8,7 @@ import "core:sync"
 import "../ai"
 import smath "../math"
 import "../physics"
+import "../render"
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
 // its controls only from here. Buttons are held state: the sim finds a press by comparing ticks.
@@ -15,19 +16,20 @@ Sim_Input :: struct {
 	move:   [3]f32, // x forward, y right, z up (jump); zero while the UI has the keyboard
 	sprint: bool,
 	yaw:    f32, // the camera's: main owns the look
-	fly:    smath.Vec3, // the feet main's free camera flew to, for noclip
+	eye:    smath.Vec3, // the camera's; in noclip, where main flew the player
+	view:   smath.Mat4, // the camera's view-projection: what the player can see
 }
 
 // latch_input is this frame's Sim_Input.
 latch_input :: proc(g: ^Game) -> Sim_Input {
-	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos - {0, 0, EYE_HEIGHT}}
+	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r))}
 	if g.fr.kb_cap {si.move = {}}
 	return si
 }
 
 // player_feet is where the sim has the player: the capsule when walking, else where main flew.
 player_feet :: proc(g: ^Game) -> smath.Vec3 {
-	return physics.character_position(&g.character) if g.char_ok && !g.noclip else g.input.fly
+	return physics.character_position(&g.character) if g.char_ok && !g.noclip else g.input.eye - {0, 0, EYE_HEIGHT}
 }
 
 // Queue is a list one side appends to and the other drains whole.

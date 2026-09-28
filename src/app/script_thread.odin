@@ -9,9 +9,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
-import "../render"
 import slua "../script/lua"
-import "../sight"
 import "../worldstate"
 
 Script_Thread :: struct {
@@ -54,8 +52,6 @@ script_start :: proc(g: ^Game) {
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
-	// (hole sight-view-input :tags (threading input) :sev gap) sight.view is a package global main builds from g.cam, g.cur_phys and render.aspect; the sim must build it from the latched Sim_Input and its own physics world.
-	sight.view = {g.cur_phys, g.cam.pos, camera_view_proj(g.cam, render.aspect(&g.r))}
 	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
 	clear(&g.loaded_cells)
 	clear(&st.attached)
