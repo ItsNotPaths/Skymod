@@ -5,7 +5,9 @@ package script
 // Match Conditions run on the candidate, except for Unique_Actor and Create_Ref, which run them on
 // the player.
 
+import "core:log"
 import "core:math/rand"
+import "core:time"
 import "../conditions"
 import "../formats/esm"
 import "../formid"
@@ -19,7 +21,11 @@ fill_aliases :: proc(c: ^Call, quest: Form_ID, new_game := false) -> bool {
 	for a in gamedb.quest_aliases_of(c.db, quest) {
 		h, ok := formid.alias_handle(quest, a.id)
 		if !ok {continue}
+		t := time.tick_now()
 		form, known := fill(c, quest, h, a, used, new_game)
+		if ms := time.duration_milliseconds(time.tick_since(t)); ms > SLOW_STORY_MS {
+			log.warnf("alias: quest 0x%08X alias %d (%v fill) took %.1fms, got 0x%08X", quest, a.id, a.fill, ms, form)
+		}
 		if !known {continue}
 		enter_alias(c, h, form)
 		if form == 0 {

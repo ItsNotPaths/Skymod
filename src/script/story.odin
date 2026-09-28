@@ -6,7 +6,9 @@ package script
 // Quests To Run), each gated by its own Story Manager conditions and Hours Until Reset. Starting a
 // quest consumes the event unless the node Shares Event.
 
+import "core:log"
 import "core:math/rand"
+import "core:time"
 import "../conditions"
 import "../formid"
 import "../gamedb"
@@ -48,6 +50,9 @@ walk :: proc(c: ^Call, form: Form_ID, e: ^Story_Event, started: ^int) -> bool {
 	return false
 }
 
+// SLOW_STORY_MS is a quest start attempt that gets logged.
+SLOW_STORY_MS :: 5
+
 // start_from_node starts up to the node's count of its quests; returns how many started.
 @(private = "file")
 start_from_node :: proc(c: ^Call, node: Form_ID, n: gamedb.Story_Node, e: ^Story_Event) -> int {
@@ -62,7 +67,12 @@ start_from_node :: proc(c: ^Call, node: Form_ID, n: gamedb.Story_Node, e: ^Story
 	started := 0
 	for q in pick_order(c, node, n) {
 		if started >= want {break}
-		if !may_start(c, q, e) || !start_quest(c, q.quest, e) {continue}
+		t := time.tick_now()
+		ok := may_start(c, q, e) && start_quest(c, q.quest, e)
+		if ms := time.duration_milliseconds(time.tick_since(t)); ms > SLOW_STORY_MS {
+			log.warnf("story: %s event, quest 0x%08X took %.1fms (started=%v)", string(e.type[:]), q.quest, ms, ok)
+		}
+		if !ok {continue}
 		c.ws.story_ran[{node, q.quest}] = true
 		c.ws.story_starts[q.quest] = c.ws.clock.hours
 		started += 1
