@@ -19,7 +19,6 @@ import "core:fmt"
 import "core:math/linalg"
 import "core:strings"
 
-import "../physics"
 
 import "../assetdb"
 import "../gamedb"
@@ -210,8 +209,6 @@ Instance :: struct {
 	scale:      f32,
 	has_tp:     bool,
 	tp_door:    Form_ID, // destination door formID (XTEL)
-	tp_pos:     smath.Vec3, // XTEL landing position in the DEST cell (arrival placement)
-	tp_rot:     smath.Vec3, // XTEL landing rotation (arrival facing)
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
 	world:      smath.Mat4, // cached trs(pos,rot,scale) — placement is static, so computed once at build
 	veg:        Veg_Kind, // cached vegetation class (path match done once, not per frame)
@@ -227,7 +224,6 @@ Chunk :: struct {
 	has_grid:     bool,
 	lod:          int,
 	instances:    [dynamic]Instance,
-	actors:       [dynamic]Form_ID, // the actor refs a build found; add_cell hands them to the sim cell
 	terrain:      [dynamic]Terrain_Patch, // exterior LAND heightmap patches (one per quadrant)
 	grass:        [dynamic]Grass_Batch, // scattered grass (one batch per grass type)
 	objects:      [dynamic]Obj_Batch, // distant instanced statics (lod ≥ 1; one batch per model)
@@ -250,12 +246,6 @@ Vis_Chunk :: struct {
 Scene :: struct {
 	cache:    assetdb.Cache,
 	chunks:   map[Form_ID]Chunk,
-	// Exterior PERSISTENT-cell refs (load doors, bridges, gates, quest set-dressing) bucketed by the
-	// grid cell each one's world position falls in. The ESM groups them logically in one persistent
-	// cell at scattered coords, so we spatially re-bucket them once at worldspace load and merge each
-	// bucket into its grid chunk as it streams (merge_persistent) — they then load/unload/collide with
-	// the grid exactly like normal cell refs, instead of being one always-resident, fully-cooked chunk.
-	persistent_by_grid: map[[2]i32][dynamic]gamedb.Ref,
 	// frame_chunks is a flat snapshot of the resident chunks (pointers + cull bounds), rebuilt
 	// once per frame by cull_begin and iterated by EVERY draw/shadow pass. Walking the chunk MAP
 	// directly streams its big inline Chunk values through cache on each of ~9 passes/frame; a
@@ -390,8 +380,6 @@ scene_destroy :: proc(s: ^Scene) {
 	}
 	delete(s.chunks)
 	if s.has_dyn_debug {render.release_mesh(s.cache.r, s.dyn_debug)}
-	free_persistent_grid(s)
-	delete(s.persistent_by_grid)
 	delete(s.frame_chunks)
 	clear_object_lod(s) // release the baked distant-object LOD buffers
 	delete(s.lod_quads)
@@ -436,8 +424,6 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	}
 	delete(chunk.instances)
 	chunk.instances = nil
-	delete(chunk.actors)
-	chunk.actors = nil
 }
 
 // acquire_chunk_assets records one model ref per instance + grass batch this chunk holds — the
@@ -455,7 +441,7 @@ acquire_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk) {
 }
 
 // chunk_meta makes an empty chunk carrying just a cell's identity + grid (no instances,
-// no terrain). Used directly for distant terrain-only LOD chunks; the base of build_chunk.
+// no terrain). A shell the streamer fills with terrain, water and grass, and populate with instances.
 chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	chunk := Chunk {
 		cell_form_id = cell_form_id,
@@ -466,95 +452,38 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	return chunk
 }
 
-// (hole render-cell-populate :tags (threading world render) :sev gap :needs (model-id-intern)) render chunks are built beside the sim data in one struct. Wanted: when a cell goes live the sim sends render its visible placements (form, model ID, transform), and instance events after that.
-// build_chunk gathers a cell's placeable refs into a chunk (instances + culling
-// bounds), WITHOUT resolving/uploading models (model stays nil). Cheap, main-thread:
-// no IO, no GPU. Shared by the sync loaders and the streamer.
-build_chunk :: proc(db: ^gamedb.DB, cell_form_id: Form_ID, ws: ^worldstate.World_State = nil) -> Chunk {
-	chunk := chunk_meta(db, cell_form_id)
-	append_refs(&chunk, db, gamedb.refs_of(db, cell_form_id), ws)
-	append_refs(&chunk, db, gamedb.actors_of(db, cell_form_id), ws)
-	return chunk
-}
-
-// append_refs turns a slice of ESM refs into renderable/collidable Instances on `chunk`, skipping
-// disabled refs (live state when `ws` is given), marker base forms, and marker/sky/water meshes, and expanding the chunk's cull
-// bounds (CHUNK_MARGIN folded in per-ref so repeated calls accumulate correctly). Shared by
-// build_chunk (a cell's own refs) and merge_persistent (the persistent bucket for that grid cell).
-append_refs :: proc(chunk: ^Chunk, db: ^gamedb.DB, refs: []gamedb.Ref, ws: ^worldstate.World_State = nil) {
+// populate fills a render chunk with a sim cell's refs as drawable instances, and grows its bounds.
+populate :: proc(chunk: ^Chunk, c: ^Sim_Cell) {
 	m := smath.Vec3{CHUNK_MARGIN, CHUNK_MARGIN, CHUNK_MARGIN}
 	lo, hi := chunk.lo, chunk.hi
 	if len(chunk.instances) == 0 {
 		lo = {max(f32), max(f32), max(f32)}
 		hi = {min(f32), min(f32), min(f32)}
 	}
-	n0 := len(chunk.instances)
-	for r in refs {
-		if gamedb.is_actor(db, r.base) {
-			append(&chunk.actors, r.form_id)
-			continue
-		}
-		if !ref_built(ws, db, r) || r.base == XMARKER || r.base == XMARKER_HEADING {
-			continue
-		}
-		modl, ok := gamedb.model_of(db, r.base)
-		if !ok || modl == "" || is_marker_path(modl) || is_nonworld_path(modl) {
-			continue
-		}
-		append(
-			&chunk.instances,
-			Instance {
-				model_path = modl,
-				base = r.base,
-				form_id = r.form_id,
-				pos = r.pos,
-				rot = r.rot,
-				scale = r.scale,
-				has_tp = r.has_tp,
-				tp_door = r.teleport.door,
-				tp_pos = r.teleport.pos,
-				tp_rot = r.teleport.rot,
-				world = smath.trs(r.pos, r.rot, r.scale), // static placement — cached for the draw paths
-				veg = veg_classify(modl),
-			},
-		)
+	for r in c.refs {
+		append(&chunk.instances, instance_of(r))
 		lo = {min(lo.x, r.pos.x - m.x), min(lo.y, r.pos.y - m.y), min(lo.z, r.pos.z - m.z)}
 		hi = {max(hi.x, r.pos.x + m.x), max(hi.y, r.pos.y + m.y), max(hi.z, r.pos.z + m.z)}
 	}
-	if len(chunk.instances) > n0 {
-		chunk.lo, chunk.hi = lo, hi
-	}
+	if len(c.refs) > 0 {chunk.lo, chunk.hi = lo, hi}
 }
 
-// ref_built is whether a ref gets an instance: it is enabled, or a script toggled it (built, then
-// shown or hidden by the overlay).
-@(private = "file")
-ref_built :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, r: gamedb.Ref) -> bool {
-	if ws == nil {return !gamedb.ref_effective_disabled(db, r)}
-	if d, ok := worldstate.get(ws, r.form_id); ok && .Disabled in d.live {return true}
-	return worldstate.ref_enabled(ws, db, r.form_id)
-}
-
-// merge_persistent appends the persistent-cell refs that spatially belong to this grid chunk (see
-// Scene.persistent_by_grid) as normal Instances — so persistent bridges/gates/quest set-dressing
-// load, collide, and unload with the grid cell instead of living in one always-resident chunk.
-// No-op for interior/non-grid chunks and grids with no persistent refs.
-merge_persistent :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
-	if !chunk.has_grid {
-		return
+// instance_of is a sim ref as render draws it.
+instance_of :: proc(r: Sim_Ref) -> Instance {
+	return {
+		model_path = r.model_path,
+		base = r.base,
+		form_id = r.form_id,
+		pos = r.pos,
+		rot = r.rot,
+		scale = r.scale,
+		world = r.world,
+		has_tp = r.has_tp,
+		tp_door = r.tp_door,
+		vis = .Hidden if r.disabled else .Show,
+		veg = veg_classify(r.model_path),
+		disabled = r.disabled,
 	}
-	if bucket, ok := s.persistent_by_grid[{chunk.gx, chunk.gy}]; ok {
-		append_refs(chunk, db, bucket[:], s.ws)
-	}
-}
-
-// free_persistent_grid releases the per-grid persistent-ref buckets (each a dynamic array) and the
-// map. Called on worldspace retarget (before re-indexing) and at scene teardown.
-free_persistent_grid :: proc(s: ^Scene) {
-	for _, &bucket in s.persistent_by_grid {
-		delete(bucket)
-	}
-	clear(&s.persistent_by_grid)
 }
 
 // Cell_Load_Progress reports interior-load progress (0..1) to a UI callback during the synchronous
@@ -569,7 +498,8 @@ Cell_Load_Progress :: #type proc "odin" (user: rawptr, frac: f32)
 // callback (throttled) reports the per-instance decode fraction so a load screen can show real
 // progress instead of a blocking freeze.
 load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Cell_Load_Progress = nil, user: rawptr = nil) -> int {
-	chunk := build_overlaid_chunk(s, db, cell_form_id) // ESM baseline ⊕ created refs
+	chunk := chunk_meta(db, cell_form_id)
+	populate(&chunk, add_cell(s.space, db, cell_form_id)) // the sim's cell (refs, actors, terrain body), drawn as placed
 	ninst := len(chunk.instances)
 	for &inst, i in chunk.instances {
 		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
@@ -580,7 +510,6 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 			progress(user, f32(i) / f32(ninst))
 		}
 	}
-	apply_overlay(s, &chunk) // baseline ⊕ overlay: patch moved refs before collision is built (3c)
 	expand_scene_bounds(s, chunk)
 	load_terrain(s, db, &chunk)
 	load_water(s, db, &chunk)
@@ -589,7 +518,6 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
-	if s.space != nil {add_cell(s.space, db, &s.chunks[cell_form_id])} // the sim's side: refs, actors, terrain body
 	note_loaded(s, cell_form_id)
 	return n
 }

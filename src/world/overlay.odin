@@ -74,40 +74,6 @@ find_resident :: proc(s: ^Scene, form_id: Form_ID) -> (inst: ^Instance, chunk: ^
 // with no-op "moves".
 MOVE_EPS :: f32(2)
 
-// apply_overlay patches a freshly-built chunk's instances with the overlay (baseline ⊕ overlay):
-// a Moved ref's ESM placement is replaced by its settled transform, so it reappears where it came
-// to rest, not where the master put it. Call after build_chunk and BEFORE collision is built
-// (sync_physics reads inst.world to place the body). No-op without an overlay.
-apply_overlay :: proc(s: ^Scene, chunk: ^Chunk) {
-	if s.ws == nil {
-		return
-	}
-	for &inst in chunk.instances {
-		d, ok := worldstate.get(s.ws, inst.form_id)
-		if !ok {
-			continue
-		}
-		// Disabled: hidden + (via inst.disabled) skipped by sync_physics; ignores Moved/Scaled.
-		// (Deleted never reaches here — build_overlaid_chunk suppresses those refs entirely.)
-		if .Disabled in d.live && d.disabled {
-			inst.disabled = true
-			inst.vis = .Hidden
-			continue
-		}
-		if .Moved in d.live {
-			inst.world = d.world
-			inst.pos = d.pos
-		}
-		if .Scaled in d.live {
-			inst.scale = d.scale
-			if .Moved not_in d.live {
-				// Moved bakes scale into its matrix; a scale-only delta recomputes the placement.
-				inst.world = smath.trs(inst.pos, inst.rot, d.scale)
-			}
-		}
-	}
-}
-
 // disable_ref is the Layer-1 mutation verb for Disabled (docs/live-state.md §7.1): it records a
 // Disabled delta in the overlay (so it persists + reapplies via apply_overlay on the next cell load)
 // AND, when the ref is currently resident, applies it live — the instance stops rendering AND loses
@@ -164,24 +130,10 @@ regate_enable :: proc(s: ^Scene, db: ^gamedb.DB, form: Form_ID) {
 			if chunk, res := &s.chunks[cell]; res {rebuild_chunk_overlay(s, db, cell, chunk)}
 		}
 	}
-	if form not_in db.enable_parents {return}
-	for cell, &chunk in s.chunks {
-		if gated_by(s, db, &chunk, form) {rebuild_chunk_overlay(s, db, cell, &chunk)}
+	if form not_in db.enable_parents || s.space == nil {return}
+	for cell, &c in s.space.cells {
+		if chunk, res := &s.chunks[cell]; res && gated_by(s.space, db, &c, form) {rebuild_chunk_overlay(s, db, cell, chunk)}
 	}
-}
-
-// gated_by reports whether a ref of the chunk hangs below `parent` in an enable chain.
-@(private = "file")
-gated_by :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk, parent: Form_ID) -> bool {
-	for r in gamedb.refs_of(db, chunk.cell_form_id) {
-		if gamedb.enable_chain_has(db, r, parent) {return true}
-	}
-	bucket, ok := s.persistent_by_grid[{chunk.gx, chunk.gy}]
-	if !chunk.has_grid || !ok {return false}
-	for r in bucket {
-		if gamedb.enable_chain_has(db, r, parent) {return true}
-	}
-	return false
 }
 
 // apply_overlay_ref live-applies a single form's CURRENT overlay delta to the resident scene — the
@@ -235,96 +187,10 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 	place_ref(s.space, form_id, inst.world, inst.pos, inst.scale)
 }
 
-// --- created refs (the ADDITIVE half of baseline ⊕ overlay; docs/live-state.md §6 created-ref store) ---
-
-// build_created_instance constructs an Instance for a runtime-created ref (base form → model path via
-// gamedb). ok=false if the base has no world model (nothing to place).
-build_created_instance :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form_id: Form_ID, c: worldstate.Created_Ref) -> (Instance, bool) {
-	modl, ok := gamedb.model_of(db, c.base)
-	if !ok || modl == "" || is_marker_path(modl) || is_nonworld_path(modl) {
-		return {}, false
-	}
-	return Instance {
-			model_path = modl,
-			base = c.base,
-			form_id = form_id,
-			pos = c.pos,
-			rot = c.rot,
-			scale = c.scale,
-			world = smath.trs(c.pos, c.rot, c.scale),
-			veg = veg_classify(modl),
-		},
-		true
-}
-
-// (hole overlay-off-streamer :tags (threading world) :sev gap :needs (instance-events)) build_overlaid_chunk, apply_overlay, ref_built and spawn_created read worldstate on main. Wanted: the sim applies the overlay to its cells and render gets the result as placements and instance events.
-// build_overlaid_chunk assembles a cell's instance layer as baseline ⊕ overlay in ONE step: the ESM
-// baseline (build_chunk) plus the runtime-created refs (spawn_created). Every cell-build path goes
-// through this — interior load_cell, the exterior streamer, the persistent cell, and the F9 rebuild —
-// so the two halves can never drift apart (a raw build_chunk that forgets spawn_created would silently
-// drop created refs). Models are left unresolved (the caller resolves sync or enqueues async); deltas
-// are patched afterward via apply_overlay.
-build_overlaid_chunk :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID) -> Chunk {
-	chunk := build_chunk(db, cell, s.ws)
-	merge_persistent(s, db, &chunk) // fold in this grid cell's persistent refs (doors/bridges/gates)
-	if s.ws != nil {
-		// Deleted refs are SUPPRESSED at build — never instantiated (vs Disabled, which is built then
-		// hidden so it can be re-enabled). Downward scan so unordered_remove only moves checked items.
-		for i := len(chunk.instances) - 1; i >= 0; i -= 1 {
-			if d, ok := worldstate.get(s.ws, chunk.instances[i].form_id); ok && .Deleted in d.live {
-				unordered_remove(&chunk.instances, i)
-			}
-		}
-	}
-	spawn_created(s, db, &chunk)
-	return chunk
-}
-
-// spawn_created appends the runtime-created refs registered for this chunk's cell as Instances — the
-// ADDITIVE half of the overlay (apply_overlay only PATCHES existing ESM refs; created refs have no
-// baseline). The instances then flow through the normal resolve/collision/render/index paths. Call
-// right after build_chunk, BEFORE model resolve + index_instances + collision. No-op without overlay.
-spawn_created :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
-	if s.ws == nil {
-		return
-	}
-	outer: for fid in worldstate.created_in(s.ws, chunk.cell_form_id) {
-		for inst in chunk.instances {
-			if inst.form_id == fid {
-				continue outer // already spawned — keep idempotent so reapply_overlay_resident is safe
-			}
-		}
-		c, ok := worldstate.get_created(s.ws, fid)
-		if !ok {
-			continue
-		}
-		if inst, built := build_created_instance(db, s.ws, fid, c); built {
-			append(&chunk.instances, inst)
-		}
-	}
-}
-
-// reapply_overlay_resident re-applies the overlay to every CURRENTLY-RESIDENT chunk: spawns created
-// refs (resolving their models synchronously) and patches disabled/moved/scaled. The fix for overlay
-// LOADS landing on chunks that are already loaded (built before the menu's Continue and not reloaded
-// on the crossing), so their created refs would otherwise never appear. spawn_created is idempotent,
-// so this is safe to call repeatedly (Continue +
-// F9 quickload). Grid cells not yet streamed pick the overlay up normally when they build. (It does
-// NOT remove stale live state for refs dropped by the loaded save — full exterior reconciliation on
-// F9 is still deferred; see the F9 note in main.)
-// rebuild_resident_overlay recomputes every resident chunk's INSTANCE layer as a pure function of
-// baseline ⊕ overlay — the architecturally-correct overlay re-apply, NOT incremental patching. Per
-// chunk: drop the old instances (+ their object collision), rebuild the ESM baseline from gamedb
-// (build_chunk), add the created refs (spawn_created), then apply deltas (apply_overlay). Because it
-// starts from a CLEAN baseline every time, it handles every delta kind uniformly with zero per-field
-// reset logic — created add/remove AND disabled/moved/scaled that the loaded save dropped all just
-// fall out (the ref is rebuilt un-disabled / at its ESM transform, and the delta simply isn't there to
-// re-apply). This is the same model interiors already use (traversal_reload re-enters the cell).
-//
-// KEPT (the overlay never touches them, so no churn): terrain/grass/water meshes + the terrain
-// collision body — only object collision rebuilds (via sync_physics). GPU-free (build_chunk is pure;
-// models resolve lazily at draw / via resolve_created_models; physics ops are nil-guarded), so it's
-// unit-testable headless — the synthetic test drives exactly this. Call after an overlay LOAD.
+// rebuild_resident_overlay recomputes every resident chunk's refs as baseline ⊕ overlay from a
+// clean baseline, so every delta kind (created refs added or gone, disabled/moved/scaled set or
+// dropped by a loaded save) falls out with no per-field reset. Terrain, grass, water and the terrain
+// body stay. GPU-free. Call after an overlay LOAD.
 rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 	if s.ws == nil {
 		return
@@ -336,26 +202,22 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 
 // (hole rebuild-evict-reacquire :tags (assets world) :sev gap) the old models are released before the new ones are acquired, so with an eviction budget trim can evict a model the rebuilt chunk needs, and nothing loads it again: the ref stays invisible with no collision. Acquire first.
 // (hole release-from-tick :tags (threading assets) :sev gap :needs (instance-events)) model_release (and so trim and evict_model, which free GPU buffers) runs in the tick through scene ops. Wanted: all cache refcounting on main, driven by instance events.
-// rebuild_chunk_overlay rebuilds one resident chunk's instances as baseline ⊕ created refs ⊕ deltas.
+// rebuild_chunk_overlay rebuilds one resident cell in the sim and redraws the chunk from it. The
+// chunk's bounds stay (they cover its terrain). Model refs are released over the old instances and
+// acquired over the new ones, or eviction could never reclaim them.
 rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^Chunk) {
-	// Drop old instances + their index (the sim cell rebuilds its bodies below; its terrain body stays).
-	// This swaps chunk.instances WITHOUT release_chunk_assets, so it rebalances the model refs itself:
-	// release over the OLD instances, acquire over the FRESH ones, or eviction can never reclaim them.
 	for &inst in chunk.instances {
 		assetdb.model_release(&s.cache, inst.model_path)
 	}
 	deindex_instances(s, chunk)
-	delete(chunk.instances)
-	fresh := build_overlaid_chunk(s, db, cell)
-	chunk.instances = fresh.instances // ownership transfers; only .instances and .actors are heap-allocated
-	delete(chunk.actors)
-	chunk.actors = fresh.actors
+	clear(&chunk.instances)
+	if c, live := rebuild_cell(s.space, db, cell); live {
+		for r in c.refs {append(&chunk.instances, instance_of(r))}
+	}
 	for inst in chunk.instances {
 		assetdb.model_acquire(&s.cache, inst.model_path)
 	}
 	index_instances(s, chunk)
-	apply_overlay(s, chunk)
-	if s.space != nil {rebuild_cell(s.space, chunk)} // object collision rebuilds via sync_physics; terrain body untouched
 }
 
 // (hole scene-ops-gpu :tags (threading world assets) :sev gap) apply_pending_scene_ops runs in the tick and this decodes and uploads a model synchronously; the model resolve must move to main.
@@ -398,17 +260,14 @@ create_ref :: proc(s: ^Scene, db: ^gamedb.DB, base, cell: Form_ID, pos, rot: [3]
 // yet live. GPU-free: the caller resolves the model (resolve_created_models); sync_physics builds
 // its collision next tick.
 spawn_live :: proc(s: ^Scene, db: ^gamedb.DB, id: Form_ID) -> bool {
-	c, created := worldstate.get_created(s.ws, id)
-	if !created {return false}
-	chunk, resident := &s.chunks[c.cell]
+	r, cell, ok := spawn_ref(s.space, db, id) // sync_physics builds its collision
+	if !ok {return false}
+	chunk, resident := &s.chunks[cell]
 	if !resident {return false}
-	if _, _, live := find_resident(s, id); live {return false}
-	inst, built := build_created_instance(db, s.ws, id, c)
-	if !built {return false}
+	inst := instance_of(r)
 	assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
 	append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
 	index_instances(s, chunk)
-	if s.space != nil {add_ref(s.space, inst, c.cell)} // sync_physics builds its collision
 	return true
 }
 

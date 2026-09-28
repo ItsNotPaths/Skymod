@@ -1,34 +1,62 @@
 package unit_tests
 
-// world.Space bookkeeping without a physics world: cells made live from render chunks, refs found
-// through the resident index after removals, and the collision store's three answers.
+// world.Space bookkeeping without a physics world: cells built from gamedb, refs found through the
+// resident index after removals, and the collision store's three answers.
 
 import "core:testing"
 import "../../src/assetdb"
+import "../../src/gamedb"
 import "../../src/world"
 
 @(private = "file")
-chunk_of :: proc(cell: world.Form_ID, forms: ..world.Form_ID) -> world.Chunk {
-	c := world.Chunk{cell_form_id = cell}
-	for f in forms {append(&c.instances, world.Instance{form_id = f, base = f + 1000, scale = 1})}
-	append(&c.actors, cell + 500)
-	return c
+SPACE_CELL :: gamedb.Form_ID(1)
+@(private = "file")
+ACTOR_BASE :: gamedb.Form_ID(7)
+
+// space_db is a cell with placed refs `forms` (base = form + 1000, each with a model) and one actor.
+@(private = "file")
+space_db :: proc(forms: ..gamedb.Form_ID) -> (db: gamedb.DB) {
+	db.base_models = make(map[gamedb.Form_ID]string)
+	db.cell_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref)
+	db.actor_refs = make(map[gamedb.Form_ID][dynamic]gamedb.Ref)
+	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base)
+	refs: [dynamic]gamedb.Ref
+	for f in forms {
+		db.base_models[f + 1000] = "clutter\\cup.nif"
+		append(&refs, gamedb.Ref{form_id = f, cell_form_id = SPACE_CELL, base = f + 1000, scale = 1})
+	}
+	db.cell_refs[SPACE_CELL] = refs
+	db.actors[ACTOR_BASE] = {}
+	actors: [dynamic]gamedb.Ref
+	append(&actors, gamedb.Ref{form_id = 500, cell_form_id = SPACE_CELL, base = ACTOR_BASE, scale = 1})
+	db.actor_refs[SPACE_CELL] = actors
+	return
+}
+
+@(private = "file")
+space_db_destroy :: proc(db: ^gamedb.DB) {
+	delete(db.base_models)
+	for _, r in db.cell_refs {delete(r)}
+	delete(db.cell_refs)
+	for _, r in db.actor_refs {delete(r)}
+	delete(db.actor_refs)
+	delete(db.actors)
 }
 
 @(test)
 test_space_refs :: proc(t: ^testing.T) {
+	db := space_db(10, 11, 12)
+	defer space_db_destroy(&db)
 	sp: world.Space
 	world.space_init(&sp, nil, nil, nil, false)
 	defer world.space_destroy(&sp)
 
-	a := chunk_of(1, 10, 11, 12)
-	defer delete(a.instances)
-	world.add_cell(&sp, nil, &a)
-	testing.expect(t, a.actors == nil, "the cell takes the chunk's actors")
-	testing.expect_value(t, len(sp.cells[1].actors), 1)
+	c := world.add_cell(&sp, &db, SPACE_CELL)
+	testing.expect_value(t, len(c.refs), 3)
+	testing.expect(t, len(c.actors) == 1 && c.actors[0] == 500, "the cell keeps its actor")
 
-	r, c, ok := world.find_ref(&sp, 11)
-	testing.expect(t, ok && r.base == 1011 && c.cell == 1, "a ref is found in its cell")
+	r, cell, ok := world.find_ref(&sp, 11)
+	testing.expect(t, ok && r.base == 1011 && cell.cell == SPACE_CELL, "a ref is found in its cell")
 
 	// Removing the first ref moves the last into its slot; the index must still find it.
 	world.remove_ref(&sp, 10)
@@ -43,16 +71,16 @@ test_space_refs :: proc(t: ^testing.T) {
 	world.place_ref(&sp, 12, {}, {5, 0, 0}, 2)
 	testing.expect(t, r.pos.x == 5 && r.scale == 2, "placed")
 
-	b := chunk_of(1, 20)
-	defer delete(b.instances)
-	world.rebuild_cell(&sp, &b)
-	_, _, old := world.find_ref(&sp, 11)
-	_, _, fresh := world.find_ref(&sp, 20)
-	testing.expect(t, !old && fresh, "a rebuild replaces the cell's refs")
+	// A rebuild starts from gamedb again: the removed ref is back, the placement is the ESM one.
+	_, rebuilt := world.rebuild_cell(&sp, &db, SPACE_CELL)
+	testing.expect(t, rebuilt, "a live cell rebuilds")
+	_, _, back := world.find_ref(&sp, 10)
+	r, _, _ = world.find_ref(&sp, 12)
+	testing.expect(t, back && r.pos.x == 0 && !r.disabled, "a rebuild restores the baseline")
 
-	world.remove_cell(&sp, 1)
+	world.remove_cell(&sp, SPACE_CELL)
 	testing.expect(t, len(sp.cells) == 0 && len(sp.resident) == 0, "a removed cell leaves no index entries")
-	_, _, ok = world.find_ref(&sp, 20)
+	_, _, ok = world.find_ref(&sp, 11)
 	testing.expect(t, !ok, "nothing is found in a removed cell")
 }
 

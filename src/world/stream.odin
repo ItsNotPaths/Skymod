@@ -188,38 +188,12 @@ stream_init :: proc(
 	bake_water_lod(st) // whole-worldspace distant water, merged per quad at real heights (water_lod.odin)
 }
 
-// stream_index_persistent spatially re-buckets the worldspace's PERSISTENT cell refs by grid cell
-// into scene.persistent_by_grid. The ESM groups them logically in one persistent cell at scattered
-// absolute coords (load doors, city gates, bridges, quest set-dressing), so the grid streamer never
-// reaches them — but each has a world position, so we bucket by floor(pos/CELL_SIZE) and merge each
-// bucket into its grid chunk at build (merge_persistent). They then load/collide/unload with the
-// grid like any cell ref, instead of one always-resident, fully-physics-cooked chunk (the old holdover
-// that cooked collision for the WHOLE worldspace's persistent refs regardless of player position).
-// Cheap: no models/collision here, just the ref grouping. The load-door traversal index is separate
-// (rebuild_ext_doors, gamedb-sourced) and does NOT depend on this.
+// stream_index_persistent has the sim bucket the worldspace's persistent refs by grid cell, so each
+// loads, collides and unloads with its grid cell (index_persistent).
 @(private)
 stream_index_persistent :: proc(st: ^Streamer) {
-	free_persistent_grid(st.scene) // drop the previous worldspace's buckets (retarget)
-	pcid, ok := gamedb.world_persistent_cell(st.db, st.world_fid)
-	if !ok {
-		return
-	}
-	n := 0
-	for refs in ([2][]gamedb.Ref{gamedb.refs_of(st.db, pcid), gamedb.actors_of(st.db, pcid)}) {
-		for r in refs {
-			key := [2]i32{i32(math.floor(r.pos.x / CELL_SIZE)), i32(math.floor(r.pos.y / CELL_SIZE))}
-			// Map-of-dynamic-array: read the header, append to the local copy (may realloc), write back —
-			// safe even when inserting new keys rehashes the map (a live &m[key] would dangle).
-			bucket := st.scene.persistent_by_grid[key]
-			append(&bucket, r)
-			st.scene.persistent_by_grid[key] = bucket
-			n += 1
-		}
-	}
-	log.infof(
-		"stream: indexed %d persistent refs across %d grid cells (0x%08X)",
-		n, len(st.scene.persistent_by_grid), pcid,
-	)
+	n := index_persistent(st.scene.space, st.db, st.world_fid)
+	log.infof("stream: indexed %d persistent refs across %d grid cells", n, len(st.scene.space.persistent))
 }
 
 // stream_destroy stops the worker and frees the streamer's own state. Call BEFORE
@@ -505,13 +479,16 @@ rewindow :: proc(st: ^Streamer) {
 // horizon. So object reach is governed by obj_radius, decoupled from terrain entirely.
 @(private)
 load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
-	chunk: Chunk
-	if lod == 0 {
-		chunk = build_overlaid_chunk(st.scene, st.db, cid) // ESM baseline ⊕ created refs (full-detail ring)
-	} else {
-		chunk = chunk_meta(st.db, cid) // grid/bounds only: no terrain mesh, no near instances
+	// The old chunk (a LOD swap rendering until this instant) goes first: its release retires the sim
+	// cell, which the new one must replace, not the other way round. It is all one call, so no gap.
+	if old, ok := &st.scene.chunks[cid]; ok {
+		release_chunk_assets(st.scene, old)
 	}
+	chunk := chunk_meta(st.db, cid) // grid/bounds only: no terrain mesh, no near instances
 	chunk.lod = lod
+	if lod == 0 {
+		populate(&chunk, add_cell(st.scene.space, st.db, cid)) // the sim's cell (refs, actors, terrain body), drawn as placed; before terrain, which reads the instance count
+	}
 	expand_scene_bounds(st.scene, chunk)
 	load_water(st.scene, st.db, &chunk) // flat per-cell plane (cheap; any LOD)
 	if lod == 0 {
@@ -520,20 +497,13 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	}
 	// lod ≥ 1 carries no per-cell objects now — distant objects are baked per-quad once at load
 	// (bake_object_lod), drawn via draw_object_lod. Far cells stay lean (water + bounds only).
-	// Build-before-release: the new chunk is fully built; now free the OLD chunk (a LOD
-	// swap that was rendering until this instant) and replace it in one step — no gap.
-	if old, ok := &st.scene.chunks[cid]; ok {
-		release_chunk_assets(st.scene, old)
-	}
 	st.scene.chunks[cid] = chunk
 
 	// Enqueue model decodes off-thread (the cheap instance/terrain work stayed on main;
 	// the heavy BSA+NIF+DDS decode runs on the worker → no stutter, models pop in lazily).
 	resident := &st.scene.chunks[cid]
 	index_instances(st.scene, resident)
-	apply_overlay(st.scene, resident) // baseline ⊕ overlay (disabled/moved/scaled) before the sim copies it
 	if lod == 0 {
-		if st.scene.space != nil {add_cell(st.scene.space, st.db, resident)} // the sim's side: refs, actors, terrain body (full-detail bubble only)
 		acquire_chunk_assets(st.scene, resident) // D1: pin this chunk's instance + grass models
 		note_loaded(st.scene, cid)
 		for inst in resident.instances {

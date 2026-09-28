@@ -2,9 +2,9 @@ package unit_tests
 
 // Synthetic overlay-rebuild harness (the streamlined seat for mutation-layer bugfixing). It drives the
 // EXACT logic of an in-game overlay re-apply — the architecturally-correct "recompute baseline ⊕
-// overlay" path (world.rebuild_resident_overlay) — against a hand-built in-memory gamedb + Scene +
-// World_State, with NO renderer/physics/ESM. rebuild is GPU-free (build_chunk is pure; models resolve
-// lazily/elsewhere; physics ops are nil-guarded), so the whole F9 sequence runs headless.
+// overlay" path (world.rebuild_resident_overlay) — against a hand-built in-memory gamedb + Scene + Space
+// + World_State, with NO renderer/physics/ESM. rebuild is GPU-free (the sim builds from gamedb; models
+// resolve elsewhere; physics ops are nil-guarded), so the whole F9 sequence runs headless.
 //
 // What it pins (all of which fall out of rebuilding from a clean baseline, with zero per-field reset
 // logic): created refs spawn into the right cell; an F9 to an earlier save REMOVES a later-spawned
@@ -44,7 +44,7 @@ cell_count :: proc(s: ^world.Scene, cell: gamedb.Form_ID) -> int {
 
 @(test)
 test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
-	// Minimal gamedb: the cell's ESM refs (build_chunk reads cell_refs) + base→model (model_of).
+	// Minimal gamedb: the cell's ESM refs (build_cell reads cell_refs) + base→model (model_of).
 	db: gamedb.DB
 	db.base_models = make(map[gamedb.Form_ID]string)
 	db.base_models[BASE] = "clutter\\testpile.nif"
@@ -76,6 +76,11 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 		assetdb.cache_destroy(&s.cache)
 	}
 	s.chunks[CELL] = world.Chunk{cell_form_id = CELL, instances = make([dynamic]world.Instance)}
+	sp: world.Space
+	world.space_init(&sp, nil, nil, &state, false)
+	defer world.space_destroy(&sp)
+	s.space = &sp
+	world.add_cell(&sp, &db, CELL)
 
 	// Rebuild from a fresh overlay → just the ESM baseline.
 	world.rebuild_resident_overlay(&s, &db)
@@ -153,6 +158,11 @@ test_dirty_created_ref_spawns_live :: proc(t: ^testing.T) {
 		assetdb.cache_destroy(&s.cache)
 	}
 	s.chunks[CELL] = world.Chunk{cell_form_id = CELL, instances = make([dynamic]world.Instance)}
+	sp: world.Space
+	world.space_init(&sp, nil, nil, &state, false)
+	defer world.space_destroy(&sp)
+	s.space = &sp
+	world.add_cell(&sp, &db, CELL)
 
 	a := ws.create_ref(&state, BASE, CELL, {1, 2, 3}, {0, 0, 0}, 1)
 	testing.expect(t, world.spawn_live(&s, &db, a), "dropped ref not spawned")

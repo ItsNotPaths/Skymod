@@ -18,6 +18,7 @@ Space :: struct {
 	dynamic_clutter: bool, // movable clutter gets dynamic bodies (else everything is static)
 	cells:           map[Form_ID]Sim_Cell,
 	resident:        map[Form_ID]Resident_Ref, // ref -> where it sits in `cells`; a self-healing cache
+	persistent:      map[[2]i32][dynamic]gamedb.Ref, // the worldspace's persistent refs by grid cell (index_persistent)
 }
 
 // Sim_Cell is one live cell: its refs, its actors and the bodies built for them (the terrain body too).
@@ -67,46 +68,22 @@ space_destroy :: proc(sp: ^Space) {
 	for cell in cells {remove_cell(sp, cell)}
 	delete(sp.cells)
 	delete(sp.resident)
+	free_persistent(sp)
+	delete(sp.persistent)
 	sp^ = {}
 }
 
-// (hole cell-handoff) the sim's cells are copied from render chunks the streamer built on main; the sim must build its own cells from gamedb plus the overlay and pick which are live.
-// add_cell makes a render chunk's freshly built cell live in the sim: its refs (placements and
-// overlay flags copied, so call it after apply_overlay), its actors (taken from the chunk) and its
-// terrain body. Object bodies follow in sync_physics.
-add_cell :: proc(sp: ^Space, db: ^gamedb.DB, chunk: ^Chunk) {
-	remove_cell(sp, chunk.cell_form_id)
-	c := Sim_Cell{cell = chunk.cell_form_id, gx = chunk.gx, gy = chunk.gy, has_grid = chunk.has_grid}
-	take_refs(sp, &c, chunk)
+// (hole cell-handoff) the streamer decides which cells the sim builds, from main's camera; the sim must pick its own live cells.
+// add_cell makes a cell live in the sim: its refs and actors built from gamedb and the overlay, and
+// its terrain body. Object bodies follow in sync_physics.
+add_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> ^Sim_Cell {
+	remove_cell(sp, cell)
+	c := build_cell(sp, db, cell)
 	build_terrain_body(sp, db, &c)
-	sp.cells[c.cell] = c
-	index_refs(sp, &sp.cells[c.cell])
-}
-
-// take_refs fills a cell with copies of a render chunk's instances and takes its actors.
-@(private)
-take_refs :: proc(sp: ^Space, c: ^Sim_Cell, chunk: ^Chunk) {
-	for inst in chunk.instances {append(&c.refs, ref_of(sp, inst))}
-	delete(c.actors)
-	c.actors, chunk.actors = chunk.actors, nil
-}
-
-// ref_of is the sim's copy of a render instance.
-@(private)
-ref_of :: proc(sp: ^Space, inst: Instance) -> Sim_Ref {
-	return {
-		form_id = inst.form_id,
-		base = inst.base,
-		model_path = inst.model_path,
-		pos = inst.pos,
-		rot = inst.rot,
-		scale = inst.scale,
-		world = inst.world,
-		has_tp = inst.has_tp,
-		tp_door = inst.tp_door,
-		disabled = inst.disabled,
-		in_flight = sp.ws != nil && worldstate.in_flight(sp.ws, inst.form_id),
-	}
+	sp.cells[cell] = c
+	live := &sp.cells[cell]
+	index_refs(sp, live)
+	return live
 }
 
 // remove_cell retires a live cell: its bodies and constraints come out of the physics world.
@@ -120,26 +97,34 @@ remove_cell :: proc(sp: ^Space, cell: Form_ID) {
 	delete_key(&sp.cells, cell)
 }
 
-// rebuild_cell replaces a live cell's refs and actors with a render chunk's rebuilt ones; the
+// rebuild_cell rebuilds a live cell's refs and actors from gamedb and the current overlay; the
 // terrain body stays and the object bodies rebuild in sync_physics.
-rebuild_cell :: proc(sp: ^Space, chunk: ^Chunk) {
-	c, ok := &sp.cells[chunk.cell_form_id]
-	if !ok {return}
+rebuild_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> (^Sim_Cell, bool) {
+	if sp == nil {return nil, false}
+	c, ok := &sp.cells[cell]
+	if !ok {return nil, false}
 	for &r in c.refs {remove_ref_bodies(sp.phys, c, &r)}
 	deindex_refs(sp, c)
-	clear(&c.refs)
-	take_refs(sp, c, chunk)
+	fresh := build_cell(sp, db, cell)
+	delete(c.refs)
+	delete(c.actors)
+	c.refs, c.actors = fresh.refs, fresh.actors
 	index_refs(sp, c)
 	c.phys_done = false
+	return c, true
 }
 
-// add_ref makes one render instance live in its cell (a spawned created ref).
-add_ref :: proc(sp: ^Space, inst: Instance, cell: Form_ID) {
-	c, ok := &sp.cells[cell]
-	if !ok {return}
-	append(&c.refs, ref_of(sp, inst))
+// spawn_ref makes a ref a script created live in its cell, when the cell is live and holds it not yet.
+spawn_ref :: proc(sp: ^Space, db: ^gamedb.DB, fid: Form_ID) -> (ref: Sim_Ref, cell: Form_ID, ok: bool) {
+	if sp == nil || sp.ws == nil {return}
+	cr := worldstate.get_created(sp.ws, fid) or_return
+	c := (&sp.cells[cr.cell]) or_return
+	if _, _, held := find_ref(sp, fid); held {return}
+	ref = created_ref(sp, db, fid) or_return
+	append(&c.refs, ref)
 	c.phys_done = false
 	index_refs(sp, c)
+	return ref, cr.cell, true
 }
 
 // remove_ref takes one ref and its bodies out of the sim (a deleted ref).

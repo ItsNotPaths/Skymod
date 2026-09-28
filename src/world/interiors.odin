@@ -101,6 +101,7 @@ Interiors :: struct {
 
 	// The active portal's loaded interior (nil/empty when no door is in range).
 	interior_scene: Scene,
+	space:          Space, // the view's cells: no physics, no overlay (a look through the door)
 	active:         bool,
 	active_portal:  Portal,
 	quad:           render.Mesh, // world-space doorway rectangle (stencil mask)
@@ -131,6 +132,7 @@ interiors_init :: proc(
 
 interiors_destroy :: proc(m: ^Interiors) {
 	unload_interior(m)
+	space_destroy(&m.space)
 	delete(m.portals)
 	for t in m.cull_tex {
 		delete(t)
@@ -193,6 +195,7 @@ interiors_update :: proc(m: ^Interiors, cam_pos: smath.Vec3) -> bool {
 	unload_interior(m)
 	r, v := m.scene.cache.r, m.scene.cache.v
 	m.interior_scene = scene_init(r, v)
+	m.interior_scene.space = &m.space
 	m.interior_scene.pretty = m.scene.pretty // inherit --pretty from the exterior
 	load_cell(&m.interior_scene, m.db, p.int_cell)
 	m.quad = build_portal_quad(r, v, p)
