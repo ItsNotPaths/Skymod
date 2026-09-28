@@ -43,7 +43,7 @@ Capsule :: struct {
 // (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the race skeleton's BBX box, else the NPC_ OBND (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
 // actor_capsule fits an upright capsule to an actor's bounds at its scale.
 actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
-	box := worldstate.actor_box(&g.ws, &g.db, form)
+	box := worldstate.actor_box(&g.sim.ws, &g.db, form)
 	size := box[1] - box[0]
 	radius := (size.x + size.y) / 4
 	return {radius, max(size.z / 2 - radius, 1)}
@@ -60,36 +60,36 @@ tick_actor_bodies :: proc(g: ^Game) {
 	defer lap(g, .Actors, &t)
 	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
 	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
-	nav.rebuild(&g.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
+	nav.rebuild(&g.sim.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
 	lap(g, .Nav, &t)
-	ai.track_cells(&g.agents, &g.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
-	ai.skip_time(&g.agents, &g.ws, &g.db)
+	ai.track_cells(&g.sim.agents, &g.sim.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
+	ai.skip_time(&g.sim.agents, &g.sim.ws, &g.db)
 	seen := make(map[Form_ID]bool, context.temp_allocator)
 	for cell, &chunk in g.fr.active_scene.chunks {
 		for form in chunk.actors {
-			if d, ok := worldstate.get(&g.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, &chunk)}
+			if d, ok := worldstate.get(&g.sim.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, &chunk)}
 		}
-		for form in worldstate.created_in(&g.ws, cell) {actor_body_keep(g, phys, form, &seen, &chunk)}
-		for form in worldstate.refs_in(&g.ws, cell) {
-			if d, _ := worldstate.get(&g.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
+		for form in worldstate.created_in(&g.sim.ws, cell) {actor_body_keep(g, phys, form, &seen, &chunk)}
+		for form in worldstate.refs_in(&g.sim.ws, cell) {
+			if d, _ := worldstate.get(&g.sim.ws, form); .Moved in d.live {actor_body_keep(g, phys, form, &seen, &chunk)} // moved in by a script
 		}
 	}
 	lap(g, .Actors, &t)
-	detection.tick(&g.detection, &g.ws, &g.db, seen, TICK_DT) // before combat reads it
+	detection.tick(&g.sim.detection, &g.sim.ws, &g.db, seen, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
-	ai.set_present(&g.agents, seen)
-	worldstate.tick_crime(&g.ws, &g.db, TICK_DT)
+	ai.set_present(&g.sim.agents, seen)
+	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
 	gone := make([dynamic]Form_ID, context.temp_allocator)
-	for form, &b in g.actor_bodies {
+	for form, &b in g.sim.actor_bodies {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
-			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
-			if form == g.carried.actor { // the dev carry pins it where main holds it
-				physics.character_set_position(&b.char, g.carried.at - {0, 0, b.capsule.half_h + b.capsule.radius})
+			vel := ai.tick_loaded(&g.sim.agents, &g.sim.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
+			if form == g.sim.carried.actor { // the dev carry pins it where main holds it
+				physics.character_set_position(&b.char, g.sim.carried.at - {0, 0, b.capsule.half_h + b.capsule.radius})
 				actor_publish(g, form, &b, {})
 				continue
 			}
-			if seat, heading, ok := ai.seated(&g.agents, &g.ws, &g.db, form); ok { // pinned: no gravity or push-out
+			if seat, heading, ok := ai.seated(&g.sim.agents, &g.sim.ws, &g.db, form); ok { // pinned: no gravity or push-out
 				if seat != b.placed {
 					physics.character_set_position(&b.char, seat)
 					actor_publish(g, form, &b, {}, heading)
@@ -104,11 +104,11 @@ tick_actor_bodies :: proc(g: ^Game) {
 			append(&gone, form)
 		}
 	}
-	for form in gone {delete_key(&g.actor_bodies, form)}
-	clear(&g.ws.ai.loaded)
-	for form in g.actor_bodies {g.ws.ai.loaded[form] = true}
-	ai.tick_social(&g.agents, &g.ws, &g.db, seen, TICK_DT)
-	ai.tick_unloaded(&g.agents, &g.ws, &g.db, seen, TICK_DT)
+	for form in gone {delete_key(&g.sim.actor_bodies, form)}
+	clear(&g.sim.ws.ai.loaded)
+	for form in g.sim.actor_bodies {g.sim.ws.ai.loaded[form] = true}
+	ai.tick_social(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
+	ai.tick_unloaded(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
 }
 
 // Actor_Grab is the dev carry: hold DevGrabActor on an actor to carry its capsule at the crosshair,
@@ -140,14 +140,14 @@ frame_actor_grab :: proc(g: ^Game) {
 @(private = "file")
 actor_publish :: proc(g: ^Game, form: Form_ID, b: ^Actor_Body, vel: [2]f32, face: Maybe(f32) = nil) {
 	feet := physics.character_position(&b.char)
-	cell := worldstate.ref_cell(&g.ws, &g.db, form)
+	cell := worldstate.ref_cell(&g.sim.ws, &g.db, form)
 	if c, ok := g.db.cells[cell]; ok && c.world_form_id != 0 {
 		if under := gamedb.cell_under(&g.db, c.world_form_id, feet); under != 0 {cell = under}
 	}
-	heading := worldstate.ref_rot(&g.ws, &g.db, form).z
+	heading := worldstate.ref_rot(&g.sim.ws, &g.db, form).z
 	if vel != {} {heading = math.PI / 2 - math.atan2(vel.y, vel.x)}
 	if f, ok := face.?; ok {heading = f}
-	worldstate.set_moved(&g.ws, form, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	worldstate.set_moved(&g.sim.ws, form, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	b.placed = feet
 }
 
@@ -156,12 +156,12 @@ SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit u
 
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, chunk: ^world.Chunk) {
-	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.ws, &g.db, form) {return}
+	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
 	seen[form] = true
-	pos := worldstate.ref_pos(&g.ws, &g.db, form)
-	if form not_in g.actor_bodies && !world.collision_ready_near(chunk, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
+	pos := worldstate.ref_pos(&g.sim.ws, &g.db, form)
+	if form not_in g.sim.actor_bodies && !world.collision_ready_near(chunk, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
 	capsule := actor_capsule(g, form)
-	if b, ok := &g.actor_bodies[form]; ok && b.capsule == capsule {
+	if b, ok := &g.sim.actor_bodies[form]; ok && b.capsule == capsule {
 		if b.placed != pos {
 			physics.character_set_position(&b.char, pos)
 			b.placed = pos
@@ -171,17 +171,17 @@ actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^ma
 		physics.character_destroy(&b.char) // resized (SetScale): rebuild at the ref
 	}
 	start := pos
-	switch p, placed := ai.place_on_load(&g.agents, &g.ws, &g.db, form, pos); placed {
+	switch p, placed := ai.place_on_load(&g.sim.agents, &g.sim.ws, &g.db, form, pos); placed {
 	case .Stay:
 	case .Here: start = p
 	case .Away: return // it went on to its place in a cell that is not loaded
 	}
 	start = free_spot(g, phys, start, capsule)
 	if ch, ok := physics.character_create(phys, start, capsule.radius, capsule.half_h, u64(form)); ok {
-		g.actor_bodies[form] = {char = ch, placed = pos, capsule = capsule}
-		if start != pos {actor_publish(g, form, &g.actor_bodies[form], {})}
+		g.sim.actor_bodies[form] = {char = ch, placed = pos, capsule = capsule}
+		if start != pos {actor_publish(g, form, &g.sim.actor_bodies[form], {})}
 	} else {
-		delete_key(&g.actor_bodies, form)
+		delete_key(&g.sim.actor_bodies, form)
 	}
 }
 
@@ -193,7 +193,7 @@ free_spot :: proc(g: ^Game, phys: ^physics.World, feet: smath.Vec3, c: Capsule) 
 	SEARCH :: 256
 	lift := smath.Vec3{0, 0, SPAWN_LIFT}
 	if physics.capsule_fits(phys, feet + lift, c.radius, c.half_h) {return feet + lift}
-	for p in nav.dry_points_near(&g.agents.mesh, feet, SEARCH) {
+	for p in nav.dry_points_near(&g.sim.agents.mesh, feet, SEARCH) {
 		if physics.capsule_fits(phys, p + lift, c.radius, c.half_h) {return p + lift}
 	}
 	return feet + lift
@@ -209,12 +209,12 @@ actor_furniture_markers :: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_
 
 @(private = "file")
 is_actor_ref :: proc(g: ^Game, form: Form_ID) -> bool {
-	return gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form))
+	return gamedb.is_actor(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form))
 }
 
 actor_bodies_clear :: proc(g: ^Game) {
-	for _, &b in g.actor_bodies {physics.character_destroy(&b.char)}
-	clear(&g.actor_bodies)
+	for _, &b in g.sim.actor_bodies {physics.character_destroy(&b.char)}
+	clear(&g.sim.actor_bodies)
 }
 
 // Actor_View is an actor as the snapshot shows it to main.
@@ -230,15 +230,15 @@ Actor_View :: struct {
 // view_actors fills the snapshot's actor views from the sim's capsules.
 view_actors :: proc(g: ^Game, s: ^Snapshot) {
 	clear(&s.actors)
-	for f, &b in g.actor_bodies {
+	for f, &b in g.sim.actor_bodies {
 		from, to := physics.character_step(&b.char)
 		append(&s.actors, Actor_View {
 			form    = f,
 			feet    = {from, to},
 			capsule = b.capsule,
-			dead    = worldstate.is_dead(&g.ws, &g.db, f),
-			combat  = ai.combat_state(&g.agents, f),
-			name    = add_text(s, worldstate.display_name(&g.ws, &g.db, f)),
+			dead    = worldstate.is_dead(&g.sim.ws, &g.db, f),
+			combat  = ai.combat_state(&g.sim.agents, f),
+			name    = add_text(s, worldstate.display_name(&g.sim.ws, &g.db, f)),
 		})
 	}
 }

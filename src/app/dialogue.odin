@@ -38,9 +38,9 @@ Conversation :: struct {
 // cannot be spoken to (CK Dialogue), nor one a script barred (AllowPCDialogue), nor a scene actor
 // flagged No Player Activation (CK Scenes Tab).
 open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
-	if worldstate.display_name(&g.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.ws, &g.db, speaker) || speaker in g.ws.no_pc_dialogue {return}
+	if worldstate.display_name(&g.sim.ws, &g.db, speaker) == "" || worldstate.is_dead(&g.sim.ws, &g.db, speaker) || speaker in g.sim.ws.no_pc_dialogue {return}
 	if busy_in_scene(g, speaker) {
-		log.infof("%s is busy", worldstate.display_name(&g.ws, &g.db, speaker))
+		log.infof("%s is busy", worldstate.display_name(&g.sim.ws, &g.db, speaker))
 		return
 	}
 	start_dialogue(g, speaker)
@@ -49,16 +49,16 @@ open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
 // tick_force_greet asks main to open the conversation an NPC's ForceGreet asked for, once no menu
 // or conversation is open. The slot stays set until then: the AI reads it as the greet pending.
 tick_force_greet :: proc(g: ^Game) {
-	fg := g.ws.force_greet
-	if fg.speaker == 0 || g.input.in_menu || g.ws.talking != 0 {return}
-	g.ws.force_greet = {}
-	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
+	fg := g.sim.ws.force_greet
+	if fg.speaker == 0 || g.sim.input.in_menu || g.sim.ws.talking != 0 {return}
+	g.sim.ws.force_greet = {}
+	if !worldstate.is_dead(&g.sim.ws, &g.db, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
 }
 
 // start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`, or
 // for `subtype`.
 start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype := "") {
-	g.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
+	g.sim.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)
 	greet, ok := dialogue.Greeting{info = dialogue.pick(&c, speaker, topic)}, true
 	if subtype != "" {
@@ -66,20 +66,20 @@ start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype :
 		ok = greet.info != 0
 	} else if topic == 0 {greet, ok = dialogue.greeting(&c, speaker)}
 	if !ok {
-		g.ws.talking = 0
+		g.sim.ws.talking = 0
 		return
 	}
-	clear(&g.talk.choices)
-	g.talk.speaker, g.talk.blocking, g.talk.walk_away = speaker, greet.blocking, 0
+	clear(&g.sim.talk.choices)
+	g.sim.talk.speaker, g.sim.talk.blocking, g.sim.talk.walk_away = speaker, greet.blocking, 0
 	if greet.info != 0 {say(g, greet.info, greeting = true)} else {list_topics(g)}
 }
 
 // tick_dialogue runs the conversation's time: the showing response's countdown, the topic list's
 // refresh, and the end when the speaker dies.
 tick_dialogue :: proc(g: ^Game) {
-	t := &g.talk
+	t := &g.sim.talk
 	if t.speaker == 0 {return}
-	if worldstate.is_dead(&g.ws, &g.db, t.speaker) {
+	if worldstate.is_dead(&g.sim.ws, &g.db, t.speaker) {
 		close_dialogue(g)
 		return
 	}
@@ -93,12 +93,12 @@ tick_dialogue :: proc(g: ^Game) {
 
 // talk_next skips the response the player saw, if it still shows.
 talk_next :: proc(g: ^Game, c: Cmd_Talk_Next) {
-	if g.talk.speaker != 0 && g.talk.info == c.info && g.talk.response == c.response {next_response(g)}
+	if g.sim.talk.speaker != 0 && g.sim.talk.info == c.info && g.sim.talk.response == c.response {next_response(g)}
 }
 
 // talk_choose says the line for a choice the player picked, if it is still on offer.
 talk_choose :: proc(g: ^Game, ch: dialogue.Choice) {
-	t := &g.talk
+	t := &g.sim.talk
 	if t.speaker == 0 || t.info != 0 || !slice.contains(t.choices[:], ch) {return}
 	c := dialogue_call(g)
 	info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
@@ -121,12 +121,12 @@ Talk_Choice :: struct {
 }
 
 view_talk :: proc(g: ^Game, s: ^Snapshot) {
-	t, v := &g.talk, &s.talk
+	t, v := &g.sim.talk, &s.talk
 	clear(&v.choices)
 	v.speaker, v.info, v.response = t.speaker, t.info, t.response
 	if t.speaker == 0 {return}
 	c := dialogue_call(g)
-	v.name = add_text(s, worldstate.display_name(&g.ws, &g.db, t.speaker))
+	v.name = add_text(s, worldstate.display_name(&g.sim.ws, &g.db, t.speaker))
 	if t.info != 0 {
 		v.line = add_text(s, dialogue.line_text(&c, t.info, t.response))
 		return
@@ -164,7 +164,7 @@ sync_dialogue_menu :: proc(g: ^Game) {
 
 // back_out is the player leaving: the Walk Away line of the choices on screen plays as it ends.
 back_out :: proc(g: ^Game) {
-	t := &g.talk
+	t := &g.sim.talk
 	if t.info == 0 && t.walk_away != 0 {
 		c := dialogue_call(g)
 		if info := dialogue.pick(&c, t.speaker, t.walk_away); info != 0 {
@@ -176,20 +176,20 @@ back_out :: proc(g: ^Game) {
 }
 
 close_dialogue :: proc(g: ^Game) {
-	if g.talk.info != 0 {
+	if g.sim.talk.info != 0 {
 		c := dialogue_call(g)
-		dialogue.finished(&c, g.talk.speaker, g.talk.info)
+		dialogue.finished(&c, g.sim.talk.speaker, g.sim.talk.info)
 	}
-	g.talk.info, g.talk.speaker = 0, 0
-	g.ws.talking = 0
+	g.sim.talk.info, g.sim.talk.speaker = 0, 0
+	g.sim.ws.talking = 0
 }
 
 @(private = "file")
 say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
-	t := &g.talk
+	t := &g.sim.talk
 	c := dialogue_call(g)
 	dialogue.said(&c, t.speaker, info)
-	worldstate.set_talked_to_pc(&g.ws, t.speaker)
+	worldstate.set_talked_to_pc(&g.sim.ws, t.speaker)
 	clear(&t.choices)
 	t.info, t.response, t.greeting, t.last = info, -1, greeting, last
 	t.walk_away, t.top_level = 0, false
@@ -199,7 +199,7 @@ say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 // list_topics shows the speaker's topic list.
 @(private = "file")
 list_topics :: proc(g: ^Game) {
-	t := &g.talk
+	t := &g.sim.talk
 	c := dialogue_call(g)
 	shown := dialogue.topics(&c, t.speaker, t.choices[:] if t.top_level else nil)
 	clear(&t.choices)
@@ -210,12 +210,12 @@ list_topics :: proc(g: ^Game) {
 // next_response shows the line's next response; past the last one the line is done.
 @(private = "file")
 next_response :: proc(g: ^Game) {
-	t := &g.talk
+	t := &g.sim.talk
 	t.response += 1
 	lines := dialogue.responses(&g.db, t.info)
 	if t.response < len(lines) {
 		t.left_s = dialogue.line_seconds(lines[t.response].text)
-		if h, secs := audio.say(&g.audio, &g.v, &g.db, &g.ws, t.speaker, t.info, lines[t.response].number, placed = false); h != 0 {
+		if h, secs := audio.say(&g.audio, &g.v, &g.db, &g.sim.ws, t.speaker, t.info, lines[t.response].number, placed = false); h != 0 {
 			t.left_s = secs
 		}
 		return
@@ -229,7 +229,7 @@ next_response :: proc(g: ^Game) {
 // the topic list.
 @(private = "file")
 line_done :: proc(g: ^Game) {
-	t := &g.talk
+	t := &g.sim.talk
 	c := dialogue_call(g)
 	id := t.info
 	info := g.db.infos[id]
@@ -258,16 +258,16 @@ line_done :: proc(g: ^Game) {
 view_subtitles :: proc(g: ^Game, s: ^Snapshot) {
 	clear(&s.subtitles)
 	subtitle :: proc(g: ^Game, s: ^Snapshot, speaker, info: Form_ID, response: i32) {
-		if info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, speaker) not_in g.ws.attached {return}
+		if info == 0 || worldstate.ref_grid_cell(&g.sim.ws, &g.db, speaker) not_in g.sim.ws.attached {return}
 		c := dialogue_call(g)
 		if line := dialogue.line_text(&c, info, int(response)); line != "" {
-			append(&s.subtitles, add_text(s, fmt.tprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, speaker), line)))
+			append(&s.subtitles, add_text(s, fmt.tprintf("%s: %s", worldstate.display_name(&g.sim.ws, &g.db, speaker), line)))
 		}
 	}
-	for _, run in g.ws.scenes {
+	for _, run in g.sim.ws.scenes {
 		for a in run.actions {subtitle(g, s, a.speaker, a.info, a.response)}
 	}
-	for b in g.ws.barks {subtitle(g, s, b.speaker, b.info, b.response)}
+	for b in g.sim.ws.barks {subtitle(g, s, b.speaker, b.info, b.response)}
 }
 
 // frame_subtitles shows the snapshot's subtitle lines.
@@ -283,11 +283,11 @@ frame_subtitles :: proc(g: ^Game) {
 
 @(private = "file")
 busy_in_scene :: proc(g: ^Game, actor: Form_ID) -> bool {
-	scene := worldstate.scene_of_actor(&g.ws, &g.db, actor)
+	scene := worldstate.scene_of_actor(&g.sim.ws, &g.db, actor)
 	if scene == 0 {return false}
 	s := g.db.scenes[scene]
 	for a in s.actors {
-		if worldstate.alias_ref(&g.ws, s.quest, a.alias) == actor {return a.flags & gamedb.SCENE_ACTOR_NO_PLAYER_ACTIVATION != 0}
+		if worldstate.alias_ref(&g.sim.ws, s.quest, a.alias) == actor {return a.flags & gamedb.SCENE_ACTOR_NO_PLAYER_ACTIVATION != 0}
 	}
 	return false
 }
@@ -295,6 +295,6 @@ busy_in_scene :: proc(g: ^Game, actor: Form_ID) -> bool {
 // dialogue_call is a script call with the VM's quest variables, which GetVMQuestVariable reads.
 @(private = "file")
 dialogue_call :: proc(g: ^Game) -> script.Call {
-	if g.repl_ok {return g.repl.vm.ctx}
-	return {ws = &g.ws, db = &g.db}
+	if g.repl_ok {return g.sim.repl.vm.ctx}
+	return {ws = &g.sim.ws, db = &g.db}
 }

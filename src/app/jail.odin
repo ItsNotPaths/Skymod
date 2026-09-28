@@ -10,46 +10,46 @@ import "../worldstate"
 // (JOUT) and the JAIL event goes out. Coming out: it moves to the jail's exterior marker (JAIL),
 // gets its gear back, wears what it wore before, loses skill progress and the bounty clears.
 tick_jail :: proc(g: ^Game) {
-	c := script.Call{ws = &g.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
-	for o in g.ws.jail_orders {
-		f, _ := worldstate.faction(&g.ws, &g.db, o.faction)
-		inside, outside, ok := worldstate.jail_spots(&g.ws, &g.db, o.faction)
+	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
+	for o in g.sim.ws.jail_orders {
+		f, _ := worldstate.faction(&g.sim.ws, &g.db, o.faction)
+		inside, outside, ok := worldstate.jail_spots(&g.sim.ws, &g.db, o.faction)
 		if !ok {continue}
 		if o.release {release(g, &c, o, f, outside)} else {imprison(g, &c, o, f, inside)}
 	}
-	clear(&g.ws.jail_orders)
+	clear(&g.sim.ws.jail_orders)
 }
 
 @(private = "file")
 imprison :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, inside: worldstate.Jail_Spot) {
-	bounty := worldstate.wanted(&g.ws, o.actor, o.faction).bounty
+	bounty := worldstate.wanted(&g.sim.ws, o.actor, o.faction).bounty
 	days := worldstate.jail_days(bounty)
 	cell := inside.cell
-	worldstate.relocate(&g.ws, o.actor, cell, inside.pos, inside.rot)
+	worldstate.relocate(&g.sim.ws, o.actor, cell, inside.pos, inside.rot)
 	give_all(c, o.actor, f.player_chest, f.stolen_chest)
-	before := g.ws.outfits[o.actor]
-	if f.jail_outfit != 0 {worldstate.set_outfit(&g.ws, &g.db, o.actor, f.jail_outfit)}
-	g.ws.jailed[o.actor] = {faction = o.faction, cell = cell, until = g.ws.clock.hours + f64(days) * 24, outfit = before}
-	worldstate.queue_story_event(&g.ws, {
+	before := g.sim.ws.outfits[o.actor]
+	if f.jail_outfit != 0 {worldstate.set_outfit(&g.sim.ws, &g.db, o.actor, f.jail_outfit)}
+	g.sim.ws.jailed[o.actor] = {faction = o.faction, cell = cell, until = g.sim.ws.clock.hours + f64(days) * 24, outfit = before}
+	worldstate.queue_story_event(&g.sim.ws, {
 		type      = worldstate.STORY_JAIL,
 		ref1      = o.guard,
 		form      = f.crime_group,
-		location1 = worldstate.ref_location(&g.ws, &g.db, f.jail),
+		location1 = worldstate.ref_location(&g.sim.ws, &g.db, f.jail),
 		value1    = worldstate.total(bounty),
 	})
 }
 
 @(private = "file")
 release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.Faction, outside: worldstate.Jail_Spot) {
-	j := g.ws.jailed[o.actor]
-	delete_key(&g.ws.jailed, o.actor)
-	worldstate.relocate(&g.ws, o.actor, outside.cell, outside.pos, outside.rot)
-	if f.jail_outfit != 0 {worldstate.restore_outfit(&g.ws, &g.db, o.actor, j.outfit)}
+	j := g.sim.ws.jailed[o.actor]
+	delete_key(&g.sim.ws.jailed, o.actor)
+	worldstate.relocate(&g.sim.ws, o.actor, outside.cell, outside.pos, outside.rot)
+	if f.jail_outfit != 0 {worldstate.restore_outfit(&g.sim.ws, &g.db, o.actor, j.outfit)}
 	take_all(c, o.actor, f.player_chest)
-	days := worldstate.jail_days(worldstate.wanted(&g.ws, o.actor, o.faction).bounty)
-	g.ws.days_jailed[o.actor] += days
-	worldstate.lose_skill_progress(&g.ws, o.actor, days)
-	worldstate.pay_bounty(&g.ws, o.actor, o.faction)
+	days := worldstate.jail_days(worldstate.wanted(&g.sim.ws, o.actor, o.faction).bounty)
+	g.sim.ws.days_jailed[o.actor] += days
+	worldstate.lose_skill_progress(&g.sim.ws, o.actor, days)
+	worldstate.pay_bounty(&g.sim.ws, o.actor, o.faction)
 }
 
 // give_all moves everything `actor` carries, quest objects aside, into `chest`, its stolen things

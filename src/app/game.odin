@@ -148,7 +148,6 @@ Frame_State :: struct {
 	mouse_cap, kb_cap:  bool, // ImGui owns the mouse/keyboard this frame
 }
 
-// (hole sim-struct :tags threading :sev gap) sim state (ws, repl VM, phys, character, actor_bodies, agents, detection, trav, trans, tick, published) and main state share one Game and one Frame_State (g.fr). Wanted: a Sim struct the sim thread owns.
 // Game is the whole session: everything that lives from setup to teardown. One instance,
 // on run_game's stack, always passed as ^Game — several subsystems hold pointers INTO it
 // (scene.phys → phys, scene.ws → ws, the REPL closure → noclip, save_bridge → save_ft),
@@ -169,8 +168,6 @@ Game :: struct {
 	// platform + renderer
 	p: platform.Platform,
 	r: render.Renderer,
-	ambient: audio.Ambient, // before `audio`, which names the package for the fields after it
-	music:   audio.Music,
 	audio: audio.Audio,
 
 	// input: rebindable action manager (src/input). Driven each frame from the SDL
@@ -210,73 +207,55 @@ Game :: struct {
 	interiors:    world.Interiors,
 	interiors_on: bool,
 
-	// world-state overlay + save identity
-	ws:          worldstate.World_State,
+	// the sim's own state (sim.odin): only the tick, a script phase or a parked main touches it
+	sim: Sim,
+
+	// world-state save identity
 	save_ft:     mods.Form_Table,
 	save_bridge: worldstate.Form_Bridge,
 	save_no:     u32,
 
-	// player + camera. `noclip`'s address is handed to the console REPL closure (the
-	// tcl/noclip command toggles the frame loop's own free-fly flag) — stable, see above.
-	cam:      Camera,
-	character: physics.Character,
-	char_ok:  bool,
-	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
-	agents:       ai.World, // every actor's running package
-	detection:    detection.State, // who has seen whom
-	actor_mesh:   render.Mesh, // last frame's NPC capsule mesh, released at the next draw
-	hover_actor:  Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
-	actor_grab:   Actor_Grab, // the dev carry (hold DevGrabActor)
-	noclip:   bool,
-	// The physics world the `character` capsule currently lives in. The player walks the
-	// EXTERIOR `phys` until a load door swaps the active scene to an interior (its own
-	// world); on each swap the capsule is re-homed (destroy + recreate) into the new world.
-	// nil when physics is off (free-fly).
-	cur_phys: ^physics.World,
-	published: Placement, // the player's cell and feet as player_publish last wrote them
-	input:       Sim_Input, // the controls the tick reads (sim.odin)
-	input_was:   Sim_Input, // the last tick's: a press is down now and up then
+	// main's view and controls
+	cam:         Camera,
+	actor_mesh:  render.Mesh, // last frame's NPC capsule mesh, released at the next draw
+	hover_actor: Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
+	actor_grab:  Actor_Grab, // the dev carry (hold DevGrabActor)
 	wheel:       f32, // main's running total of wheel notches, latched into Sim_Input
+
+	// the boundary with the sim (sim.odin)
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	events:      Queue(Sim_Event), // what the sim told main since main last looked
-	parks:       int, // main's holds on the sim (sim_drain): while any, no tick runs
+	event_buf:   [dynamic]Sim_Event, // main's drained copy
 	console_in:  Queue(string), // console lines for the sim to evaluate (heap copies)
 	console_in_buf:  [dynamic]string,
 	console_out: Queue(string), // their output, back to main (heap copies)
 	console_out_buf: [dynamic]string,
-	menu_parked: bool, // one of those holds is an open menu's (park_for_menu)
-	event_buf:   [dynamic]Sim_Event, // main's drained copy
-	carried:     Cmd_Carry, // the dev carry, as the sim holds it
 	snaps:       Latest(Snapshot), // the sim's newest snapshot, for main to take
-	snap_back:   Snapshot, // the one the sim fills
 	snap:        Snapshot, // the one main draws from
+	parks:       int, // main's holds on the sim (sim_drain): while any, no tick runs
+	menu_parked: bool, // one of those holds is an open menu's (park_for_menu)
+
+	// menus
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
 	menu_pick:   [Pane]int, // the selected row of each list pane (menus.odin)
-	talk:        Conversation, // the conversation the dialogue menu shows (dialogue.odin)
 	quit:        Quit_To, // the pause menu's Quit: the main loop ends
 	// Debug (open-interiors): when `entered`, we've loaded fully INTO the active portal's
 	// interior cell (camera + picker operate in interior-local space) instead of viewing it
 	// through the portal.
 	entered:  bool,
 
-	// crosshair interaction: door activation, item pickup, and telekinesis grab (interact.odin)
-	interact: Interact,
-
 	// scripting + dev console + inspector
 	sreg:         script.Registry,
-	repl:         slua.Repl,
 	repl_ok:      bool,
 	loaded_cells: [dynamic]Form_ID, // cells resident since the last tick; every scene appends here
-	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	scripts:      Script_Thread,
 	console:      tools.Console,
 	insp:         tools.Inspector,
 
 	// debug verbs (drop-test balls, hitbox wireframe) + overlay visibility
 	drop_marker:   render.Mesh,
-	drops:         [dynamic]physics.Body,
 	show_overlay:  bool, // ` toggles
 	show_hitboxes: bool, // K toggles
 	pretty:        bool, // hide untextured marker placeholders; live-toggleable in Stats
@@ -549,13 +528,13 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// transient scene. Moved clutter settles write here; cell loads patch from it (baseline ⊕
 	// overlay). Lives for the whole session — outlives every cell stream AND traversal (which
 	// borrows, never owns it).
-	worldstate.init(&g.ws)
+	worldstate.init(&g.sim.ws)
 	g.up.ws = true
-	g.scene.ws = &g.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
+	g.scene.ws = &g.sim.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
 	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
-	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.ws, &g.db))
+	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.sim.ws, &g.db))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
 	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
 	// handed to every save/load below so slots resolve to THIS install's forms.
@@ -565,7 +544,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 
 	// Base door navigator: borrows the exterior scene + streamer (whatever their state) and
 	// indexes the worldspace's load doors. Safe even if no worldspace armed (no doors → inert).
-	traversal_init(&g.trav, &g.scene, &g.streamer, &g.db, &g.v, &g.r, &g.ws)
+	traversal_init(&g.trav, &g.scene, &g.streamer, &g.db, &g.v, &g.r, &g.sim.ws)
 	g.up.traversal = true
 	// Show the load screen during synchronous interior loads (nil-safe if loadui failed to init).
 	traversal_set_progress(&g.trav, loadui_interior_progress, g)
@@ -594,39 +573,39 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// have no collision yet, locomotion falls back to free-fly automatically).
 	if g.phys_ok {
 		capsule := actor_capsule(g, formid.PLAYER)
-		g.character, g.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(formid.PLAYER))
+		g.sim.character, g.sim.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(formid.PLAYER))
 	}
-	g.noclip = !g.char_ok
+	g.sim.noclip = !g.sim.char_ok
 	publish_snapshot(g)
 
 	// Gameplay script registry + the dev-console REPL on top of it (Phase 4). The REPL
 	// evaluates typed console lines on the same VM transpiled scripts will run on, so
 	// every registered native is a live command; it reads/writes the worldstate overlay
-	// (`ws`) over the gamedb baseline (`db`). `&g.noclip` lets the tcl/noclip command
+	// (`ws`) over the gamedb baseline (`db`). `&g.sim.noclip` lets the tcl/noclip command
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
 	script.init(&g.sreg)
 	g.up.sreg = true
-	g.repl_ok = console_repl_init(&g.repl, &g.sreg, &g.ws, &g.db, &g.audio, &g.v, &g.noclip)
+	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)
 	if g.repl_ok {
-		g.agents.quest_vars = g.repl.vm.ctx.quest_vars
-		g.agents.lua = {&g.repl.vm, slua.run_procedure}
-		g.agents.furniture = {g, actor_furniture_markers}
-		slua.repl_register_cmd(&g.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
-		slua.set_script_dirs(&g.repl.vm, script_dirs(base, &g.mprofile))
+		g.sim.agents.quest_vars = g.sim.repl.vm.ctx.quest_vars
+		g.sim.agents.lua = {&g.sim.repl.vm, slua.run_procedure}
+		g.sim.agents.furniture = {g, actor_furniture_markers}
+		slua.repl_register_cmd(&g.sim.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
+		slua.set_script_dirs(&g.sim.repl.vm, script_dirs(base, &g.mprofile))
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
-		slua.repl_load_rc(&g.repl, rc_path)
+		slua.repl_load_rc(&g.sim.repl, rc_path)
 		tools.console_print(&g.console, "SkyMod console — Lua REPL on the gameplay VM. `cmd.help()` lists commands.")
 	} else {
 		log.error("console: REPL init failed; falling back to echo")
 	}
 	// Seed the capsule's home world to the exterior so frame 1 doesn't re-home.
-	g.cur_phys = g.scene.phys
+	g.sim.cur_phys = g.scene.phys
 
 	// POST-WORLD: apply the Continue save now that the overlay + scene + streamer + character exist
 	// (New Game = nothing to do; the overlay starts empty). The choice was made before world init,
 	// so any mod the manager enabled already took effect in the build above — seamless, no relaunch.
 	if boot_choice == .Continue {
-		if m, mok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge); mok {
+		if m, mok := worldstate.load_from_file(&g.sim.ws, g.quicksave_path, &g.save_bridge); mok {
 			g.save_no = m.save_number
 			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
 			// grid cells stream in afterward and pick it up on build.
@@ -643,8 +622,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// Quests, aliases and persistent refs get their scripts: OnInit for the forms a Continue's save
 	// does not know, saved members for the ones it does.
 	if g.repl_ok {
-		n := slua.start_game(&g.repl.vm, &g.db) if boot_choice == .Continue else slua.new_game(&g.repl.vm, &g.db)
-		log.infof("scripts: %d game-start script instance(s), %d known to the save", n, len(g.ws.script_state))
+		n := slua.start_game(&g.sim.repl.vm, &g.db) if boot_choice == .Continue else slua.new_game(&g.sim.repl.vm, &g.db)
+		log.infof("scripts: %d game-start script instance(s), %d known to the save", n, len(g.sim.ws.script_state))
 		script_thread_init(g)
 	}
 
@@ -670,19 +649,19 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.event_buf)
 	strings_queue_destroy(&g.console_in, &g.console_in_buf)
 	strings_queue_destroy(&g.console_out, &g.console_out_buf)
-	for s in ([]^Snapshot{&g.snaps.slot, &g.snap_back, &g.snap}) {snapshot_destroy(s)}
-	if g.repl_ok {slua.repl_destroy(&g.repl)}
+	for s in ([]^Snapshot{&g.snaps.slot, &g.sim.snap_back, &g.snap}) {snapshot_destroy(s)}
+	if g.repl_ok {slua.repl_destroy(&g.sim.repl)}
 	delete(g.loaded_cells)
-	slua.transitions_destroy(&g.trans)
+	slua.transitions_destroy(&g.sim.trans)
 	if g.up.sreg {script.destroy(&g.sreg)}
-	if g.char_ok {physics.character_destroy(&g.character)} // may be homed in an interior world — before traversal
+	if g.sim.char_ok {physics.character_destroy(&g.sim.character)} // may be homed in an interior world — before traversal
 	actor_bodies_clear(g)
-	delete(g.actor_bodies)
-	ai.destroy(&g.agents)
-	detection.destroy(&g.detection)
+	delete(g.sim.actor_bodies)
+	ai.destroy(&g.sim.agents)
+	detection.destroy(&g.sim.detection)
 	render.release_mesh(&g.r, g.actor_mesh)
-	delete(g.drops)
-	delete(g.talk.choices)
+	delete(g.sim.drops)
+	delete(g.sim.talk.choices)
 	if g.up.marker {render.release_mesh(&g.r, g.drop_marker)}
 	tools.inspector_destroy(&g.insp) // frees the owned selection strings (safe on zero value)
 	if g.up.console {tools.console_destroy(&g.console)}
@@ -692,7 +671,7 @@ game_teardown :: proc(g: ^Game) {
 		if g.interiors_on {world.interiors_destroy(&g.interiors)} // before scene_destroy
 	}
 	if g.up.formtable {mods.formtable_destroy(&g.save_ft)}
-	if g.up.ws {worldstate.destroy(&g.ws)} // outlives traversal (trav borrows the overlay)
+	if g.up.ws {worldstate.destroy(&g.sim.ws)} // outlives traversal (trav borrows the overlay)
 	if g.up.lights {lighting_state_destroy(&g.lights)}
 	if g.up.scene {world.scene_destroy(&g.scene)} // removes chunk bodies while the phys world lives
 	if g.phys_ok {
@@ -709,7 +688,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive
 	if g.up.render {render.shutdown(&g.r)}
 	if g.up.audio {
-		audio.ambient_destroy(&g.ambient)
+		audio.ambient_destroy(&g.sim.ambient)
 		audio.shutdown(&g.audio)
 	}
 	input.destroy(&g.imgr) // leaf; safe on a zero-value manager

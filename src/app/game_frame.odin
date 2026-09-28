@@ -90,7 +90,7 @@ game_frame :: proc(g: ^Game) {
 	// runs once it resumes.
 	// (hole sim-clock :tags threading :sev gap) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
 	g.tick.accum += 0 if g.parks > 0 else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
-	g.input = latch_input(g)
+	g.sim.input = latch_input(g)
 	for g.tick.accum >= TICK_DT && g.parks == 0 {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1
@@ -148,7 +148,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle owner-asserts)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
@@ -161,14 +161,14 @@ game_tick :: proc(g: ^Game) {
 	lap(g, .Jail, &t)
 	if player_moved(g) {push(&g.events, Evt_Follow{})}
 	lap(g, .Follow, &t)
-	tgt := resolve_activation(g, g.input.aim)
+	tgt := resolve_activation(g, g.sim.input.aim)
 	tick_interact(g, tgt)
 	tick_cast(g, tgt)
 	tick_dialogue(g)
 	tick_activations(g)
 	lap(g, .Activations, &t)
 	frame_scene_select(g)
-	sight.view = {g.cur_phys, player_feet(g) + {0, 0, EYE_HEIGHT}, g.input.view}
+	sight.view = {g.sim.cur_phys, player_feet(g) + {0, 0, EYE_HEIGHT}, g.sim.input.view}
 	lap(g, .Scene, &t)
 	tick_locomotion(g)
 	lap(g, .Locomotion, &t)
@@ -181,11 +181,11 @@ game_tick :: proc(g: ^Game) {
 	frame_traversal(g)
 	tick_force_greet(g)
 	lap(g, .Traversal, &t)
-	audio.music_update(&g.music, &g.audio, &g.v, &g.db, &g.ws, ai.player_in_combat(&g.agents), TICK_DT)
-	audio.ambient_update(&g.ambient, &g.audio, &g.v, &g.db, &g.ws)
+	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, ai.player_in_combat(&g.sim.agents), TICK_DT)
+	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	publish_snapshot(g)
-	g.input_was = g.input
+	g.sim.input_was = g.sim.input
 	g.scripts.pending = true
 }
 
@@ -388,16 +388,16 @@ frame_scene_select :: proc(g: ^Game) {
 	// capsule and recreate it in the new world at the camera. A nil active world (physics off,
 	// or the experimental portal interior, which has none) → no capsule → free-fly.
 	want_phys := g.fr.active_scene.phys
-	if want_phys != g.cur_phys {
+	if want_phys != g.sim.cur_phys {
 		feet := player_feet(g)
-		if g.char_ok {physics.character_destroy(&g.character);g.char_ok = false}
+		if g.sim.char_ok {physics.character_destroy(&g.sim.character);g.sim.char_ok = false}
 		actor_bodies_clear(g)
 		if want_phys != nil {
 			player_capsule := actor_capsule(g, formid.PLAYER)
-			g.character, g.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
-			if !g.char_ok {g.noclip = true}
+			g.sim.character, g.sim.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
+			if !g.sim.char_ok {g.sim.noclip = true}
 		}
-		g.cur_phys = want_phys
+		g.sim.cur_phys = want_phys
 	}
 }
 
@@ -415,20 +415,20 @@ frame_look :: proc(g: ^Game) {
 // frame_camera instead — no solver, so it has nothing to keep deterministic.
 @(private = "file")
 tick_locomotion :: proc(g: ^Game) {
-	if !g.char_ok {return}
-	if g.noclip {
-		physics.character_set_position(&g.character, player_feet(g)) // keep the body under the free camera
+	if !g.sim.char_ok {return}
+	if g.sim.noclip {
+		physics.character_set_position(&g.sim.character, player_feet(g)) // keep the body under the free camera
 		return
 	}
-	move := g.input.move
-	cy, sy := math.cos(g.input.yaw), math.sin(g.input.yaw)
+	move := g.sim.input.move
+	cy, sy := math.cos(g.sim.input.yaw), math.sin(g.sim.input.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	if g.input.sprint {worldstate.set_sneaking(&g.ws, formid.PLAYER, false)} // sprinting stands up
-	speed := SPRINT_SPEED if g.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.ws, formid.PLAYER) else RUN_SPEED
+	if g.sim.input.sprint {worldstate.set_sneaking(&g.sim.ws, formid.PLAYER, false)} // sprinting stands up
+	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.sim.ws, formid.PLAYER) else RUN_SPEED
 	hv: [2]f32
 	if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
-	physics.character_move(g.cur_phys, &g.character, hv, move.z > 0.5, TICK_DT)
+	physics.character_move(g.sim.cur_phys, &g.sim.character, hv, move.z > 0.5, TICK_DT)
 }
 
 // frame_camera puts the eye where this frame should see it: the capsule's position blended
@@ -467,8 +467,8 @@ frame_debug_verbs :: proc(g: ^Game) {
 drop_ball :: proc(g: ^Game, at: smath.Vec3) {
 	if !g.phys_ok || g.fr.in_interior {return}
 	b := physics.add_sphere(&g.phys, 24, at, is_dynamic = true)
-	if b != 0 {append(&g.drops, b)}
-	log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.drops), at.x, at.y, at.z)
+	if b != 0 {append(&g.sim.drops, b)}
+	log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.sim.drops), at.x, at.y, at.z)
 }
 
 // shove kicks nearby movable clutter so it scatters and resettles — a visible check of the 3b
@@ -496,16 +496,16 @@ quicksave :: proc(g: ^Game) {
 	_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
 	player_follow(g)
 	player_publish(g)
-	player, _ := worldstate.get(&g.ws, formid.PLAYER)
+	player, _ := worldstate.get(&g.sim.ws, formid.PLAYER)
 	man := worldstate.Save_Manifest {
 		save_number  = g.save_no + 1,
 		created_unix = time.to_unix_nanoseconds(time.now()),
 		game_cell    = player.cell,
 	}
-	if g.repl_ok {slua.save_scripts(&g.repl.vm)}
-	if worldstate.save_to_file(&g.ws, g.quicksave_path, man, &g.save_bridge) {
+	if g.repl_ok {slua.save_scripts(&g.sim.repl.vm)}
+	if worldstate.save_to_file(&g.sim.ws, g.quicksave_path, man, &g.save_bridge) {
 		g.save_no += 1
-		log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.ws))
+		log.infof("quicksave: wrote %s (%d deltas)", g.quicksave_path, worldstate.count(&g.sim.ws))
 	} else {
 		log.errorf("quicksave: FAILED to write %s", g.quicksave_path)
 	}
@@ -514,14 +514,14 @@ quicksave :: proc(g: ^Game) {
 quickload :: proc(g: ^Game) {
 	sim_drain(g)
 	defer sim_resume(g)
-	m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge)
+	m, ok := worldstate.load_from_file(&g.sim.ws, g.quicksave_path, &g.save_bridge)
 	if !ok {
 		log.warnf("quickload: no valid save at %s", g.quicksave_path)
 		return
 	}
 	log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
-	if g.repl_ok {slua.reload_scripts(&g.repl.vm, &g.db)}
-	g.trans.location = nil
+	if g.repl_ok {slua.reload_scripts(&g.sim.repl.vm, &g.db)}
+	g.sim.trans.location = nil
 	// Exterior: rebuild resident chunks from baseline ⊕ the loaded overlay — full
 	// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
 	// The rebuild flags object collision for re-cook; run it behind the dedicated load
@@ -563,20 +563,20 @@ player_publish :: proc(g: ^Game) {
 	cell := g.trav.cur_int_cell
 	feet := player_feet(g)
 	if g.trav.mode != .Interior {
-		// (hole worldspace-owner :tags (threading world) :sev gap :needs (sim-struct)) player_publish and traversal read the worldspace from the streamer (st.world_fid); the sim must own the active worldspace and tell the streamer.
+		// (hole worldspace-owner :tags (threading world) :sev gap) player_publish and traversal read the worldspace from the streamer (st.world_fid); the sim must own the active worldspace and tell the streamer.
 		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
 		cell = gamedb.cell_under(&g.db, world_fid, feet)
 	}
-	heading := math.PI / 2 - g.input.yaw
-	worldstate.set_moved(&g.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
-	g.published = {cell, feet}
+	heading := math.PI / 2 - g.sim.input.yaw
+	worldstate.set_moved(&g.sim.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	g.sim.published = {cell, feet}
 }
 
 // player_moved reports whether a script moved the player's ref (MoveTo, SetPosition) since the
 // last player_publish.
 player_moved :: proc(g: ^Game) -> bool {
-	d, ok := worldstate.get(&g.ws, formid.PLAYER)
-	return ok && .Moved in d.live && Placement{d.cell, d.pos} != g.published
+	d, ok := worldstate.get(&g.sim.ws, formid.PLAYER)
+	return ok && .Moved in d.live && Placement{d.cell, d.pos} != g.sim.published
 }
 
 // player_follow places the player where a script moved its ref, running any load that needs.
@@ -597,12 +597,12 @@ cross_door :: proc(g: ^Game, hit: Door_Hit) {
 // player_restore places the player where its ref's delta says, in any cell, and returns what the
 // traversal did; the caller runs the load screen it still needs.
 player_restore :: proc(g: ^Game) -> Traversal_Kind {
-	d, ok := worldstate.get(&g.ws, formid.PLAYER)
+	d, ok := worldstate.get(&g.sim.ws, formid.PLAYER)
 	if !ok || .Moved not_in d.live || g.interiors_on {return .None}
 	kind := traversal_go_to(&g.trav, d.cell, d.pos)
 	if kind == .None {return .None}
 	player_teleport(g, d.pos, math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0]), 0)
-	g.published = {d.cell, d.pos}
+	g.sim.published = {d.cell, d.pos}
 	return kind
 }
 
@@ -613,7 +613,7 @@ player_restore :: proc(g: ^Game) -> Traversal_Kind {
 // the exterior keeps building as cells stream in.
 @(private = "file")
 frame_physics :: proc(g: ^Game) {
-	if g.cur_phys != nil {
+	if g.sim.cur_phys != nil {
 		// New cells streaming in add static bodies; rebuild the broadphase the frames they
 		// do (made > 0) so the quad-tree stays balanced — without this the exterior tree
 		// degrades with every incremental add and the step time climbs steadily. Interiors
@@ -625,11 +625,11 @@ frame_physics :: proc(g: ^Game) {
 		ms_opt: f64
 		if built_n > 0 {
 			ts = time.tick_now()
-			physics.optimize_broadphase(g.cur_phys)
+			physics.optimize_broadphase(g.sim.cur_phys)
 			ms_opt = time.duration_milliseconds(time.tick_since(ts))
 		}
 		ts = time.tick_now()
-		physics.step(g.cur_phys, TICK_DT)
+		physics.step(g.sim.cur_phys, TICK_DT)
 		ms_step := time.duration_milliseconds(time.tick_since(ts))
 		ts = time.tick_now()
 		world.capture_settles(g.fr.active_scene) // overlay: snapshot clutter that just came to rest (3c)
@@ -638,7 +638,7 @@ frame_physics :: proc(g: ^Game) {
 			log.warnf(
 				"SLOW PHYS — sync=%.1f(built %d) optimize=%.1f step=%.1f settle=%.1f | active=%d/%d bodies",
 				ms_sync, built_n, ms_opt, ms_step, ms_settle,
-				physics.num_active(g.cur_phys), physics.num_bodies(g.cur_phys),
+				physics.num_active(g.sim.cur_phys), physics.num_bodies(g.sim.cur_phys),
 			)
 		}
 	}
@@ -671,8 +671,8 @@ frame_traversal :: proc(g: ^Game) {
 // setting it here first is harmless there and is what carries the same-world case, a city gate.
 player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	g.cam.pos, g.cam.yaw, g.cam.pitch = feet + {0, 0, EYE_HEIGHT}, yaw, pitch
-	g.input.eye, g.input.yaw = feet + {0, 0, EYE_HEIGHT}, yaw // the rest of this frame's ticks see the move
-	if g.char_ok {physics.character_set_position(&g.character, feet)}
+	g.sim.input.eye, g.sim.input.yaw = feet + {0, 0, EYE_HEIGHT}, yaw // the rest of this frame's ticks see the move
+	if g.sim.char_ok {physics.character_set_position(&g.sim.character, feet)}
 	publish_snapshot(g)
 }
 
@@ -777,9 +777,9 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	g.fr.active_scene.has_sel = false
 	g.insp.has_sel = true
 	tools.inspector_set_model_strings(&g.insp, "", "")
-	g.insp.sel_display = worldstate.display_name(&g.ws, &g.db, actor)
-	g.insp.sel_base = worldstate.ref_base(&g.ws, &g.db, actor)
-	g.insp.sel_pos = worldstate.ref_pos(&g.ws, &g.db, actor)
+	g.insp.sel_display = worldstate.display_name(&g.sim.ws, &g.db, actor)
+	g.insp.sel_base = worldstate.ref_base(&g.sim.ws, &g.db, actor)
+	g.insp.sel_pos = worldstate.ref_pos(&g.sim.ws, &g.db, actor)
 	g.insp.sel_rot = {}
 	g.insp.sel_has_door = false
 	g.insp.sel_door_cell = ""
@@ -868,7 +868,7 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			for b in g.drops {
+			for b in g.sim.drops {
 				if m, ok := physics.posed(&g.snap.bodies, b, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
 			}
 			t_objdraw := time.tick_now()

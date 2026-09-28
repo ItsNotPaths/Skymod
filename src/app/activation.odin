@@ -115,9 +115,9 @@ aim_at :: proc(g: ^Game) -> Form_ID {
 // sim's half of targeting.
 resolve_activation :: proc(g: ^Game, form: Form_ID) -> Activation_Target {
 	if form == 0 {return {}}
-	if form in g.actor_bodies {
-		name := worldstate.display_name(&g.ws, &g.db, form)
-		kind := Activate_Kind.Body if worldstate.is_dead(&g.ws, &g.db, form) else .Actor
+	if form in g.sim.actor_bodies {
+		name := worldstate.display_name(&g.sim.ws, &g.db, form)
+		kind := Activate_Kind.Body if worldstate.is_dead(&g.sim.ws, &g.db, form) else .Actor
 		return {kind = kind, name = name, form = form, present = name != ""}
 	}
 	inst, _, ok := world.find_resident(g.fr.active_scene, form)
@@ -125,7 +125,7 @@ resolve_activation :: proc(g: ^Game, form: Form_ID) -> Activation_Target {
 	t := Activation_Target {
 		kind     = .Door if inst.has_tp else classify_base(&g.db, gamedb.Form_ID(inst.base)),
 		name     = gamedb.name_of(&g.db, form),
-		locked   = worldstate.is_locked(&g.ws, &g.db, form),
+		locked   = worldstate.is_locked(&g.sim.ws, &g.db, form),
 		form     = form,
 		dyn_body = inst.dyn_body, // non-zero → this REFR is carried by a movable clutter body (grabbable)
 	}

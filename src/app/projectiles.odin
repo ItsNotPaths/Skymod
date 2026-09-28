@@ -21,10 +21,10 @@ DEV_SHOT_DAMAGE :: f32(50)
 // tick_projectiles launches the Weapon.Fire calls scripts made, then moves each flight one tick.
 tick_projectiles :: proc(g: ^Game) {
 	if g.fr.active_scene.phys == nil {return}
-	for f in g.ws.fires {fire(g, f)}
-	clear(&g.ws.fires)
-	c := script.Call{ws = &g.ws, db = &g.db}
-	flights := &g.ws.projectiles
+	for f in g.sim.ws.fires {fire(g, f)}
+	clear(&g.sim.ws.fires)
+	c := script.Call{ws = &g.sim.ws, db = &g.db}
+	flights := &g.sim.ws.projectiles
 	for i := len(flights) - 1; i >= 0; i -= 1 {
 		if !fly(g, &c, &flights[i]) {unordered_remove(flights, i)}
 	}
@@ -41,13 +41,13 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 		return
 	}
 	weapon, _ := gamedb.equip_slot_of(&g.db, f.weapon)
-	m := smath.trs(worldstate.ref_pos(&g.ws, &g.db, f.source), worldstate.ref_rot(&g.ws, &g.db, f.source), worldstate.ref_scale(&g.ws, &g.db, f.source))
-	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.ws, &g.db, f.source)); ok {
+	m := smath.trs(worldstate.ref_pos(&g.sim.ws, &g.db, f.source), worldstate.ref_rot(&g.sim.ws, &g.db, f.source), worldstate.ref_scale(&g.sim.ws, &g.db, f.source))
+	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, f.source)); ok {
 		if node, nok := assetdb.projectile_node(&g.fr.active_scene.cache, modl); nok {m = m * node}
 	}
 	pos, dir := (m * [4]f32{0, 0, 0, 1}).xyz, (m * [4]f32{0, 1, 0, 0}).xyz
-	cell := worldstate.ref_cell(&g.ws, &g.db, f.source)
-	worldstate.launch(&g.ws, &g.db, ammo.projectile, cell, pos, dir, f.source, f.weapon, weapon.damage + ammo.damage)
+	cell := worldstate.ref_cell(&g.sim.ws, &g.db, f.source)
+	worldstate.launch(&g.sim.ws, &g.db, ammo.projectile, cell, pos, dir, f.source, f.weapon, weapon.damage + ammo.damage)
 }
 
 // fly moves one flight a tick; false once it is done. Its body gets the flight's pos and velocity the
@@ -55,8 +55,8 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 @(private = "file")
 fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 	s := g.fr.active_scene
-	if worldstate.is_deleted(&g.ws, f.ref) {return false}
-	if worldstate.ref_cell(&g.ws, &g.db, f.ref) not_in s.chunks {return true} // unloaded: it waits
+	if worldstate.is_deleted(&g.sim.ws, f.ref) {return false}
+	if worldstate.ref_cell(&g.sim.ws, &g.db, f.ref) not_in s.chunks {return true} // unloaded: it waits
 	inst, _, ok := world.find_resident(s, f.ref)
 	if !ok {return true}
 	if inst.dyn_body == 0 {return !inst.phys_built} // body not built yet, or it never will be
@@ -82,8 +82,8 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 		audio.impact_sound(&g.db, inst.base, target, from + (to - from) * h.fraction)
 		if live_actor(g, target) {
 			script.projectile_hit(c, f^, target)
-			worldstate.set_deleted(&g.ws, f.ref, worldstate.ref_cell(&g.ws, &g.db, f.ref))
-			worldstate.mark_scene_dirty(&g.ws, f.ref)
+			worldstate.set_deleted(&g.sim.ws, f.ref, worldstate.ref_cell(&g.sim.ws, &g.db, f.ref))
+			worldstate.mark_scene_dirty(&g.sim.ws, f.ref)
 			return false
 		}
 		embed(g, inst, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
@@ -105,18 +105,18 @@ EMBED_DEPTH :: f32(4)
 embed :: proc(g: ^Game, inst: ^world.Instance, pos, dir: [3]f32) {
 	inst.in_flight = false // its body goes when the move below rebuilds its collision
 	physics.launch(g.fr.active_scene.phys, inst.dyn_body, pos, {}, 0)
-	worldstate.relocate(&g.ws, inst.form_id, worldstate.ref_cell(&g.ws, &g.db, inst.form_id), pos, worldstate.heading_rot(dir))
+	worldstate.relocate(&g.sim.ws, inst.form_id, worldstate.ref_cell(&g.sim.ws, &g.db, inst.form_id), pos, worldstate.heading_rot(dir))
 }
 
 @(private = "file")
 is_projectile :: proc(g: ^Game, form: Form_ID) -> bool {
-	_, ok := gamedb.projectile_of(&g.db, worldstate.ref_base(&g.ws, &g.db, form))
+	_, ok := gamedb.projectile_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form))
 	return ok
 }
 
 @(private = "file")
 live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
-	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form)) && !worldstate.is_dead(&g.ws, &g.db, form)
+	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form)) && !worldstate.is_dead(&g.sim.ws, &g.db, form)
 }
 
 // frame_dev_shot fires an iron arrow from the crosshair for DEV_SHOT_DAMAGE.
@@ -127,6 +127,6 @@ frame_dev_shot :: proc(g: ^Game) {
 }
 
 dev_shoot :: proc(g: ^Game, c: Cmd_Shoot) {
-	cell := worldstate.ref_cell(&g.ws, &g.db, formid.PLAYER)
-	worldstate.launch(&g.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, formid.PLAYER, 0, DEV_SHOT_DAMAGE)
+	cell := worldstate.ref_cell(&g.sim.ws, &g.db, formid.PLAYER)
+	worldstate.launch(&g.sim.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, formid.PLAYER, 0, DEV_SHOT_DAMAGE)
 }

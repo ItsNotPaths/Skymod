@@ -85,7 +85,7 @@ frame_menus :: proc(g: ^Game) {
 	defer if g.menu != was {
 		audio.ui_sound(&g.audio, &g.v, &g.db, MENUS[was].sounds[1])
 		audio.ui_sound(&g.audio, &g.v, &g.db, MENUS[g.menu].sounds[0])
-		if was == .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.ws, g.menu_target, done = true)}
+		if was == .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.sim.ws, g.menu_target, done = true)}
 	}
 	for kind, m in MENUS {
 		if kind.action == "" || !input.fired(&g.imgr, kind.action) {continue}
@@ -202,13 +202,13 @@ Sort_By_Label :: struct($T: typeid) {
 
 @(private = "file")
 spell_label :: proc(g: ^Game, spell: Form_ID) -> string {
-	return fmt.tprintf("%s%s", "* " if worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, spell) else "", label(g, spell))
+	return fmt.tprintf("%s%s", "* " if worldstate.is_equipped(&g.sim.ws, &g.db, formid.PLAYER, spell) else "", label(g, spell))
 }
 
 // stack_label is an item row: worn, stolen, and how many.
 @(private = "file")
 stack_label :: proc(g: ^Game, s: worldstate.Item_Stack) -> string {
-	worn := "* " if !s.stolen && worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, s.item) else ""
+	worn := "* " if !s.stolen && worldstate.is_equipped(&g.sim.ws, &g.db, formid.PLAYER, s.item) else ""
 	stolen := " (stolen)" if s.stolen else ""
 	if s.count > 1 {return fmt.tprintf("%s%s%s (%d)", worn, label(g, s.item), stolen, s.count)}
 	return fmt.tprintf("%s%s%s", worn, label(g, s.item), stolen)
@@ -233,13 +233,13 @@ item_tab :: proc(g: ^Game, s: worldstate.Item_Stack) -> int {
 
 @(private = "file")
 inventory_menu :: proc(g: ^Game) {
-	browse(g, ITEM_TABS[:], worldstate.inv_stacks(&g.ws, &g.db, formid.PLAYER), item_tab, stack_label, item_card)
+	browse(g, ITEM_TABS[:], worldstate.inv_stacks(&g.sim.ws, &g.db, formid.PLAYER), item_tab, stack_label, item_card)
 }
 
 // (hole item-card-stats :tags ui :sev gap) the item card shows no damage or armor rating: WEAP DATA and ARMO DNAM are not decoded.
 @(private = "file")
 item_card :: proc(g: ^Game, s: worldstate.Item_Stack) {
-	ws, db, item := &g.ws, &g.db, s.item
+	ws, db, item := &g.sim.ws, &g.db, s.item
 	c := script.Call{ws = ws, db = db}
 	imgui.SeparatorText(fmt.ctprintf("%s%s", label(g, item), " (stolen)" if s.stolen else ""))
 	imgui.TextUnformatted(fmt.ctprintf("Count  %d", s.count))
@@ -275,7 +275,7 @@ is_drink :: proc(db: ^gamedb.DB, item: Form_ID) -> bool {
 // equip_buttons equips or unequips an item or a spell: one button per hand for an either-hand form.
 @(private = "file")
 equip_buttons :: proc(g: ^Game, form: Form_ID) {
-	ws, db := &g.ws, &g.db
+	ws, db := &g.sim.ws, &g.db
 	if _, equips := gamedb.equip_slot_of(db, form); !equips {return}
 	if worldstate.is_equipped(ws, db, formid.PLAYER, form) {
 		if imgui.Button("Unequip") {worldstate.unequip(ws, db, formid.PLAYER, form)}
@@ -324,7 +324,7 @@ magic_tab :: proc(g: ^Game, spell: Form_ID) -> int {
 
 @(private = "file")
 magic_menu :: proc(g: ^Game) {
-	ws, db := &g.ws, &g.db
+	ws, db := &g.sim.ws, &g.db
 	for slot in ([]gamedb.Slot{.LeftHand, .RightHand, .Voice}) {
 		imgui.TextUnformatted(fmt.ctprintf("%v: %s", slot, label(g, worldstate.in_slot(ws, db, formid.PLAYER, slot))))
 		imgui.SameLine(0, 24)
@@ -346,7 +346,7 @@ spell_card :: proc(g: ^Game, spell: Form_ID) {
 
 @(private = "file")
 skills_menu :: proc(g: ^Game) {
-	ws, db := &g.ws, &g.db
+	ws, db := &g.sim.ws, &g.db
 	s := ws.levels[formid.PLAYER]
 	cost := worldstate.level_up_cost(ws, db, formid.PLAYER)
 	imgui.TextUnformatted(fmt.ctprintf("Level %d   XP %.0f / %.0f   perk points %d", worldstate.actor_level(ws, db, formid.PLAYER), s.xp, cost, s.perk_points))
@@ -392,23 +392,23 @@ map_menu :: proc(g: ^Game) {
 
 @(private = "file")
 container_menu :: proc(g: ^Game) {
-	c := script.Call{ws = &g.ws, db = &g.db}
+	c := script.Call{ws = &g.sim.ws, db = &g.db}
 	box := g.menu_target
-	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.ws, &g.db, box) else .Container
+	via := worldstate.Item_Via.Dead_Body if worldstate.is_dead(&g.sim.ws, &g.db, box) else .Container
 	imgui.TextUnformatted(fmt.ctprintf("%s", label(g, box)))
-	for s in stacks_by_name(g, worldstate.inv_stacks(&g.ws, &g.db, box)) {
+	for s in stacks_by_name(g, worldstate.inv_stacks(&g.sim.ws, &g.db, box)) {
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", stack_label(g, {s.item, s.stolen, 1}), s.count))
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Take##%x%v", s.item, s.stolen)) {
 			victim := script.report_theft(&c, formid.PLAYER, box, s.item, s.count)
 			script.move_items(&c, {base = s.item, from = box, to = formid.PLAYER, count = s.count, via = .Steal if victim != 0 else via, stolen = s.stolen})
-			if !s.stolen {worldstate.mark_stolen(&g.ws, &g.db, formid.PLAYER, s.item, victim, s.count)}
+			if !s.stolen {worldstate.mark_stolen(&g.sim.ws, &g.db, formid.PLAYER, s.item, victim, s.count)}
 		}
 	}
 	imgui.Separator()
 	imgui.TextUnformatted("Carried")
-	for s in stacks_by_name(g, worldstate.inv_stacks(&g.ws, &g.db, formid.PLAYER)) {
-		if !s.stolen && worldstate.is_equipped(&g.ws, &g.db, formid.PLAYER, s.item) || worldstate.quest_object_kept(&g.ws, &g.db, formid.PLAYER, s.item, box) {continue}
+	for s in stacks_by_name(g, worldstate.inv_stacks(&g.sim.ws, &g.db, formid.PLAYER)) {
+		if !s.stolen && worldstate.is_equipped(&g.sim.ws, &g.db, formid.PLAYER, s.item) || worldstate.quest_object_kept(&g.sim.ws, &g.db, formid.PLAYER, s.item, box) {continue}
 		imgui.TextUnformatted(fmt.ctprintf("%s  x%d", stack_label(g, {s.item, s.stolen, 1}), s.count))
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Store##%x%v", s.item, s.stolen)) {script.move_items(&c, {base = s.item, from = formid.PLAYER, to = box, count = s.count, via = via, stolen = s.stolen})}
@@ -449,7 +449,7 @@ pause_menu :: proc(g: ^Game) {
 @(private = "file")
 journal_tab :: proc(g: ^Game) {
 	quests := make([dynamic]Form_ID, context.temp_allocator)
-	for quest in g.ws.quests {
+	for quest in g.sim.ws.quests {
 		if in_journal(g, quest) {append(&quests, quest)}
 	}
 	sorted := by_name(g, quests[:])
@@ -462,7 +462,7 @@ journal_tab :: proc(g: ^Game) {
 // in_journal: the quest runs, is not complete, and has reached a stage with a log entry.
 @(private = "file")
 in_journal :: proc(g: ^Game, quest: Form_ID) -> bool {
-	if !worldstate.quest_running(&g.ws, &g.db, quest) || worldstate.quest_completed(&g.ws, &g.db, quest) {return false}
+	if !worldstate.quest_running(&g.sim.ws, &g.db, quest) || worldstate.quest_completed(&g.sim.ws, &g.db, quest) {return false}
 	_, logged := current_log(g, quest)
 	return logged
 }
@@ -470,7 +470,7 @@ in_journal :: proc(g: ^Game, quest: Form_ID) -> bool {
 // current_log is the log entry of the highest done stage that has one.
 @(private = "file")
 current_log :: proc(g: ^Game, quest: Form_ID) -> (text: string, ok: bool) {
-	q := worldstate.quest_get(&g.ws, quest) or_return
+	q := worldstate.quest_get(&g.sim.ws, quest) or_return
 	best := -1
 	for stage in q.done {
 		if s, has := gamedb.quest_stage_log(&g.db, quest, stage); has && int(stage) > best {
@@ -492,7 +492,7 @@ quest_panel :: proc(g: ^Game, quest: Form_ID) {
 	for stage in qb.stage_log {append(&stages, stage)}
 	slice.sort(stages[:])
 	for stage in stages {
-		done := worldstate.quest_is_stage_done(&g.ws, quest, stage)
+		done := worldstate.quest_is_stage_done(&g.sim.ws, quest, stage)
 		imgui.BeginDisabled()
 		imgui.Checkbox(fmt.ctprintf("##stage%d", stage), &done)
 		imgui.EndDisabled()

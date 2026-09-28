@@ -60,7 +60,7 @@ script_start :: proc(g: ^Game) {
 	}
 
 	st.running = true
-	g.ws.script_phase = true
+	g.sim.ws.script_phase = true
 	sync.sema_post(&st.go)
 }
 
@@ -71,7 +71,7 @@ script_join :: proc(g: ^Game) {
 	sync.sema_wait(&st.done)
 	st.running = false
 	g.tick.prof.scripts += st.ms
-	g.ws.script_phase = false
+	g.sim.ws.script_phase = false
 }
 
 // script_run_pending runs a pending script phase to the end: a tick's scripts finish before the
@@ -91,8 +91,8 @@ script_thread_proc :: proc(t: ^thread.Thread) {
 		sync.sema_wait(&st.go)
 		if st.quit {return}
 		t := time.tick_now()
-		slua.tick_begin(&g.repl.vm, &g.db, &g.ws, &g.trans, st.loaded[:], st.attached[:], TICK_DT)
-		slua.tick_end(&g.repl.vm, TICK_DT)
+		slua.tick_begin(&g.sim.repl.vm, &g.db, &g.sim.ws, &g.sim.trans, st.loaded[:], st.attached[:], TICK_DT)
+		slua.tick_end(&g.sim.repl.vm, TICK_DT)
 		st.ms = time.duration_milliseconds(time.tick_since(t))
 		free_all(context.temp_allocator)
 		sync.sema_post(&st.done)

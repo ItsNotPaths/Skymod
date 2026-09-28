@@ -7,6 +7,8 @@ import "core:strings"
 import "core:sync"
 
 import "../ai"
+import "../audio"
+import "../detection"
 import "../dialogue"
 import "../input"
 import smath "../math"
@@ -15,6 +17,34 @@ import "../render"
 import "../script"
 import slua "../script/lua"
 import "../worldstate"
+
+// Sim is the sim's own state. Only the tick, a script phase, or main while it holds the sim
+// parked (sim_drain) touches it; main otherwise reads the snapshot.
+Sim :: struct {
+	ws:           worldstate.World_State,
+	repl:         slua.Repl, // the gameplay VM (with the dev console on it)
+	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
+	agents:       ai.World, // every actor's running package
+	detection:    detection.State, // who has seen whom
+	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
+	// The player's capsule, and the physics world it lives in: the exterior `phys` until a load door
+	// swaps the active scene to an interior (its own world); on each swap the capsule is re-homed.
+	// nil when physics is off (free-fly). `noclip`'s address rides the console's tcl command.
+	character:    physics.Character,
+	char_ok:      bool,
+	noclip:       bool,
+	cur_phys:     ^physics.World,
+	published:    Placement, // the player's cell and feet as player_publish last wrote them
+	input:        Sim_Input, // the controls the tick reads
+	input_was:    Sim_Input, // the last tick's: a press is down now and up then
+	carried:      Cmd_Carry, // the dev carry
+	interact:     Interact, // crosshair interaction: a press in flight, a telekinesis grab
+	talk:         Conversation, // the player's conversation (dialogue.odin)
+	music:        audio.Music,
+	ambient:      audio.Ambient,
+	drops:        [dynamic]physics.Body, // the dev drop-test balls
+	snap_back:    Snapshot, // the snapshot the sim fills
+}
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
 // its controls only from here. Buttons are held state: the sim finds a press by comparing ticks.
@@ -56,7 +86,7 @@ latch_input :: proc(g: ^Game) -> Sim_Input {
 
 // player_feet is where the sim has the player: the capsule when walking, else where main flew.
 player_feet :: proc(g: ^Game) -> smath.Vec3 {
-	return physics.character_position(&g.character) if g.char_ok && !g.noclip else g.input.eye - {0, 0, EYE_HEIGHT}
+	return physics.character_position(&g.sim.character) if g.sim.char_ok && !g.sim.noclip else g.sim.input.eye - {0, 0, EYE_HEIGHT}
 }
 
 // Queue is a list one side appends to and the other drains whole.
@@ -116,20 +146,20 @@ apply_commands :: proc(g: ^Game) {
 	drain(&g.commands, &g.command_buf)
 	for c in g.command_buf {
 		switch v in c {
-		case Cmd_Noclip:  g.noclip = !g.noclip
+		case Cmd_Noclip:  g.sim.noclip = !g.sim.noclip
 		case Cmd_Drop:    drop_ball(g, v.at)
 		case Cmd_Shove:   shove(g, v.at)
 		case Cmd_Disable: dev_disable(g, v)
 		case Cmd_Spawn:   dev_spawn(g, v)
 		case Cmd_Shoot:   dev_shoot(g, v)
-		case Cmd_Carry:   g.carried = v
+		case Cmd_Carry:   g.sim.carried = v
 		case Cmd_Release:
-			if g.carried.actor == v.actor {g.carried = {}}
-			ai.interrupt(&g.agents, v.actor)
+			if g.sim.carried.actor == v.actor {g.sim.carried = {}}
+			ai.interrupt(&g.sim.agents, v.actor)
 		case Cmd_Talk_Next:   talk_next(g, v)
 		case Cmd_Talk_Choose: talk_choose(g, v.choice)
 		case Cmd_Talk_Leave:  back_out(g)
-		case Cmd_Select:      if g.repl_ok {slua.repl_set_selection(&g.repl, script.Form_ID(v.form))}
+		case Cmd_Select:      if g.repl_ok {slua.repl_set_selection(&g.sim.repl, script.Form_ID(v.form))}
 		}
 	}
 }
@@ -207,19 +237,19 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 // publish_snapshot shows main the sim as it stands. The tick calls it last, and so does any change
 // main makes to the sim between ticks (a teleport).
 publish_snapshot :: proc(g: ^Game) {
-	s := &g.snap_back
+	s := &g.sim.snap_back
 	s.tick = g.tick.total
-	s.walking = g.char_ok && !g.noclip
+	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
-	if g.char_ok {s.player.from, s.player.to = physics.character_step(&g.character)}
-	if g.cur_phys != nil {
-		physics.capture_poses(g.cur_phys, &s.bodies)
+	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
+	if g.sim.cur_phys != nil {
+		physics.capture_poses(g.sim.cur_phys, &s.bodies)
 	} else {
 		clear(&s.bodies.list)
 		clear(&s.bodies.at)
 	}
 	view_actors(g, s)
-	s.act = view_act(s, resolve_activation(g, g.input.aim))
+	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
 	view_subtitles(g, s)
 	view_talk(g, s)
 	publish(&g.snaps, s)
@@ -230,7 +260,7 @@ publish_snapshot :: proc(g: ^Game) {
 run_console :: proc(g: ^Game) {
 	drain(&g.console_in, &g.console_in_buf)
 	for line in g.console_in_buf {
-		for out in slua.repl_eval(&g.repl, line) {push(&g.console_out, strings.clone(out))}
+		for out in slua.repl_eval(&g.sim.repl, line) {push(&g.console_out, strings.clone(out))}
 		delete(line)
 	}
 }

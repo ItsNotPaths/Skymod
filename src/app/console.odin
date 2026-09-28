@@ -66,7 +66,7 @@ console_cmd_ai :: proc "c" (L: ^lua.State) -> c.int {
 		lua.replace(L, 1)
 	}
 	form, ok := slua.ref_form(L, 1)
-	text := ai.describe(&g.agents, &g.ws, &g.db, form) if ok else "ai: no ref"
+	text := ai.describe(&g.sim.agents, &g.sim.ws, &g.db, form) if ok else "ai: no ref"
 	lua.getglobal(L, "print")
 	lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
 	lua.pcall(L, 1, 0, 0)
