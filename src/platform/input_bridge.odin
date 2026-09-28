@@ -33,6 +33,8 @@ input_frame :: proc(p: ^Platform) -> input.Frame {
 	f.mouse[.Middle] = .MIDDLE in mstate
 	f.mouse[.X1]     = .X1     in mstate
 	f.mouse[.X2]     = .X2     in mstate
+	f.mouse[.WheelUp]   = p.input.scroll > 0 // a notch reads as held for the pump it turned in
+	f.mouse[.WheelDown] = p.input.scroll < 0
 
 	// This pump's accumulated relative-mouse delta (only non-zero while look is locked).
 	f.mouse_delta = p.input.look
