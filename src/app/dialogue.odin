@@ -44,18 +44,17 @@ open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
 	start_dialogue(g, speaker)
 }
 
-// (hole force-greet-event :tags (threading dialogue) :sev gap) main reads and clears ws.force_greet, a mailbox the AI writes in the tick; it must be a sim event.
-// frame_force_greet opens the conversation an NPC's ForceGreet asked for, once no menu is open.
-frame_force_greet :: proc(g: ^Game) {
+// tick_force_greet asks main to open the conversation an NPC's ForceGreet asked for, once no menu
+// or conversation is open. The slot stays set until then: the AI reads it as the greet pending.
+tick_force_greet :: proc(g: ^Game) {
 	fg := g.ws.force_greet
-	if fg.speaker == 0 || g.menu != .None {return}
+	if fg.speaker == 0 || g.input.in_menu || g.ws.talking != 0 {return}
 	g.ws.force_greet = {}
-	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
+	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {push(&g.events, Evt_Force_Greet{fg})}
 }
 
 // start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`, or
 // for `subtype`.
-@(private = "file")
 start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype := "") {
 	g.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)

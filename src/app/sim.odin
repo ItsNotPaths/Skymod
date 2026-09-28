@@ -10,6 +10,7 @@ import "../input"
 import smath "../math"
 import "../physics"
 import "../render"
+import "../worldstate"
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
 // its controls only from here. Buttons are held state: the sim finds a press by comparing ticks.
@@ -208,12 +209,14 @@ Sim_Event :: union {
 	Evt_Open_Dialogue,
 	Evt_Door,
 	Evt_Follow,
+	Evt_Force_Greet,
 }
 
 Evt_Open_Container :: struct {container: Form_ID}
 Evt_Open_Dialogue :: struct {speaker: Form_ID}
 Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
 Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
+Evt_Force_Greet :: struct {greet: worldstate.Force_Greet} // an NPC starts a conversation
 
 // handle_events runs what the sim told main since the last call.
 handle_events :: proc(g: ^Game) {
@@ -230,6 +233,7 @@ handle_events :: proc(g: ^Game) {
 			sim_drain(g)
 			player_follow(g)
 			sim_resume(g)
+		case Evt_Force_Greet: start_dialogue(g, v.greet.speaker, v.greet.topic, v.greet.subtype)
 		}
 	}
 }
