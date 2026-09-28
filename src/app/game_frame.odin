@@ -7,10 +7,10 @@ package main
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
 // RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
-// game_tick — scene select, locomotion, physics, traversal, scripts (on their own thread) — runs 0..MAX_TICKS_PER_FRAME times
-// per frame at a constant TICK_DT, and everything else (input, aiming, streaming, picking,
-// drawing) runs once per frame around it. What the frame draws is the last tick's state blended
-// forward by g.tick.alpha.
+// game_tick — scene select, locomotion, physics, traversal, scripts (on their own thread) — runs
+// the ticks the sim's clock has due, each a constant TICK_DT, and everything else (input, aiming,
+// streaming, picking, drawing) runs once per frame around it. What the frame draws is the newest
+// snapshot's segment, blended by g.fr.alpha.
 
 import "base:runtime"
 
@@ -83,27 +83,21 @@ game_frame :: proc(g: ^Game) {
 	park_for_menu(g)
 	frame_subtitles(g)
 
-	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
-	// hand the loop a backlog it would spend the next several frames grinding through. A parked sim
-	// stops it: a save, a load, or a pausing menu, even one a tick of this frame opens. The rest
-	// runs once it resumes.
-	// (hole sim-clock :tags threading :sev gap) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
-	g.tick.accum += 0 if g.parks > 0 else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
+	// The fixed-step sim runs the ticks its clock has due. A parked sim stops it: a save, a load, or a
+	// pausing menu, even one a tick of this frame opens. The rest runs once it resumes.
 	g.sim.input = latch_input(g)
-	for g.tick.accum >= TICK_DT && g.parks == 0 {
-		g.tick.accum -= TICK_DT
-		g.tick.total += 1
+	for g.parks == 0 && clock_due(&g.sim.clock) {
 		g.tick.prof.ticks += 1
 		game_tick(g)
 		handle_events(g)
 		park_for_menu(g) // a menu the tick opened stops the rest of the catch-up
 	}
-	g.tick.alpha = g.tick.accum / TICK_DT
 	if g.parks > 0 {run_console(g)} // parked, main owns the VM: a pausing menu keeps the console live
 	take(&g.snaps, &g.snap)
+	g.fr.alpha = tick_alpha(g.snap.at)
 	sync_dialogue_menu(g)
 	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
-	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha, s.pretty = &g.snap.bodies, g.tick.alpha, g.pretty}
+	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha, s.pretty = &g.snap.bodies, g.fr.alpha, g.pretty}
 	world.mark_posed(g.fr.active_scene, &g.snap.bodies) // the poses are the active space's
 
 	frame_camera(g)
@@ -148,7 +142,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
@@ -437,7 +431,7 @@ tick_locomotion :: proc(g: ^Game) {
 @(private = "file")
 frame_camera :: proc(g: ^Game) {
 	if g.snap.walking {
-		g.cam.pos = blend(g.snap.player, g.tick.alpha) + {0, 0, EYE_HEIGHT}
+		g.cam.pos = blend(g.snap.player, g.fr.alpha) + {0, 0, EYE_HEIGHT}
 		return
 	}
 	move := g.p.input.move
@@ -898,7 +892,7 @@ frame_render :: proc(g: ^Game) {
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
 			for i in 0 ..< g.snap.drops {
-				if m, ok := world.posed(&g.snap.bodies, {0, i32(i)}, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
+				if m, ok := world.posed(&g.snap.bodies, {0, i32(i)}, g.fr.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
 			}
 			t_objdraw := time.tick_now()
 			world.draw_object_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.wind, g.elapsed) // baked per-quad distant objects

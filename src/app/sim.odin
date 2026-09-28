@@ -5,6 +5,7 @@ package main
 
 import "core:strings"
 import "core:sync"
+import "core:time"
 
 import "../ai"
 import "../audio"
@@ -45,8 +46,39 @@ Sim :: struct {
 	ambient:      audio.Ambient,
 	drops:        [dynamic]physics.Body, // the dev drop-test balls
 	snap_back:    Snapshot, // the snapshot the sim fills
+	clock:        Sim_Clock,
 	ext:          world.Space, // the exterior's live cells and bodies (the interior's is the traversal's)
 	trav:         Traversal, // where the player is, the interior's live cells, the load doors
+}
+
+// Sim_Clock is the sim's own time: when its next tick is due. At most MAX_CATCH_UP_TICKS ticks of
+// backlog are kept; past that the sim runs slow for a moment rather than spiral, since each catch-up
+// tick costs more than the time it makes up.
+Sim_Clock :: struct {
+	next:  time.Tick, // when the next tick is due; zero = now
+	at:    time.Tick, // when the last tick was due: the time its snapshot shows
+	total: u64, // ticks since the session began
+}
+
+TICK_TIME :: time.Second / TICK_HZ
+MAX_BACKLOG :: TICK_TIME * MAX_CATCH_UP_TICKS
+
+// clock_due takes the next tick when it is due.
+clock_due :: proc(c: ^Sim_Clock) -> bool {
+	now := time.tick_now()
+	if c.next == {} {c.next = now}
+	if time.tick_diff(c.next, now) > MAX_BACKLOG {c.next = time.tick_add(now, -MAX_BACKLOG)}
+	if time.tick_diff(c.next, now) < 0 {return false}
+	c.at = c.next
+	c.next = time.tick_add(c.next, TICK_TIME)
+	c.total += 1
+	return true
+}
+
+// tick_alpha is how far past a snapshot's tick `now` is, in ticks, at most 1: the newest snapshot
+// shows its tick's segment, and a late sim holds its end.
+tick_alpha :: proc(at: time.Tick) -> f32 {
+	return clamp(f32(time.tick_diff(at, time.tick_now())) / f32(TICK_TIME), 0, 1)
 }
 
 // active_space is the sim's side of the scene the player is in (nil when it has none).
@@ -210,6 +242,7 @@ take :: proc(l: ^Latest($T), cur: ^T) -> bool {
 // Snapshot is what the sim shows main after a tick. A pose is the segment it moved along in that
 // tick, so main blends inside the newest snapshot and a teleport (from == to) never slides.
 Snapshot :: struct {
+	at:      time.Tick, // when its tick was due
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
 	bodies: world.Poses, // every dynamic body of the active scene's refs
@@ -257,6 +290,7 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 // main makes to the sim between ticks (a teleport).
 publish_snapshot :: proc(g: ^Game) {
 	s := &g.sim.snap_back
+	s.at = g.sim.clock.at
 	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
 	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
@@ -382,6 +416,7 @@ sim_drain :: proc(g: ^Game) {
 sim_resume :: proc(g: ^Game) {
 	g.parks -= 1
 	if g.parks == 0 {
+		g.sim.clock.next = {} // the parked time is not the sim's to make up
 		publish_snapshot(g)
 		forward_ref_events(g)
 	}

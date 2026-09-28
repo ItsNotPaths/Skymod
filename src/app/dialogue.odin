@@ -86,7 +86,7 @@ tick_dialogue :: proc(g: ^Game) {
 	if t.info != 0 {
 		t.left_s -= TICK_DT
 		if t.left_s <= 0 {next_response(g)}
-	} else if t.top_level && g.tick.total - t.listed_at >= LIST_REFRESH_TICKS {
+	} else if t.top_level && g.sim.clock.total - t.listed_at >= LIST_REFRESH_TICKS {
 		list_topics(g)
 	}
 }
@@ -204,7 +204,7 @@ list_topics :: proc(g: ^Game) {
 	shown := dialogue.topics(&c, t.speaker, t.choices[:] if t.top_level else nil)
 	clear(&t.choices)
 	append(&t.choices, ..shown)
-	t.top_level, t.listed_at = true, g.tick.total
+	t.top_level, t.listed_at = true, g.sim.clock.total
 }
 
 // next_response shows the line's next response; past the last one the line is done.

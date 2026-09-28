@@ -246,7 +246,7 @@ view_actors :: proc(g: ^Game, s: ^Snapshot) {
 // actor_box is the wire box drawn and picked for an actor capsule, from its feet to its top.
 @(private = "file")
 actor_box :: proc(g: ^Game, v: Actor_View, grow: f32 = 0) -> [2]smath.Vec3 {
-	feet := blend(v.feet, g.tick.alpha)
+	feet := blend(v.feet, g.fr.alpha)
 	r := v.capsule.radius + grow
 	return {feet - {r, r, grow}, feet + {r, r, 2 * (v.capsule.half_h + v.capsule.radius) + grow}}
 }
@@ -279,7 +279,7 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	for v in g.snap.actors {
 		if len(verts) > 60000 {break}
 		first := u32(len(idx))
-		emit_capsule(&verts, &idx, blend(v.feet, g.tick.alpha), v.capsule)
+		emit_capsule(&verts, &idx, blend(v.feet, g.fr.alpha), v.capsule)
 		append(&ranges, Range{v.form, first, u32(len(idx)) - first, v.dead})
 	}
 	g.actor_mesh = render.upload_mesh(&g.r, verts[:], idx[:])
@@ -300,7 +300,7 @@ draw_actor_nametags :: proc(g: ^Game) {
 	vp := camera_view_proj(g.cam, render.aspect(&g.r))
 	dl := imgui.GetBackgroundDrawList(imgui.GetMainViewport()) // no current window after a load screen closes the frame
 	for v in g.snap.actors {
-		feet := blend(v.feet, g.tick.alpha)
+		feet := blend(v.feet, g.fr.alpha)
 		if linalg.length(feet - g.cam.pos) > NAMETAG_RANGE {continue}
 		top := feet + {0, 0, 2 * (v.capsule.half_h + v.capsule.radius) + 12}
 		clip := vp * [4]f32{top.x, top.y, top.z, 1}

@@ -92,19 +92,13 @@ Slow_Snap :: struct {
 TICK_HZ :: 60
 TICK_DT :: f32(1) / f32(TICK_HZ)
 
-// MAX_TICKS_PER_FRAME caps catch-up after a hitch. Past this the backlog is dropped (the sim
-// runs slow for a moment) rather than spiralling — each catch-up tick costs more than the
-// frame it is trying to make up.
-MAX_TICKS_PER_FRAME :: 5
+// MAX_CATCH_UP_TICKS caps the sim's backlog after a hitch (Sim_Clock).
+MAX_CATCH_UP_TICKS :: 5
 
-// Tick is the fixed-step clock: how much real time is still unsimulated, and how far past the
-// last completed tick the frame being drawn sits.
+// Tick is what the tick runs with: its scratch and its profile. Its clock is the sim's (Sim_Clock).
 Tick :: struct {
-	accum: f32, // unsimulated seconds carried into the next frame; < TICK_DT after the loop unless a menu paused it
-	alpha: f32, // accum/TICK_DT — what physics + the camera interpolate on
-	total: u64, // ticks since session start: the logic clock script deadlines will count in
-	temp:  runtime.Default_Temp_Allocator, // the tick's context.temp_allocator, wiped after each tick
-	prof:  Tick_Profile,
+	temp: runtime.Default_Temp_Allocator, // the tick's context.temp_allocator, wiped after each tick
+	prof: Tick_Profile,
 }
 
 Tick_Part :: enum {
@@ -144,6 +138,7 @@ Frame_State :: struct {
 	insp_action:        tools.Inspect_Action, // what the inspector panel requested (overlay → traversal)
 	in_interior:        bool, // the player is inside a full-screen interior this frame
 	active_scene:       ^world.Scene, // the scene the player inhabits (exterior or interior)
+	alpha:              f32, // how far past the newest snapshot's tick this frame draws, in ticks (0..1)
 	mouse_cap, kb_cap:  bool, // ImGui owns the mouse/keyboard this frame
 }
 
