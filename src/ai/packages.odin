@@ -183,7 +183,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Activate":                      return proc_activate(c)
 	case "Say":                           return proc_say(c)
 	case "DialogueActivate":              return proc_dialogue_activate(c)
-	// (hole proc-combat :tags (ai combat) :sev gap :needs combat-brain) UseWeapon, UseMagic and Shout fail: a package cannot make an actor attack, cast or shout at a target (CW battles, archers, dragons).
+	// (hole proc-combat :tags (ai combat) :sev gap) UseWeapon, UseMagic and Shout fail: a package cannot make an actor attack, cast or shout at a target (CW battles, archers, dragons).
 	case "UseWeapon", "UseMagic", "Shout": return .Failed
 	// (hole flight :tags (animation combat unclaimed) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
 	case "Hover", "Orbit", "FlightGrab":  return .Failed
@@ -462,7 +462,7 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 // iGuardWarnings it attacks. The area's owners and the guard's allies and friends are let be (CK:
 // Guard (Procedure), build/out/wsK/wiki). Inputs: RestrictedArea, SuspiciousOf, WarnOnlyRadius,
 // ImmediateAttackRadius.
-// (hole guard-draws-weapon :tags (ai animation unclaimed) :sev polish :needs (combat-damage)) a Guard does not draw its weapon while it warns: no actor has a drawn state.
+// (hole guard-draws-weapon :tags (ai animation unclaimed) :sev polish :needs (actor-states)) a Guard does not draw its weapon while it warns: no actor has a drawn state.
 proc_guard :: proc(c: ^Proc_Context) -> Status {
 	ws, db, guard := c.cond.ws, c.cond.db, c.cond.subject
 	area, ok := input_place(c, 0)

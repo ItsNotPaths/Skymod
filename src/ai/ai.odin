@@ -74,6 +74,7 @@ World :: struct {
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
+// (hole ai-seam :tags (plugins ai) :sev struct :needs (actor-snapshot)) the app calls tick_loaded once per actor, and 50 of 109 ai procs take World_State or DB. Wanted: one batched tick behind a table, snapshot in, commands out (velocity, package, moved). Lua procedures stay the content surface.
 tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
 	a := agent_of(w, ws, db, actor)
 	if worldstate.is_dead(ws, db, actor) {return stop_dead(w, actor, a)}

@@ -361,7 +361,6 @@ crime_census :: proc(ws: ^World_State, db: ^gamedb.DB, faction: Form_ID) -> (liv
 
 // is_trespassing: the actor is in an owned interior that is not its to use and not public, while
 // its owner has the load doors locked (LockDoors); a prisoner in its cell is not.
-// (hole trespass-rule-source :tags (combat world) :sev polish) unsourced: trespass as "owned, not public, a load door locked" is read off the data (254 owned cells, all interior; the LockDoors procedure); the CK names no rule.
 is_trespassing :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> bool {
 	cell := ref_cell(ws, db, actor)
 	c, ok := gamedb.cell_by_formid(db, cell)

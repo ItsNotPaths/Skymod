@@ -49,6 +49,7 @@ destroy :: proc(m: ^Path_Mesh) {
 // find_path writes the corners from `from` to `to` into `out`. Both ends snap to the nearest
 // triangle, so an actor a little off the mesh still paths; the last corner is the point of the
 // goal's triangle nearest `to` (a marker can stand off the mesh).
+// (hole nav-seam :tags (plugins ai) :sev struct) find_path is plain data already but called directly: a plugin cannot swap the pathfinder. Wanted: find_path in a table, batched.
 find_path :: proc(m: ^Path_Mesh, from, to: [3]f32, out: ^[dynamic][3]f32) -> bool {
 	clear(out)
 	start := nearest_tri(m, from) or_return

@@ -142,6 +142,7 @@ SLOW_TICK_MS :: f32(2000) / TICK_HZ
 // Tick_Profile is the sim's time: running totals in ms, and the last ticks one by one.
 Tick_Profile :: struct {
 	ticks:  int,
+// (hole plugin-timing :tags plugins :sev polish) the profile times tick parts, not seam entries: nothing says which plugin costs how many ms.
 	ms:     [Tick_Part]f64,
 	events: [slua.Event_Step]f64, // Script_Events by step
 	recent: [TICK_HISTORY]Tick_Sample, // a ring; tick n is at n % TICK_HISTORY

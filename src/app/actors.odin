@@ -27,7 +27,7 @@ import "../worldstate"
 
 // (hole actor-hitboxes :tags (combat unclaimed) :sev gap :needs (animation)) a hit can only land on the one capsule; combat wants the race skeleton's per-bone colliders, posed each tick, with the weapon swept through them (Precision-style, the default).
 // (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
-// (hole actor-ragdoll :tags (combat physics) :sev gap :needs (animation actor-states combat-damage)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
+// (hole actor-ragdoll :tags (combat physics unclaimed) :sev gap :needs (animation)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
 // (hole anim-state-snapshot :tags (threading animation unclaimed) :sev gap) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
@@ -77,6 +77,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	lap(g, .Actors, &t)
+	// (hole actor-snapshot :tags (plugins ai) :sev struct) detection, AI and combat read worldstate one call at a time. Wanted: one plain-data actor snapshot per tick (id, position, cell, dead, sneaking, speed) that every seam reads.
 	detection.tick(&g.sim.detection, &g.sim.ws, &g.db, seen, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
 	ai.set_present(&g.sim.agents, seen)

@@ -21,6 +21,7 @@ State :: struct {
 }
 
 // tick runs one group of viewers. `actors` are the loaded actors, the player's too.
+// (hole detection-seam :tags (plugins ai) :sev struct :needs (actor-snapshot)) the pilot seam: tick reads World_State and DB and calls set_awareness. Wanted: a proc "c" table (tick, judge) that takes the actor snapshot and returns awareness commands, so a plugin can replace it.
 tick :: proc(s: ^State, ws: ^worldstate.World_State, db: ^gamedb.DB, actors: map[Form_ID]bool, dt: f32) {
 	s.tick += 1
 	speeds := make(map[Form_ID]f32, context.temp_allocator)

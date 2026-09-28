@@ -168,6 +168,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	726 = fn_does_not_exist,
 }
 
+// (hole conditions-seam :tags (plugins mods) :sev struct) TABLE is fixed at compile time: a plugin can neither add a condition function nor replace one. Wanted: plugin entries by function index, plain-data in and out, with host queries for what Context reads.
 @(private)
 lookup :: proc(index: u16) -> (Eval, bool) {
 	if int(index) >= len(TABLE) {return nil, false}
@@ -392,10 +393,11 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
-// (hole combat-conditions :tags combat :sev gap :needs (combat-damage)) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget, GetCombatTargetHasKeyword, IsBleedingOut, IsWeaponOut, IsWeaponMagicOut and IsCasting read 0: nothing fights or draws a weapon.
+// (hole combat-conditions :tags combat :sev gap) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget and GetCombatTargetHasKeyword read 0, though the stand-in combat state (ai.combat_state) has the answer.
+// (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
-// (hole flight :tags (animation combat unclaimed) :sev gap) GetIsFlying and GetFlyingState read 0: no dragon flies.
+// (hole flight :tags (animation combat unclaimed) :sev gap :needs (actor-states)) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags (world unclaimed) :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
 // (hole map-markers :tags (ui quest) :sev gap :needs map-screen) GetMapMarkerVisible reads 0: there is no map, so no marker is ever found.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.

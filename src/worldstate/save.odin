@@ -389,6 +389,7 @@ Save_Body :: struct {
 // save_to_file writes the overlay + manifest to `path` as a `.skysave`. The manifest's delta_count
 // is filled from the overlay (the caller need only set save_number/created_unix/game_cell). Returns
 // false on a marshal or write failure.
+// (hole plugin-save-blob :tags (plugins save) :sev gap) a plugin has no saved state. Wanted: one opaque blob per plugin in the save; the save still loads with the plugin gone.
 save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^Form_Bridge = nil) -> bool {
 	man := m
 	man.schema_version = FORMAT_VERSION

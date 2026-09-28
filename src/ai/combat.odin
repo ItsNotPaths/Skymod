@@ -45,6 +45,7 @@ combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
 // has detected that its aggression lets it attack, else warns or attacks the nearest non-ally
 // inside its aggro radii.
 // (hole aggro-radius-targets :tags (ai combat) :sev polish) unsourced: whether the aggro radii warn and attack every actor that is not an ally, or only the player; they take every non-ally.
+// (hole combat-seam :tags (plugins ai combat) :sev struct :needs (ai-seam)) the combat brain is Odin code inside ai: a plugin cannot replace it. Wanted: its own table (next state and goal per actor, batched).
 @(private)
 next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: ^Combat, dt: f32) -> Combat_State {
 	if worldstate.is_dead(ws, db, actor) {

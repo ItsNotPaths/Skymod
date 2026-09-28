@@ -26,7 +26,7 @@ CHATTER_TIMER :: [2]f32{10, 20} // fIdleChatterCommentTimer/Max
 HELO :: [4]u8{'H', 'E', 'L', 'O'}
 IDLE :: [4]u8{'I', 'D', 'L', 'E'}
 
-// (hole combat-barks :tags (dialogue combat) :sev gap :needs (detection-events combat-damage)) no combat or detection lines (Attack, Taunt, Flee, Block, AlertIdle, LostToNormal...): nothing sends the moments they belong to. Hit (from projectiles) and death cries are said.
+// (hole combat-barks :tags (dialogue combat) :sev gap :needs (detection-events)) no combat or detection lines (Attack, Taunt, Flee, Block, AlertIdle, LostToNormal...): nothing sends the moments they belong to. Hit (from projectiles) and death cries are said.
 // (hole social-timing :tags (ai dialogue) :sev polish) unsourced: a Hello fires once as the player comes within iAISocialDistanceToTriggerEvent and re-arms at twice that; one idle line per fIdleChatterCommentTimer among the actors within CONVERSATION_RADIUS of the player; conversations, AHEL and body finds are checked on each actor's social timer, bodies within CONVERSATION_RADIUS in sight, AHEL between NPCs only.
 tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool, dt: f32) {
 	player := worldstate.ref_pos(ws, db, ws.player)

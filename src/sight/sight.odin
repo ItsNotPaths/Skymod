@@ -34,6 +34,7 @@ NPC_EYE :: f32(0.9)
 // (hole view-cone-source :tags ai :sev polish) unsourced: the NPC view cone is 190 degrees from memory (fDetectionViewCone); Skyrim.esm has no such GMST (build/out/wsW/gmst.txt).
 VIEW_CONE :: f32(190)
 
+// (hole sight-seam :tags (plugins query) :sev struct) sight reads worldstate and physics directly, so a plugin can neither call it nor replace it. Wanted: a host query table with batched rays (viewer/target pairs in, levels out).
 level :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, mode: Mode) -> f32 {
 	switch mode {
 	case .Raw:    return seen(ws, db, viewer, target, false)

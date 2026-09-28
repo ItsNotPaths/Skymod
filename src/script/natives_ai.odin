@@ -6,7 +6,7 @@ package script
 import "../worldstate"
 
 // (hole look-at-target :tags (threading animation ai unclaimed) :sev gap :needs (anim-state-snapshot)) SetLookAt has no store. Wanted: a look-at target per actor on the sim (script or AI), published in the actor view; main applies the head turn when it samples.
-// (hole ai-combat-natives :tags (ai combat) :sev gap :needs combat-damage) StartCombat, StopCombat, IsInCombat and GetCombatTarget are stubs: the stand-in combat toward the player is not reachable from scripts.
+// (hole ai-combat-natives :tags (ai combat) :sev gap) StartCombat, StopCombat, IsInCombat and GetCombatTarget are stubs: the stand-in combat toward the player is not reachable from scripts.
 // (hole look-at :tags (ai animation unclaimed) :sev gap :needs animation) SetLookAt and ClearLookAt are stubs: no head tracking.
 register_ai :: proc(reg: ^Registry) {
 	register(reg, "Actor", "EvaluatePackage", n_evaluate_package)

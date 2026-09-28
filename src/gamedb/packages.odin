@@ -396,7 +396,7 @@ package_input :: proc(db: ^DB, pack: Form_ID, index: u8) -> (Package_Input, bool
 	return {}, false
 }
 
-// (hole override-packages-use :tags (ai combat unclaimed) :sev gap :needs combat-brain) decoded and never run: nothing swaps in the combat, spectator, corpse or guard-warn list (vanilla: 218 alias + 181 NPC_ ECOR, 3 SPOR), and an NPC_ template's lists are not inherited.
+// (hole override-packages-use :tags (ai combat) :sev gap) decoded and never run: nothing swaps in the combat, spectator, corpse or guard-warn list (vanilla: 218 alias + 181 NPC_ ECOR, 3 SPOR), and an NPC_ template's lists are not inherited.
 // Override_Packages are FLSTs of packages that replace an actor's own in one situation.
 Override_Packages :: struct {
 	combat:     Form_ID, // ECOR
