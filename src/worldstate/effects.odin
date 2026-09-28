@@ -23,6 +23,14 @@ Active_Effect :: struct {
 	applied:   bool, // its amount terms have run once
 	ended:     bool, // OnEffectFinish is due or sent
 	finished:  bool, // OnEffectFinish sent
+	motion:    Effect_Motion `cbor:"-"`, // a cache of effect_motion; not saved, so a mod update reaches old saves
+}
+
+// Effect_Motion is whether an effect's amount terms still change with time (effect_motion).
+Effect_Motion :: enum u8 {
+	Unknown,
+	Still,
+	Moving,
 }
 
 // start_effect adds an effect on `target` and returns its handle; the VM gives it its script and
@@ -52,15 +60,19 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) ->
 	if e.ended {return}
 	t0 := e.elapsed
 	e.elapsed += dt
-	for term in effect_terms_of(ws, db, e^) {
-		av, ok := term_av(ws, db, e^, term)
-		if term.knob != .Amount || !ok || e.inactive {continue}
-		gain := term_value(db, term, e^, e.elapsed)
-		if e.applied {gain -= term_value(db, term, e^, t0)}
-		av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
-		hurt ||= !term.on_caster && av == "Health" && gain < 0
+	if e.motion == .Unknown {e.motion = effect_motion(ws, db, e^)}
+	if !e.applied || e.motion == .Moving { // once applied, a still effect's gains are all zero
+		for term in effect_terms_of(ws, db, e^) {
+			if term.knob != .Amount || e.inactive {continue}
+			av, ok := term_av(ws, db, e^, term)
+			if !ok {continue}
+			gain := term_value(db, term, e^, e.elapsed)
+			if e.applied {gain -= term_value(db, term, e^, t0)}
+			av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
+			hurt ||= !term.on_caster && av == "Health" && gain < 0
+		}
+		e.applied = true
 	}
-	e.applied = true
 	if !e.lasts && e.elapsed >= e.duration + e.taper {end_effect(ws, h)}
 	return
 }
@@ -82,12 +94,30 @@ av_live :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) ->
 // term_value is a term's formula at `t` seconds in (EFFECT_VARS); a timed effect's t stops at its end.
 @(private)
 term_value :: proc(db: ^gamedb.DB, term: Effect_Term, e: Active_Effect, t: f32) -> f64 {
+	t := t if e.lasts else min(t, e.duration + e.taper)
+	vars := term_vars(db, e, t)
+	return formula.eval(term.f, vars[:])
+}
+
+// effect_motion is .Moving when any amount term can change with t, given the effect's magnitude,
+// duration and MGEF (formula.varies); a lasting Value Modifier's is still.
+@(private)
+effect_motion :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> Effect_Motion {
+	vars := term_vars(db, e, 0)
+	for term in effect_terms_of(ws, db, e) {
+		if term.knob == .Amount && formula.varies(term.f, 0, vars[:]) {return .Moving}
+	}
+	return .Still
+}
+
+// term_vars are the values of EFFECT_VARS for `e` at `t`.
+@(private)
+term_vars :: proc(db: ^gamedb.DB, e: Active_Effect, t: f32) -> [len(EFFECT_VARS_ARRAY)]f64 {
 	mgef, _ := gamedb.magic_effect_of(db, e.effect)
 	info := mgef.info
-	t := t if e.lasts else min(t, e.duration + e.taper)
 	held := e.lasts || info.flags & esm.MGEF_RECOVER != 0
 	sign: f64 = -1 if info.flags & esm.MGEF_DETRIMENTAL != 0 else 1
-	return formula.eval(term.f, {f64(t), f64(e.magnitude), f64(e.duration), 1 if held else 0, sign, f64(info.second_av_weight), f64(info.taper_weight), f64(info.taper_curve), f64(info.taper_duration)})
+	return {f64(t), f64(e.magnitude), f64(e.duration), 1 if held else 0, sign, f64(info.second_av_weight), f64(info.taper_weight), f64(info.taper_curve), f64(info.taper_duration)}
 }
 
 // term_av is the actor value a term moves: its own, or the MGEF's for a slot.
@@ -150,6 +180,7 @@ effect_terms_of :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> [
 forget_effect_terms :: proc(ws: ^World_State) {
 	for _, terms in ws.effect_terms {delete(terms)}
 	clear(&ws.effect_terms)
+	for _, &e in ws.effects {e.motion = .Unknown}
 }
 
 // remove_effect drops an ended effect whose instance has stopped ticking.
@@ -216,7 +247,8 @@ Effect_Term :: struct {
 
 // EFFECT_VARS: seconds since start, magnitude, duration, 1 when held (Recover or lasting), -1 when
 // Detrimental else 1, the dual weight, and the taper's weight, curve and duration.
-EFFECT_VARS := []string{"t", "m", "d", "held", "sign", "w", "tw", "tc", "td"}
+EFFECT_VARS_ARRAY := [?]string{"t", "m", "d", "held", "sign", "w", "tw", "tc", "td"}
+EFFECT_VARS := EFFECT_VARS_ARRAY[:]
 
 // Effect_Src is one uncompiled term: `src` is its formula string.
 Effect_Src :: struct {

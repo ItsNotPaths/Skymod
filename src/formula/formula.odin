@@ -72,35 +72,84 @@ eval :: proc(f: Formula, values: []f64) -> f64 {
 		case .Var:    stack[n] = values[ins.index]; n += 1
 		case .Neg:    stack[n - 1] = -stack[n - 1]
 		case .Add, .Sub, .Mul, .Div, .Pow:
-			a, b := stack[n - 2], stack[n - 1]
 			n -= 1
-			#partial switch ins.op {
-			case .Add: stack[n - 1] = a + b
-			case .Sub: stack[n - 1] = a - b
-			case .Mul: stack[n - 1] = a * b
-			case .Div: stack[n - 1] = a / b
-			case .Pow: stack[n - 1] = math.pow(a, b)
-			}
+			stack[n - 1] = binary_op(ins.op, stack[n - 1], stack[n])
 		case .Call:
 			fn := FUNCTIONS[ins.index]
-			args := stack[n - fn.arity:n]
-			r: f64
-			switch fn.name {
-			case "min":   r = min(args[0], args[1])
-			case "max":   r = max(args[0], args[1])
-			case "clamp": r = clamp(args[0], args[1], args[2])
-			case "floor": r = math.floor(args[0])
-			case "ceil":  r = math.ceil(args[0])
-			case "round": r = math.round(args[0])
-			case "abs":   r = abs(args[0])
-			case "sqrt":  r = math.sqrt(args[0])
-			case "select": r = args[1] if args[0] > 0 else args[2]
-			}
+			r := call_fn(fn, stack[n - fn.arity:n])
 			n -= fn.arity - 1
 			stack[n - 1] = r
 		}
 	}
 	return stack[0] if n == 1 else 0
+}
+
+// varies reports whether the formula's result can change with variable `v` while the others hold
+// `values`. A select whose test does not change follows only the branch it takes, so
+// `select(held, 0, t)` with held set does not vary. False means it cannot change.
+varies :: proc(f: Formula, v: int, values: []f64) -> bool {
+	Slot :: struct {
+		value: f64,
+		moves: bool,
+	}
+	stack: [MAX_STACK]Slot
+	n := 0
+	for ins in f.code {
+		switch ins.op {
+		case .Number: stack[n] = {ins.value, false}; n += 1
+		case .Var:    stack[n] = {values[ins.index], ins.index == v}; n += 1
+		case .Neg:    stack[n - 1].value = -stack[n - 1].value
+		case .Add, .Sub, .Mul, .Div, .Pow:
+			n -= 1
+			a, b := stack[n - 1], stack[n]
+			stack[n - 1] = {binary_op(ins.op, a.value, b.value), a.moves || b.moves}
+		case .Call:
+			fn := FUNCTIONS[ins.index]
+			args := stack[n - fn.arity:n]
+			r: Slot
+			if fn.name == "select" && !args[0].moves {
+				r = args[1] if args[0].value > 0 else args[2]
+			} else {
+				values: [3]f64
+				for arg, i in args {
+					values[i] = arg.value
+					r.moves ||= arg.moves
+				}
+				r.value = call_fn(fn, values[:fn.arity])
+			}
+			n -= fn.arity - 1
+			stack[n - 1] = r
+		}
+	}
+	return n == 1 && stack[0].moves
+}
+
+@(private)
+binary_op :: proc(op: Op, a, b: f64) -> f64 {
+	#partial switch op {
+	case .Add: return a + b
+	case .Sub: return a - b
+	case .Mul: return a * b
+	case .Div: return a / b
+	case .Pow: return math.pow(a, b)
+	}
+	return 0
+}
+
+@(private)
+call_fn :: proc(fn: Function, args: []f64) -> f64 {
+	switch fn.name {
+	case "min":    return min(args[0], args[1])
+	case "max":    return max(args[0], args[1])
+	case "clamp":  return clamp(args[0], args[1], args[2])
+	case "floor":  return math.floor(args[0])
+	case "ceil":   return math.ceil(args[0])
+	case "round":  return math.round(args[0])
+	case "abs":    return abs(args[0])
+	case "sqrt":   return math.sqrt(args[0])
+	case "select": return args[1] if args[0] > 0 else args[2]
+	}
+	return 0
 }
 
 @(private)

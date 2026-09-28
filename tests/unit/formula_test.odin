@@ -42,3 +42,25 @@ test_formula :: proc(t: ^testing.T) {
 		testing.expectf(t, err != "", "%q should not compile", bad)
 	}
 }
+
+// varies follows only the taken branch of a select whose test is fixed; anything that reads t varies.
+@(test)
+test_formula_varies :: proc(t: ^testing.T) {
+	vars := []string{"t", "held", "m"}
+	cases := []struct {
+		src:   string,
+		held:  f64,
+		moves: bool,
+	} {
+		{"m * 2", 1, false},
+		{"m * t", 1, true},
+		{"select(held, 0, m * t)", 1, false},
+		{"select(held, 0, m * t)", 0, true},
+		{"select(t, m, m)", 1, true}, // a test that moves: both branches count
+		{"-(m) + min(t, 3)", 1, true},
+	}
+	for c in cases {
+		f, err := formula.compile(c.src, vars, context.temp_allocator)
+		testing.expectf(t, err == "" && formula.varies(f, 0, {0, c.held, 5}) == c.moves, "%s with held %v: varies should be %v", c.src, c.held, c.moves)
+	}
+}
