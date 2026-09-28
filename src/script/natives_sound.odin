@@ -28,7 +28,6 @@ register_sound :: proc(reg: ^Registry) {
 	register(reg, "SoundCategory", "SetFrequency", proc(c: ^Call, args: []Value) -> Value {return category(c, frequency = arg_f32(args, 0, 1))})
 }
 
-// (hole audio-commands :tags (threading audio) :sev gap) sim code calls the mixer directly (sound natives, cast sounds, equip and level-up sounds, audio.say) and main does too (menus, dialogue). Decided (user, 2026-09-27): audio is a separate service fed by commands. The sim resolves SNDR conditions first and sends the resolved sound, position or ref, and category.
 // n_sound_play plays the sound's descriptor at akSource, flat when None; its instance id, 0 when
 // nothing plays.
 n_sound_play :: proc(c: ^Call, args: []Value) -> Value {
