@@ -100,3 +100,54 @@ test_collision_store_answers :: proc(t: ^testing.T) {
 	m, known = assetdb.collision_of(nil, "b.nif")
 	testing.expect(t, known && m == nil, "without a store every model is known to have none")
 }
+
+@(private = "file")
+WINDOW_WORLD :: gamedb.Form_ID(900)
+
+// window_db is a row of grid cells at gx 0..4, gy 0; cell form = 100 + gx.
+@(private = "file")
+window_db :: proc() -> (db: gamedb.DB) {
+	db.cells = make(map[gamedb.Form_ID]gamedb.Cell)
+	db.cell_at_grid = make(map[gamedb.Grid_Key]gamedb.Form_ID)
+	for gx in i32(0) ..< 5 {
+		id := gamedb.Form_ID(100 + gx)
+		db.cells[id] = {form_id = id, world_form_id = WINDOW_WORLD, gx = gx, has_grid = true}
+		db.cell_at_grid[{WINDOW_WORLD, gx, 0}] = id
+	}
+	return
+}
+
+@(private = "file")
+live_set :: proc(sp: ^world.Space) -> (set: bit_set[0 ..< 5]) {
+	for cell in sp.cells {set += {int(cell - 100)}}
+	return
+}
+
+@(test)
+test_window_follows_the_player :: proc(t: ^testing.T) {
+	db := window_db()
+	defer {delete(db.cells); delete(db.cell_at_grid)}
+	sp: world.Space
+	world.space_init(&sp, nil, nil, nil, false)
+	defer world.space_destroy(&sp)
+	world.set_world(&sp, &db, WINDOW_WORLD, 1)
+
+	at :: proc(gx: f32) -> [3]f32 {return {(gx + 0.5) * world.CELL_SIZE, 0.5 * world.CELL_SIZE, 0}}
+	world.window_update(&sp, &db, at(0), budget = max(int))
+	testing.expect_value(t, live_set(&sp), bit_set[0 ..< 5]{0, 1})
+	testing.expect_value(t, len(sp.loaded), 2)
+
+	// A crossing retires what left at once and fills the rest nearest first, a budget per tick.
+	for e in sp.changes {world.ref_event_destroy(e)}
+	clear(&sp.changes)
+	world.window_update(&sp, &db, at(3), budget = 1)
+	testing.expect_value(t, live_set(&sp), bit_set[0 ..< 5]{3})
+	testing.expect_value(t, len(sp.changes), 3)
+	_, removed := sp.changes[0].(world.Cell_Removed)
+	added, is_added := sp.changes[2].(world.Cell_Added)
+	testing.expect(t, removed && is_added && added.cell == 103, "removals first, then the player's own cell")
+	world.window_update(&sp, &db, at(3), budget = max(int))
+	testing.expect_value(t, live_set(&sp), bit_set[0 ..< 5]{2, 3, 4})
+	testing.expect(t, world.window_ready(&sp, &db, at(4)), "a live cell is ready")
+	for e in sp.changes {world.ref_event_destroy(e)}
+}

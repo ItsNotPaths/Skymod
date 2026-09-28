@@ -148,7 +148,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock stream-requests traversal-stream-control worldspace-owner cell-handoff loaded-cells-handoff active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock stream-requests traversal-stream-control worldspace-owner active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
@@ -178,6 +178,7 @@ game_tick :: proc(g: ^Game) {
 	t = time.tick_now()
 	tick_projectiles(g)
 	lap(g, .Projectiles, &t)
+	if g.trav.mode == .Exterior {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
 	frame_physics(g)
 	lap(g, .Physics, &t)
 	frame_traversal(g)
@@ -211,12 +212,13 @@ frame_diag :: proc(g: ^Game) {
 	}
 	g.diag_t = 0
 	st := g.fr.st
+	cell := world.grid_of(g.snap.player.to)
 	mc, tc, mb, tb, cold, coldb, tcold, tcoldb := world.cache_counts(&g.scene)
 	lob, lor := world.lod_object_stats(&g.scene)
 	ps := world.phys_stats(&g.sim.ext) // the exterior — where the streaming-churn leak would be
 	log.infof(
 		"diag: cell (%d,%d) chunks=%d cache models=%d (%dMB) tex=%d (%dMB) cold=%d (%dMB) texcold=%d (%dMB) lodobj=%d/%d rss=%dMB",
-		st.gx, st.gy, st.chunks, mc, mb / (1024 * 1024), tc, tb / (1024 * 1024), cold, coldb / (1024 * 1024),
+		cell.x, cell.y, st.chunks, mc, mb / (1024 * 1024), tc, tb / (1024 * 1024), cold, coldb / (1024 * 1024),
 		tcold, tcoldb / (1024 * 1024), lor, lob, proc_rss_mb(),
 	)
 	// Frame-time profile (avg ms over the window) — the phase whose avg climbs is the
@@ -278,7 +280,8 @@ frame_overlay :: proc(g: ^Game) {
 		_ = slog.persist_run(g.logging)
 	}
 	st := g.fr.st
-	tools.stream_panel(st.gx, st.gy, st.chunks, st.inflight, st.reqs, st.ready)
+	cell := world.grid_of(g.snap.player.to)
+	tools.stream_panel(cell.x, cell.y, st.chunks, st.inflight, st.reqs, st.ready)
 	if g.interiors_on {
 		is := world.interiors_stats(&g.interiors, g.cam.pos)
 		act := tools.interiors_panel(
@@ -542,7 +545,7 @@ quickload :: proc(g: ^Game) {
 frame_stream :: proc(g: ^Game) {
 	t_stream := time.tick_now()
 	if !g.fr.in_interior {
-		world.stream_update(&g.streamer, g.cam.pos)
+		world.stream_update(&g.streamer)
 		world.update_terrain_field(&g.scene, g.cam.pos) // re-select CDLOD terrain LOD on move
 		if g.interiors_on {
 			// Open interiors (EXPERIMENTAL): keep the nearest in-range portal's interior

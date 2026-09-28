@@ -811,7 +811,7 @@ Door_Hit :: struct {
 Traversal :: struct {
 	mode:        Traversal_Mode,
 	ext_scene:   ^world.Scene, // streamed exterior (borrowed; never destroyed here)
-	// (hole traversal-stream-control :tags (threading world) :sev gap :needs (stream-requests)) traversal holds the streamer and scenes and calls stream_pause, collapse, retarget and begin_load, and reads chunk LODs in resident(). Wanted: the sim sends a stream request and gets a 'bubble ready' reply.
+	// (hole traversal-stream-control :tags (threading world) :sev gap :needs (stream-requests)) traversal holds the streamer and both scenes: it retargets the streamer, points the sim's space at a new worldspace and loads interiors on main with get_model. Wanted: the sim sends a stream request and gets a 'bubble ready' reply.
 	st:          ^world.Streamer, // exterior streamer (borrowed)
 	db:          ^gamedb.DB,
 	v:           ^vfs.VFS,
@@ -884,9 +884,7 @@ traversal_set_progress :: proc(t: ^Traversal, cb: world.Cell_Load_Progress, user
 }
 
 traversal_destroy :: proc(t: ^Traversal) {
-	if t.mode == .Interior {
-		world.scene_destroy(&t.interior) // removes the interior's bodies from int_phys first
-	}
+	drop_interior(t) // the interior's bodies leave int_phys before it goes
 	world.space_destroy(&t.int_space)
 	if t.int_phys_ok {
 		physics.world_destroy(&t.int_phys)
@@ -1048,39 +1046,24 @@ traversal_go_to :: proc(t: ^Traversal, cell: Form_ID, feet: smath.Vec3) -> Trave
 		enter_interior(t, c.form_id) // blocks + shows the load screen via t.progress
 		return .Interior
 	case c.world_form_id != t.st.world_fid:
-		retarget_exterior(t, c.world_form_id, feet)
+		retarget_exterior(t, c.world_form_id)
 		return .City
-	case t.mode == .Exterior && !resident(t, feet):
-		world.stream_begin_load(t.st, feet)
+	case t.mode == .Exterior && !world.window_ready(t.ext_scene.space, t.db, feet):
 		return .Jump
 	}
-	exit_to_exterior(t, feet) // same-worldspace exterior (interior return / wilderness door)
+	exit_to_exterior(t) // same-worldspace exterior (interior return / wilderness door)
 	return .Exit
 }
 
-// resident reports whether the exterior grid cell under `pos` is built at full detail.
-@(private = "file")
-resident :: proc(t: ^Traversal, pos: smath.Vec3) -> bool {
-	chunk, ok := t.ext_scene.chunks[gamedb.cell_under(t.db, t.st.world_fid, pos)]
-	return ok && chunk.lod == 0
-}
-
-// enter_interior swaps to a freshly-loaded interior cell. The exterior streamer is paused
-// (and its window collapsed to a small fixed footprint) the first time we leave it, so the
-// immediate surroundings stay warm for an instant return while the far LOD/terrain rings —
-// the costly resident set — are freed. The new cell's own doors are indexed for proximity.
+// enter_interior swaps to a freshly-loaded interior cell. The exterior's live cells stay as they are
+// (the sim moves its window only outside), so a return is instant. The new cell's own doors are
+// indexed for proximity.
 @(private = "file")
 enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
-	if t.mode == .Interior {
-		world.scene_destroy(&t.interior) // interior → interior swap
-	} else {
-		world.stream_pause(t.st, true)
-		world.stream_collapse(t.st, t.st.full_radius) // keep only the inner full-detail window
-	}
+	drop_interior(t) // interior → interior swap
 	t.interior = world.scene_init(t.r, t.v, t.ext_scene.collisions)
 	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
 	if t.int_phys_ok {t.interior.space = &t.int_space} // the interior's bhk* collision builds into the reusable world
-	t.interior.loaded_cells = t.ext_scene.loaded_cells // outlives this scene: an undrained cell is not lost
 	world.load_cell(&t.interior, t.db, cell_id, t.progress, t.progress_user) // reports decode progress to the load screen
 	// Build all of the interior's static collision NOW (load_cell resolved every model
 	// synchronously, so sync_physics can cook them immediately): the player lands on a solid
@@ -1102,6 +1085,15 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	}
 }
 
+// drop_interior frees the loaded interior, if one is: its scene and its live cells.
+@(private = "file")
+drop_interior :: proc(t: ^Traversal) {
+	if t.mode != .Interior {return}
+	world.scene_destroy(&t.interior)
+	world.space_clear(&t.int_space)
+	t.interior = {}
+}
+
 // traversal_reload rebuilds the current interior cell in place (an interior→interior swap to the
 // SAME cell) so a just-loaded overlay (F9 quickload) is re-applied: moved clutter snaps to the
 // loaded save's positions and its dynamic bodies rebuild there. No-op outside an interior.
@@ -1111,38 +1103,26 @@ traversal_reload :: proc(t: ^Traversal) {
 	}
 }
 
-// exit_to_exterior tears down the interior and resumes the exterior streamer, re-windowing
-// at the arrival cell (the kept inner window pops in instantly; the outer rings re-stream
-// progressively via build-before-release, no hitch).
+// exit_to_exterior tears down the interior. The sim's next tick moves its window to the arrival cell.
 @(private = "file")
-exit_to_exterior :: proc(t: ^Traversal, pos: smath.Vec3) {
-	if t.mode == .Interior {
-		world.scene_destroy(&t.interior)
-		t.interior = {}
-	}
-	world.stream_pause(t.st, false)
-	world.stream_update(t.st, pos)
+exit_to_exterior :: proc(t: ^Traversal) {
+	drop_interior(t)
 	t.mode = .Exterior
 }
 
-// retarget_exterior crosses to a DIFFERENT exterior worldspace (a city gate). Unlike an
-// interior visit, there's no "keep the old world warm" — this is a full swap (like Skyrim's
-// city load screen): the streamer drops the old worldspace's chunks and re-windows the new
-// one, and the per-worldspace far-terrain backdrop + door index are rebuilt. Models stay
-// cached (shared meshes carry over). pos is the arrival spot in the new world's coords.
+// retarget_exterior crosses to a DIFFERENT exterior worldspace (a city gate): a full swap, like
+// Skyrim's city load screen. The sim retires every live cell of the old worldspace, and the
+// per-worldspace far-terrain backdrop + door index are rebuilt. Models stay cached (shared meshes
+// carry over). The load screen then fills the arrival bubble.
 @(private = "file")
-retarget_exterior :: proc(t: ^Traversal, world_fid: Form_ID, pos: smath.Vec3) {
-	if t.mode == .Interior {
-		world.scene_destroy(&t.interior)
-		t.interior = {}
-	}
+retarget_exterior :: proc(t: ^Traversal, world_fid: Form_ID) {
+	drop_interior(t)
+	sp := t.ext_scene.space
+	world.set_world(sp, t.db, world_fid, sp.window.radius)
 	world.stream_retarget(t.st, world_fid)
 	world.release_terrain_field(t.ext_scene)
 	world.build_terrain_field(t.ext_scene, t.db, world_fid)
 	rebuild_ext_doors(t)
-	// Arm a full-bore load of the new worldspace's arrival bubble (not a budgeted stream_update), so the
-	// caller can drive a load screen over it — like Skyrim's city load — instead of streaming in visibly.
-	world.stream_begin_load(t.st, pos)
 	t.mode = .Exterior
 	log.infof("traversal: crossed to worldspace 0x%08X (%s)", world_fid, gamedb.world_editor_id(t.db, world_fid))
 }

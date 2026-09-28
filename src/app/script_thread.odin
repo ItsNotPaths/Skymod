@@ -10,6 +10,7 @@ import "core:thread"
 import "core:time"
 
 import slua "../script/lua"
+import "../world"
 import "../worldstate"
 
 Script_Thread :: struct {
@@ -54,12 +55,14 @@ script_start :: proc(g: ^Game) {
 
 	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
-	st.loaded, g.loaded_cells = g.loaded_cells, st.loaded
-	clear(&g.loaded_cells)
+	clear(&st.loaded)
+	for sp in ([]^world.Space{&g.sim.ext, &g.trav.int_space}) {
+		append(&st.loaded, ..sp.loaded[:])
+		clear(&sp.loaded)
+	}
 	clear(&st.attached)
-	// (hole loaded-cells-handoff) the attached cells come from the active scene's render chunks; the sim must take them from its own live set.
-	for cid, &c in g.fr.active_scene.chunks {
-		if c.lod == 0 {append(&st.attached, cid)}
+	if sp := active_space(g); sp != nil {
+		for cell in sp.cells {append(&st.attached, cell)}
 	}
 
 	st.running = true

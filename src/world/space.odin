@@ -20,18 +20,24 @@ Space :: struct {
 	resident:        map[Form_ID]Resident_Ref, // ref -> where it sits in `cells`; a self-healing cache
 	persistent:      map[[2]i32][dynamic]gamedb.Ref, // the worldspace's persistent refs by grid cell (index_persistent)
 	changes:         [dynamic]Ref_Event, // what the sim changed in live cells, for main to draw
+	loaded:          [dynamic]Form_ID, // cells made live since the script phase last took them
+	window:          Window, // which grid cells are live around the player (window.odin)
 }
 
 // Ref_Event is a change the sim made to a live cell, for main to apply to its render chunk.
 Ref_Event :: union {
 	Ref_Placed,
 	Ref_Removed,
+	Cell_Added,
 	Cell_Rebuilt,
+	Cell_Removed,
 }
 
 Ref_Placed :: struct {cell: Form_ID, ref: Ref_Placement} // moved, scaled, disabled, re-enabled or spawned
 Ref_Removed :: struct {form: Form_ID}
+Cell_Added :: struct {cell: Form_ID, refs: []Ref_Placement} // owned by the event
 Cell_Rebuilt :: struct {cell: Form_ID, refs: []Ref_Placement} // owned by the event
+Cell_Removed :: struct {cell: Form_ID}
 
 // Ref_Placement is a ref as render needs it: where it stands and whether it shows.
 Ref_Placement :: struct {
@@ -51,7 +57,10 @@ placement_of :: proc(r: Sim_Ref) -> Ref_Placement {
 }
 
 ref_event_destroy :: proc(e: Ref_Event) {
-	if v, ok := e.(Cell_Rebuilt); ok {delete(v.refs)}
+	#partial switch v in e {
+	case Cell_Added:   delete(v.refs)
+	case Cell_Rebuilt: delete(v.refs)
+	}
 }
 
 // Sim_Cell is one live cell: its refs, its actors and the bodies built for them (the terrain body too).
@@ -96,19 +105,25 @@ space_init :: proc(sp: ^Space, phys: ^physics.World, collisions: ^assetdb.Collis
 }
 
 space_destroy :: proc(sp: ^Space) {
-	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
-	for cell in sp.cells {append(&cells, cell)}
-	for cell in cells {remove_cell(sp, cell)}
+	space_clear(sp)
 	delete(sp.cells)
 	delete(sp.resident)
 	free_persistent(sp)
 	delete(sp.persistent)
 	for e in sp.changes {ref_event_destroy(e)}
 	delete(sp.changes)
+	delete(sp.loaded)
+	delete(sp.window.pending)
 	sp^ = {}
 }
 
-// (hole cell-handoff) the streamer decides which cells the sim builds, from main's camera; the sim must pick its own live cells.
+// space_clear retires every live cell.
+space_clear :: proc(sp: ^Space) {
+	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
+	for cell in sp.cells {append(&cells, cell)}
+	for cell in cells {remove_cell(sp, cell)}
+}
+
 // add_cell makes a cell live in the sim: its refs and actors built from gamedb and the overlay, and
 // its terrain body. Object bodies follow in sync_physics.
 add_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> ^Sim_Cell {
@@ -118,7 +133,15 @@ add_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> ^Sim_Cell {
 	sp.cells[cell] = c
 	live := &sp.cells[cell]
 	index_refs(sp, live)
+	append(&sp.loaded, cell)
 	return live
+}
+
+// placements is a live cell's refs as render draws them, owned by the caller.
+placements :: proc(c: ^Sim_Cell) -> []Ref_Placement {
+	refs := make([]Ref_Placement, len(c.refs))
+	for r, i in c.refs {refs[i] = placement_of(r)}
+	return refs
 }
 
 // remove_cell retires a live cell: its bodies and constraints come out of the physics world.
@@ -146,9 +169,7 @@ rebuild_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> (^Sim_Cell, b
 	c.refs, c.actors = fresh.refs, fresh.actors
 	index_refs(sp, c)
 	c.phys_done = false
-	refs := make([]Ref_Placement, len(c.refs))
-	for r, i in c.refs {refs[i] = placement_of(r)}
-	append(&sp.changes, Cell_Rebuilt{cell, refs})
+	append(&sp.changes, Cell_Rebuilt{cell, placements(c)})
 	return c, true
 }
 

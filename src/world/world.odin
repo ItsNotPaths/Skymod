@@ -279,10 +279,6 @@ Scene :: struct {
 	// find_resident validates each hit against the chunk map and falls back to a scan on a stale/missing
 	// entry, so correctness never depends on perfect upkeep at the (duplicated) chunk load/unload sites.
 	resident: map[Form_ID]Resident_Ref,
-	// Borrowed list the scene appends each cell to when it becomes resident at full detail, so the
-	// app can give its refs their scripts (world never touches the script VM). Owned outside every
-	// scene, so a scene destroyed before the app drains it loses nothing. nil = nobody listens.
-	loaded_cells: ^[dynamic]Form_ID,
 }
 
 // Resident_Ref locates a resident instance: its owning cell + index into that chunk's `instances`.
@@ -387,13 +383,10 @@ scene_destroy :: proc(s: ^Scene) {
 	s^ = {}
 }
 
-// release_chunk_assets frees everything a chunk owns — terrain/grass/object buffers, water,
-// collision bodies+constraints, the on-demand hitbox wireframe, the instance array — as THE
-// one chunk-unload path (rewindow / collapse / retarget / LOD swap / scene teardown all used
-// to repeat this block; D1's eviction refcount-release hooks in here once). Also fixes a
-// long-standing leak: the hitbox debug_mesh was only ever freed by clear_collision_debug,
-// never on chunk unload. `deindex` drops the chunk's refs from the resident index — pass
-// false when the whole map is cleared right after (retarget / scene_destroy).
+// release_chunk_assets frees everything a chunk draws with: its model refs, terrain, grass, object
+// and water buffers, the hitbox wireframe and the instance array. The sim's cell is the sim's to
+// retire. `deindex` drops the chunk's refs from the resident index — pass false when the whole map
+// is cleared right after (scene_destroy).
 release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	// D1 eviction: drop this chunk's model refs (instances + grass batches). Symmetric with
 	// acquire_chunk_assets — every path that built the chunk acquired these, so releasing over the
@@ -409,7 +402,6 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	release_terrain(s, chunk)
 	release_grass(s, chunk)
 	release_objects(s, chunk)
-	if s.space != nil {remove_cell(s.space, chunk.cell_form_id)}
 	release_water(s, chunk)
 	if chunk.has_debug {
 		render.release_mesh(s.cache.r, chunk.debug_mesh)
@@ -449,20 +441,20 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	return chunk
 }
 
-// populate fills a render chunk with a sim cell's refs as drawable instances, and grows its bounds.
-populate :: proc(chunk: ^Chunk, c: ^Sim_Cell) {
+// populate fills a render chunk with a cell's placements as drawable instances, and grows its bounds.
+populate :: proc(chunk: ^Chunk, refs: []Ref_Placement) {
 	m := smath.Vec3{CHUNK_MARGIN, CHUNK_MARGIN, CHUNK_MARGIN}
 	lo, hi := chunk.lo, chunk.hi
 	if len(chunk.instances) == 0 {
 		lo = {max(f32), max(f32), max(f32)}
 		hi = {min(f32), min(f32), min(f32)}
 	}
-	for r in c.refs {
-		append(&chunk.instances, instance_of(placement_of(r)))
+	for r in refs {
+		append(&chunk.instances, instance_of(r))
 		lo = {min(lo.x, r.pos.x - m.x), min(lo.y, r.pos.y - m.y), min(lo.z, r.pos.z - m.z)}
 		hi = {max(hi.x, r.pos.x + m.x), max(hi.y, r.pos.y + m.y), max(hi.z, r.pos.z + m.z)}
 	}
-	if len(c.refs) > 0 {chunk.lo, chunk.hi = lo, hi}
+	if len(refs) > 0 {chunk.lo, chunk.hi = lo, hi}
 }
 
 // instance_of is a sim ref as render draws it.
@@ -496,7 +488,9 @@ Cell_Load_Progress :: #type proc "odin" (user: rawptr, frac: f32)
 // progress instead of a blocking freeze.
 load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Cell_Load_Progress = nil, user: rawptr = nil) -> int {
 	chunk := chunk_meta(db, cell_form_id)
-	populate(&chunk, add_cell(s.space, db, cell_form_id)) // the sim's cell (refs, actors, terrain body), drawn as placed
+	refs := placements(add_cell(s.space, db, cell_form_id)) // the sim's cell (refs, actors, terrain body), drawn as placed
+	populate(&chunk, refs)
+	delete(refs)
 	ninst := len(chunk.instances)
 	for &inst, i in chunk.instances {
 		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
@@ -515,15 +509,7 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
-	note_loaded(s, cell_form_id)
 	return n
-}
-
-// (hole loaded-cells-handoff :tags (threading world script) :sev gap :needs (cell-handoff)) the streamer appends g.loaded_cells on main and script_start swaps it; the sim must take loaded cells from its own live set.
-// note_loaded tells whoever listens that a cell is now resident at full detail.
-@(private)
-note_loaded :: proc(s: ^Scene, cell: Form_ID) {
-	if s.loaded_cells != nil {append(s.loaded_cells, cell)}
 }
 
 @(private)

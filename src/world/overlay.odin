@@ -203,6 +203,7 @@ apply_ref_event :: proc(s: ^Scene, e: Ref_Event) {
 		clear(&chunk.instances)
 		for p in v.refs {add_instance(s, chunk, instance_of(p))}
 		for path in old {assetdb.model_release(&s.cache, path)}
+	case Cell_Added, Cell_Removed: // the streamer's (stream_apply)
 	}
 }
 

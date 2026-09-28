@@ -227,7 +227,6 @@ Game :: struct {
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	events:      Queue(Sim_Event), // what the sim told main since main last looked
-	event_buf:   [dynamic]Sim_Event, // main's drained copy
 	console_in:  Queue(string), // console lines for the sim to evaluate (heap copies)
 	console_in_buf:  [dynamic]string,
 	console_out: Queue(string), // their output, back to main (heap copies)
@@ -250,7 +249,6 @@ Game :: struct {
 	// scripting + dev console + inspector
 	sreg:         script.Registry,
 	repl_ok:      bool,
-	loaded_cells: [dynamic]Form_ID, // cells resident since the last tick; every scene appends here
 	scripts:      Script_Thread,
 	console:      tools.Console,
 	insp:         tools.Inspector,
@@ -433,13 +431,9 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		log.info("--pretty: hiding untextured marker placeholders (toggle in Stats)")
 	}
 
-	// LOD distances (cell radii): full-detail bubble (near terrain + grass + full objects), and how
-	// far Skyrim's prebaked object-LOD meshes reach. Terrain itself is whole-world CDLOD (no knob).
+	// The full-detail bubble in cell radii: the sim's live cells (near terrain + grass + full objects).
+	// Terrain itself is whole-world CDLOD (no knob).
 	g.full_radius = settings.get_int(g.cfg, "render_distance", 2)
-	obj_radius := settings.get_int(g.cfg, "object_lod_distance", 24)
-	// Tree billboards are the cheap far-far tier — their own reach (cells), defaulting to the object
-	// reach so an unset value never shrinks trees below the statics. Set it higher to fill the horizon.
-	tree_radius := settings.get_int(g.cfg, "tree_lod_distance", obj_radius)
 
 	// Optional LOD falloff tuning (commented out in settings.txt by default — compiled defaults
 	// here). terrain_lod_falloff = the quadtree coarsening factor (lower = finer distant terrain);
@@ -515,20 +509,18 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// World-state overlay (Phase 3c): the mutable delta layer between immutable gamedb and the
 	// transient scene. Moved clutter settles write here; cell loads patch from it (baseline ⊕
 	// overlay). Lives for the whole session — outlives every cell stream AND traversal (which
-	// borrows, never owns it). Before the spawn bubble builds, so its cells get the overlay and
-	// reach loaded_cells.
+	// borrows, never owns it). Before the spawn bubble builds, so its cells get the overlay.
 	worldstate.init(&g.sim.ws)
 	g.up.ws = true
-	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 
 	g.cam = Camera{yaw = 2.3, pitch = -0.3}
 	if wfid, found := gamedb.find_world(&g.db, "Tamriel"); found {
 		world.build_terrain_field(&g.scene, &g.db, wfid) // CDLOD whole-world height-texture terrain (backdrop tier)
-		world.stream_init(&g.streamer, &g.scene, &g.db, wfid, g.full_radius, obj_radius, tree_radius, loader_alloc, decode_threads)
+		world.stream_init(&g.streamer, &g.scene, &g.db, wfid, loader_alloc, decode_threads)
+		world.set_world(&g.sim.ext, &g.db, wfid, g.full_radius)
 		if pos, sok := stream_spawn(&g.db, wfid, RIVERWOOD_GX, RIVERWOOD_GY); sok {
 			g.cam.pos = pos
 		}
-		world.stream_begin_load(&g.streamer, g.cam.pos) // arm full-load: build the spawn bubble up front
 		if open_interiors {
 			world.interiors_init(&g.interiors, &g.scene, &g.db, &g.streamer, wfid, interior_dist)
 			g.interiors_on = true
@@ -654,12 +646,10 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.command_buf)
 	for e in g.events.items {event_destroy(e)}
 	queue_destroy(&g.events)
-	delete(g.event_buf)
 	strings_queue_destroy(&g.console_in, &g.console_in_buf)
 	strings_queue_destroy(&g.console_out, &g.console_out_buf)
 	for s in ([]^Snapshot{&g.snaps.slot, &g.sim.snap_back, &g.snap}) {snapshot_destroy(s)}
 	if g.repl_ok {slua.repl_destroy(&g.sim.repl)}
-	delete(g.loaded_cells)
 	slua.transitions_destroy(&g.sim.trans)
 	if g.up.sreg {script.destroy(&g.sreg)}
 	if g.sim.char_ok {physics.character_destroy(&g.sim.character)} // may be homed in an interior world — before traversal

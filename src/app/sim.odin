@@ -116,6 +116,15 @@ drain :: proc(q: ^Queue($T), into: ^[dynamic]T) {
 	q.items, into^ = into^, q.items
 }
 
+// take_first pops the oldest item.
+take_first :: proc(q: ^Queue($T)) -> (item: T, ok: bool) {
+	sync.guard(&q.mu)
+	if len(q.items) == 0 {return}
+	item = q.items[0]
+	ordered_remove(&q.items, 0)
+	return item, true
+}
+
 queue_destroy :: proc(q: ^Queue($T)) {
 	delete(q.items)
 }
@@ -303,17 +312,20 @@ forward_ref_events :: proc(g: ^Game) {
 	forward(g, &g.trav.int_space, false)
 }
 
-// handle_events runs what the sim told main since the last call.
+// handle_events runs what the sim told main, oldest first. A handler may run it again (a door's load
+// screen), and the inner run carries on in order.
 handle_events :: proc(g: ^Game) {
-	drain(&g.events, &g.event_buf)
-	placed: bit_set[0 ..< 2] // the scenes ref events changed: 1 the exterior, 0 the interior
-	for e in g.event_buf {
+	placed: bit_set[0 ..< 2] // the scenes that got placed refs: 1 the exterior, 0 the interior
+	for e in take_first(&g.events) {
 		defer event_destroy(e)
 		switch v in e {
 		case Evt_Ref:
-			if s := ref_scene(g, v.ext); s != nil {
-				world.apply_ref_event(s, v.e)
-				placed += {int(v.ext)}
+			s := ref_scene(g, v.ext)
+			if s == nil {break}
+			world.apply_ref_event(s, v.e)
+			if v.ext {world.stream_apply(&g.streamer, v.e)}
+			#partial switch _ in v.e {
+			case world.Ref_Placed, world.Cell_Rebuilt: placed += {int(v.ext)}
 			}
 		case Evt_Open_Container: open_container(g, v.container)
 		case Evt_Door:
@@ -326,7 +338,9 @@ handle_events :: proc(g: ^Game) {
 			sim_resume(g)
 		}
 	}
-	for i in placed {world.resolve_created_models(ref_scene(g, i == 1))}
+	for i in placed {
+		if s := ref_scene(g, i == 1); s != nil {world.resolve_created_models(s)}
+	}
 }
 
 // ref_scene is the render scene a space's ref events apply to; nil for the interior when the player
