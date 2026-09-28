@@ -234,7 +234,7 @@ say_line :: proc(vm: ^VM, speaker, info: script.Form_ID, response: int) -> f32 {
 	if response >= len(lines) {return 0}
 	if vm.ctx.audio != nil {
 		c := vm.ctx
-		// (hole lip-sync-voice-map :tags (threading animation audio) :sev gap :needs (lip-converter)) main has no speaker-to-voice map, so face curves cannot follow a playing line. Wanted: audio keeps each speaker's playing line (it has a.speaking) and reports its playback time, which the face sampler reads.
+		// (hole lip-sync-voice-map :tags (threading animation audio unclaimed) :sev gap :needs (lip-converter)) main has no speaker-to-voice map, so face curves cannot follow a playing line. Wanted: audio keeps each speaker's playing line (it has a.speaking) and reports its playback time, which the face sampler reads.
 		if h, secs := audio.say(c.audio, c.vfs, c.db, c.ws, speaker, info, lines[response].number, placed = true); h != 0 {return secs}
 	}
 	return dialogue.line_seconds(lines[response].text)

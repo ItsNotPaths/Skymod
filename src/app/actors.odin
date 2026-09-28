@@ -27,7 +27,7 @@ import "../worldstate"
 // (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
 // (hole actor-ragdoll :tags (combat physics) :sev gap :needs (animation actor-states combat-damage)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
-// (hole anim-state-snapshot :tags (threading animation) :sev gap) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
+// (hole anim-state-snapshot :tags (threading animation unclaimed) :sev gap) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
 // move teleports it and a fall does not.
 Actor_Body :: struct {
@@ -110,7 +110,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 				}
 				continue
 			}
-			// (hole root-motion-velocity :tags (animation ai physics) :sev gap :needs (animation)) actor movement is only the AI velocity. Wanted: a set point where the clip's root motion replaces or scales vel before character_move.
+			// (hole root-motion-velocity :tags (animation ai physics unclaimed) :sev gap :needs (animation)) actor movement is only the AI velocity. Wanted: a set point where the clip's root motion replaces or scales vel before character_move.
 			physics.character_move(phys, &b.char, vel, jump, TICK_DT)
 			if vel != {} || !physics.character_on_ground(&b.char) {actor_publish(g, form, &b, vel, face)}
 		} else {

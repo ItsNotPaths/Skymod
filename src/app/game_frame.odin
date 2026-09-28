@@ -878,7 +878,7 @@ frame_render :: proc(g: ^Game) {
 	interior_active := g.interiors_on && g.interiors.active
 
 	t_render := time.tick_now()
-	// (hole render-inputs-snapshot :tags (threading render) :sev gap :needs (weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
+	// (hole render-inputs-snapshot :tags (threading render unclaimed) :sev gap :needs (weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
 	env := lighting_env(&g.lights.active, g.cam.pos)
 	shadows_on := g.shadow_dist > 0 && g.lights.active.shadow_strength > 0 && !in_interior
 	cascades: Cascades

@@ -168,7 +168,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		harvest(g, form, base, by)
 	case .Container:
 		if by == g.sim.ws.player {send_parked(g, Evt_Open_Container{form})}
-	// (hole mount-attach :tags (threading animation player) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
+	// (hole mount-attach :tags (threading animation player unclaimed) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != g.sim.ws.player {break}

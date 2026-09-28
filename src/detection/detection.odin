@@ -73,7 +73,7 @@ speed :: proc(s: ^State, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: For
 	return ok ? smath.length3(worldstate.ref_pos(ws, db, actor) - was) / dt : 0
 }
 
-// (hole noise-events :tags (ai audio) :sev gap) nothing is heard: every target is silent to every viewer.
+// (hole noise-events :tags (ai audio unclaimed) :sev gap) nothing is heard: every target is silent to every viewer.
 @(private = "file")
 heard :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> f32 {
 	return 0

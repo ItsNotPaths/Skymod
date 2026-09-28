@@ -7,7 +7,7 @@ import "../formid"
 import "../formula"
 import "../gamedb"
 
-// (hole effect-state-snapshot :tags (threading vfx magic) :sev gap :needs (vfx-events)) lasting visuals (hit shaders, enchant glow, an image space modifier in force) exist only as sim state. Wanted: they are published as state (handle, ref, art, start tick), so a load or a dropped frame cannot leave one stuck on or lost.
+// (hole effect-state-snapshot :tags (threading vfx magic unclaimed) :sev gap :needs (vfx-events)) lasting visuals (hit shaders, enchant glow, an image space modifier in force) exist only as sim state. Wanted: they are published as state (handle, ref, art, start tick), so a load or a dropped frame cannot leave one stuck on or lost.
 // Active_Effect is one scripted magic effect on a target (docs/script-api.md section 3). Its script
 // instance keys on the effect handle, and its class's __effect terms change the target's actor
 // values. The instance lingers after the effect ends while its state still ticks.

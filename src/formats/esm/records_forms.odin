@@ -9,7 +9,7 @@ package esm
 // Records the base game ships that nothing here decodes into their content.
 //
 // (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
-// (hole weather-select :tags records :sev gap) REGN and CLMT are never decoded — WTHR is read but nothing selects a weather, so there is no regional climate.
+// (hole weather-select :tags (records world unclaimed) :sev gap) no weather system: REGN and CLMT are never decoded, and nothing picks, times or blends a weather (WTHR is read), so there is no regional climate.
 
 // --- keywords -------------------------------------------------------------------------
 
