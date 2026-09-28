@@ -650,6 +650,7 @@ index_alias_targets :: proc(db: ^DB) {
 			append(&db.ref_types[s.ref], s.ref_type)
 		}
 	}
+	index_search(db)
 	db.linked_children = make(map[Form_ID][dynamic]Form_ID, 1024, db.allocator)
 	for ref, links in db.linked_refs {
 		for l in links {
@@ -799,6 +800,41 @@ editor_location :: proc(db: ^DB, ref: Form_ID) -> Form_ID {
 	r, ok := db.ref_by_id[ref]
 	if !ok {return 0}
 	return cell_location(db, grid_cell(db, r.cell_form_id, r.pos))
+}
+
+// index_search indexes the refs a world alias search tests (the persistent refs, and each unique
+// actor placed elsewhere) by location ref type and by base; refs of a leveled base go apart.
+index_search :: proc(db: ^DB) {
+	db.search_by_type = make(map[Form_ID][dynamic]Form_ID, 1024, db.allocator)
+	db.search_by_base = make(map[Form_ID][dynamic]Form_ID, 8192, db.allocator)
+	db.search_leveled = make([dynamic]Form_ID, db.allocator)
+	add :: proc(db: ^DB, m: ^map[Form_ID][dynamic]Form_ID, key, ref: Form_ID) {
+		if key not_in m {m[key] = make([dynamic]Form_ID, db.allocator)}
+		append(&m[key], ref)
+	}
+	search :: proc(db: ^DB, ref: Form_ID) {
+		r, _ := ref_by_formid(db, ref)
+		if leveled_template(db, r.base) != 0 {
+			append(&db.search_leveled, ref)
+		} else {
+			add(db, &db.search_by_base, r.base, ref)
+		}
+		if types, ok := db.ref_types[ref]; ok {
+			for t in types {add(db, &db.search_by_type, t, ref)}
+		}
+	}
+	for ref in db.persistent_refs {search(db, ref)}
+	for _, ref in db.unique_refs {
+		if r, _ := ref_by_formid(db, ref); !r.persistent {search(db, ref)}
+	}
+}
+
+search_index_destroy :: proc(db: ^DB) {
+	for _, refs in db.search_by_type {delete(refs)}
+	delete(db.search_by_type)
+	for _, refs in db.search_by_base {delete(refs)}
+	delete(db.search_by_base)
+	delete(db.search_leveled)
 }
 
 // has_ref_type: the ref is a special ref of that location ref type in some location.

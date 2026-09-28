@@ -114,6 +114,8 @@ candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID
 			append(&out, ..worldstate.created_in(c.ws, cell))
 		}
 	case:
+		if refs, ok := indexed(c, a); ok {return refs}
+		// (hole alias-faction-candidates :tags quest :sev gap) with no HasRefType or GetIsID to narrow it, this search tests every persistent ref, unique actor and created ref: ~25 ms per fill, a hitch each time a quest like BQ01 tries to start. Wanted: the same narrowing for a must-pass GetInFaction (212 aliases) and HasKeyword (391), following runtime AddToFaction, AddKeyword and alias factions and keywords.
 		append(&out, ..c.db.persistent_refs)
 		for _, ref in c.db.unique_refs {
 			if r, _ := gamedb.ref_by_formid(c.db, ref); !r.persistent {append(&out, ref)}
@@ -121,6 +123,47 @@ candidates :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> []Form_ID
 		for ref in c.ws.created {append(&out, ref)}
 	}
 	return out[:]
+}
+
+// indexed is the part of the world search that can pass the alias's first must-pass HasRefType or
+// GetIsID. The conditions still run on each ref, so the fill is the full search's, only cheaper.
+@(private = "file")
+indexed :: proc(c: ^Call, a: gamedb.Quest_Alias) -> ([]Form_ID, bool) {
+	GET_IS_ID :: 72
+	HAS_REF_TYPE :: 561
+	for cond, i in a.conditions {
+		if !must_pass(a.conditions, i) {continue}
+		f := gamedb.condition_param1_form(cond)
+		out := make([dynamic]Form_ID, context.temp_allocator)
+		switch cond.function {
+		case HAS_REF_TYPE:
+			if refs, ok := c.db.search_by_type[f]; ok {append(&out, ..refs[:])}
+		case GET_IS_ID:
+			if refs, ok := c.db.search_by_base[f]; ok {append(&out, ..refs[:])}
+			append(&out, ..c.db.search_leveled[:])
+			for ref in c.ws.created {append(&out, ref)}
+		case:
+			continue
+		}
+		return out[:], true
+	}
+	return nil, false
+}
+
+// must_pass: condition i is ANDed with the whole list (no OR on it or on the one before), runs on
+// the candidate as written, and holds only when its function answers true.
+@(private = "file")
+must_pass :: proc(conds: []gamedb.Condition, i: int) -> bool {
+	c := conds[i]
+	if .Or in c.flags || (i > 0 && .Or in conds[i - 1].flags) {return false}
+	if c.run_on != .Subject || c.flags & {.Swap, .Use_Global} != {} {return false}
+	#partial switch c.op {
+	case .Equal, .GreaterOrEqual:
+		return c.value == 1
+	case .NotEqual, .Greater:
+		return c.value == 0
+	}
+	return false
 }
 
 // usable applies the alias's flags: a dead actor, a disabled or deleted ref, a cleared location, a

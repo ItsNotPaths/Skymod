@@ -606,6 +606,8 @@ test_alias_fills :: proc(t: ^testing.T) {
 	db.ref_by_id[B] = {form_id = B, base = BANDIT, persistent = true}
 	db.ref_by_id[C] = {form_id = C, base = OTHER, persistent = true}
 	db.persistent_refs = {A, B, C}
+	gamedb.index_search(&db)
+	defer gamedb.search_index_destroy(&db)
 	db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline)
 	defer delete(db.quest_baseline)
 	ws: worldstate.World_State

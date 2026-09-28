@@ -295,6 +295,11 @@ DB :: struct {
 	alias_targets:  map[Form_ID]bool,    // refs a Specific or Unique_Actor alias fill can hold
 	persistent_refs: []Form_ID,          // every persistent placed ref, in form order: a world alias search (owned)
 	ref_types:      map[Form_ID][dynamic]Form_ID, // ref -> its location ref types, from the locations' special refs
+	// A world alias search's refs (persistent refs, unique actors) by what a Matching fill's condition
+	// can name (index_search).
+	search_by_type: map[Form_ID][dynamic]Form_ID, // location ref type -> its refs
+	search_by_base: map[Form_ID][dynamic]Form_ID, // base -> the refs placed from it, leveled ones aside
+	search_leveled: [dynamic]Form_ID, // refs of a leveled actor base: GetIsID answers with their roll
 	linked_children: map[Form_ID][dynamic]Form_ID, // ref -> the refs whose default link is it (Near Alias)
 	load_tips:     [dynamic]string, // LSCR DESC loading-tip text (owned; the load screen rotates through these)
 	ref_index:     map[Form_ID]Ref_Loc, // build-time only: REFR formID -> its slot in cell_refs (override dedup); emptied after build
@@ -1132,6 +1137,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.linked_children)
 	for _, types in db.ref_types {delete(types)}
 	delete(db.ref_types)
+	search_index_destroy(db)
 	free_form_indexes(db) // keywords, linked refs, factions, spells/enchantments/magic effects
 	free_query_indexes(db) // owners, activate parents, ingredients
 	free_packages(db)
