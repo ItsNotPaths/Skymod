@@ -1,5 +1,6 @@
 package main
 
+import "core:log"
 import "../formid"
 import "../gamedb"
 import "../script"
@@ -14,7 +15,11 @@ tick_jail :: proc(g: ^Game) {
 	for o in g.sim.ws.jail_orders {
 		f, _ := worldstate.faction(&g.sim.ws, &g.db, o.faction)
 		inside, outside, ok := worldstate.jail_spots(&g.sim.ws, &g.db, o.faction)
-		if !ok {continue}
+		if !ok {
+			log.warnf("jail: faction 0x%X has no jail spots", o.faction)
+			continue
+		}
+		log.infof("jail: %s 0x%X, faction 0x%X, cell 0x%X", "release" if o.release else "imprison", o.actor, o.faction, outside.cell if o.release else inside.cell)
 		if o.release {release(g, &c, o, f, outside)} else {imprison(g, &c, o, f, inside)}
 	}
 	clear(&g.sim.ws.jail_orders)

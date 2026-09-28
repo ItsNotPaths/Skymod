@@ -1,5 +1,6 @@
 package worldstate
 
+import "core:log"
 import "core:math/rand"
 import "../formats/esm"
 import "../formid"
@@ -462,6 +463,7 @@ jailed_by :: proc(ws: ^World_State, actor, faction: Form_ID) -> bool {
 escape_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
 	j := ws.jailed[actor]
 	delete_key(&ws.jailed, actor)
+	log.infof("jail: 0x%X escaped jail cell 0x%X (now in 0x%X)", actor, j.cell, ref_cell(ws, db, actor))
 	f, _ := faction(ws, db, j.faction)
 	queue_story_event(ws, {type = STORY_ESCAPE_JAIL, location1 = ref_location(ws, db, actor), form = f.crime_group})
 }
@@ -494,7 +496,10 @@ jail_days :: proc(b: Bounty) -> i32 {
 // (hole jail-real-arg :tags combat :sev polish) SendPlayerToJail's abRealJail is read as true: unsourced what a jailing that is not real does.
 send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, crime, guard: Form_ID) -> bool {
 	f, _ := faction(ws, db, crime)
-	if f.jail == 0 || actor in ws.jailed {return false}
+	if f.jail == 0 || actor in ws.jailed {
+		log.warnf("jail: 0x%X not sent to jail by faction 0x%X (jail marker 0x%X, already jailed %v)", actor, crime, f.jail, actor in ws.jailed)
+		return false
+	}
 	append(&ws.jail_orders, Jail_Order{actor = actor, faction = crime, guard = guard})
 	return true
 }
