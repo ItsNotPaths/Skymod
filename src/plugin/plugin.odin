@@ -47,7 +47,8 @@ Plugin :: struct {
 }
 
 Plugins :: struct {
-	list: [dynamic]Plugin, // lowest mod priority first
+	list:   [dynamic]Plugin, // lowest mod priority first
+	owners: map[string]string, // seam -> the path of the plugin that last changed it
 }
 
 // (hole plugin-trust-prompt :tags (plugins ui) :sev gap) native code has full trust, but the only gate is the native_plugins setting: nothing asks the user once for each plugin.
@@ -81,6 +82,7 @@ apply :: proc(p: ^Plugins, name: string, version: u32, table: ^$T) {
 		changed := table^
 		if (Seam_Proc(sym))(version, &changed) {
 			table^ = changed
+			p.owners[name] = pl.path
 			log.infof("plugin: %s changes %s", pl.path, name)
 		} else {
 			log.warnf("plugin: %s refused %s version %d", pl.path, name, version)
@@ -94,4 +96,10 @@ destroy :: proc(p: ^Plugins) {
 		delete(pl.path)
 	}
 	delete(p.list)
+	delete(p.owners)
+}
+
+// owner is the plugin that owns a seam, or "built-in".
+owner :: proc(p: ^Plugins, seam: string) -> string {
+	return p.owners[seam] or_else "built-in"
 }

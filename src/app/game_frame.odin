@@ -26,6 +26,10 @@ import "core:time"
 import "../actorstate"
 import "../ai"
 import "../audio"
+import "../combat"
+import "../condfn"
+import "../conditions"
+import "../detection"
 import "../formid"
 import "../gamedb"
 import "../handoff"
@@ -34,10 +38,12 @@ import smath "../math"
 import "../physics"
 import "../input"
 import "../platform"
+import "../plugin"
 import "../render"
 import slog "../log"
 import slua "../script/lua"
 import "../settings"
+import "../sight"
 import "../sighthost"
 import "../tools"
 import "../world"
@@ -211,6 +217,9 @@ tick_prof_end :: proc(g: ^Game) {
 	p.ticks += 1
 	steps := g.sim.repl.vm.steps if g.repl_ok else {}
 	for ms, s in steps {p.events[s] += f64(ms)}
+	p.sight += sighthost.ms
+	p.conditions += conditions.plugin_ms
+	sighthost.ms, conditions.plugin_ms = 0, 0
 	total: f32
 	for ms, part in cur {
 		p.ms[part] += f64(ms)
@@ -282,6 +291,11 @@ frame_diag :: proc(g: ^Game) {
 		for &ms in tp.events {ms *= inv}
 		log.infof("prof.tick: total=%.2f%s (avg/%d ticks)", total, prof_parts(tp.ms, 0.005), tp.ticks)
 		log.infof("prof.events:%s (avg/%d ticks)", prof_parts(tp.events, 0.005), tp.ticks)
+		log.infof(
+			"prof.seams: detection=%.2f (%s) combat=%.2f (%s) sight=%.2f (%s) conditions=%.2f (%s)",
+			tp.ms[.Detection], plugin.owner(&g.plugins, detection.SEAM), tp.ms[.Combat], plugin.owner(&g.plugins, combat.SEAM),
+			tp.sight * inv, plugin.owner(&g.plugins, sight.SEAM), tp.conditions * inv, plugin.owner(&g.plugins, condfn.SEAM),
+		)
 	}
 	g.prof = {}
 	// Leak probe: bodies/instances should be FLAT when the player stands still. Δ is the

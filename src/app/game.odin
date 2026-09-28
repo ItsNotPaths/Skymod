@@ -148,11 +148,11 @@ PROF_REPORT_TICKS :: 3 * TICK_HZ
 SLOW_TICK_MS :: f32(2000) / TICK_HZ
 
 // Tick_Profile is the sim's time: running totals in ms, and the last ticks one by one.
-// (hole plugin-timing :tags plugins :sev polish) the profile times tick parts, not seam entries: nothing says which plugin costs how many ms.
 Tick_Profile :: struct {
 	ticks:  int,
 	ms:     [Tick_Part]f64,
 	events: [slua.Event_Step]f64, // Script_Events by step
+	sight, conditions: f64, // the sight seam's calls and the condition plugins', inside the parts
 	recent: [TICK_HISTORY]Tick_Sample, // a ring; tick n is at n % TICK_HISTORY
 }
 
@@ -161,6 +161,7 @@ prof_since :: proc(now, then: Tick_Profile) -> (p: Tick_Profile) {
 	p.ticks = now.ticks - then.ticks
 	for &ms, part in p.ms {ms = now.ms[part] - then.ms[part]}
 	for &ms, s in p.events {ms = now.events[s] - then.events[s]}
+	p.sight, p.conditions = now.sight - then.sight, now.conditions - then.conditions
 	return
 }
 

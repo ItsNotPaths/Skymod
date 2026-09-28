@@ -3,6 +3,7 @@ package sighthost
 // The host side of the sight seam (src/sight): the table in force, the player's view and the ray
 // casts; the world is worldhost's. Callers see through here.
 
+import "core:time"
 import "../gamedb"
 import "../physics"
 import "../sight"
@@ -21,29 +22,39 @@ View :: struct {
 
 view: View
 table := sight.BUILTIN // the built-in, or a plugin's
+ms: f64 // time in the table's procs since the profile last took it
 
 level :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, mode: Mode) -> f32 {
 	d := worldhost.Data{context, ws, db}
 	h := host(&d)
+	defer timed(time.tick_now())
 	return table.level(&h, viewer, target, mode)
 }
 
 has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
 	d := worldhost.Data{context, ws, db}
 	h := host(&d)
+	defer timed(time.tick_now())
 	return table.has_los(&h, viewer, target)
 }
 
 range :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID) -> f32 {
 	d := worldhost.Data{context, ws, db}
 	h := host(&d)
+	defer timed(time.tick_now())
 	return table.range(&h, viewer)
 }
 
 light :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, ref: Form_ID) -> f32 {
 	d := worldhost.Data{context, ws, db}
 	h := host(&d)
+	defer timed(time.tick_now())
 	return table.light(&h, ref)
+}
+
+@(private = "file")
+timed :: proc(from: time.Tick) {
+	ms += time.duration_milliseconds(time.tick_since(from))
 }
 
 @(private = "file")

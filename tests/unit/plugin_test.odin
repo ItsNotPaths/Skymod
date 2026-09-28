@@ -20,3 +20,15 @@ test_plugin_apply :: proc(t: ^testing.T) {
 	plugin.apply(&p, "skymod_test", 1, &table)
 	testing.expect_value(t, table, 7)
 }
+
+// The profile names each seam's owner: the plugin that last changed it, else the built-in.
+@(test)
+test_plugin_owner :: proc(t: ^testing.T) {
+	p: plugin.Plugins
+	defer plugin.destroy(&p)
+	plugin.load(&p, {TEST_PLUGINS})
+	testing.expect_value(t, plugin.owner(&p, "skymod_test"), "built-in")
+	table := u32(1)
+	plugin.apply(&p, "skymod_test", 1, &table)
+	testing.expect_value(t, plugin.owner(&p, "skymod_test"), "build/out/test-plugins/seam_test.so")
+}
