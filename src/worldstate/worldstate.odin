@@ -16,10 +16,7 @@ package worldstate
 // Files: refs (per-ref deltas, created refs), quests, actors (inventory, AVs, factions,
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
-import "core:debug/trace"
 import "core:fmt"
-import "core:log"
-import "core:strings"
 import "../formid"
 import "../formula"
 import "../gamedb"
@@ -184,66 +181,21 @@ Runtime :: struct {
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
 	attached:        map[Form_ID][dynamic]Form_ID,
-	// Set while the script thread runs a script phase: only that thread may touch worldstate.
-	script_phase:    bool,
 }
 
-// on_script_thread is true on the thread that runs script phases.
-@(thread_local)
-on_script_thread: bool
-
-// sim_depth counts the sim contexts this thread is inside: a tick, a park, setup. Main code
-// outside all of them must not touch worldstate.
+// sim_depth counts the sim contexts this thread is inside: the sim thread's life, a park, setup.
+// Code outside all of them must not touch worldstate.
 @(thread_local)
 sim_depth: int
 
 sim_enter :: proc() {sim_depth += 1}
 sim_leave :: proc() {sim_depth -= 1}
 
-// assert_owner checks that the calling thread owns worldstate. A script phase is a real race today,
-// so it asserts; main code outside the sim warns once per call site, until every such path is gone.
+// assert_owner checks that the calling thread owns worldstate.
 assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
 	when ODIN_DEBUG {
-		assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)
-		if !on_script_thread && sim_depth == 0 {warn_owner()}
+		assert(sim_depth > 0, "worldstate: touched outside the sim", loc)
 	}
-}
-
-// warned holds the call paths already reported, as raw return addresses: resolving one to source
-// runs addr2line, so only a new path is resolved.
-@(private)
-warned: struct {
-	at: [64][8]trace.Capture_Entry,
-	n:  int,
-}
-
-// warn_owner logs, once per call path, the first frames outside worldstate that touched it.
-@(private)
-warn_owner :: proc() {
-	bt := trace.capture(skip = 1)
-	key: [8]trace.Capture_Entry
-	copy(key[:], bt.trace[:bt.len])
-	for w in warned.at[:warned.n] {
-		if w == key {return}
-	}
-	if warned.n < len(warned.at) {
-		warned.at[warned.n] = key
-		warned.n += 1
-	}
-	lines, err := trace.resolve(bt, context.temp_allocator, context.temp_allocator)
-	if err != nil {
-		log.warnf("worldstate: touched outside the sim (no backtrace: %v)", err)
-		return
-	}
-	b := strings.builder_make(context.temp_allocator)
-	shown := 0
-	for l in lines {
-		if strings.contains(l.file_path, "/worldstate/") {continue}
-		fmt.sbprintf(&b, "\n    %s(%d) %s", l.file_path, l.line, l.procedure)
-		shown += 1
-		if shown == 4 {break}
-	}
-	log.warnf("worldstate: touched outside the sim:%s", strings.to_string(b))
 }
 
 Keyword_Key :: struct {

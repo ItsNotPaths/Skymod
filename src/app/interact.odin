@@ -153,7 +153,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		}
 		// Open-interiors mode has its own walk-in, so doors are left to it there.
 		if g.interiors_on {break}
-		push(&g.events, Evt_Door{Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}})
+		send_parked(g, Evt_Door{Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}})
 	case .Item:
 		take_item(g, form, base, by)
 	case .Book:
@@ -167,12 +167,12 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Flora:
 		harvest(g, form, base, by)
 	case .Container:
-		if by == formid.PLAYER {push(&g.events, Evt_Open_Container{form})}
+		if by == formid.PLAYER {send_parked(g, Evt_Open_Container{form})}
 	// (hole mount-attach :tags (threading animation player) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != formid.PLAYER {break}
-		if worldstate.is_dead(&g.sim.ws, &g.db, form) {push(&g.events, Evt_Open_Container{form})} else {open_dialogue(g, form)}
+		if worldstate.is_dead(&g.sim.ws, &g.db, form) {send_parked(g, Evt_Open_Container{form})} else {open_dialogue(g, form)}
 	case .None, .Activator:
 		if by == formid.PLAYER && by in g.sim.ws.jailed && ai.is_bed(&g.sim.agents, &g.sim.ws, &g.db, form) {
 			worldstate.serve_time(&g.sim.ws, by) // a jail bed: the player sleeps the sentence away

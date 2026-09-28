@@ -243,6 +243,8 @@ take :: proc(l: ^Latest($T), cur: ^T) -> bool {
 // tick, so main blends inside the newest snapshot and a teleport (from == to) never slides.
 Snapshot :: struct {
 	at:      time.Tick, // when its tick was due
+	prof:    Tick_Profile, // the ticks' running totals
+	phys:    world.Phys_Stats, // the exterior's bodies
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
 	bodies: world.Poses, // every dynamic body of the active scene's refs
@@ -291,6 +293,8 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 publish_snapshot :: proc(g: ^Game) {
 	s := &g.sim.snap_back
 	s.at = g.sim.clock.at
+	s.prof = g.tick.prof
+	s.phys = world.phys_stats(&g.sim.ext)
 	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
 	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
@@ -359,13 +363,18 @@ handle_events :: proc(g: ^Game) {
 		switch v in e {
 		case Evt_Place:            show_place(g, v.place)
 		case Evt_Ref:              interior_placed ||= apply_ref(g, v)
-		case Evt_Open_Container:   open_container(g, v.container)
+		// The sim parked itself when it sent these (send_parked); the resume frees its hold.
+		case Evt_Open_Container:
+			sim_wait(g)
+			open_container(g, v.container)
+			park_for_menu(g)
+			sim_resume(g)
 		case Evt_Door:
-			sim_drain(g)
+			sim_wait(g)
 			cross_door(g, v.hit)
 			sim_resume(g)
 		case Evt_Follow:
-			sim_drain(g)
+			sim_wait(g)
 			player_follow(g)
 			sim_resume(g)
 		}
@@ -397,30 +406,6 @@ apply_ref :: proc(g: ^Game, v: Evt_Ref) -> bool {
 		world.apply_ref_event(&g.interior, v.e)
 	}
 	return false
-}
-
-// sim_drain brings the sim to rest and holds it there: the pending script phase finishes, queued
-// commands apply and a snapshot goes out. Until the matching sim_resume no tick runs and main
-// owns every piece of sim state. Holds nest.
-sim_drain :: proc(g: ^Game) {
-	worldstate.sim_enter()
-	if g.parks == 0 {
-		script_run_pending(g)
-		apply_commands(g)
-		publish_snapshot(g)
-	}
-	g.parks += 1
-}
-
-// sim_resume drops one hold. The last one publishes what main changed while the sim was parked.
-sim_resume :: proc(g: ^Game) {
-	g.parks -= 1
-	if g.parks == 0 {
-		g.sim.clock.next = {} // the parked time is not the sim's to make up
-		publish_snapshot(g)
-		forward_ref_events(g)
-	}
-	worldstate.sim_leave()
 }
 
 // park_for_menu holds the sim parked while an open menu pauses the world, so the menu's actions

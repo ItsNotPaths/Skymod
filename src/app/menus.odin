@@ -100,6 +100,7 @@ frame_menus :: proc(g: ^Game) {
 		}
 	}
 	if g.menu == .None {return}
+	if world_paused(g) && !g.menu_parked {park_for_menu(g)} // the menu reads the sim as it draws
 	if g.menu == .Tween {
 		tween_menu(g)
 		return

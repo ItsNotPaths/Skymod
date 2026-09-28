@@ -112,6 +112,8 @@ loadui_rotate_tip :: proc(g: ^Game) {
 // and F9 quickload — every path that fills the streamer's bubble. Drains remaining collision + rebuilds
 // the broadphase once at the end so gameplay resumes on a solid world (as the old run_load_screen did).
 load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
+	sim_drain(g) // the load builds the sim's bodies as the models land
+	defer sim_resume(g)
 	fill_bubble(g)
 	for world.stream_loading(&g.streamer) {
 		done, total, _ := world.stream_pump_load(&g.streamer)
@@ -138,9 +140,7 @@ load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
 // streamer's full load. Outside, the window follows the player; inside, it stays where it was.
 @(private = "file")
 fill_bubble :: proc(g: ^Game) {
-	sim_drain(g)
 	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g), budget = max(int))}
-	sim_resume(g)
 	catch_up(g)
 	world.stream_begin_load(&g.streamer)
 }

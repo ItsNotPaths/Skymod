@@ -45,8 +45,6 @@ SLOW_FRAME_MS :: f64(80)
 INTERIOR_EYE :: f32(96)
 
 game_frame :: proc(g: ^Game) {
-	script_join(g) // the last frame's script phase ran during its render
-
 	frame_t0 := time.tick_now() // profile: whole-frame busy time (see `prof`)
 	g.fr = {}
 	render.ui_new_frame(&g.r)
@@ -83,16 +81,12 @@ game_frame :: proc(g: ^Game) {
 	park_for_menu(g)
 	frame_subtitles(g)
 
-	// The fixed-step sim runs the ticks its clock has due, at most MAX_CATCH_UP_TICKS a frame: a tick
-	// slower than TICK_TIME always leaves one due. A parked sim stops it: a save, a load, or a pausing
-	// menu, even one a tick of this frame opens. The rest runs once it resumes.
-	g.sim.input = latch_input(g)
-	for n := 0; n < MAX_CATCH_UP_TICKS && g.parks == 0 && clock_due(&g.sim.clock); n += 1 {
-		g.tick.prof.ticks += 1
-		game_tick(g)
-		handle_events(g)
-		park_for_menu(g) // a menu the tick opened stops the rest of the catch-up
-	}
+	// The sim ticks on its own thread (sim_thread.odin): main hands it the controls and handles what
+	// it sent.
+	input := latch_input(g)
+	publish(&g.simt.inputs, &input)
+	handle_events(g)
+	park_for_menu(g)
 	if g.parks > 0 {run_console(g)} // parked, main owns the VM: a pausing menu keeps the console live
 	take(&g.snaps, &g.snap)
 	g.fr.alpha = tick_alpha(g.snap.at)
@@ -112,7 +106,6 @@ game_frame :: proc(g: ^Game) {
 	draw_actor_nametags(g)
 
 	g.elapsed += g.p.dt
-	script_start(g) // the last tick's scripts run while this frame renders
 	frame_render(g)
 
 	g.prof.frame += time.duration_milliseconds(time.tick_since(frame_t0))
@@ -120,16 +113,15 @@ game_frame :: proc(g: ^Game) {
 
 	// Slow-frame detector: attribute any hitch to its phase (which one's delta dominates points
 	// at the cause — physics, render/GPU-stall, or streaming). Fires on the H-shove freeze.
-	sim := sim_ms(g.tick.prof)
 	if fms := time.duration_milliseconds(time.tick_since(frame_t0)); fms > SLOW_FRAME_MS {
 		log.warnf(
-			"SLOW FRAME %.0fms — stream=%.1f sim=%.1f render=%.1f (acquire=%.1f)",
+			"SLOW FRAME %.0fms — stream=%.1f render=%.1f (acquire=%.1f)",
 			fms,
-			g.prof.stream - g.slowsnap.stream, sim - g.slowsnap.sim,
+			g.prof.stream - g.slowsnap.stream,
 			g.prof.render - g.slowsnap.render, g.prof.acquire - g.slowsnap.acquire,
 		)
 	}
-	g.slowsnap = {g.prof.stream, sim, g.prof.render, g.prof.acquire}
+	g.slowsnap = {g.prof.stream, g.prof.render, g.prof.acquire}
 
 	// POLICY (docs/memory.md): anything on context.temp_allocator lives for
 	// exactly one frame — UI string formatting, draw lists, transient buffers.
@@ -137,26 +129,24 @@ game_frame :: proc(g: ^Game) {
 		free_all(context.temp_allocator)
 }
 
-// game_tick is ONE fixed simulation step — everything whose outcome must not depend on the
-// display rate. The previous tick's scripts finish first and their activations run (a door
-// crossing is a transition, between ticks). Then scene select re-homes the capsule before it
-// moves, physics steps the world it moved in, traversal reads the position it ended at. This
-// tick's script phase is left pending (script_thread.odin).
-@(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// game_tick is ONE fixed simulation step on the sim thread — everything whose outcome must not
+// depend on the display rate. The controls main latched come in first; a door crossing is a
+// transition between ticks (send_parked). Scene select re-homes the capsule before it moves, physics
+// steps the world it moved in, traversal reads the position it ended at, and the script phase runs last.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
-	script_run_pending(g) // timed as scripts, at the join
+	take(&g.simt.inputs, &g.sim.input)
+	g.tick.prof.ticks += 1
 	t := time.tick_now()
 	apply_commands(g)
 	run_console(g)
 	lap(g, .Commands, &t)
 	tick_jail(g) // before the follow check, which carries a jailed player's move out after this tick
 	lap(g, .Jail, &t)
-	if player_moved(g) {push(&g.events, Evt_Follow{})}
+	if player_moved(g) {send_parked(g, Evt_Follow{})}
 	lap(g, .Follow, &t)
 	tgt := resolve_activation(g, g.sim.input.aim)
 	tick_interact(g, tgt)
@@ -182,10 +172,10 @@ game_tick :: proc(g: ^Game) {
 	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, ai.player_in_combat(&g.sim.agents), TICK_DT)
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
+	run_scripts(g)
 	publish_snapshot(g)
 	forward_ref_events(g)
 	g.sim.input_was = g.sim.input
-	g.scripts.pending = true
 }
 
 // lap adds the time since `t` to a tick part and restarts `t`.
@@ -210,7 +200,9 @@ frame_diag :: proc(g: ^Game) {
 	cell := world.grid_of(g.snap.player.to)
 	mc, tc, mb, tb, cold, coldb, tcold, tcoldb := world.cache_counts(&g.scene)
 	lob, lor := world.lod_object_stats(&g.scene)
-	ps := world.phys_stats(&g.sim.ext) // the exterior — where the streaming-churn leak would be
+	ps := g.snap.phys // the exterior — where the streaming-churn leak would be
+	tp := prof_since(g.snap.prof, g.tick_seen)
+	g.tick_seen = g.snap.prof
 	log.infof(
 		"diag: cell (%d,%d) chunks=%d cache models=%d (%dMB) tex=%d (%dMB) cold=%d (%dMB) texcold=%d (%dMB) lodobj=%d/%d rss=%dMB",
 		cell.x, cell.y, st.chunks, mc, mb / (1024 * 1024), tc, tb / (1024 * 1024), cold, coldb / (1024 * 1024),
@@ -221,9 +213,9 @@ frame_diag :: proc(g: ^Game) {
 	if g.prof.frames > 0 {
 		inv := 1.0 / f64(g.prof.frames)
 		log.infof(
-			"prof: frame=%.2fms stream=%.2f sim=%.2f render=%.2f (avg/%d frames, %d sim ticks)",
-			g.prof.frame * inv, g.prof.stream * inv, sim_ms(g.tick.prof) * inv, g.prof.render * inv,
-			g.prof.frames, g.tick.prof.ticks,
+			"prof: frame=%.2fms stream=%.2f render=%.2f (avg/%d frames, %d sim ticks)",
+			g.prof.frame * inv, g.prof.stream * inv, g.prof.render * inv,
+			g.prof.frames, tp.ticks,
 		)
 		// Render breakdown (ms): acquire = GPU-bound stall; the rest are CPU draw-submission
 		// per pass. If acquire ≫ passes, we're GPU-bound (fix = fewer/cheaper draws + verts);
@@ -234,7 +226,7 @@ frame_diag :: proc(g: ^Game) {
 			g.prof.objdraw * inv, g.prof.grass * inv, g.prof.water * inv, g.prof.effects * inv,
 		)
 	}
-	if tp := g.tick.prof; tp.ticks > 0 {
+	if tp.ticks > 0 {
 		// Sim breakdown (avg ms per tick): the part that climbs is what stalls the frame.
 		inv := 1.0 / f64(tp.ticks)
 		b := strings.builder_make(context.temp_allocator)
@@ -242,7 +234,6 @@ frame_diag :: proc(g: ^Game) {
 		log.infof("prof.tick:%s scripts=%.2f (avg/%d ticks)", strings.to_string(b), tp.scripts * inv, tp.ticks)
 	}
 	g.prof = {}
-	g.tick.prof = {}
 	// Leak probe: bodies/instances should be FLAT when the player stands still. Δ is the
 	// change since the last window — a persistent + climb with no movement = a missing
 	// release path (chunks not freeing bodies, instances re-accumulating).
@@ -288,6 +279,8 @@ frame_overlay :: proc(g: ^Game) {
 			g.interiors.active,
 			g.entered,
 		)
+		if act == .Enter || act == .Exit {sim_drain(g)} // `entered` picks the sim's space (active_space)
+		defer if act == .Enter || act == .Exit {sim_resume(g)}
 		#partial switch act {
 		case .Enter:
 			if g.interiors.active {
@@ -539,9 +532,10 @@ frame_stream :: proc(g: ^Game) {
 	world.stream_update(&g.streamer)
 	if !g.fr.in_interior {
 		world.update_terrain_field(&g.scene, g.cam.pos) // re-select CDLOD terrain LOD on move
-		if g.interiors_on {
+		if g.interiors_on && !g.entered {
 			// Open interiors (EXPERIMENTAL): keep the nearest in-range portal's interior
-			// loaded (GPU work, so outside begin_frame). Rendered through the doorway below.
+			// loaded (GPU work, so outside begin_frame). Rendered through the doorway below. Not
+			// while entered: the sim then runs in that interior's space.
 			world.interiors_update(&g.interiors, g.cam.pos)
 		}
 	}
@@ -654,7 +648,7 @@ frame_traversal :: proc(g: ^Game) {
 	// hit. A manual door found here is ignored — Activate crosses it via the crosshair (tick_interact).
 	hit := traversal_nearest_door(&g.sim.trav, eye)
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.sim.trav.has_arrival {
-		push(&g.events, Evt_Door{hit})
+		send_parked(g, Evt_Door{hit})
 	}
 }
 
@@ -801,9 +795,12 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	g.fr.active_scene.has_sel = false
 	g.insp.has_sel = true
 	tools.inspector_set_model_strings(&g.insp, "", "")
-	g.insp.sel_display = worldstate.display_name(&g.sim.ws, &g.db, actor)
-	g.insp.sel_base = worldstate.ref_base(&g.sim.ws, &g.db, actor)
-	g.insp.sel_pos = worldstate.ref_pos(&g.sim.ws, &g.db, actor)
+	for v in g.snap.actors {
+		if v.form != actor {continue}
+		g.insp.sel_display = text(&g.snap, v.name)
+		g.insp.sel_base = v.base
+		g.insp.sel_pos = blend(v.feet, g.fr.alpha)
+	}
 	g.insp.sel_rot = {}
 	g.insp.sel_has_door = false
 	g.insp.sel_door_cell = ""

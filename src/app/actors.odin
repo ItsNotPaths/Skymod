@@ -220,6 +220,7 @@ actor_bodies_clear :: proc(g: ^Game) {
 // Actor_View is an actor as the snapshot shows it to main.
 Actor_View :: struct {
 	form:    Form_ID,
+	base:    Form_ID,
 	feet:    Segment,
 	capsule: Capsule,
 	dead:    bool,
@@ -234,6 +235,7 @@ view_actors :: proc(g: ^Game, s: ^Snapshot) {
 		from, to := physics.character_step(&b.char)
 		append(&s.actors, Actor_View {
 			form    = f,
+			base    = worldstate.ref_base(&g.sim.ws, &g.db, f),
 			feet    = {from, to},
 			capsule = b.capsule,
 			dead    = worldstate.is_dead(&g.sim.ws, &g.db, f),

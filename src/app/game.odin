@@ -82,7 +82,7 @@ Frame_Profile :: struct {
 // Slow-frame detector (diagnostic): snapshot of the accumulated phase timers at the previous
 // frame end, so a >SLOW_FRAME_MS frame can be attributed to its phase (which ate the hitch).
 Slow_Snap :: struct {
-	stream, sim, render, acquire: f64,
+	stream, render, acquire: f64,
 }
 
 // Fixed simulation tick (docs/shipped.md §E). Logic and physics advance in whole
@@ -125,9 +125,11 @@ Tick_Profile :: struct {
 	scripts: f64,
 }
 
-// sim_ms is the profile's main-thread sim time: every part, without the script phases.
-sim_ms :: proc(p: Tick_Profile) -> (ms: f64) {
-	for v in p.ms {ms += v}
+// prof_since is the ticks' profile between two of the sim's running totals.
+prof_since :: proc(now, then: Tick_Profile) -> (p: Tick_Profile) {
+	p.ticks = now.ticks - then.ticks
+	for &ms, part in p.ms {ms = now.ms[part] - then.ms[part]}
+	p.scripts = now.scripts - then.scripts
 	return
 }
 
@@ -245,7 +247,7 @@ Game :: struct {
 	// scripting + dev console + inspector
 	sreg:         script.Registry,
 	repl_ok:      bool,
-	scripts:      Script_Thread,
+	simt:         Sim_Thread,
 	console:      tools.Console,
 	insp:         tools.Inspector,
 
@@ -272,6 +274,7 @@ Game :: struct {
 	prof:        Frame_Profile,
 	prev_bodies: int, // last diag window's body count — to flag a steady climb (leak)
 	slowsnap:    Slow_Snap,
+	tick_seen:   Tick_Profile, // the sim's profile totals at the last diag window
 
 	fr: Frame_State,
 }
@@ -615,7 +618,6 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if g.repl_ok {
 		n := slua.start_game(&g.sim.repl.vm, &g.db) if boot_choice == .Continue else slua.new_game(&g.sim.repl.vm, &g.db)
 		log.infof("scripts: %d game-start script instance(s), %d known to the save", n, len(g.sim.ws.script_state))
-		script_thread_init(g)
 	}
 
 	g.p.keep_escape = true // Esc opens the pause menu from here on
@@ -625,6 +627,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// spawn bubble is fully resident + solid, THEN drop into gameplay — no empty-world pop-in. This is
 	// the back 60% of the one continuous bar (the DB build was the front 40%).
 	load_screen_stream(g, "Loading Tamriel…", 0.40, 0.60)
+	sim_thread_start(g)
 	return true
 }
 
@@ -634,7 +637,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 game_teardown :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
-	script_thread_destroy(g)
+	sim_thread_stop(g)
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	queue_destroy(&g.commands)
 	delete(g.command_buf)
