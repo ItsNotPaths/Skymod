@@ -10,6 +10,7 @@ import "core:slice"
 import "../conditions"
 import "../formid"
 import "../gamedb"
+// (hole dialogue-script-coupling :tags (plugins dialogue script) :sev struct) dialogue builds a script.Call to run natives and uses script.condition_context, so it imports the script runtime. Investigate whether it needs more than the condition context.
 import "../script"
 import "../worldstate"
 

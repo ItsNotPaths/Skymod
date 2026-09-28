@@ -14,6 +14,7 @@ import "../gamedb"
 import smath "../math"
 import "../models"
 import "../physics"
+// (hole world-worldstate-coupling :tags (plugins world) :sev struct) world reads and writes worldstate (get, create_ref, set_moved, set_disabled) for the sim cells, so the streamer package is not plain data. Investigate whether the sim-side placement moves out of world.
 import "../worldstate"
 
 // --- resident-instance index (Layer-1 live-apply support; docs/live-state.md §7.1) ---
