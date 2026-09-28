@@ -1,9 +1,7 @@
 package detection
 
 // The stub model: seen in the cone and range = detected at once; out of sight it fades. The real
-// model replaces this file and nothing else.
-
-import "../worldstate"
+// model replaces judge_builtin, here or in a plugin, and nothing else.
 
 // (hole sneak-detection :tags (ai player unclaimed) :sev gap :needs (light-at-point noise-events)) the real detection model: awareness that grows and decays with view direction, distance, movement, sneak (and the Sneak skill), light, noise and cutout cover. It replaces judge behind the same Senses and awareness store.
 // Senses is what a viewer takes in of one target in one look.
@@ -19,8 +17,8 @@ Senses :: struct {
 FADE :: f32(0.1) // awareness lost per second out of sight (guess)
 DETECTED_AT :: f32(0.5)
 
-// judge is the viewer's awareness of the target after `dt` seconds of these senses.
-judge :: proc(was: worldstate.Awareness, s: Senses, dt: f32) -> worldstate.Awareness {
+// judge_builtin is the viewer's awareness of the target after `dt` seconds of these senses.
+judge_builtin :: proc "c" (was: Awareness, s: Senses, dt: f32) -> Awareness {
 	level := f32(1) if s.sight > 0 else max(was.level - FADE * dt, 0)
 	return {level, level >= DETECTED_AT}
 }

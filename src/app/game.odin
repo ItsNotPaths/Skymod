@@ -602,6 +602,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// (`ws`) over the gamedb baseline (`db`). `&g.sim.noclip` lets the tcl/noclip command
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
 	if settings.get_bool(g.cfg, "native_plugins") {plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR))}
+	g.sim.detection = detection.BUILTIN
+	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)
@@ -679,7 +681,7 @@ game_teardown :: proc(g: ^Game) {
 	actor_bodies_clear(g) // may be homed in an interior world — before traversal
 	delete(g.sim.actor_bodies)
 	ai.destroy(&g.sim.agents)
-	detection.destroy(&g.sim.detection)
+	actor_snapshot_destroy(&g.sim.actors)
 	plugin.destroy(&g.plugins)
 	render.release_mesh(&g.r, g.actor_mesh)
 	delete(g.sim.drops)

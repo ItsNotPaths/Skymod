@@ -27,7 +27,8 @@ Sim :: struct {
 	repl:         slua.Repl, // the gameplay VM (with the dev console on it)
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	agents:       ai.World, // every actor's running package
-	detection:    detection.State, // who has seen whom
+	detection:    detection.Table, // who sees whom: the built-in or a plugin's
+	actors:       Actor_Snapshot, // the loaded actors as the seams see them
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref, the one the player controls too
 	// The physics world the bodies live in: the exterior `phys` until a load door swaps the active
 	// scene to an interior (its own world); on each swap the bodies are rebuilt there. nil when

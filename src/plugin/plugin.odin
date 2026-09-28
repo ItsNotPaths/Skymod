@@ -11,6 +11,7 @@ import "core:os"
 import "core:path/filepath"
 import "core:slice"
 import "core:strings"
+import "../formid"
 
 DIR :: "native" // a mod's plugin folder: <mod>/native/<name>.so or .dll
 EXT :: ".dll" when ODIN_OS == .Windows else ".so"
@@ -21,8 +22,20 @@ Span :: struct($T: typeid) {
 	len:  int,
 }
 
-span :: proc(s: []$T) -> Span(T) {return {raw_data(s), len(s)}}
-items :: proc(s: Span($T)) -> []T {return s.data[:s.len]}
+span :: proc "contextless" (s: []$T) -> Span(T) {return {raw_data(s), len(s)}}
+items :: proc "contextless" (s: Span($T)) -> []T {return s.data[:s.len]}
+
+Form_ID :: formid.Form_ID
+
+// Actor is one loaded actor in the snapshot that every seam reads, built once a tick.
+Actor :: struct {
+	id:       Form_ID,
+	space:    Form_ID, // its worldspace or interior cell; 0 = none
+	pos:      [3]f32,
+	speed:    f32, // units/s since the last snapshot
+	dead:     bool,
+	sneaking: bool,
+}
 
 // Seam_Proc is what a plugin exports for a seam. It returns false for a version it does not know.
 Seam_Proc :: #type proc "c" (version: u32, table: rawptr) -> b32

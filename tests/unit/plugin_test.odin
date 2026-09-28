@@ -12,7 +12,7 @@ test_plugin_apply :: proc(t: ^testing.T) {
 	p: plugin.Plugins
 	defer plugin.destroy(&p)
 	plugin.load(&p, {TEST_PLUGINS})
-	testing.expect_value(t, len(p.list), 1)
+	testing.expect_value(t, len(p.list), 2)
 
 	table := u32(1)
 	plugin.apply(&p, "skymod_test", 2, &table)

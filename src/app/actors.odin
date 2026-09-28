@@ -10,7 +10,6 @@ import "core:time"
 import imgui "../../vendor/odin-imgui"
 import "../ai"
 import "../collisions"
-import "../detection"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
@@ -77,8 +76,8 @@ tick_actor_bodies :: proc(g: ^Game) {
 		}
 	}
 	lap(g, .Actors, &t)
-	// (hole actor-snapshot :tags (plugins ai) :sev struct) detection, AI and combat read worldstate one call at a time. Wanted: one plain-data actor snapshot per tick (id, position, cell, dead, sneaking, speed) that every seam reads.
-	detection.tick(&g.sim.detection, &g.sim.ws, &g.db, seen, TICK_DT) // before combat reads it
+	actor_snapshot(&g.sim.actors, &g.sim.ws, &g.db, seen, TICK_DT)
+	detection_tick(&g.sim.detection, &g.sim.actors, &g.sim.ws, &g.db, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
 	ai.set_present(&g.sim.agents, seen)
 	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
