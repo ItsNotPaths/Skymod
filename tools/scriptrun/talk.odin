@@ -29,10 +29,11 @@ talk :: proc(vm: ^slua.VM, db: ^gamedb.DB, name: string) {
 		return
 	}
 	c := vm.ctx
+	dc := script.condition_context(&c, 0, 0)
 	c.ws.talking = speaker
 	defer c.ws.talking = 0
 	start := time.now()
-	greet, ok := dialogue.greeting(&c, speaker)
+	greet, ok := dialogue.greeting(&dc, speaker)
 	took := time.since(start)
 	fmt.printfln("== talk %s [0x%08X]: greeting in %v", name, u32(speaker), took)
 	if !ok {
@@ -42,14 +43,14 @@ talk :: proc(vm: ^slua.VM, db: ^gamedb.DB, name: string) {
 	if greet.info != 0 {
 		fmt.printfln("  greeting info 0x%08X, branch 0x%08X", u32(greet.info), u32(greet.blocking))
 		why(&c, speaker, greet.info)
-		for _, n in dialogue.responses(db, greet.info) {fmt.printfln("  > %s", dialogue.line_text(&c, greet.info, n))}
+		for _, n in dialogue.responses(db, greet.info) {fmt.printfln("  > %s", dialogue.line_text(&dc, greet.info, n))}
 	}
 	start = time.now()
-	topics := dialogue.topics(&c, speaker)
+	topics := dialogue.topics(&dc, speaker)
 	took = time.since(start)
 	fmt.printfln("  topics (%d, in %v):", len(topics), took)
 	for ch, i in topics {
-		fmt.printfln("  - %s  [topic 0x%08X info 0x%08X]", dialogue.prompt(&c, ch.info), u32(ch.topic), u32(ch.info))
+		fmt.printfln("  - %s  [topic 0x%08X info 0x%08X]", dialogue.prompt(&dc, ch.info), u32(ch.topic), u32(ch.info))
 		if i < 2 {why(&c, speaker, ch.info)}
 	}
 }

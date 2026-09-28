@@ -61,11 +61,12 @@ tick_force_greet :: proc(g: ^Game) {
 start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype := "") {
 	g.sim.ws.talking = speaker // Hellos ask IsInDialogueWithPlayer
 	c := dialogue_call(g)
-	greet, ok := dialogue.Greeting{info = dialogue.pick(&c, speaker, topic)}, true
+	dc := script.condition_context(&c, 0, 0)
+	greet, ok := dialogue.Greeting{info = dialogue.pick(&dc, speaker, topic)}, true
 	if subtype != "" {
-		greet.info = dialogue.pick_subtype(&c, speaker, subtype)
+		greet.info = dialogue.pick_subtype(&dc, speaker, subtype)
 		ok = greet.info != 0
-	} else if topic == 0 {greet, ok = dialogue.greeting(&c, speaker)}
+	} else if topic == 0 {greet, ok = dialogue.greeting(&dc, speaker)}
 	if !ok {
 		g.sim.ws.talking = 0
 		return
@@ -102,7 +103,8 @@ talk_choose :: proc(g: ^Game, ch: dialogue.Choice) {
 	t := &g.sim.talk
 	if t.speaker == 0 || t.info != 0 || !slice.contains(t.choices[:], ch) {return}
 	c := dialogue_call(g)
-	info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
+	dc := script.condition_context(&c, 0, 0)
+	info := ch.info if dialogue.still_valid(&dc, t.speaker, ch.info) else dialogue.pick(&dc, t.speaker, ch.topic) // the line shown
 	if info != 0 {say(g, info)}
 }
 
@@ -127,12 +129,13 @@ view_talk :: proc(g: ^Game, s: ^Snapshot) {
 	v.speaker, v.info, v.response = t.speaker, t.info, t.response
 	if t.speaker == 0 {return}
 	c := dialogue_call(g)
+	dc := script.condition_context(&c, 0, 0)
 	v.name = add_text(s, worldstate.display_name(&g.sim.ws, &g.db, t.speaker))
 	if t.info != 0 {
-		v.line = add_text(s, dialogue.line_text(&c, t.info, t.response))
+		v.line = add_text(s, dialogue.line_text(&dc, t.info, t.response))
 		return
 	}
-	for ch in t.choices {append(&v.choices, Talk_Choice{ch, add_text(s, dialogue.prompt(&c, ch.info))})}
+	for ch in t.choices {append(&v.choices, Talk_Choice{ch, add_text(s, dialogue.prompt(&dc, ch.info))})}
 }
 
 // dialogue_menu draws the conversation: the subtitle while a line plays, else the choices.
@@ -168,7 +171,8 @@ back_out :: proc(g: ^Game) {
 	t := &g.sim.talk
 	if t.info == 0 && t.walk_away != 0 {
 		c := dialogue_call(g)
-		if info := dialogue.pick(&c, t.speaker, t.walk_away); info != 0 {
+		dc := script.condition_context(&c, 0, 0)
+		if info := dialogue.pick(&dc, t.speaker, t.walk_away); info != 0 {
 			say(g, info, last = true)
 			return
 		}
@@ -179,7 +183,8 @@ back_out :: proc(g: ^Game) {
 close_dialogue :: proc(g: ^Game) {
 	if g.sim.talk.info != 0 {
 		c := dialogue_call(g)
-		dialogue.finished(&c, g.sim.talk.speaker, g.sim.talk.info)
+		dc := script.condition_context(&c, 0, 0)
+		dialogue.finished(&dc, g.sim.talk.speaker, g.sim.talk.info)
 	}
 	g.sim.talk.info, g.sim.talk.speaker = 0, 0
 	g.sim.ws.talking = 0
@@ -189,7 +194,8 @@ close_dialogue :: proc(g: ^Game) {
 say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 	t := &g.sim.talk
 	c := dialogue_call(g)
-	dialogue.said(&c, t.speaker, info)
+	dc := script.condition_context(&c, 0, 0)
+	dialogue.said(&dc, t.speaker, info)
 	worldstate.set_talked_to_pc(&g.sim.ws, t.speaker)
 	clear(&t.choices)
 	t.info, t.response, t.greeting, t.last = info, -1, greeting, last
@@ -202,7 +208,8 @@ say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 list_topics :: proc(g: ^Game) {
 	t := &g.sim.talk
 	c := dialogue_call(g)
-	shown := dialogue.topics(&c, t.speaker, t.choices[:] if t.top_level else nil)
+	dc := script.condition_context(&c, 0, 0)
+	shown := dialogue.topics(&dc, t.speaker, t.choices[:] if t.top_level else nil)
 	clear(&t.choices)
 	append(&t.choices, ..shown)
 	t.top_level, t.listed_at = true, g.sim.clock.total
@@ -232,24 +239,25 @@ next_response :: proc(g: ^Game) {
 line_done :: proc(g: ^Game) {
 	t := &g.sim.talk
 	c := dialogue_call(g)
+	dc := script.condition_context(&c, 0, 0)
 	id := t.info
 	info := g.db.infos[id]
-	dialogue.finished(&c, t.speaker, id)
+	dialogue.finished(&dc, t.speaker, id)
 	t.info = 0
 	if t.last || info.flags & gamedb.INFO_GOODBYE != 0 {
 		close_dialogue(g)
 		return
 	}
 	if info.flags & gamedb.INFO_INVISIBLE_CONTINUE != 0 && len(info.links) > 0 {
-		if next := dialogue.pick(&c, t.speaker, info.links[0]); next != 0 {
+		if next := dialogue.pick(&dc, t.speaker, info.links[0]); next != 0 {
 			say(g, next)
 			return
 		}
 	}
-	append(&t.choices, ..dialogue.links(&c, t.speaker, id))
+	append(&t.choices, ..dialogue.links(&dc, t.speaker, id))
 	t.walk_away = info.walk_away if info.flags & gamedb.INFO_WALK_AWAY != 0 else 0
 	if len(t.choices) == 0 && t.greeting && t.blocking != 0 {
-		if ch, ok := dialogue.choice(&c, t.speaker, g.db.branches[t.blocking].start); ok {append(&t.choices, ch)}
+		if ch, ok := dialogue.choice(&dc, t.speaker, g.db.branches[t.blocking].start); ok {append(&t.choices, ch)}
 	}
 	if len(t.choices) == 0 {list_topics(g)}
 }
@@ -261,7 +269,8 @@ view_subtitles :: proc(g: ^Game, s: ^Snapshot) {
 	subtitle :: proc(g: ^Game, s: ^Snapshot, speaker, info: Form_ID, response: i32) {
 		if info == 0 || worldstate.ref_grid_cell(&g.sim.ws, &g.db, speaker) not_in g.sim.ws.attached {return}
 		c := dialogue_call(g)
-		if line := dialogue.line_text(&c, info, int(response)); line != "" {
+		dc := script.condition_context(&c, 0, 0)
+		if line := dialogue.line_text(&dc, info, int(response)); line != "" {
 			append(&s.subtitles, add_text(s, fmt.tprintf("%s: %s", worldstate.display_name(&g.sim.ws, &g.db, speaker), line)))
 		}
 	}

@@ -2,6 +2,7 @@ package script_lua
 
 import "../../dialogue"
 import "../../formid"
+import "../../script"
 import "../../worldstate"
 
 // tick_barks plays the lines actors say outside conversations and scenes: a new one picks its
@@ -21,13 +22,13 @@ tick_barks :: proc(vm: ^VM, dt: f32) {
 
 @(private = "file")
 play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
-	c := &vm.ctx
+	c := script.condition_context(&vm.ctx, 0, 0)
 	death := b.subtype == worldstate.SUBTYPE_DEATH // said by the dead, over anything else
 	if b.info == 0 {
 		if !death && bark_busy(vm, b.speaker) {return false}
-		b.info = dialogue.pick(c, b.speaker, b.topic) if b.topic != 0 else dialogue.pick_subtype(c, b.speaker, string(b.subtype[:]), b.to if b.to != 0 else formid.PLAYER)
+		b.info = dialogue.pick(&c, b.speaker, b.topic) if b.topic != 0 else dialogue.pick_subtype(&c, b.speaker, string(b.subtype[:]), b.to if b.to != 0 else formid.PLAYER)
 		if b.info == 0 {return false}
-		dialogue.said(c, b.speaker, b.info)
+		dialogue.said(&c, b.speaker, b.info)
 		b.response, b.left = -1, 0
 	}
 	b.left -= dt
@@ -38,7 +39,7 @@ play_bark :: proc(vm: ^VM, b: ^worldstate.Bark, dt: f32) -> bool {
 		b.left = say_line(vm, b.speaker, b.info, int(b.response))
 		return true
 	}
-	dialogue.finished(c, b.speaker, b.info)
+	dialogue.finished(&c, b.speaker, b.info)
 	return false
 }
 

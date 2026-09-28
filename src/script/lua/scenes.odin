@@ -218,9 +218,10 @@ advance_actions :: proc(vm: ^VM, scene: script.Form_ID, s: gamedb.Scene, dt: f32
 // speak starts the line the speaker says for `topic`; false when there is none.
 @(private = "file")
 speak :: proc(vm: ^VM, ar: ^worldstate.Action_Run, topic: script.Form_ID) -> bool {
-	info := dialogue.pick(&vm.ctx, ar.speaker, topic)
+	c := script.condition_context(&vm.ctx, 0, 0)
+	info := dialogue.pick(&c, ar.speaker, topic)
 	if info == 0 {return false}
-	dialogue.said(&vm.ctx, ar.speaker, info)
+	dialogue.said(&c, ar.speaker, info)
 	ar.info, ar.response = info, 0
 	ar.left = say_line(vm, ar.speaker, info, 0)
 	return true
@@ -244,7 +245,8 @@ say_line :: proc(vm: ^VM, speaker, info: script.Form_ID, response: int) -> f32 {
 @(private = "file")
 cut_line :: proc(vm: ^VM, ar: ^worldstate.Action_Run) {
 	if ar.info == 0 {return}
-	dialogue.finished(&vm.ctx, ar.speaker, ar.info)
+	c := script.condition_context(&vm.ctx, 0, 0)
+	dialogue.finished(&c, ar.speaker, ar.info)
 	ar.info = 0
 }
 

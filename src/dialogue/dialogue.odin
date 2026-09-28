@@ -10,8 +10,6 @@ import "core:slice"
 import "../conditions"
 import "../formid"
 import "../gamedb"
-// (hole dialogue-script-coupling :tags (plugins dialogue script) :sev struct) dialogue builds a script.Call to run natives and uses script.condition_context, so it imports the script runtime. Investigate whether it needs more than the condition context.
-import "../script"
 import "../worldstate"
 
 Form_ID :: gamedb.Form_ID
@@ -41,7 +39,7 @@ Greeting :: struct {
 // branch (the higher quest priority wins, then load order), else a Hello. ok=false: the speaker is
 // in an Exclusive branch with nothing to say, and the conversation does not open (user decision;
 // in vanilla that NPC blocks all dialogue).
-greeting :: proc(c: ^script.Call, speaker: Form_ID) -> (g: Greeting, ok: bool) {
+greeting :: proc(c: ^conditions.Context, speaker: Form_ID) -> (g: Greeting, ok: bool) {
 	if branch := worldstate.exclusive_branch(c.ws, speaker); branch != 0 {
 		b := c.db.branches[branch]
 		info := pick(c, speaker, b.start)
@@ -66,7 +64,7 @@ greeting :: proc(c: ^script.Call, speaker: Form_ID) -> (g: Greeting, ok: bool) {
 // this speaker can say, by topic priority. The Rumors topics are one stack, so one choice. A topic
 // in `shown` keeps the line it offered while that line can still be said, so a Random topic does
 // not change under the player.
-topics :: proc(c: ^script.Call, speaker: Form_ID, shown: []Choice = nil) -> []Choice {
+topics :: proc(c: ^conditions.Context, speaker: Form_ID, shown: []Choice = nil) -> []Choice {
 	out := make([dynamic]Choice, context.temp_allocator)
 	rumors := false
 	for branch in sorted_keys(c.db.branches) {
@@ -92,7 +90,7 @@ topics :: proc(c: ^script.Call, speaker: Form_ID, shown: []Choice = nil) -> []Ch
 
 // links are the choices after `info`: its linked topics with a line this speaker can say. The
 // Walk Away topic is left out when the info hides it.
-links :: proc(c: ^script.Call, speaker, info: Form_ID) -> []Choice {
+links :: proc(c: ^conditions.Context, speaker, info: Form_ID) -> []Choice {
 	i := c.db.infos[info]
 	out := make([dynamic]Choice, context.temp_allocator)
 	for topic in i.links {
@@ -103,14 +101,14 @@ links :: proc(c: ^script.Call, speaker, info: Form_ID) -> []Choice {
 }
 
 // choice is a topic as the player sees it, when the speaker has a line in it.
-choice :: proc(c: ^script.Call, speaker, topic: Form_ID) -> (Choice, bool) {
+choice :: proc(c: ^conditions.Context, speaker, topic: Form_ID) -> (Choice, bool) {
 	info := pick(c, speaker, topic)
 	if info == 0 {return {}, false}
 	return {topic, info}, true
 }
 
 @(private = "file")
-kept :: proc(c: ^script.Call, speaker, topic: Form_ID, shown: []Choice) -> (Choice, bool) {
+kept :: proc(c: ^conditions.Context, speaker, topic: Form_ID, shown: []Choice) -> (Choice, bool) {
 	for ch in shown {
 		if ch.topic == topic && still_valid(c, speaker, ch.info) {return ch, true}
 	}
@@ -118,13 +116,13 @@ kept :: proc(c: ^script.Call, speaker, topic: Form_ID, shown: []Choice) -> (Choi
 }
 
 // still_valid: `speaker` can say `info` now.
-still_valid :: proc(c: ^script.Call, speaker, info: Form_ID) -> bool {
+still_valid :: proc(c: ^conditions.Context, speaker, info: Form_ID) -> bool {
 	i, ok := c.db.infos[info]
 	return ok && can_say(c, speaker, info, i)
 }
 
 // pick is the info `speaker` says for `topic`, or 0. A Rumors topic draws on every Rumors topic.
-pick :: proc(c: ^script.Call, speaker, topic: Form_ID) -> Form_ID {
+pick :: proc(c: ^conditions.Context, speaker, topic: Form_ID) -> Form_ID {
 	t, ok := c.db.topics[topic]
 	if !ok {return 0}
 	infos := stack(c.db, "RUMO") if is_subtype(t, "RUMO") else t.infos
@@ -135,7 +133,7 @@ pick :: proc(c: ^script.Call, speaker, topic: Form_ID) -> Form_ID {
 // starts a pile that grows until a valid info that is not Random, or is Random End; one of the pile
 // is said. With Do All Before Repeating, the pile skips what was said this round.
 @(private)
-pick_from :: proc(c: ^script.Call, speaker: Form_ID, infos: []Form_ID, do_all: bool, to := formid.PLAYER) -> Form_ID {
+pick_from :: proc(c: ^conditions.Context, speaker: Form_ID, infos: []Form_ID, do_all: bool, to := formid.PLAYER) -> Form_ID {
 	pile := make([dynamic]Form_ID, context.temp_allocator)
 	for id in infos {
 		info := c.db.infos[id]
@@ -159,21 +157,21 @@ pick_from :: proc(c: ^script.Call, speaker: Form_ID, infos: []Form_ID, do_all: b
 // can_say: the info's quest runs, its quest's dialogue conditions and its own pass, and Say Once
 // and Hours Until Reset allow it.
 @(private)
-can_say :: proc(c: ^script.Call, speaker, id: Form_ID, info: gamedb.Info, to := formid.PLAYER) -> bool {
+can_say :: proc(c: ^conditions.Context, speaker, id: Form_ID, info: gamedb.Info, to := formid.PLAYER) -> bool {
 	quest := c.db.topics[info.topic].quest
 	if quest != 0 && !worldstate.quest_running(c.ws, c.db, quest) {return false}
 	if at, said := worldstate.info_said_at(c.ws, speaker, id); said {
 		if info.flags & gamedb.INFO_SAY_ONCE != 0 {return false}
 		if f64(info.reset_hours) > c.ws.clock.hours - at {return false}
 	}
-	ctx := script.condition_context(c, speaker, to, quest)
+	ctx := on_ctx(c, speaker, to, quest)
 	qb, _ := gamedb.quest_baseline_of(c.db, quest)
 	return conditions.all(&ctx, qb.dialogue_conditions) && conditions.all(&ctx, info.conditions)
 }
 
 // said records that `speaker` says `info` now and queues its begin fragment. A line from an
 // Exclusive branch puts the speaker in it; a line from another branch takes it out.
-said :: proc(c: ^script.Call, speaker, info: Form_ID) {
+said :: proc(c: ^conditions.Context, speaker, info: Form_ID) {
 	worldstate.info_said(c.ws, speaker, info)
 	i := c.db.infos[info]
 	t := c.db.topics[i.topic]
@@ -186,7 +184,7 @@ said :: proc(c: ^script.Call, speaker, info: Form_ID) {
 }
 
 // finished queues the end fragment of a line whose last response is done.
-finished :: proc(c: ^script.Call, speaker, info: Form_ID) {
+finished :: proc(c: ^conditions.Context, speaker, info: Form_ID) {
 	append(&c.ws.info_runs, worldstate.Info_Run{info = info, speaker = speaker, end = true})
 }
 
@@ -199,7 +197,7 @@ responses :: proc(db: ^gamedb.DB, info: Form_ID) -> []gamedb.Response {
 
 // prompt is what the player says to reach `info`: its own prompt, else its topic's text, tags
 // filled in. A Rumors info with neither says the game setting's line.
-prompt :: proc(c: ^script.Call, info: Form_ID) -> string {
+prompt :: proc(c: ^conditions.Context, info: Form_ID) -> string {
 	i := c.db.infos[info]
 	raw := i.prompt
 	if raw == "" {raw = gamedb.name_of(c.db, i.topic)}
@@ -208,7 +206,7 @@ prompt :: proc(c: ^script.Call, info: Form_ID) -> string {
 }
 
 // line_text is response `n` of `info` as shown, tags filled in; "" past its last.
-line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
+line_text :: proc(c: ^conditions.Context, info: Form_ID, n: int) -> string {
 	lines := responses(c.db, info)
 	if n < 0 || n >= len(lines) {return ""}
 	return worldstate.fill_tags(c.ws, c.db, lines[n].text, c.db.topics[c.db.infos[info].topic].quest)
@@ -216,7 +214,7 @@ line_text :: proc(c: ^script.Call, info: Form_ID, n: int) -> string {
 
 // pick_subtype is the line `speaker` says to `to` from every topic of one subtype (Hellos, Idle); 0
 // when none.
-pick_subtype :: proc(c: ^script.Call, speaker: Form_ID, subtype: string, to := formid.PLAYER) -> Form_ID {
+pick_subtype :: proc(c: ^conditions.Context, speaker: Form_ID, subtype: string, to := formid.PLAYER) -> Form_ID {
 	return pick_from(c, speaker, stack(c.db, subtype), false, to)
 }
 
@@ -252,4 +250,10 @@ sorted_keys :: proc(m: map[Form_ID]$V) -> []Form_ID {
 	for k in m {append(&keys, k)}
 	slice.sort(keys[:])
 	return keys[:]
+}
+
+// on_ctx is the dialogue's context asking about other forms.
+@(private = "file")
+on_ctx :: proc(c: ^conditions.Context, subject, target: Form_ID, quest: Form_ID = 0) -> conditions.Context {
+	return {db = c.db, ws = c.ws, subject = subject, target = target, quest = quest, quest_vars = c.quest_vars}
 }

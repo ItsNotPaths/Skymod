@@ -2,17 +2,17 @@ package unit_tests
 
 import "core:slice"
 import "core:testing"
+import "../../src/conditions"
 import "../../src/dialogue"
 import "../../src/formid"
 import "../../src/gamedb"
-import "../../src/script"
 import "../../src/worldstate"
 
 @(private = "file")
 Talk :: struct {
 	db: gamedb.DB,
 	ws: worldstate.World_State,
-	c:  script.Call,
+	c:  conditions.Context,
 }
 
 @(private = "file")
