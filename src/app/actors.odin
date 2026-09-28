@@ -10,6 +10,7 @@ import "core:time"
 import imgui "../../vendor/odin-imgui"
 import "../ai"
 import "../collisions"
+import "../combat"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
@@ -79,6 +80,8 @@ tick_actor_bodies :: proc(g: ^Game) {
 	actor_snapshot(&g.sim.actors, &g.sim.ws, &g.db, seen, TICK_DT)
 	detection_tick(&g.sim.detection, &g.sim.actors, &g.sim.ws, &g.db, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
+	ai.tick_combat(&g.sim.agents, &g.sim.ws, &g.db, &g.sim.combat, g.sim.actors.actors[:], TICK_DT) // before the packages tick
+	lap(g, .Combat, &t)
 	ai.set_present(&g.sim.agents, seen)
 	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
 	lap(g, .Actors, &t)
@@ -242,7 +245,7 @@ Actor_View :: struct {
 	feet:    Segment,
 	capsule: Capsule,
 	dead:    bool,
-	combat:  ai.Combat_State,
+	combat:  combat.State,
 	name:    Text_Span, // in Snapshot.text
 }
 

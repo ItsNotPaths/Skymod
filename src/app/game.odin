@@ -29,6 +29,7 @@ import "../audio"
 import "../ai"
 import "../assetdb"
 import "../collisions"
+import "../combat"
 import "../detection"
 import "../formid"
 import "../gamedb"
@@ -116,6 +117,7 @@ Tick_Part :: enum {
 	Nav,
 	Actors,
 	Detection,
+	Combat,
 	AI,
 	Social,
 	Offscreen,
@@ -604,6 +606,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if settings.get_bool(g.cfg, "native_plugins") {plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR))}
 	g.sim.detection = detection.BUILTIN
 	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
+	g.sim.combat = combat.BUILTIN
+	plugin.apply(&g.plugins, combat.SEAM, combat.VERSION, &g.sim.combat)
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)

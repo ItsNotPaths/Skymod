@@ -8,6 +8,7 @@ import "core:time"
 
 import "../ai"
 import "../audio"
+import "../combat"
 import "../detection"
 import "../dialogue"
 import "../handoff"
@@ -28,6 +29,7 @@ Sim :: struct {
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	agents:       ai.World, // every actor's running package
 	detection:    detection.Table, // who sees whom: the built-in or a plugin's
+	combat:       combat.Table, // who fights whom: the built-in brain or a plugin's
 	actors:       Actor_Snapshot, // the loaded actors as the seams see them
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref, the one the player controls too
 	// The physics world the bodies live in: the exterior `phys` until a load door swaps the active

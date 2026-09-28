@@ -9,6 +9,7 @@ import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
 import "core:strings"
+import "../combat"
 import "../conditions"
 import smath "../math"
 import "../formid"
@@ -44,7 +45,7 @@ Agent :: struct {
 	seat:      Seat, // the furniture marker it claimed
 	posture:   Posture, // on `seat` unless Standing
 	lead_at:   [3]f32, // where the leader it follows stood last tick
-	combat:    Combat, // toward its target; the package waits while it is not None
+	combat:    combat.Fight, // toward its target (tick_combat); the package waits while it is not None
 	confront:  Confront, // a guard after a wanted actor; the package waits while it walks up
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
@@ -74,7 +75,6 @@ World :: struct {
 }
 
 // tick_loaded runs one tick of a loaded actor's package and returns the velocity for its capsule.
-// (hole ai-seam :tags (plugins ai) :sev struct) the app calls tick_loaded once per actor, and 50 of 109 ai procs take World_State or DB. Wanted: one batched tick behind a table, snapshot in, commands out (velocity, package, moved). Lua procedures stay the content surface.
 tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {
 	a := agent_of(w, ws, db, actor)
 	if worldstate.is_dead(ws, db, actor) {return stop_dead(w, actor, a)}
@@ -94,10 +94,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 		a.scene = scene_pack != 0
 	}
-	was := a.combat.state
-	a.combat.state = next_combat(w, ws, db, actor, feet, &a.combat, dt)
-	if was != .None && a.combat.state == .None {interrupt(w, actor)}
-	if a.combat.state != .None {
+	if a.combat.state != .None { // tick_combat ran first
 		leave(a)
 		combat_goal(ws, db, a, feet)
 	} else if confront(w, ws, db, a, actor, feet, dt) {

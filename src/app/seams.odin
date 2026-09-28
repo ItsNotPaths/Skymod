@@ -23,10 +23,12 @@ actor_snapshot :: proc(s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gam
 	clear(&s.actors)
 	for a in loaded {
 		pos := worldstate.ref_pos(ws, db, a)
+		cell, _ := gamedb.cell_by_formid(db, worldstate.ref_cell(ws, db, a))
 		was, moved := s.last[a]
 		append(&s.actors, plugin.Actor {
 			id       = a,
 			space    = worldstate.ref_space(ws, db, a),
+			interior = cell.interior,
 			pos      = pos,
 			speed    = smath.length3(pos - was) / dt if moved else 0,
 			dead     = worldstate.is_dead(ws, db, a),

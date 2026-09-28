@@ -1,30 +1,17 @@
 package ai
 
-// Combat state toward a target, any actor: when an actor warns, attacks or flees, and where it
-// moves. No attacks land yet.
+// The host side of the combat seam (src/combat): each loaded actor's fight, and the mover goal
+// that carries it out. No attacks land yet.
 
-// (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage)) the brain is a stand-in: close, swing in reach, flee on low confidence. Wanted: real tactics (block, dodge, ranged, spells, groups) behind the same seam, from someone who knows combat AI.
 
+import "base:runtime"
 import "core:math/linalg"
+import "../combat"
 import "../formats/esm"
-import "../formid"
 import "../gamedb"
+import "../plugin"
 import "../worldstate"
 
-Combat_State :: enum u8 {
-	None,
-	Warn, // inside its warn radius: holds
-	Combat, // closes on the target
-	Flee, // runs from the target
-}
-
-Combat :: struct {
-	state:  Combat_State,
-	target: Form_ID, // whom it warns, fights or flees
-	warned: f32, // seconds the target has spent inside the warn/attack radius
-}
-
-COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
 // fought: some actor fights `target`.
@@ -35,56 +22,9 @@ fought :: proc(w: ^World, target: Form_ID) -> bool {
 	return false
 }
 
-combat_state :: proc(w: ^World, actor: Form_ID) -> Combat_State {
+combat_state :: proc(w: ^World, actor: Form_ID) -> combat.State {
 	a, ok := w.agents[actor]
 	return a.combat.state if ok else .None
-}
-
-// next_combat is the actor's combat state this tick. An actor that was hit turns on whoever hit
-// it. Otherwise it keeps its fight while the target stays near, else attacks the nearest actor it
-// has detected that its aggression lets it attack, else warns or attacks the nearest non-ally
-// inside its aggro radii.
-// (hole aggro-radius-targets :tags (ai combat) :sev polish) unsourced: whether the aggro radii warn and attack every actor that is not an ally, or only the player; they take every non-ally.
-// (hole combat-seam :tags (plugins ai combat) :sev struct :needs (ai-seam)) the combat brain is Odin code inside ai: a plugin cannot replace it. Wanted: its own table (next state and goal per actor, batched).
-@(private)
-next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: ^Combat, dt: f32) -> Combat_State {
-	if worldstate.is_dead(ws, db, actor) {
-		c^ = {}
-		return .None
-	}
-	if by, ok := worldstate.take_struck(ws, actor); ok && !worldstate.is_dead(ws, db, by) {
-		c.target, c.warned = by, 0
-		return engage(ws, db, actor)
-	}
-	aggro := actor_aggro(ws, db, actor)
-	if c.state == .Combat || c.state == .Flee {
-		if keeps(ws, db, actor, feet, c^, aggro) {return c.state}
-		c^ = {}
-	}
-
-	attack, near := Form_ID(0), Form_ID(0)
-	attack_d, near_d := max(f32), max(f32)
-	reach := max(aggro.warn, aggro.warn_attack, aggro.attack) if aggro.on else 0
-	for other in w.present {
-		if other == actor {continue}
-		seen := worldstate.detected(ws, actor, other)
-		d := linalg.length(worldstate.ref_pos(ws, db, other).xy - feet.xy)
-		if !seen && d > reach || worldstate.is_dead(ws, db, other) || worldstate.faction_relation(ws, db, actor, other) >= .Ally {continue}
-		if seen && d < attack_d && attacks_on_sight(ws, db, actor, other) {attack, attack_d = other, d}
-		if d < near_d {near, near_d = other, d}
-	}
-	if attack != 0 {
-		c.target, c.warned = attack, 0
-		return engage(ws, db, actor)
-	}
-	if !aggro.on || near == 0 || near_d > max(aggro.warn, aggro.warn_attack, aggro.attack) {
-		c^ = {}
-		return .None
-	}
-	if near != c.target {c.target, c.warned = near, 0}
-	if near_d <= aggro.warn_attack {c.warned += dt} else {c.warned = 0}
-	if near_d <= aggro.attack || c.warned >= gamedb.setting_float(db, "fWarningTimer", 5) {return engage(ws, db, actor)}
-	return .Warn
 }
 
 // set_present is the loaded actors this tick: whom combat and guards
@@ -94,44 +34,89 @@ set_present :: proc(w: ^World, loaded: map[Form_ID]bool) {
 	for a in loaded {append(&w.present, a)}
 }
 
-// engage is Combat, or Flee for a Cowardly actor.
-@(private = "file")
-engage :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> Combat_State {
-	return .Flee if worldstate.av_current(ws, db, actor, "Confidence") == 0 else .Combat
+Combat_Host :: struct {
+	ctx:  runtime.Context,
+	ws:   ^worldstate.World_State,
+	db:   ^gamedb.DB,
+	sets: [dynamic]combat.Fighter,
 }
 
-// keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
-@(private = "file")
-keeps :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, feet: [3]f32, c: Combat, aggro: esm.Aggro) -> bool {
-	if c.target == 0 || worldstate.is_dead(ws, db, c.target) {return false}
-	d := linalg.length(worldstate.ref_pos(ws, db, c.target).xy - feet.xy)
-	if c.state == .Flee {return d <= flee_distance(ws, db, actor)}
-	return worldstate.detected(ws, actor, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE
-}
-
-// attacks_on_sight: Aggressive attacks the hostile actors it has detected, Very Aggressive
-// neutrals too, Frenzied anyone.
-@(private = "file")
-attacks_on_sight :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor, other: Form_ID) -> bool {
-	if !worldstate.detected(ws, actor, other) {return false}
-	aggression := worldstate.av_current(ws, db, actor, "Aggression")
-	return aggression >= 2 || aggression >= 1 && worldstate.hostile(ws, db, actor, other)
-}
-
-// actor_aggro is the actor's aggro radii, through its AI data template.
-@(private = "file")
-actor_aggro :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> esm.Aggro {
-	base := worldstate.record_of(ws, actor)
-	if r, ok := gamedb.ref_by_formid(db, base); ok {base = r.base}
-	return gamedb.template_part(db, base, esm.ACBS_TEMPLATE_AI_DATA, worldstate.actor_pick(ws, db, actor)).aggro
-}
-
-@(private = "file")
-flee_distance :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> f32 {
-	if c, ok := gamedb.cell_by_formid(db, worldstate.ref_cell(ws, db, actor)); ok && c.interior {
-		return gamedb.setting_float(db, "fFleeDistanceInterior", 3000)
+// tick_combat runs the combat seam for the loaded actors the AI drives, before their packages
+// tick. A fight that ends restarts the actor's package.
+tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^combat.Table, actors: []plugin.Actor, dt: f32) {
+	fighters := make([dynamic]combat.Fighter, 0, len(actors), context.temp_allocator)
+	for a in actors {
+		if a.id == ws.player || a.dead {continue}
+		by, _ := worldstate.take_struck(ws, a.id)
+		append(&fighters, combat.Fighter{a.id, agent_of(w, ws, db, a.id).combat, by})
 	}
-	return gamedb.setting_float(db, "fFleeDistanceExterior", 5000)
+	h := Combat_Host{context, ws, db, make([dynamic]combat.Fighter, context.temp_allocator)}
+	inp := combat.Input {
+		host     = {&h, combat_detected, combat_ally, combat_hostile, combat_actor_value, combat_aggro, combat_setting, combat_set},
+		table    = t,
+		dt       = dt,
+		actors   = plugin.span(actors),
+		fighters = plugin.span(fighters[:]),
+	}
+	t.tick(&inp)
+	for s in h.sets {
+		a := agent_of(w, ws, db, s.actor)
+		if a.combat.state != .None && s.fight.state == .None {interrupt(w, s.actor)}
+		a.combat = s.fight
+	}
+}
+
+@(private = "file")
+combat_detected :: proc "c" (data: rawptr, viewer, target: Form_ID) -> bool {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	return worldstate.detected(h.ws, viewer, target)
+}
+
+@(private = "file")
+combat_ally :: proc "c" (data: rawptr, a, b: Form_ID) -> bool {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	return worldstate.faction_relation(h.ws, h.db, a, b) >= .Ally
+}
+
+@(private = "file")
+combat_hostile :: proc "c" (data: rawptr, a, b: Form_ID) -> bool {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	return worldstate.hostile(h.ws, h.db, a, b)
+}
+
+@(private = "file")
+combat_actor_value :: proc "c" (data: rawptr, actor: Form_ID, name: cstring) -> f32 {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	return worldstate.av_current(h.ws, h.db, actor, string(name))
+}
+
+// combat_aggro is the actor's aggro radii, through its AI data template.
+@(private = "file")
+combat_aggro :: proc "c" (data: rawptr, actor: Form_ID) -> combat.Aggro {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	base := worldstate.record_of(h.ws, actor)
+	if r, ok := gamedb.ref_by_formid(h.db, base); ok {base = r.base}
+	a := gamedb.template_part(h.db, base, esm.ACBS_TEMPLATE_AI_DATA, worldstate.actor_pick(h.ws, h.db, actor)).aggro
+	return {a.on, a.warn, a.warn_attack, a.attack}
+}
+
+@(private = "file")
+combat_setting :: proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	return gamedb.setting_float(h.db, string(name), fallback)
+}
+
+@(private = "file")
+combat_set :: proc "c" (data: rawptr, actor: Form_ID, f: combat.Fight) {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	append(&h.sets, combat.Fighter{actor = actor, fight = f})
 }
 
 // combat_goal aims the mover for a combat state: at the target, away from it, or nowhere.

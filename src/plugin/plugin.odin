@@ -31,6 +31,7 @@ Form_ID :: formid.Form_ID
 Actor :: struct {
 	id:       Form_ID,
 	space:    Form_ID, // its worldspace or interior cell; 0 = none
+	interior: bool,
 	pos:      [3]f32,
 	speed:    f32, // units/s since the last snapshot
 	dead:     bool,
