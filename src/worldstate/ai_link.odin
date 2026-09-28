@@ -56,7 +56,7 @@ done_today :: proc(ws: ^World_State, actor, pack: Form_ID) -> bool {
 	return ok && math.floor(hour / 24) == math.floor(ws.clock.hours / 24)
 }
 
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) no actor-state model: seated, sleeping, mounted, leaning, attacking and in-an-action live in scattered sets or nowhere. Wanted: one model that AI, scripts and conditions write and read and animation plays, not a copy of Havok behaviour graphs or Nemesis/Pandora patching.
+// (hole actor-states :tags (animation ai unclaimed) :sev blocker) no actor-state model: seated, sleeping, mounted, leaning, attacking and in-an-action live in scattered sets or nowhere. Wanted: one model that AI, scripts and conditions write and read and animation plays, not a copy of Havok behaviour graphs or Nemesis/Pandora patching. Swinging, drinking a potion, a dodge roll, paragliding are states; a mod adds one through the model's own clean API (user 2026-09-28: not a native plugin seam), and the combat brain and scripts ask for states by name.
 // SEATED is the sit and sleep state "in the furniture"; getting in and out (1, 2, 4) are animation.
 SEATED :: 3
 
