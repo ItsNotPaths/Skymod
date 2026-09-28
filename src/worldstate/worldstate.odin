@@ -16,8 +16,10 @@ package worldstate
 // Files: refs (per-ref deltas, created refs), quests, actors (inventory, AVs, factions,
 // relationships, perks), scripts (script-runtime state), save ((de)serialises the Overlay).
 
-import "base:runtime"
+import "core:debug/trace"
+import "core:fmt"
 import "core:log"
+import "core:strings"
 import "../formid"
 import "../formula"
 import "../gamedb"
@@ -203,26 +205,45 @@ sim_leave :: proc() {sim_depth -= 1}
 assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
 	when ODIN_DEBUG {
 		assert(ws.script_phase == on_script_thread, "worldstate: touched by a thread that does not own it", loc)
-		if !on_script_thread && sim_depth == 0 {warn_owner(loc)}
+		if !on_script_thread && sim_depth == 0 {warn_owner()}
 	}
 }
 
+// warned holds the call paths already reported, as raw return addresses: resolving one to source
+// runs addr2line, so only a new path is resolved.
 @(private)
 warned: struct {
-	at: [64]runtime.Source_Code_Location,
+	at: [64][8]trace.Capture_Entry,
 	n:  int,
 }
 
+// warn_owner logs, once per call path, the first frames outside worldstate that touched it.
 @(private)
-warn_owner :: proc(loc: runtime.Source_Code_Location) {
+warn_owner :: proc() {
+	bt := trace.capture(skip = 1)
+	key: [8]trace.Capture_Entry
+	copy(key[:], bt.trace[:bt.len])
 	for w in warned.at[:warned.n] {
-		if w == loc {return}
+		if w == key {return}
 	}
 	if warned.n < len(warned.at) {
-		warned.at[warned.n] = loc
+		warned.at[warned.n] = key
 		warned.n += 1
 	}
-	log.warnf("worldstate: touched outside the sim at %v", loc)
+	lines, err := trace.resolve(bt, context.temp_allocator, context.temp_allocator)
+	if err != nil {
+		log.warnf("worldstate: touched outside the sim (no backtrace: %v)", err)
+		return
+	}
+	b := strings.builder_make(context.temp_allocator)
+	shown := 0
+	for l in lines {
+		if strings.contains(l.file_path, "/worldstate/") {continue}
+		fmt.sbprintf(&b, "\n    %s(%d) %s", l.file_path, l.line, l.procedure)
+		shown += 1
+		if shown == 4 {break}
+	}
+	log.warnf("worldstate: touched outside the sim:%s", strings.to_string(b))
 }
 
 Keyword_Key :: struct {
