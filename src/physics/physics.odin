@@ -105,12 +105,11 @@ LAYER_SIGHT :: jolt.ObjectLayer(3) // cutout geometry (leaves, fences): collides
 // Body is an opaque handle into a World (Jolt's BodyID).
 Body :: jolt.BodyID
 
-// World owns a Jolt physics system + its job pool and the layer-filter tables the system
+// World owns a Jolt physics system and the layer-filter tables the system
 // references (the tables must outlive the system).
 World :: struct {
 	system:    ^jolt.PhysicsSystem,
 	bodies:    ^jolt.BodyInterface, // borrowed from system (don't free)
-	jobs:      ^jolt.JobSystem,
 	bp_iface:  ^jolt.BroadPhaseLayerInterface,
 	obj_pair:  ^jolt.ObjectLayerPairFilter,
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
@@ -130,6 +129,7 @@ Pose :: struct {
 @(private) g_inited := false
 @(private) g_init_lock: sync.Mutex // worlds may be made on several threads (the unit tests)
 @(private) g_solid_only: ^jolt.BroadPhaseLayerFilter // queries that are not sight skip BP_SIGHT
+@(private) g_jobs: ^jolt.JobSystem // one pool of cores-1 threads every world steps on
 
 // init brings up Jolt's global factory/allocator (once per process). Idempotent; safe to
 // call before each world_create. Returns false if Jolt failed to initialize.
@@ -143,6 +143,7 @@ init :: proc() -> bool {
 		}
 		jolt.BroadPhaseLayerFilter_SetProcs(&procs)
 		g_solid_only = jolt.BroadPhaseLayerFilter_Create(nil)
+		g_jobs = jolt.JobSystemThreadPool_Create(nil)
 	}
 	return g_inited
 }
@@ -151,18 +152,17 @@ init :: proc() -> bool {
 // destroyed.
 shutdown :: proc() {
 	if g_inited {
+		jolt.JobSystem_Destroy(g_jobs)
 		jolt.Shutdown()
 		g_inited = false
 	}
 }
 
-// world_create builds a physics world (job pool + layer filters + system). Call init()
+// world_create builds a physics world (layer filters + system). Call init()
 // first (world_create calls it defensively). Free with world_destroy.
 world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 	if !init() {return {}, false}
 
-	// (hole jolt-job-pool :tags (threading physics) :sev polish) each World makes its own Jolt pool of cores-1 threads; with two worlds, stream workers and a sim thread the cores are oversubscribed. Wanted: one pool all worlds share.
-	w.jobs = jolt.JobSystemThreadPool_Create(nil)
 
 	w.obj_pair = jolt.ObjectLayerPairFilterTable_Create(NUM_OBJECT_LAYERS)
 	jolt.ObjectLayerPairFilterTable_EnableCollision(w.obj_pair, LAYER_MOVING, LAYER_MOVING)
@@ -219,7 +219,6 @@ world_destroy :: proc(w: ^World) {
 	delete(w.prev)
 	delete(w.awake)
 	if w.system != nil {jolt.PhysicsSystem_Destroy(w.system)}
-	if w.jobs != nil {jolt.JobSystem_Destroy(w.jobs)}
 	// The layer-filter tables are owned by Jolt's interface registry for the process's
 	// lifetime; joltc exposes no destroy for them (one tiny set per world).
 	w^ = {}
@@ -231,7 +230,7 @@ world_destroy :: proc(w: ^World) {
 // two machines converge differently. Callers drive it from the fixed tick.
 step :: proc(w: ^World, dt: f32, collision_steps := 1) {
 	snapshot_awake(w)
-	jolt.PhysicsSystem_Update(w.system, dt, i32(collision_steps), w.jobs)
+	jolt.PhysicsSystem_Update(w.system, dt, i32(collision_steps), g_jobs)
 }
 
 // snapshot_awake records the pre-step pose of the awake bodies — the only ones that can move,
