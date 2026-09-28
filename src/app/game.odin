@@ -99,6 +99,7 @@ MAX_CATCH_UP_TICKS :: 5
 Tick :: struct {
 	temp: runtime.Default_Temp_Allocator, // the tick's context.temp_allocator, wiped after each tick
 	prof: Tick_Profile,
+	cur:  Tick_Sample, // this tick's parts so far
 }
 
 Tick_Part :: enum {
@@ -109,27 +110,46 @@ Tick_Part :: enum {
 	Scene,
 	Locomotion,
 	Nav,
-	Detection,
 	Actors,
+	Detection,
+	AI,
+	Social,
+	Offscreen,
 	Projectiles,
+	Window,
 	Physics,
 	Traversal,
 	Audio,
+	Script_Events,
+	Scripts,
+	Publish,
 }
 
-// Tick_Profile is the sim's time over the diag window, in accumulated ms. The script phases are
-// apart from the parts: they run on the script thread, over render.
+// Tick_Sample is one tick's ms per part.
+Tick_Sample :: [Tick_Part]f32
+
+// TICK_HISTORY is how many ticks the profiler graph shows.
+TICK_HISTORY :: 4 * TICK_HZ
+
+// PROF_REPORT_TICKS is how often the sim logs its costliest script handlers.
+PROF_REPORT_TICKS :: 3 * TICK_HZ
+
+// SLOW_TICK_MS is a tick that costs a shown frame: it logs its parts.
+SLOW_TICK_MS :: f32(2000) / TICK_HZ
+
+// Tick_Profile is the sim's time: running totals in ms, and the last ticks one by one.
 Tick_Profile :: struct {
-	ticks:   int,
-	ms:      [Tick_Part]f64,
-	scripts: f64,
+	ticks:  int,
+	ms:     [Tick_Part]f64,
+	events: [slua.Event_Step]f64, // Script_Events by step
+	recent: [TICK_HISTORY]Tick_Sample, // a ring; tick n is at n % TICK_HISTORY
 }
 
-// prof_since is the ticks' profile between two of the sim's running totals.
+// prof_since is the ticks' totals between two of the sim's profiles.
 prof_since :: proc(now, then: Tick_Profile) -> (p: Tick_Profile) {
 	p.ticks = now.ticks - then.ticks
 	for &ms, part in p.ms {ms = now.ms[part] - then.ms[part]}
-	p.scripts = now.scripts - then.scripts
+	for &ms, s in p.events {ms = now.events[s] - then.events[s]}
 	return
 }
 
@@ -254,6 +274,7 @@ Game :: struct {
 	// debug verbs (drop-test balls, hitbox wireframe) + overlay visibility
 	drop_marker:   render.Mesh,
 	show_overlay:  bool, // ` toggles
+	show_profiler: bool, // F3 toggles the tick graph
 	show_hitboxes: bool, // K toggles
 	pretty:        bool, // hide untextured marker placeholders; live-toggleable in Stats
 

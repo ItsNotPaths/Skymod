@@ -18,6 +18,8 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:os"
+import "core:reflect"
+import "core:slice"
 import "core:strings"
 import "core:time"
 
@@ -63,6 +65,9 @@ game_frame :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "ToggleOverlay") {
 		g.show_overlay = !g.show_overlay
 	}
+	if input.fired(&g.imgr, "ToggleProfiler") {
+		g.show_profiler = !g.show_profiler
+	}
 	// Pointer lock during gameplay (mouse-look, no button needed). The tilde/backtick dev overlay is the
 	// cursor gate: overlay OPEN → cursor free to click its panels + console; overlay CLOSED → mouse locked
 	// for look. (The overlay is on by default, so a fresh session starts cursor-free until you un-tilde.)
@@ -73,6 +78,9 @@ game_frame :: proc(g: ^Game) {
 	frame_diag(g)
 	if g.show_overlay {
 		frame_overlay(g)
+	}
+	if g.show_profiler {
+		frame_tick_graph(g)
 	}
 	frame_active_scene(g)
 	frame_look(g)
@@ -139,7 +147,6 @@ game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
 	take(&g.simt.inputs, &g.sim.input)
-	g.tick.prof.ticks += 1
 	t := time.tick_now()
 	apply_commands(g)
 	run_console(g)
@@ -164,6 +171,7 @@ game_tick :: proc(g: ^Game) {
 	tick_projectiles(g)
 	lap(g, .Projectiles, &t)
 	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
+	lap(g, .Window, &t)
 	frame_physics(g)
 	lap(g, .Physics, &t)
 	frame_traversal(g)
@@ -173,16 +181,48 @@ game_tick :: proc(g: ^Game) {
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	run_scripts(g)
+	t = time.tick_now()
 	publish_snapshot(g)
 	forward_ref_events(g)
 	g.sim.input_was = g.sim.input
+	lap(g, .Publish, &t)
+	tick_prof_end(g)
 }
 
 // lap adds the time since `t` to a tick part and restarts `t`.
 lap :: proc(g: ^Game, part: Tick_Part, t: ^time.Tick) {
 	now := time.tick_now()
-	g.tick.prof.ms[part] += time.duration_milliseconds(time.tick_diff(t^, now))
+	g.tick.cur[part] += f32(time.duration_milliseconds(time.tick_diff(t^, now)))
 	t^ = now
+}
+
+// tick_prof_end adds the tick's parts to the profile, and logs them when the tick was slow.
+@(private = "file")
+tick_prof_end :: proc(g: ^Game) {
+	p := &g.tick.prof
+	cur := g.tick.cur
+	g.tick.cur = {}
+	p.recent[p.ticks % TICK_HISTORY] = cur
+	p.ticks += 1
+	steps := g.sim.repl.vm.steps if g.repl_ok else {}
+	for ms, s in steps {p.events[s] += f64(ms)}
+	total: f32
+	for ms, part in cur {
+		p.ms[part] += f64(ms)
+		total += ms
+	}
+	if total > SLOW_TICK_MS {
+		log.warnf("SLOW TICK %.1fms:%s | Script_Events:%s", total, prof_parts(cur, 0.1), prof_parts(steps, 0.1))
+	}
+}
+
+// prof_parts lists the parts of at least `min` ms, as " Part=ms ...".
+prof_parts :: proc(parts: [$E]$T, min: f64) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	for ms, part in parts {
+		if f64(ms) >= min {fmt.sbprintf(&b, " %v=%.2f", part, ms)}
+	}
+	return strings.to_string(b)
 }
 
 // frame_diag emits the periodic memory/cache/leak probe + the frame-time profile (every ~3s).
@@ -229,9 +269,14 @@ frame_diag :: proc(g: ^Game) {
 	if tp.ticks > 0 {
 		// Sim breakdown (avg ms per tick): the part that climbs is what stalls the frame.
 		inv := 1.0 / f64(tp.ticks)
-		b := strings.builder_make(context.temp_allocator)
-		for ms, part in tp.ms {fmt.sbprintf(&b, " %v=%.2f", part, ms * inv)}
-		log.infof("prof.tick:%s scripts=%.2f (avg/%d ticks)", strings.to_string(b), tp.scripts * inv, tp.ticks)
+		total: f64
+		for &ms in tp.ms {
+			ms *= inv
+			total += ms
+		}
+		for &ms in tp.events {ms *= inv}
+		log.infof("prof.tick: total=%.2f%s (avg/%d ticks)", total, prof_parts(tp.ms, 0.005), tp.ticks)
+		log.infof("prof.events:%s (avg/%d ticks)", prof_parts(tp.events, 0.005), tp.ticks)
 	}
 	g.prof = {}
 	// Leak probe: bodies/instances should be FLAT when the player stands still. Δ is the
@@ -255,6 +300,16 @@ frame_diag :: proc(g: ^Game) {
 			log.warnf("diag: %s", msg)
 		}
 	}
+}
+
+// frame_tick_graph draws the sim's last ticks, oldest first, as a stacked graph of their parts.
+@(private = "file")
+frame_tick_graph :: proc(g: ^Game) {
+	p := &g.snap.prof
+	n := min(p.ticks, TICK_HISTORY)
+	ticks := make([]Tick_Sample, n, context.temp_allocator)
+	for &s, i in ticks {s = p.recent[(p.ticks - n + i) % TICK_HISTORY]}
+	tools.stack_graph("tick", slice.reinterpret([]f32, ticks), reflect.enum_field_names(Tick_Part), 1000.0 / TICK_HZ)
 }
 
 // frame_overlay draws + handles the whole dev overlay (` toggles it in game_frame). Hidden =

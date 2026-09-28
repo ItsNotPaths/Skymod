@@ -79,6 +79,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 	lap(g, .Detection, &t)
 	ai.set_present(&g.sim.agents, seen)
 	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
+	lap(g, .Actors, &t)
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.sim.actor_bodies {
 		if form in seen {
@@ -107,8 +108,11 @@ tick_actor_bodies :: proc(g: ^Game) {
 	for form in gone {delete_key(&g.sim.actor_bodies, form)}
 	clear(&g.sim.ws.ai.loaded)
 	for form in g.sim.actor_bodies {g.sim.ws.ai.loaded[form] = true}
+	lap(g, .AI, &t)
 	ai.tick_social(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
+	lap(g, .Social, &t)
 	ai.tick_unloaded(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
+	lap(g, .Offscreen, &t)
 }
 
 // Actor_Grab is the dev carry: hold DevGrabActor on an actor to carry its capsule at the crosshair,

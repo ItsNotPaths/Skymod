@@ -33,6 +33,7 @@ VM :: struct {
 	host_context: runtime.Context, // captured per run so the "c"-callconv bridge can log/alloc
 	none_warned:  map[string]bool, // per-method log-once guard for None absorption (decision #2)
 	scripts:      map[string][dynamic]Script_Layer, // lowercase script name -> its files (loader.odin)
+	steps:        [Event_Step]f32, // the last tick_begin's ms per step
 }
 
 // UPVAL_VM is lua_upvalueindex(1) — the closure upvalue holding the ^VM. The

@@ -9,6 +9,7 @@ import "core:log"
 import "core:math"
 import "core:slice"
 import "core:strings"
+import "core:time"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../audio"
@@ -367,27 +368,65 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 // tick_begin advances the script clocks, gives the refs of `loaded` cells their scripts (and OnInit),
 // then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.
 tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, loaded, attached: []script.Form_ID, dt: f32) {
+	vm.steps = {}
+	at := time.tick_now()
 	hours := advance_clocks(vm, db, ws, dt)
 	worldstate.av_regen(ws, db, play_seconds(db, ws, dt, hours))
+	step(vm, .Clocks, &at)
 	sync_refs(vm)
+	step(vm, .Refs, &at)
 	tick_effects(vm, ws, dt)
+	step(vm, .Effects, &at)
 	for cell in loaded {attach_cell(vm, db, cell)}
+	step(vm, .Attach, &at)
 	tick_transitions(vm, db, ws, t, attached)
+	step(vm, .Transitions, &at)
 	tick_triggers(vm, db, ws)
+	step(vm, .Triggers, &at)
 	tick_los(vm, db, ws)
+	step(vm, .LOS, &at)
 	tick_location(vm, ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
 	tick_updates(vm, ws, dt, hours)
+	step(vm, .Updates, &at)
 	tick_items(vm, db, ws)
 	tick_hits(vm, ws)
 	tick_deaths(vm, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)
+	step(vm, .Actor_Events, &at)
 	tick_story_events(vm, ws)
+	step(vm, .Story, &at)
 	tick_scenes(vm, dt)
 	tick_barks(vm, dt)
+	step(vm, .Scenes, &at)
 	tick_info_fragments(vm)
 	script.tick_courier(&vm.ctx)
+	step(vm, .Fragments, &at)
+}
+
+// Event_Step is a part of tick_begin, for the profile.
+Event_Step :: enum {
+	Clocks,
+	Refs,
+	Effects,
+	Attach,
+	Transitions,
+	Triggers,
+	LOS,
+	Updates,
+	Actor_Events,
+	Story,
+	Scenes,
+	Fragments,
+}
+
+// step adds the time since `at` to a step of this tick_begin and restarts `at`.
+@(private = "file")
+step :: proc(vm: ^VM, s: Event_Step, at: ^time.Tick) {
+	now := time.tick_now()
+	vm.steps[s] += f32(time.duration_milliseconds(time.tick_diff(at^, now)))
+	at^ = now
 }
 
 // tick_end runs every queued event, then OnTick. Returns how many events ran.
@@ -396,6 +435,11 @@ tick_end :: proc(vm: ^VM, dt: f32) -> int {
 	call_rt(vm, "tick", f64(dt))
 	worldstate.end_first_tick(vm.ctx.ws)
 	return ran
+}
+
+// prof_report logs the `top` costliest script handlers over the last `ticks` ticks, and starts over.
+prof_report :: proc(vm: ^VM, ticks, top: int) {
+	call_rt(vm, "prof_report", f64(ticks), f64(top))
 }
 
 // drain runs every queued event. Returns how many events ran.

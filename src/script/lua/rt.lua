@@ -7,6 +7,7 @@
 local native, method, has_method, none_value = __native, __method, __has_method, __none_value
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
+local now, info = __now, __info
 local effect_class = __effect_class
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
@@ -899,16 +900,61 @@ local function unhook(hook, mask, count, ...)
   return ...
 end
 
-local function budgeted(f, ...)
+-- Each handler's own time (less the handlers it ran inside it) per class and name, in ms, since
+-- the last rt.prof_report.
+local prof, prof_inner = {}, 0
+
+local function prof_add(class, name, t0, outer, ...)
+  local dt = now() - t0
+  local by = prof[class]
+  if not by then
+    by = {}
+    prof[class] = by
+  end
+  local e = by[name]
+  if not e then
+    e = { n = 0, ms = 0, max = 0 }
+    by[name] = e
+  end
+  local own = (dt - prof_inner) * 1000
+  e.n, e.ms, e.max = e.n + 1, e.ms + own, math.max(e.max, own)
+  prof_inner = outer + dt
+  return ...
+end
+
+local function budgeted(class, name, f, ...)
   local hook, mask, count = gethook()
   sethook(over_budget, "", BUDGET)
-  return unhook(hook, mask, count, pcall(f, ...))
+  local t0, outer = now(), prof_inner
+  prof_inner = 0
+  return prof_add(class, name, t0, outer, unhook(hook, mask, count, pcall(f, ...)))
+end
+
+-- rt.prof_report logs the `top` costliest handlers over the last `ticks` ticks and starts over.
+function rt.prof_report(ticks, top)
+  local all, total = {}, 0
+  for class, by in pairs(prof) do
+    for name, e in pairs(by) do
+      e.key = class .. "." .. name
+      all[#all] = e
+      total = total + e.ms
+    end
+  end
+  prof = {}
+  table.sort(all, function(x, y) return x.ms > y.ms end)
+  local out = { format("prof.scripts: total=%.2f", total / ticks) }
+  for i = 0, math.min(top, #all) - 1 do
+    local e = all[i]
+    out[#out] = format("%s=%.3f (x%d, max %.2f)", e.key, e.ms / ticks, e.n, e.max)
+  end
+  info(table.concat(out, " ") .. format(" (ms avg/%d ticks)", ticks))
+  return 0
 end
 
 function rt.event(inst, name, ...)
   local f = lookup(inst.class, state_of(inst), low(name))
   if not f then return end
-  local ok, err = budgeted(f, inst, ...)
+  local ok, err = budgeted(inst.class.__name, name, f, inst, ...)
   if not ok then warn(tostring(inst) .. " " .. name .. ": " .. tostring(err)) end
 end
 
@@ -924,7 +970,7 @@ end
 
 -- rt.guard runs any function the way a handler runs: under the budget, an error only warns.
 function rt.guard(label, f, ...)
-  local ok, err = budgeted(f, ...)
+  local ok, err = budgeted(label, "guard", f, ...)
   if not ok then warn(label .. ": " .. tostring(err)) end
   return ok
 end
@@ -939,7 +985,7 @@ function rt.procedure(name, actor, dt, ...)
     warn_once("proc:" .. low(name), "no package procedure '" .. name .. "'")
     return "failed"
   end
-  local ok, status, goal, gait = budgeted(f, actor, dt, ...)
+  local ok, status, goal, gait = budgeted(name, "Procedure", f, actor, dt, ...)
   if not ok then
     warn("procedure " .. name .. ": " .. tostring(status))
     return "failed"

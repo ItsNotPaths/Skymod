@@ -30,6 +30,7 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"CastRight",     "gameplay", .Button, "mouse2"},
 	{"Sneak",         "gameplay", .Button, "lctrl"},
 	{"ToggleOverlay", "global",   .Button, "grave"},
+	{"ToggleProfiler", "global",  .Button, "f3"},
 	{"NoClip",        "gameplay", .Button, "v"},
 	{"QuickSave",     "gameplay", .Button, "f5"},
 	{"QuickLoad",     "gameplay", .Button, "f9"},

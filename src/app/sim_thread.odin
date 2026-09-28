@@ -141,6 +141,8 @@ run_scripts :: proc(g: ^Game) {
 		for cell in sp.cells {append(&s.attached, cell)}
 	}
 	slua.tick_begin(&g.sim.repl.vm, &g.db, &g.sim.ws, &g.sim.trans, s.loaded[:], s.attached[:], TICK_DT)
+	lap(g, .Script_Events, &t)
 	slua.tick_end(&g.sim.repl.vm, TICK_DT)
-	g.tick.prof.scripts += time.duration_milliseconds(time.tick_since(t))
+	lap(g, .Scripts, &t)
+	if (g.tick.prof.ticks + 1) % PROF_REPORT_TICKS == 0 {slua.prof_report(&g.sim.repl.vm, PROF_REPORT_TICKS, 12)}
 }

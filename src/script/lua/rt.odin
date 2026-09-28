@@ -8,6 +8,7 @@ import "core:log"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
+import "core:sys/posix"
 import lua "../../../vendor/lua"
 import script ".."
 import "../../formats/esm"
@@ -36,6 +37,8 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__class_of", rt_class_of},
 		{"__is_a", rt_is_a},
 		{"__warn", rt_warn},
+		{"__info", rt_info},
+		{"__now", rt_now},
 		{"__script_layers", rt_script_layers},
 		{"__anim_event", rt_anim_event},
 		{"__actor_value", rt_actor_value},
@@ -390,6 +393,24 @@ rt_warn :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	log.warnf("script: %s", to_string(L, 1))
 	return 0
+}
+
+@(private)
+rt_info :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	log.infof("%s", to_string(L, 1))
+	return 0
+}
+
+// __now() is a steady clock in seconds, for timing handlers. libc's clock_gettime: time.tick_now on
+// Linux is a raw syscall, ~0.3 us, and every handler reads the clock twice.
+@(private)
+rt_now :: proc "c" (L: ^lua.State) -> c.int {
+	ts: posix.timespec
+	posix.clock_gettime(.MONOTONIC, &ts)
+	lua.pushnumber(L, lua.Number(f64(ts.tv_sec) + f64(ts.tv_nsec) * 1e-9))
+	return 1
 }
 
 @(private)

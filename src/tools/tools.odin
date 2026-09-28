@@ -880,3 +880,93 @@ lighting_panel :: proc(
 	imgui.End()
 	return
 }
+
+// stack_graph draws a stacked area graph in the top-right corner: one column per sample, oldest at
+// the left, `len(names)` values per sample in `values`. A lead goes from each part's band to its
+// label on the right, with the ms averaged over the last GRAPH_AVG samples. `budget` is a ms line.
+stack_graph :: proc(title: string, values: []f32, names: []string, budget: f32) {
+	GRAPH_W :: 360
+	GRAPH_H :: 180
+	LEAD_W :: 40
+	LABEL_W :: 150
+	GRAPH_AVG :: 30
+	GRAPH_MIN :: 0.05 // ms: a part below it gets no label
+
+	parts := len(names)
+	n := len(values) / parts
+	if n < 2 {return}
+	sample :: proc(values: []f32, parts, i: int) -> []f32 {return values[i * parts:][:parts]}
+
+	avg := make([]f32, parts, context.temp_allocator)
+	for i in n - min(n, GRAPH_AVG) ..< n {
+		for v, p in sample(values, parts, i) {avg[p] += v / f32(min(n, GRAPH_AVG))}
+	}
+	total, peak: f32
+	for v in avg {total += v}
+	for i in 0 ..< n {
+		sum: f32
+		for v in sample(values, parts, i) {sum += v}
+		peak = max(peak, sum)
+	}
+	shown := 0
+	for v in avg {if v >= GRAPH_MIN {shown += 1}}
+
+	vp := imgui.GetMainViewport()
+	imgui.SetNextWindowPos({vp.WorkPos.x + vp.WorkSize.x - 10, vp.WorkPos.y + 10}, .Always, {1, 0})
+	imgui.SetNextWindowBgAlpha(0.6)
+	flags := imgui.WindowFlags_NoInputs | imgui.WindowFlags_NoDecoration | {.AlwaysAutoResize, .NoSavedSettings, .NoFocusOnAppearing}
+	defer imgui.End()
+	if !imgui.Begin(fmt.ctprint(title), nil, flags) {return}
+	imgui.TextUnformatted(fmt.ctprintf("%s  avg %.2f ms  peak %.2f ms  budget %.1f ms", title, total, peak, budget))
+
+	lh := imgui.GetTextLineHeight()
+	o := imgui.GetCursorScreenPos()
+	label_h := max(GRAPH_H, f32(shown) * lh)
+	imgui.Dummy({GRAPH_W + LEAD_W + LABEL_W, label_h})
+	dl := imgui.GetWindowDrawList()
+	top := max(budget * 1.25, peak)
+	y := proc(o: [2]f32, top, v: f32) -> f32 {return o.y + GRAPH_H - min(v / top, 1) * GRAPH_H}
+
+	colors := make([]u32, parts, context.temp_allocator)
+	for &c, p in colors { // neighbours in the stack sit far apart on the hue wheel, and alternate brightness
+		r, g, b: f32
+		imgui.ColorConvertHSVtoRGB(f32(p * 7 % parts) / f32(parts), 0.6, 0.95 if p % 2 == 0 else 0.7, &r, &g, &b)
+		c = imgui.ColorConvertFloat4ToU32({r, g, b, 0.9})
+	}
+
+	imgui.DrawList_AddRectFilled(dl, o, o + {GRAPH_W, GRAPH_H}, 0x80000000)
+	aa := dl.Flags
+	dl.Flags -= {.AntiAliasedFill} // anti-aliased quads leave seams between columns
+	for i in 0 ..< n - 1 {
+		x0 := o.x + GRAPH_W * f32(i) / f32(n - 1)
+		x1 := o.x + GRAPH_W * f32(i + 1) / f32(n - 1)
+		a, b := sample(values, parts, i), sample(values, parts, i + 1)
+		la, lb: f32
+		for p in 0 ..< parts {
+			ha, hb := la + a[p], lb + b[p]
+			if ha > la || hb > lb {
+				imgui.DrawList_AddQuadFilled(dl, {x0, y(o, top, ha)}, {x1, y(o, top, hb)}, {x1, y(o, top, lb)}, {x0, y(o, top, la)}, colors[p])
+			}
+			la, lb = ha, hb
+		}
+	}
+	by := y(o, top, budget)
+	imgui.DrawList_AddLine(dl, {o.x, by}, {o.x + GRAPH_W, by}, 0xC00000FF)
+
+	// Leads from the newest sample's bands to label slots, bottom part at the bottom.
+	last := sample(values, parts, n - 1)
+	x_end := o.x + GRAPH_W
+	xl := x_end + LEAD_W
+	hi: f32
+	slot := 0
+	for p in 0 ..< parts {
+		lo := hi
+		hi += last[p]
+		if avg[p] < GRAPH_MIN {continue}
+		mid := o.y + label_h - (f32(slot) + 0.5) * label_h / f32(shown)
+		slot += 1
+		imgui.DrawList_AddQuadFilled(dl, {x_end, y(o, top, hi)}, {xl, mid - lh * 0.4}, {xl, mid + lh * 0.4}, {x_end, y(o, top, lo)}, colors[p])
+		imgui.DrawList_AddText(dl, {xl + 4, mid - lh * 0.5}, 0xFFFFFFFF, fmt.ctprintf("%s %.2f", names[p], avg[p]))
+	}
+	dl.Flags = aa
+}
