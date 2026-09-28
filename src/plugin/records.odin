@@ -98,6 +98,20 @@ Effect_Item :: struct {
 	conditions: Span(Condition),
 }
 
+// Item_Count is one item and how many: a container line, a recipe ingredient, an inventory entry.
+Item_Count :: struct {
+	item:  Form_ID,
+	count: i32,
+}
+
+// Override_Packages are an actor's or alias's override package lists (FLSTs).
+Override_Packages :: struct {
+	combat:     Form_ID, // ECOR
+	spectator:  Form_ID, // SPOR
+	corpse:     Form_ID, // OCOR
+	guard_warn: Form_ID, // GWOR
+}
+
 Form :: struct {
 	using header: Header,
 	kind:         u8, // the form's Papyrus class, as kind_name spells it

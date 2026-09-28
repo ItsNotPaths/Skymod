@@ -8,7 +8,6 @@ import "core:reflect"
 import "../gamedb"
 import "../plugin"
 
-// (hole world-api-records :tags (plugins mods records) :sev gap) most views are stubs that answer false: only Form, Spell and Magic_Effect are filled. Wanted: every kind in records_*.odin filled from its gamedb record, field by field (user 2026-09-28: all at once).
 @(private)
 record :: proc "c" (data: rawptr, form: Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool {
 	d := (^Data)(data)
@@ -102,6 +101,18 @@ effects :: proc(es: []gamedb.Magic_Effect_Ref) -> plugin.Span(plugin.Effect_Item
 	out := make([]plugin.Effect_Item, len(es), context.temp_allocator)
 	for e, i in es {out[i] = {e.effect, e.magnitude, e.area, e.duration, conditions(e.conditions)}}
 	return plugin.span(out)
+}
+
+@(private)
+item_counts :: proc(es: []gamedb.Content_Entry) -> plugin.Span(plugin.Item_Count) {
+	out := make([]plugin.Item_Count, len(es), context.temp_allocator)
+	for e, i in es {out[i] = {e.item, e.count}}
+	return plugin.span(out)
+}
+
+@(private)
+override_packages :: proc(o: gamedb.Override_Packages) -> plugin.Override_Packages {
+	return {o.combat, o.spectator, o.corpse, o.guard_warn}
 }
 
 @(private = "file")
