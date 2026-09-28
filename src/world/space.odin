@@ -8,6 +8,7 @@ package world
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../physics"
 import "../worldstate"
 
@@ -43,7 +44,7 @@ Cell_Removed :: struct {cell: Form_ID}
 Ref_Placement :: struct {
 	form_id:    Form_ID,
 	base:       Form_ID,
-	model_path: string,
+	model_id: models.ID,
 	pos, rot:   smath.Vec3,
 	scale:      f32,
 	world:      smath.Mat4,
@@ -53,7 +54,7 @@ Ref_Placement :: struct {
 }
 
 placement_of :: proc(r: Sim_Ref) -> Ref_Placement {
-	return {r.form_id, r.base, r.model_path, r.pos, r.rot, r.scale, r.world, r.has_tp, r.tp_door, r.disabled}
+	return {r.form_id, r.base, r.model_id, r.pos, r.rot, r.scale, r.world, r.has_tp, r.tp_door, r.disabled}
 }
 
 ref_event_destroy :: proc(e: Ref_Event) {
@@ -79,7 +80,7 @@ Sim_Cell :: struct {
 Sim_Ref :: struct {
 	form_id:    Form_ID,
 	base:       Form_ID,
-	model_path: string, // borrowed from gamedb: the collision store's key
+	model_id: models.ID,
 	pos:        smath.Vec3,
 	rot:        smath.Vec3,
 	scale:      f32,

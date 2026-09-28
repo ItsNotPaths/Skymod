@@ -6,6 +6,7 @@ package world
 import "core:math"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../worldstate"
 
 // build_cell is a cell's refs: the ESM baseline and the grid's persistent refs, minus deleted ones,
@@ -35,7 +36,7 @@ add_refs :: proc(sp: ^Space, db: ^gamedb.DB, c: ^Sim_Cell, refs: []gamedb.Ref) {
 		ref := Sim_Ref {
 			form_id    = r.form_id,
 			base       = r.base,
-			model_path = modl,
+			model_id   = models.intern(modl),
 			pos        = r.pos,
 			rot        = r.rot,
 			scale      = r.scale,
@@ -67,7 +68,7 @@ created_ref :: proc(sp: ^Space, db: ^gamedb.DB, fid: Form_ID) -> (ref: Sim_Ref, 
 	ref = {
 		form_id    = fid,
 		base       = cr.base,
-		model_path = modl,
+		model_id   = models.intern(modl),
 		pos        = cr.pos,
 		rot        = cr.rot,
 		scale      = cr.scale,

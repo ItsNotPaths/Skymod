@@ -19,6 +19,7 @@ import "core:math"
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../render"
 
 // Tunables (set from settings.txt via main; see object_lod_band / object_lod_quad there).
@@ -41,7 +42,7 @@ Cell_Span :: struct {
 // bake, reused every frame) + the model resolved LAZILY at draw (the buffer is just matrices) +
 // per-cell spans into the buffer (for the near skirt; see Cell_Span).
 Lod_Draw :: struct {
-	model_path: string,
+	model_id: models.ID,
 	model:      ^assetdb.Model,
 	veg:        Veg_Kind,
 	buf:        render.Obj_Instances,
@@ -173,9 +174,10 @@ bake_object_lod :: proc(st: ^Streamer) {
 		quad := &s.lod_quads[qm.quad]
 		spans := make([dynamic]Cell_Span, len(b.spans)) // scene-owned copy (bucket is temp); freed in clear_object_lod
 		copy(spans[:], b.spans[:])
-		append(&quad.draws, Lod_Draw{model_path = qm.path, veg = b.veg, buf = buf, spans = spans})
-		assetdb.model_acquire(&s.cache, qm.path) // D1: the session-long LOD pin (released in clear_object_lod)
-		enqueue_model(st, qm.path, extras = false) // draw-only: LOD meshes/billboards are never picked or cooked
+		model := models.intern(qm.path)
+		append(&quad.draws, Lod_Draw{model_id = model, veg = b.veg, buf = buf, spans = spans})
+		assetdb.model_acquire(&s.cache, model) // D1: the session-long LOD pin (released in clear_object_lod)
+		enqueue_model(st, model, extras = false) // draw-only: LOD meshes/billboards are never picked or cooked
 		nbuf += 1
 	}
 	render.upload_end(&batch)
@@ -190,7 +192,7 @@ bake_object_lod :: proc(st: ^Streamer) {
 clear_object_lod :: proc(s: ^Scene) {
 	for _, &q in s.lod_quads {
 		for d in q.draws {
-			assetdb.model_release(&s.cache, d.model_path) // D1: release the per-draw LOD pin
+			assetdb.model_release(&s.cache, d.model_id) // D1: release the per-draw LOD pin
 			render.release_obj_instances(s.cache.r, d.buf)
 			delete(d.spans)
 		}
@@ -243,7 +245,7 @@ draw_object_lod :: proc(
 			qx1 >= pcx - fr && qx0 <= pcx + fr && qy1 >= pcy - fr && qy0 <= pcy + fr
 		for &d in q.draws {
 			if d.model == nil {
-				d.model = assetdb.model_ptr(&s.cache, d.model_path)
+				d.model = assetdb.model_ptr(&s.cache, d.model_id)
 				if d.model == nil {
 					continue // mesh not decoded yet — pops in when the worker delivers it
 				}

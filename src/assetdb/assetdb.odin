@@ -23,6 +23,7 @@ import "core:strings"
 import "../formats/dds"
 import "../formats/nif"
 import smath "../math"
+import "../models"
 import "../render"
 import "../vfs"
 
@@ -45,14 +46,14 @@ Shape :: struct {
 }
 
 // Model is a loaded NIF: drawable shapes + a model-space bounding sphere (frustum cull) +
-// the MODL path it came from + CPU pick geometry (model-space triangle positions, all
+// the model it is + CPU pick geometry (model-space triangle positions, all
 // shapes concatenated) for precise ray-vs-face mouse picking. The pick geometry is the
 // only CPU copy retained after upload — and it's stored COMPACT (D1 measurements: the old
 // f32/u32 copy was over half the size of the render mesh itself): positions quantized to
 // u16 on the model AABB (decode with pick_vertex — max error extent/65535, far below pick
 // tolerance), u16 indices when the model fits, u16 per-tri shape map.
 Model :: struct {
-	path:     string, // owned
+	id:       models.ID,
 	shapes:   []Shape,
 	center:   smath.Vec3,
 	radius:   f32,
@@ -161,24 +162,23 @@ Tex_Entry :: struct {
 	pinned: bool,
 }
 
-// (hole model-id-intern :tags (threading assets) :sev gap) models are keyed by lowercased path strings and held as ^Model. Wanted: a stable u32 model ID shared by placements, the collision store and render, so no string or pointer crosses the seam.
 // Cache owns every loaded model + unique texture and frees them on destroy. Mutated
 // only on the main thread (upload_cpu_model / get_model); the worker never touches it.
 Cache :: struct {
 	r:        ^render.Renderer,
 	v:        ^vfs.VFS,
-	models:   map[string]^Model, // "meshes\..."-relative MODL path -> model (key owned)
+	loaded:   map[models.ID]^Model,
 	textures: map[string]Tex_Entry, // tex_key(path,srgb) -> entry (key owned); see Tex_Entry
-	failed:   map[string]bool, // model paths that decoded to nothing (missing / no shapes) — don't retry (key owned)
+	failed:   map[models.ID]bool, // models that decoded to nothing (missing / no shapes) — don't retry
 	store:    ^Collision_Store, // gets each landing model's collision for the sim (nil: none)
-	// D1 eviction (models). refs = live holders per lowercased model path (a resident chunk's
+	// D1 eviction (models). refs = live holders per model (a resident chunk's
 	// instances/grass, a baked LOD draw); set BY the world layer via model_acquire/model_release,
 	// independent of residency (a ref can precede the upload). A model with refs>0 is pinned. When
 	// refs hits 0 the model — if resident — moves to `cold` (oldest-first, LRU) instead of freeing;
 	// trim() frees the oldest cold models once cold_bytes exceeds MODEL_CACHE_BYTES. re-acquiring a
-	// cold model revives it (no re-decode). refs keys owned; cold holds owned clones of the key.
-	refs:       map[string]int,
-	cold:       [dynamic]string,
+	// cold model revives it (no re-decode).
+	refs:       map[models.ID]int,
+	cold:       [dynamic]models.ID,
 	cold_bytes: int,
 	// Texture cold-LRU (slice 2), mirroring the model machinery: tex_cold holds owned clones of
 	// zero-ref, non-pinned texture keys (oldest-first); trim_textures frees the oldest once
@@ -196,10 +196,10 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, store: ^Collision_Store = n
 	return Cache {
 		r        = r,
 		v        = v,
-		models   = make(map[string]^Model),
+		loaded   = make(map[models.ID]^Model),
 		textures = make(map[string]Tex_Entry),
-		failed   = make(map[string]bool),
-		refs     = make(map[string]int),
+		failed   = make(map[models.ID]bool),
+		refs     = make(map[models.ID]int),
 		store    = store,
 	}
 }
@@ -211,7 +211,7 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, store: ^Collision_Store = n
 cache_counts :: proc(
 	c: ^Cache,
 ) -> (models, textures, model_bytes, tex_bytes, cold, cold_bytes, tex_cold, tex_cold_bytes: int) {
-	return len(c.models), len(c.textures), c.model_bytes, c.tex_bytes, len(c.cold), c.cold_bytes,
+	return len(c.loaded), len(c.textures), c.model_bytes, c.tex_bytes, len(c.cold), c.cold_bytes,
 		len(c.tex_cold), c.tex_cold_bytes
 }
 
@@ -230,7 +230,6 @@ free_model_entry :: proc(c: ^Cache, m: ^Model) {
 		render.release_mesh(c.r, m.shadow_proxy)
 	}
 	delete(m.shapes)
-	delete(m.path)
 	delete(m.pick_pos)
 	delete(m.pick_idx16)
 	delete(m.pick_idx32)
@@ -240,11 +239,8 @@ free_model_entry :: proc(c: ^Cache, m: ^Model) {
 }
 
 cache_destroy :: proc(c: ^Cache) {
-	for key, m in c.models {
-		free_model_entry(c, m)
-		delete(key)
-	}
-	delete(c.models)
+	for _, m in c.loaded {free_model_entry(c, m)}
+	delete(c.loaded)
 	for key, e in c.textures {
 		render.release_texture(c.r, e.tex)
 		delete(key)
@@ -254,49 +250,38 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(key)
 	}
 	delete(c.tex_cold)
-	for key, _ in c.failed {
-		delete(key)
-	}
 	delete(c.failed)
-	for key, _ in c.refs {
-		delete(key)
-	}
 	delete(c.refs)
-	for key in c.cold {
-		delete(key)
-	}
 	delete(c.cold)
 	c^ = {}
 }
 
 // --- D1 eviction: model refcounting + cold-LRU budget (world layer drives acquire/release) ---
 
-// model_acquire records one live holder for a model path. Path-keyed and independent of residency
-// (a chunk acquires when it builds, before the async decode finishes), so `refs[key]` can precede
-// the upload. The FIRST ref on a path revives it if it was cold (zero-ref-but-resident, awaiting
-// eviction) — no re-decode. "" is a no-op. MAIN THREAD (mutates the cache).
-model_acquire :: proc(c: ^Cache, path: string) {
-	if path == "" {
+// model_acquire records one live holder for a model. Independent of residency (a chunk acquires
+// when it builds, before the async decode finishes), so `refs[model]` can precede the upload. The
+// FIRST ref revives it if it was cold (zero-ref-but-resident, awaiting eviction) — no re-decode.
+// 0 is a no-op. MAIN THREAD (mutates the cache).
+model_acquire :: proc(c: ^Cache, model: models.ID) {
+	if model == 0 {
 		return
 	}
-	key := strings.to_lower(path, context.temp_allocator)
-	if n, ok := &c.refs[key]; ok {
+	if n, ok := &c.refs[model]; ok {
 		n^ += 1
 		return
 	}
-	c.refs[strings.clone(key)] = 1 // fresh holder (owned key)
-	uncold(c, key) // if it was resident-but-cold, pull it back out of the eviction queue
+	c.refs[model] = 1
+	uncold(c, model) // if it was resident-but-cold, pull it back out of the eviction queue
 }
 
 // model_release drops one live holder. At zero refs the ref entry is removed (owned key freed) and,
 // if the model is resident, it moves to the cold list (eligible for eviction) and trim() runs.
 // Balanced against model_acquire by the world layer's chunk load/unload. MAIN THREAD.
-model_release :: proc(c: ^Cache, path: string) {
-	if path == "" {
+model_release :: proc(c: ^Cache, model: models.ID) {
+	if model == 0 {
 		return
 	}
-	key := strings.to_lower(path, context.temp_allocator)
-	n, ok := &c.refs[key]
+	n, ok := &c.refs[model]
 	if !ok {
 		return // never acquired (defensive — a balanced world layer never hits this)
 	}
@@ -304,26 +289,24 @@ model_release :: proc(c: ^Cache, path: string) {
 	if n^ > 0 {
 		return
 	}
-	dk, _ := delete_key(&c.refs, key) // key confirmed present (n reached 0)
-	delete(dk) // free the owned ref key
-	if m, resident := c.models[key]; resident {
-		append(&c.cold, strings.clone(key)) // cold owns its own clone (oldest-first)
+	delete_key(&c.refs, model)
+	if m, resident := c.loaded[model]; resident {
+		append(&c.cold, model) // oldest-first
 		c.cold_bytes += m.bytes
 		trim(c)
 	}
 }
 
-// uncold removes `key` from the cold list (a zero-ref model just re-acquired). Linear scan +
+// uncold removes `model` from the cold list (a zero-ref model just re-acquired). Linear scan +
 // ordered_remove to keep the list oldest-first for LRU; cold is small (bounded by the budget) and
 // this runs only on a re-acquire, not per frame. No-op if the model wasn't cold.
 @(private)
-uncold :: proc(c: ^Cache, key: string) {
+uncold :: proc(c: ^Cache, model: models.ID) {
 	for ck, i in c.cold {
-		if ck == key {
-			if m, ok := c.models[key]; ok {
+		if ck == model {
+			if m, ok := c.loaded[model]; ok {
 				c.cold_bytes -= m.bytes
 			}
-			delete(ck) // free the cold clone
 			ordered_remove(&c.cold, i)
 			return
 		}
@@ -337,24 +320,23 @@ uncold :: proc(c: ^Cache, key: string) {
 @(private)
 trim :: proc(c: ^Cache) {
 	for MODEL_CACHE_BYTES > 0 && c.cold_bytes > MODEL_CACHE_BYTES && len(c.cold) > 0 {
-		key := c.cold[0] // oldest
+		model := c.cold[0] // oldest
 		ordered_remove(&c.cold, 0)
-		if m, ok := c.models[key]; ok {
+		if m, ok := c.loaded[model]; ok {
 			c.cold_bytes -= m.bytes
 		}
-		evict_model(c, key)
-		delete(key) // free the cold clone
+		evict_model(c, model)
 	}
 }
 
-// evict_model frees a resident model and drops it from the cache (map slot + owned key + byte tally).
+// evict_model frees a resident model and drops it from the cache (map slot + byte tally).
 // Only called by trim on a cold (zero-ref) model — never on one a live holder still points at, so no
 // Instance.model / Lod_Draw.model pointer can dangle (releases run only in the stream/scene-mutation
 // phase, never mid-render, and a holder still drawing still holds a ref). Frees the same per-model
 // set as cache_destroy (shared free_model_entry).
 @(private)
-evict_model :: proc(c: ^Cache, key: string) {
-	m, ok := c.models[key]
+evict_model :: proc(c: ^Cache, model: models.ID) {
+	m, ok := c.loaded[model]
 	if !ok {
 		return
 	}
@@ -367,8 +349,7 @@ evict_model :: proc(c: ^Cache, key: string) {
 	}
 	c.model_bytes -= m.bytes
 	free_model_entry(c, m)
-	dk, _ := delete_key(&c.models, key) // key confirmed present (m looked up above)
-	delete(dk) // free the owned map key
+	delete_key(&c.loaded, model)
 }
 
 // --- D1 slice 2: texture refcounting + cold-LRU (model uploads acquire, model evictions release) ---
@@ -461,51 +442,42 @@ evict_texture :: proc(c: ^Cache, key: string) {
 	delete(dk)
 }
 
-// has_model reports whether a model path is already uploaded (main-thread cache hit) —
-// the streamer uses this to skip enqueuing a decode for something already resident.
-has_model :: proc(c: ^Cache, modl: string) -> bool {
-	key := strings.to_lower(modl, context.temp_allocator)
-	_, hit := c.models[key]
-	return hit
+// has_model reports whether a model is already uploaded (main-thread cache hit) — the streamer
+// uses this to skip enqueuing a decode for something already resident.
+has_model :: proc(c: ^Cache, model: models.ID) -> bool {
+	return model in c.loaded
 }
 
-// is_failed reports whether a model path previously decoded to nothing (missing file or
-// zero drawable shapes). The streamer skips re-enqueuing these — a missing mesh referenced
-// by many cells would otherwise re-decode on the worker every time its cell rewindows.
-is_failed :: proc(c: ^Cache, modl: string) -> bool {
-	key := strings.to_lower(modl, context.temp_allocator)
-	return c.failed[key]
+// is_failed reports whether a model previously decoded to nothing (missing file or zero drawable
+// shapes). The streamer skips re-enqueuing these — a missing mesh referenced by many cells would
+// otherwise re-decode on the worker every time its cell rewindows.
+is_failed :: proc(c: ^Cache, model: models.ID) -> bool {
+	return c.failed[model]
 }
 
-// mark_failed records a model path as undecodable so it's never retried. Key is cloned.
-mark_failed :: proc(c: ^Cache, modl: string) {
-	key := strings.to_lower(modl, context.temp_allocator)
-	if key not_in c.failed {
-		c.failed[strings.clone(key)] = true
-	}
-	if c.store != nil {store_failed(c.store, modl)}
+// mark_failed records a model as undecodable so it's never retried.
+mark_failed :: proc(c: ^Cache, model: models.ID) {
+	c.failed[model] = true
+	if c.store != nil {store_failed(c.store, model)}
 }
 
-// model_ptr returns the cached model for a path, or nil if not yet uploaded.
-model_ptr :: proc(c: ^Cache, modl: string) -> ^Model {
-	key := strings.to_lower(modl, context.temp_allocator)
-	return c.models[key] if key in c.models else nil
+// model_ptr returns the cached model, or nil if not yet uploaded.
+model_ptr :: proc(c: ^Cache, model: models.ID) -> ^Model {
+	return c.loaded[model]
 }
 
-// get_model loads (or returns the cached) model for a MODL path, synchronously. Used
-// by the non-streamed loaders. Returns ok=false if the NIF can't be read/parsed or
-// has no drawable shapes.
-get_model :: proc(c: ^Cache, modl: string) -> (^Model, bool) {
-	key := strings.to_lower(modl, context.temp_allocator)
-	if m, hit := c.models[key]; hit {
+// get_model loads (or returns the cached) model, synchronously. Used by the non-streamed loaders.
+// Returns ok=false if the NIF can't be read/parsed or has no drawable shapes.
+get_model :: proc(c: ^Cache, model: models.ID) -> (^Model, bool) {
+	if m, hit := c.loaded[model]; hit {
 		return m, true
 	}
-	cpu := decode_model(c.v, modl, 0, context.temp_allocator) // temp: freed at frame end
+	cpu := decode_model(c.v, models.path(model), 0, context.temp_allocator) // temp: freed at frame end
 	if !cpu.ok {
-		mark_failed(c, modl)
+		mark_failed(c, model)
 		return nil, false
 	}
-	return upload_cpu_model(c, cpu)
+	return upload_cpu_model(c, model, cpu)
 }
 
 // get_texture loads (or returns the cached) diffuse texture for a full VFS path (e.g.
@@ -542,16 +514,15 @@ get_texture :: proc(c: ^Cache, path: string) -> (render.Texture, bool) {
 	return t, true
 }
 
-// upload_cpu_model turns a decoded Cpu_Model into GPU resources and caches it by path.
+// upload_cpu_model turns a decoded Cpu_Model into GPU resources and caches it.
 // MAIN THREAD ONLY. Does NOT free `cpu` — the caller does (free_cpu_model, or temp
 // wipe). Textures dedup across models by path. Returns the cached shared ^Model.
-upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
-	if cpu.ok && cpu.extras && c.store != nil {store_collision(c.store, cpu)} // the sim's copy, before any GPU work
+upload_cpu_model :: proc(c: ^Cache, model: models.ID, cpu: Cpu_Model) -> (^Model, bool) {
+	if cpu.ok && cpu.extras && c.store != nil {store_collision(c.store, model, cpu)} // the sim's copy, before any GPU work
 	if !cpu.ok || len(cpu.shapes) == 0 {
 		return nil, false
 	}
-	key := strings.to_lower(cpu.path, context.temp_allocator)
-	if m, hit := c.models[key]; hit {
+	if m, hit := c.loaded[model]; hit {
 		return m, true // already uploaded (duplicate request) — reuse
 	}
 
@@ -599,7 +570,7 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 
 	m := new(Model)
 	m.shapes = shapes
-	m.path = strings.clone(cpu.path)
+	m.id = model
 	m.center = cpu.center
 	m.radius = cpu.radius
 	m.has_effect = has_effect
@@ -616,13 +587,13 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 	}
 	m.bytes = model_bytes(m, cpu)
 	c.model_bytes += m.bytes
-	c.models[strings.clone(key)] = m
+	c.loaded[model] = m
 	// Born cold: if nothing holds a ref by upload time — the requesting chunk unloaded while the
 	// decode was in flight — the model is immediately eviction-eligible. Pushing it to cold (rather
 	// than dropping it) lets an imminent revisit revive it via model_acquire's uncold path.
-	// refs[key] is 0 both when absent (zero value) and when a holder released before the upload landed.
-	if c.refs[key] == 0 {
-		append(&c.cold, strings.clone(key))
+	// refs[model] is 0 both when absent (zero value) and when a holder released before the upload landed.
+	if c.refs[model] == 0 {
+		append(&c.cold, model)
 		c.cold_bytes += m.bytes
 		trim(c)
 	}
@@ -836,11 +807,10 @@ build_pick_geometry :: proc(m: ^Model, cpu: Cpu_Model) {
 
 // debug_compare_refs (verification aid) checks the cache's live model refcounts against an
 // EXPECTED set recounted independently from live holders (the world layer walks its chunks +
-// LOD draws). Returns the first discrepancy as (path, want, got) or ok=true. `expected` keys must
-// be lowercased (same as refs). It checks BOTH directions — a want not matched by the cache AND a
+// LOD draws). Returns the first discrepancy as (model, want, got) or ok=true. It checks BOTH directions — a want not matched by the cache AND a
 // cache ref nothing expects (the leaked-ref case, e.g. the rebuild_resident_overlay F9 trap) —
 // so acquire/release imbalance surfaces deterministically instead of via a slow RSS plateau.
-debug_compare_refs :: proc(c: ^Cache, expected: map[string]int) -> (ok: bool, path: string, want, got: int) {
+debug_compare_refs :: proc(c: ^Cache, expected: map[models.ID]int) -> (ok: bool, model: models.ID, want, got: int) {
 	for k, w in expected {
 		if g := c.refs[k]; g != w { // c.refs[k] is 0 when absent
 			return false, k, w, g
@@ -851,17 +821,17 @@ debug_compare_refs :: proc(c: ^Cache, expected: map[string]int) -> (ok: bool, pa
 			return false, k, 0, g // a ref no live holder accounts for → leak
 		}
 	}
-	return true, "", 0, 0
+	return true, 0, 0, 0
 }
 
 // debug_check_texture_refs (verification aid, slice 2) recounts texture refs straight from the
 // resident models — every shape's diffuse (sRGB) + normal (linear) key — and compares to each
-// entry's live refs. Texture refs derive PURELY from c.models (a model shape is the only thing that
+// entry's live refs. Texture refs derive PURELY from c.loaded (a model shape is the only thing that
 // increments), so a mismatch means a tex_acquire/tex_release imbalance. Pinned (terrain) entries are
 // skipped — their refs aren't model-driven. Self-contained (no world layer). Temp-allocated.
 debug_check_texture_refs :: proc(c: ^Cache) -> (ok: bool, key: string, want, got: int) {
 	expected := make(map[string]int, 1024, context.temp_allocator)
-	for _, m in c.models {
+	for _, m in c.loaded {
 		for sh in m.shapes {
 			if sh.diffuse_path != "" {expected[tex_key(sh.diffuse_path, true)] += 1}
 			if sh.normal_path != "" {expected[tex_key(sh.normal_path, false)] += 1}
@@ -938,7 +908,7 @@ Cpu_Model :: struct {
 // build), the canopy shadow proxy, and (at upload) the CPU pick copy. Draw-only decodes —
 // the object-LOD bake meshes, tree billboards, grass — pass false and skip all three
 // (they are never picked, cooked, or proxy-shadowed). The two request kinds never share
-// a path (LOD/billboard/grass NIFs aren't cell-instance models), so the path-keyed cache
+// a model (LOD/billboard/grass NIFs aren't cell-instance models), so the model-keyed cache
 // can't conflate a slim decode with a full one.
 decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.allocator, want_extras := true) -> Cpu_Model {
 	full := strings.concatenate({"meshes\\", modl}, context.temp_allocator)

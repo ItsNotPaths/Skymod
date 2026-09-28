@@ -13,6 +13,7 @@ package world
 
 import "../assetdb"
 import "../gamedb"
+import "../models"
 import "../render"
 import "../vfs"
 import "core:strings"
@@ -34,12 +35,12 @@ TREE_LOD_FALLOFF := f32(1.0)
 
 // Obj_Batch is one unique model's instances in a LOD cell: the per-cell placement buffer
 // (chunk-owned, uploaded ONCE at cell load and reused every frame — distant statics never move)
-// + the model referenced by PATH (borrowed from gamedb), resolved LAZILY at draw (nil until the
+// + the model referenced by ID, resolved LAZILY at draw (nil until the
 // streamer's worker has decoded+uploaded it). One instanced draw per shape per cell. Per-cell
 // buffers (vs a per-frame re-merge) keep steady-state GPU work at ZERO — nothing the iGPU has to
 // re-upload each frame — so a large LOD reach can't overload the driver.
 Obj_Batch :: struct {
-	model_path: string, // borrowed from gamedb (stable for the session)
+	model_id:   models.ID,
 	model:      ^assetdb.Model, // nil until resolved from the cache
 	instances:  render.Obj_Instances, // per-cell instance buffer (built at load; released at unload)
 	veg:        Veg_Kind, // cached vegetation class (path match done once at load)
@@ -95,7 +96,7 @@ lod_object_stats :: proc(s: ^Scene) -> (batches, resolved: int) {
 	for _, &chunk in s.chunks {
 		for &b in chunk.objects {
 			batches += 1
-			if b.model != nil || assetdb.model_ptr(&s.cache, b.model_path) != nil {
+			if b.model != nil || assetdb.model_ptr(&s.cache, b.model_id) != nil {
 				resolved += 1
 			}
 		}

@@ -22,6 +22,7 @@ import "core:math"
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../render"
 
 // --- scatter knobs (visual dials) ---
@@ -49,11 +50,11 @@ GRASS_SCALE_MAX :: f32(1.3)
 GRASS_MAX_INSTANCES :: 40000
 
 // Grass_Batch is one grass type's clusters in a cell: the per-cell scatter buffer
-// (chunk-owned) + the cluster model by PATH (borrowed from gamedb), resolved LAZILY at
+// (chunk-owned) + the cluster model by ID, resolved LAZILY at
 // draw (nil until the worker has decoded it — so the cluster NIF decode never blocks the
 // main thread). One instanced draw per shape of the model.
 Grass_Batch :: struct {
-	model_path: string, // borrowed from gamedb (stable for the session)
+	model_id: models.ID,
 	model:      ^assetdb.Model, // nil until resolved from the cache
 	instances:  render.Grass_Instances, // per-cell scatter buffer (chunk-owned)
 }
@@ -130,7 +131,7 @@ load_grass :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 		}
 		g, _ := gamedb.grass_for_texture(db, ltex)
 		buf := render.upload_grass_instances(s.cache.r, list[:])
-		append(&chunk.grass, Grass_Batch{model_path = g.model, instances = buf})
+		append(&chunk.grass, Grass_Batch{model_id = models.intern(g.model), instances = buf})
 	}
 }
 
@@ -186,7 +187,7 @@ draw_grass :: proc(
 		}
 		for &b in chunk.grass {
 			if b.model == nil {
-				b.model = assetdb.model_ptr(&s.cache, b.model_path)
+				b.model = assetdb.model_ptr(&s.cache, b.model_id)
 				if b.model == nil {
 					continue // grass cluster not decoded yet — pops in when ready
 				}

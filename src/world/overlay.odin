@@ -12,6 +12,7 @@ import "../assetdb"
 import "../formid"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../physics"
 import "../worldstate"
 
@@ -185,7 +186,7 @@ apply_ref_event :: proc(s: ^Scene, e: Ref_Event) {
 		if !ok {return}
 		for inst, i in chunk.instances {
 			if inst.form_id == v.form {
-				assetdb.model_release(&s.cache, inst.model_path) // D1: drop this ref's model ref
+				assetdb.model_release(&s.cache, inst.model_id) // D1: drop this ref's model ref
 				unordered_remove(&chunk.instances, i)
 				break
 			}
@@ -197,12 +198,12 @@ apply_ref_event :: proc(s: ^Scene, e: Ref_Event) {
 		if !ok {return}
 		// The new instances hold their models before the old ones let go, or trim could evict a
 		// model the rebuilt cell still needs. The chunk's bounds stay: they cover its terrain.
-		old := make([dynamic]string, 0, len(chunk.instances), context.temp_allocator)
-		for inst in chunk.instances {append(&old, inst.model_path)}
+		old := make([dynamic]models.ID, 0, len(chunk.instances), context.temp_allocator)
+		for inst in chunk.instances {append(&old, inst.model_id)}
 		deindex_instances(s, chunk)
 		clear(&chunk.instances)
 		for p in v.refs {add_instance(s, chunk, instance_of(p))}
-		for path in old {assetdb.model_release(&s.cache, path)}
+		for model in old {assetdb.model_release(&s.cache, model)}
 	case Cell_Added, Cell_Removed: // the streamer's (stream_apply)
 	}
 }
@@ -210,7 +211,7 @@ apply_ref_event :: proc(s: ^Scene, e: Ref_Event) {
 // add_instance appends an instance to a resident chunk and holds its model.
 @(private = "file")
 add_instance :: proc(s: ^Scene, chunk: ^Chunk, inst: Instance) {
-	assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
+	assetdb.model_acquire(&s.cache, inst.model_id) // D1: pin — released when the chunk unloads
 	append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
 	index_instances(s, chunk)
 }
@@ -221,7 +222,7 @@ resolve_created_models :: proc(s: ^Scene) {
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {
 			if inst.model == nil && inst.form_id >= formid.CREATED_FORM_BASE {
-				if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
+				if m, ok := assetdb.get_model(&s.cache, inst.model_id); ok {
 					inst.model = m
 				}
 			}

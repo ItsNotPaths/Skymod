@@ -49,7 +49,7 @@ sync_physics :: proc(sp: ^Space, budget := PHYS_BUDGET) -> int {
 				r.phys_built = true // overlay-disabled: no collision; mark done so it isn't rescanned
 				continue
 			}
-			m, known := assetdb.collision_of(sp.collisions, r.model_path)
+			m, known := assetdb.collision_of(sp.collisions, r.model_id)
 			if !known {
 				all_built = false // model not decoded yet — revisit next tick
 				continue
@@ -241,7 +241,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 		// dynamic scene are drawn LIVE each frame (draw_collision_debug) at their body pose, so skip
 		// them here; skip gameplay-only layers too (those aren't bodies).
 		for &inst in chunk.instances {
-			m, _ := assetdb.collision_of(s.collisions, inst.model_path)
+			m, _ := assetdb.collision_of(s.collisions, inst.model_id)
 			if m == nil {
 				continue
 			}
@@ -282,7 +282,7 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 	idx := make([dynamic]u16, 0, 4096, context.temp_allocator)
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {
-			m, _ := assetdb.collision_of(s.collisions, inst.model_path)
+			m, _ := assetdb.collision_of(s.collisions, inst.model_id)
 			if m == nil {continue}
 			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {

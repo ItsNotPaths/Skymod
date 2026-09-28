@@ -14,6 +14,7 @@ import "../detection"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
+import "../models"
 import "../input"
 import "../nav"
 import smath "../math"
@@ -221,7 +222,7 @@ actor_furniture_markers :: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_
 	g := (^Game)(user)
 	modl, ok := gamedb.model_of(&g.db, base)
 	if !ok {return nil}
-	return assetdb.furniture_markers(&g.collisions, modl)
+	return assetdb.furniture_markers(&g.collisions, models.intern(modl))
 }
 
 is_actor_ref :: proc(g: ^Game, form: Form_ID) -> bool {

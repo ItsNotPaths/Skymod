@@ -11,6 +11,7 @@ import "core:log"
 import "core:math"
 
 import "../assetdb"
+import "../models"
 import smath "../math"
 import "../platform"
 import "../render"
@@ -37,7 +38,7 @@ when DEVTOOLS {
 		cache := assetdb.cache_init(r, v)
 		defer assetdb.cache_destroy(&cache)
 
-		model, mok := assetdb.get_model(&cache, LODTEST_ROCK)
+		model, mok := assetdb.get_model(&cache, models.intern(LODTEST_ROCK))
 		if !mok {
 			log.errorf("--lodtest: could not load %s", LODTEST_ROCK)
 			return

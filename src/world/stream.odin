@@ -7,7 +7,7 @@ package world
 //
 //   Cell_Added (main)  ─reqs→  decode (worker)  ─ready→  upload (main, budgeted)
 //
-// - Requests are per model path (deduped via `inflight`), so a mesh shared by many cells decodes once.
+// - Requests are per model (deduped via `inflight`), so a mesh shared by many cells decodes once.
 // - vfs.read is thread-safe (positional pread) and decode_model touches neither the GPU nor the cache,
 //   so the workers are lock-free against them. The only shared state is the two queues and the
 //   shutdown flag.
@@ -24,6 +24,7 @@ import "core:time"
 
 import "../assetdb"
 import "../gamedb"
+import "../models"
 import "../render"
 import "../vfs"
 
@@ -48,13 +49,12 @@ Stream_Mode :: enum {
 	Loading,
 }
 
-// Req is a model-decode request handed to the worker. path is borrowed from gamedb
-// (stable for the session). extras = decode collision/proxy + build the pick copy —
+// Req is a model-decode request handed to the worker. extras = decode collision/proxy + build the pick copy —
 // true for placed-instance models, false for draw-only meshes (LOD bake, billboards,
 // grass), which are never picked or cooked.
 @(private)
 Req :: struct {
-	path:   string,
+	model:  models.ID,
 	lod:    int,
 	extras: bool,
 }
@@ -62,8 +62,8 @@ Req :: struct {
 // Result is a decoded model handed back to the main thread for GPU upload.
 @(private)
 Result :: struct {
-	path: string,
-	cpu:  assetdb.Cpu_Model,
+	model: models.ID,
+	cpu:   assetdb.Cpu_Model,
 }
 
 // Streamer loads the exterior scene's chunks as the sim adds them.
@@ -75,9 +75,9 @@ Streamer :: struct {
 	loader_alloc: runtime.Allocator, // explicit heap for cross-thread CPU bundles
 	mode:         Stream_Mode, // Streaming (steady) vs Loading (full-bore boot/transition fill)
 	load_target:  int, // models in flight when the load began — the progress-bar denominator
-	inflight:     map[string]bool, // model paths currently requested/decoding (main only)
+	inflight:     map[models.ID]bool, // models currently requested/decoding (main only)
 	undecorated:  [dynamic]Form_ID, // new chunks still without terrain, water and grass, nearest first
-	wanted:       [dynamic]string, // the collision store's requests, taken each frame
+	wanted:       [dynamic]models.ID, // the collision store's requests, taken each frame
 
 	// worker pool + queues. decode_model is thread-safe (positional pread VFS, no GPU/cache
 	// touch — see the file header), so N workers drain the shared `reqs` queue concurrently;
@@ -115,7 +115,7 @@ stream_init :: proc(
 	st.v = scene.cache.v
 	st.world_fid = world_fid
 	st.loader_alloc = loader_alloc
-	st.inflight = make(map[string]bool)
+	st.inflight = make(map[models.ID]bool)
 	st.running = true
 	// Decode pool: every worker runs the same loop over the shared queue. More threads = a
 	// fuller `ready` queue (the full-load screen and walking pop-in both drain it faster).
@@ -166,9 +166,9 @@ stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 	if !armed(st) {return}
 	switch v in e {
 	case Ref_Placed:
-		enqueue_model(st, v.ref.model_path)
+		enqueue_model(st, v.ref.model_id)
 	case Cell_Rebuilt:
-		for r in v.refs {enqueue_model(st, r.model_path)}
+		for r in v.refs {enqueue_model(st, r.model_id)}
 	case Ref_Removed:
 	case Cell_Added:
 		chunk := chunk_meta(st.db, v.cell) // grid/bounds only: no terrain mesh, no near instances
@@ -178,7 +178,7 @@ stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 		resident := &st.scene.chunks[v.cell]
 		index_instances(st.scene, resident)
 		acquire_chunk_assets(st.scene, resident) // D1: pin this chunk's instance models
-		for inst in resident.instances {enqueue_model(st, inst.model_path)}
+		for inst in resident.instances {enqueue_model(st, inst.model_id)}
 		append(&st.undecorated, v.cell)
 	case Cell_Removed:
 		drop_chunk(st, v.cell)
@@ -259,7 +259,7 @@ armed :: proc(st: ^Streamer) -> bool {
 take_requests :: proc(st: ^Streamer) {
 	if st.scene.collisions == nil {return}
 	assetdb.take_wanted(st.scene.collisions, &st.wanted)
-	for path in st.wanted {enqueue_model(st, path)}
+	for model in st.wanted {enqueue_model(st, model)}
 }
 
 // drop_chunk frees a cell's render chunk, if it has one.
@@ -284,8 +284,8 @@ decorate :: proc(st: ^Streamer, budget: int) {
 		load_terrain(st.scene, st.db, chunk)
 		load_grass(st.scene, st.db, chunk)
 		for b in chunk.grass {
-			assetdb.model_acquire(&st.scene.cache, b.model_path)
-			enqueue_model(st, b.model_path, extras = false) // grass: draw-only (no pick/collision)
+			assetdb.model_acquire(&st.scene.cache, b.model_id)
+			enqueue_model(st, b.model_id, extras = false) // grass: draw-only (no pick/collision)
 		}
 		// Each chunk's uploads are their own submits and SDL frees their staging only on copy
 		// completion: a long unbudgeted run drains every few chunks or the host-visible heap runs out.
@@ -296,21 +296,21 @@ decorate :: proc(st: ^Streamer, budget: int) {
 	}
 }
 
-// enqueue_model requests an off-thread decode for a model path unless it's already cached
-// or in flight (main-thread dedup). The dedup is path-only, so a path must always be
+// enqueue_model requests an off-thread decode for a model unless it's already cached
+// or in flight (main-thread dedup). The dedup is by model only, so a model must always be
 // requested with the SAME `extras` — holds today because draw-only paths (LOD meshes,
 // billboards, grass) never appear as cell-instance models (see decode_model's doc).
 @(private)
-enqueue_model :: proc(st: ^Streamer, path: string, extras := true) {
-	if path == "" ||
-	   assetdb.has_model(&st.scene.cache, path) ||
-	   assetdb.is_failed(&st.scene.cache, path) ||
-	   st.inflight[path] {
+enqueue_model :: proc(st: ^Streamer, model: models.ID, extras := true) {
+	if model == 0 ||
+	   assetdb.has_model(&st.scene.cache, model) ||
+	   assetdb.is_failed(&st.scene.cache, model) ||
+	   st.inflight[model] {
 		return
 	}
-	st.inflight[path] = true
-	if extras && st.scene.collisions != nil {assetdb.note_asked(st.scene.collisions, path)}
-	enqueue(st, Req{path = path, lod = 0, extras = extras})
+	st.inflight[model] = true
+	if extras && st.scene.collisions != nil {assetdb.note_asked(st.scene.collisions, model)}
+	enqueue(st, Req{model = model, lod = 0, extras = extras})
 }
 
 @(private)
@@ -336,12 +336,12 @@ drain_ready :: proc(st: ^Streamer, budget: int) {
 		sync.mutex_unlock(&st.ready_mu)
 
 		if res.cpu.ok {
-			assetdb.upload_cpu_model(&st.scene.cache, res.cpu)
+			assetdb.upload_cpu_model(&st.scene.cache, res.model, res.cpu)
 		} else {
-			assetdb.mark_failed(&st.scene.cache, res.path) // missing / no shapes — don't re-enqueue
+			assetdb.mark_failed(&st.scene.cache, res.model) // missing / no shapes — don't re-enqueue
 		}
 		assetdb.free_cpu_model(res.cpu, st.loader_alloc)
-		delete_key(&st.inflight, res.path)
+		delete_key(&st.inflight, res.model)
 	}
 }
 
@@ -365,10 +365,10 @@ worker_proc :: proc(t: ^thread.Thread) {
 		req := pop(&st.reqs)
 		sync.mutex_unlock(&st.req_mu)
 
-		cpu := assetdb.decode_model(st.v, req.path, req.lod, st.loader_alloc, req.extras)
+		cpu := assetdb.decode_model(st.v, models.path(req.model), req.lod, st.loader_alloc, req.extras)
 
 		sync.mutex_lock(&st.ready_mu)
-		append(&st.ready, Result{path = req.path, cpu = cpu})
+		append(&st.ready, Result{model = req.model, cpu = cpu})
 		sync.mutex_unlock(&st.ready_mu)
 
 		free_all(context.temp_allocator) // reset this thread's scratch after each decode

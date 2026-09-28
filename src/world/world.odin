@@ -10,8 +10,7 @@ package world
 // open world (Tamriel) streams them in/out around the player (see stream.odin). The
 // chunk is the streaming unit and the frustum-culling unit.
 //
-// Instances reference their model by PATH (borrowed from gamedb, stable for the
-// session) and hold a `model` pointer that is nil until the asset is uploaded —
+// Instances reference their model by ID (models.ID) and hold a `model` pointer that is nil until the asset is uploaded —
 // resolved lazily at draw. The synchronous loaders resolve it immediately (get_model);
 // the streamer leaves it nil and the model pops in as the worker delivers it.
 
@@ -23,6 +22,7 @@ import "core:strings"
 import "../assetdb"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../render"
 import "../vfs"
 
@@ -199,7 +199,7 @@ Form_ID :: gamedb.Form_ID
 // Instance is one placed reference: its model (shared, nil until uploaded) referenced
 // by path, the raw REFR placement, and a door teleport if this is a load door.
 Instance :: struct {
-	model_path: string, // borrowed from gamedb (valid for the DB's lifetime)
+	model_id: models.ID,
 	model:      ^assetdb.Model, // nil until the asset is uploaded; resolved lazily
 	base:       Form_ID,
 	form_id:    Form_ID, // this REFR's formID (overlay key — worldstate deltas + settle capture, Phase 3)
@@ -325,34 +325,31 @@ cache_counts :: proc(
 // holders imply — every resident chunk's instances + grass batches, plus every baked LOD draw — and
 // compares to the asset cache's actual refcounts (assetdb.debug_compare_refs). A mismatch is an
 // acquire/release imbalance (the classic being the rebuild_resident_overlay F9 trap leaking the old
-// instances' refs). ok=true when balanced; otherwise msg names the offending path + want/got. Temp-
+// instances' refs). ok=true when balanced; otherwise msg names the offending model + want/got. Temp-
 // allocated (freed at frame end). Meant for a DEVTOOLS periodic assert while D1 ships dark.
 debug_check_model_refs :: proc(s: ^Scene) -> (ok: bool, msg: string) {
-	expected := make(map[string]int, 2048, context.temp_allocator)
-	bump :: proc(exp: ^map[string]int, path: string) {
-		if path == "" {
-			return
-		}
-		exp[strings.to_lower(path, context.temp_allocator)] += 1
+	expected := make(map[models.ID]int, 2048, context.temp_allocator)
+	bump :: proc(exp: ^map[models.ID]int, model: models.ID) {
+		if model != 0 {exp[model] += 1}
 	}
 	for _, &chunk in s.chunks {
 		for inst in chunk.instances {
-			bump(&expected, inst.model_path)
+			bump(&expected, inst.model_id)
 		}
 		for b in chunk.grass {
-			bump(&expected, b.model_path)
+			bump(&expected, b.model_id)
 		}
 	}
 	for _, &q in s.lod_quads {
 		for d in q.draws {
-			bump(&expected, d.model_path)
+			bump(&expected, d.model_id)
 		}
 	}
-	bal, path, want, got := assetdb.debug_compare_refs(&s.cache, expected)
+	bal, model, want, got := assetdb.debug_compare_refs(&s.cache, expected)
 	if bal {
 		return true, ""
 	}
-	return false, fmt.tprintf("model-ref imbalance: %q want=%d got=%d", path, want, got)
+	return false, fmt.tprintf("model-ref imbalance: %q want=%d got=%d", models.path(model), want, got)
 }
 
 // debug_check_texture_refs (verification aid, D1 slice 2) checks the cache's texture refcounts
@@ -394,10 +391,10 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	// apply_overlay_ref Deleted — release their one instance as they remove it). At zero refs a model
 	// becomes cold, then eviction-eligible under the budget.
 	for inst in chunk.instances {
-		assetdb.model_release(&s.cache, inst.model_path)
+		assetdb.model_release(&s.cache, inst.model_id)
 	}
 	for b in chunk.grass {
-		assetdb.model_release(&s.cache, b.model_path)
+		assetdb.model_release(&s.cache, b.model_id)
 	}
 	release_terrain(s, chunk)
 	release_grass(s, chunk)
@@ -418,14 +415,14 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 // acquire_chunk_assets records one model ref per instance + grass batch this chunk holds — the
 // symmetric counterpart to release_chunk_assets' release loop (D1 eviction). Call once a chunk's
 // instance + grass layers are final (after apply_overlay + load_grass), so every model a resident
-// chunk draws is pinned against eviction until the chunk unloads. Path-keyed and residency-
+// chunk draws is pinned against eviction until the chunk unloads. Residency-
 // independent, so it's fine to acquire before the async decode finishes (the ref precedes upload).
 acquire_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk) {
 	for inst in chunk.instances {
-		assetdb.model_acquire(&s.cache, inst.model_path)
+		assetdb.model_acquire(&s.cache, inst.model_id)
 	}
 	for b in chunk.grass {
-		assetdb.model_acquire(&s.cache, b.model_path)
+		assetdb.model_acquire(&s.cache, b.model_id)
 	}
 }
 
@@ -460,7 +457,7 @@ populate :: proc(chunk: ^Chunk, refs: []Ref_Placement) {
 // instance_of is a sim ref as render draws it.
 instance_of :: proc(r: Ref_Placement) -> Instance {
 	return {
-		model_path = r.model_path,
+		model_id = r.model_id,
 		base = r.base,
 		form_id = r.form_id,
 		pos = r.pos,
@@ -470,7 +467,7 @@ instance_of :: proc(r: Ref_Placement) -> Instance {
 		has_tp = r.has_tp,
 		tp_door = r.tp_door,
 		vis = .Hidden if r.disabled else .Show,
-		veg = veg_classify(r.model_path),
+		veg = veg_classify(models.path(r.model_id)),
 		disabled = r.disabled,
 	}
 }
@@ -500,7 +497,7 @@ load_chunk :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, refs: []Ref
 	populate(&chunk, refs)
 	ninst := len(chunk.instances)
 	for &inst, i in chunk.instances {
-		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
+		if m, ok := assetdb.get_model(&s.cache, inst.model_id); ok {
 			inst.model = m
 		}
 		// Report progress every 16 instances (a present per model would dominate the load).
@@ -575,7 +572,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 				continue // hidden / shadow-only (open-interiors shell clip) — no color draw
 			}
 			if inst.model == nil {
-				inst.model = assetdb.model_ptr(&s.cache, inst.model_path)
+				inst.model = assetdb.model_ptr(&s.cache, inst.model_id)
 				if inst.model == nil {
 					continue // not streamed in yet
 				}
@@ -669,7 +666,7 @@ draw_casters :: proc(
 				continue
 			}
 			if inst.model == nil {
-				inst.model = assetdb.model_ptr(&s.cache, inst.model_path)
+				inst.model = assetdb.model_ptr(&s.cache, inst.model_id)
 				if inst.model == nil {
 					continue
 				}
@@ -727,7 +724,7 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 				continue // hidden / shadow-only (open-interiors shell clip)
 			}
 			if inst.model == nil {
-				inst.model = assetdb.model_ptr(&s.cache, inst.model_path)
+				inst.model = assetdb.model_ptr(&s.cache, inst.model_id)
 				if inst.model == nil {
 					continue
 				}

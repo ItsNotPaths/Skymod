@@ -27,6 +27,7 @@ import "../ai"
 import "../audio"
 import "../formid"
 import "../gamedb"
+import "../models"
 import smath "../math"
 import "../physics"
 import "../input"
@@ -785,7 +786,7 @@ frame_inspect :: proc(g: ^Game) {
 			// instance's chunk, and cache eviction (D1) frees the Model they'd point into.
 			tools.inspector_set_model_strings(
 				&g.insp,
-				inst.model.path,
+				models.path(inst.model_id),
 				inst.model.shapes[shp].diffuse_path if shp >= 0 && shp < len(inst.model.shapes) else "",
 			)
 			g.insp.sel_display = gamedb.name_of(&g.db, gamedb.Form_ID(inst.form_id)) // FULL name (ref → base)
@@ -799,7 +800,7 @@ frame_inspect :: proc(g: ^Game) {
 			// whether the instance actually carries a REFR id (vs 0 → sel becomes None).
 			if g.repl_ok {
 				push(&g.commands, Cmd_Select{inst.form_id})
-				tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(inst.form_id), inst.model_path)
+				tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(inst.form_id), models.path(inst.model_id))
 			}
 		}
 	}

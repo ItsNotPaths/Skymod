@@ -26,6 +26,7 @@ import "core:strings"
 import "../formats/nif"
 import "../gamedb"
 import smath "../math"
+import "../models"
 import "../render"
 import "../vfs"
 
@@ -208,7 +209,7 @@ interiors_update :: proc(m: ^Interiors, cam_pos: smath.Vec3) -> bool {
 	for _, &chunk in m.interior_scene.chunks {
 		for &inst in chunk.instances {
 			if gamedb.is_door(m.db, inst.base) {
-				log.infof("  is_door base=0x%08X %q", inst.base, inst.model_path)
+				log.infof("  is_door base=0x%08X %q", inst.base, models.path(inst.model_id))
 			}
 		}
 	}
