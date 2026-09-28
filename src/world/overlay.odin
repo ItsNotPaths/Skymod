@@ -539,7 +539,7 @@ capture_settles :: proc(s: ^Scene) {
 			act := physics.body_active(s.phys, inst.dyn_body)
 			if inst.dyn_active && !act {
 				// Just settled — snapshot the resting placement as a Moved delta.
-				m := instance_world(s, &inst)
+				m := physics.body_transform(s.phys, inst.dyn_body) * smath.translate(-inst.pos) * inst.world
 				p := smath.Vec3{m[0, 3], m[1, 3], m[2, 3]}
 				if smath.length3(p - inst.pos) > MOVE_EPS {
 					worldstate.set_moved(s.ws, inst.form_id, chunk.cell_form_id, m, p)

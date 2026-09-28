@@ -656,6 +656,7 @@ game_teardown :: proc(g: ^Game) {
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	queue_destroy(&g.commands)
 	delete(g.command_buf)
+	for s in ([]^Snapshot{&g.snaps.slot, &g.snap_back, &g.snap}) {snapshot_destroy(s)}
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)
 	slua.transitions_destroy(&g.trans)

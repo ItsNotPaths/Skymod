@@ -113,17 +113,15 @@ World :: struct {
 	obj_pair:  ^jolt.ObjectLayerPairFilter,
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
 
-	// Render interpolation for the fixed tick (docs/shipped.md §E). `prev` is the
-	// pre-step pose of every body awake over the last step; `alpha` is how far the render
-	// frame sits into the step that hasn't run yet. body_transform blends the two so a
-	// 144 Hz display doesn't judder on a 60 Hz sim. body_position stays exact — it is what
-	// logic reads. alpha returns to 1 (the live pose) at the end of every step.
+	// Drawing between fixed ticks (docs/shipped.md §E): `prev` is the pre-step pose of every body
+	// awake over the last step, and capture_poses hands main each dynamic body's step as a
+	// segment, so render blends without touching the world.
 	prev:      map[Body]Pose,
 	awake:     [dynamic]Body, // scratch for the active-body query
-	alpha:     f32,
+	movers:    map[Body]struct {}, // every dynamic body
 }
 
-// Pose is a body's position + orientation, the interpolation endpoint kept in World.prev.
+// Pose is a body's position + orientation.
 Pose :: struct {
 	pos: [3]f32,
 	rot: jolt.Quat,
@@ -210,6 +208,7 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 world_destroy :: proc(w: ^World) {
 	delete(w.prev)
 	delete(w.awake)
+	delete(w.movers)
 	if w.system != nil {jolt.PhysicsSystem_Destroy(w.system)}
 	if w.jobs != nil {jolt.JobSystem_Destroy(w.jobs)}
 	// The layer-filter tables are owned by Jolt's interface registry for the process's
@@ -224,7 +223,6 @@ world_destroy :: proc(w: ^World) {
 step :: proc(w: ^World, dt: f32, collision_steps := 1) {
 	snapshot_awake(w)
 	jolt.PhysicsSystem_Update(w.system, dt, i32(collision_steps), w.jobs)
-	w.alpha = 1 // between ticks, every read is the live pose
 }
 
 // snapshot_awake records the pre-step pose of the awake bodies — the only ones that can move,
@@ -246,13 +244,6 @@ snapshot_awake :: proc(w: ^World) {
 		jolt.BodyInterface_GetPositionAndRotation(w.bodies, b, &p, &q)
 		w.prev[b] = {from_rvec(p), q}
 	}
-}
-
-// set_render_alpha sets how far the frame about to be drawn sits past the last completed step:
-// 0 = the pose that step started from, 1 = the live pose. The app writes the fixed-tick
-// accumulator remainder here once per frame, after its tick loop and before it draws.
-set_render_alpha :: proc(w: ^World, alpha: f32) {
-	w.alpha = clamp(alpha, 0, 1)
 }
 
 // profile_next_frame / profile_dump drive Jolt's built-in hierarchical profiler (the lib must be
@@ -609,6 +600,7 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 	// polluted the overlay — nor costs anything per frame; kick()/interaction wakes it on demand.
 	act := jolt.Activation.Activate if (is_dynamic && activate) else jolt.Activation.DontActivate
 	id := jolt.BodyInterface_CreateAndAddBody(w.bodies, bcs, act)
+	if is_dynamic && id != 0 {w.movers[id] = {}}
 	jolt.BodyCreationSettings_Destroy(bcs)
 	jolt.Shape_Destroy(shape) // release our creation ref; the body keeps the shape alive
 	return id
@@ -649,6 +641,7 @@ ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocato
 
 remove_body :: proc(w: ^World, b: Body) {
 	delete_key(&w.prev, b) // Jolt recycles BodyIDs; a stale blend endpoint would pose the next body wrong
+	delete_key(&w.movers, b)
 	jolt.BodyInterface_RemoveAndDestroyBody(w.bodies, b)
 }
 
@@ -713,24 +706,60 @@ deactivate :: proc(w: ^World, b: Body) {
 	jolt.BodyInterface_DeactivateBody(w.bodies, b)
 }
 
-// (hole body-pose-snapshot :tags (threading render physics) :sev gap) render reads Jolt live, and the blend state (World.prev, awake, alpha) sits in physics. Wanted: moved and awake body poses by form ID in the snapshot; physics loses its render state.
-// body_transform returns a body's RENDER transform (position + orientation, no scale) as a
-// 4×4 matrix — translation in column 3, matching the engine's render matrices. Blended toward
-// the pose the last step started from by set_render_alpha, so a body drawn between fixed ticks
-// moves smoothly. At alpha 1 (during the tick, and for any body that was asleep) it is the
-// live pose exactly.
+// body_transform is a body's live transform (position + orientation, no scale) as a 4×4 —
+// translation in column 3, matching the engine's render matrices. Sim code reads it; drawing
+// reads Poses.
 body_transform :: proc(w: ^World, b: Body) -> matrix[4, 4]f32 {
+	p := body_pose(w, b)
+	return pose_matrix(p.pos, p.rot)
+}
+
+@(private)
+body_pose :: proc(w: ^World, b: Body) -> Pose {
 	p: jolt.RVec3
 	q: jolt.Quat
 	jolt.BodyInterface_GetPositionAndRotation(w.bodies, b, &p, &q)
-	pos, rot := from_rvec(p), q
-	if w.alpha < 1 {
-		if from, blend := w.prev[b]; blend {
-			pos = from.pos + (pos - from.pos) * w.alpha
-			rot = linalg.quaternion_slerp(from.rot, rot, w.alpha)
-		}
+	return {from_rvec(p), q}
+}
+
+// Body_Pose is a dynamic body's last step: `from` is its pose before the step, the same as `to`
+// for a body that slept through it or was placed outright.
+Body_Pose :: struct {
+	body:     Body,
+	from, to: Pose,
+}
+
+// Poses is every dynamic body's last step, for drawing between steps without the world.
+Poses :: struct {
+	list: [dynamic]Body_Pose,
+	at:   map[Body]int, // index into list
+}
+
+// capture_poses fills `p` with every dynamic body's last step.
+capture_poses :: proc(w: ^World, p: ^Poses) {
+	clear(&p.list)
+	clear(&p.at)
+	for b in w.movers {
+		to := body_pose(w, b)
+		from, moved := w.prev[b]
+		p.at[b] = len(p.list)
+		append(&p.list, Body_Pose{b, from if moved else to, to})
 	}
-	return pose_matrix(pos, rot)
+}
+
+// posed is a body's transform `alpha` (0..1) of the way through its last step, read from `p`
+// alone; false when `p` has no such body.
+posed :: proc(p: ^Poses, b: Body, alpha: f32) -> (matrix[4, 4]f32, bool) {
+	i, ok := p.at[b]
+	if !ok {return {}, false}
+	bp := p.list[i]
+	a := clamp(alpha, 0, 1)
+	return pose_matrix(bp.from.pos + (bp.to.pos - bp.from.pos) * a, linalg.quaternion_slerp(bp.from.rot, bp.to.rot, a)), true
+}
+
+poses_destroy :: proc(p: ^Poses) {
+	delete(p.list)
+	delete(p.at)
 }
 
 // pose_matrix builds the 4×4 from a position + unit quaternion.

@@ -116,6 +116,11 @@ take :: proc(l: ^Latest($T), cur: ^T) -> bool {
 Snapshot :: struct {
 	tick:   u64,
 	player: Segment, // the player's feet
+	bodies: physics.Poses, // every dynamic body in the active world
+}
+
+snapshot_destroy :: proc(s: ^Snapshot) {
+	physics.poses_destroy(&s.bodies)
 }
 
 Segment :: struct {
@@ -133,5 +138,11 @@ publish_snapshot :: proc(g: ^Game) {
 	s := &g.snap_back
 	s.tick = g.tick.total
 	if g.char_ok {s.player = {g.character.prev, physics.character_position(&g.character)}}
+	if g.cur_phys != nil {
+		physics.capture_poses(g.cur_phys, &s.bodies)
+	} else {
+		clear(&s.bodies.list)
+		clear(&s.bodies.at)
+	}
 	publish(&g.snaps, s)
 }

@@ -96,8 +96,9 @@ game_frame :: proc(g: ^Game) {
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
 	take(&g.snaps, &g.snap)
+	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
+	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha = &g.snap.bodies, g.tick.alpha}
 	frame_force_greet(g)
-	if g.cur_phys != nil {physics.set_render_alpha(g.cur_phys, g.tick.alpha)}
 
 	frame_camera(g)
 	frame_persistence(g)
@@ -145,7 +146,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request sim-clock body-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request sim-clock pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
@@ -842,9 +843,8 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			// (hole body-pose-snapshot) the drop balls have no form ID, so body-pose-snapshot will not carry them; publish them with the dev verb output.
 			for b in g.drops {
-				render.draw_mesh(&g.r, g.drop_marker, vp, physics.body_transform(&g.phys, b), {})
+				if m, ok := physics.posed(&g.snap.bodies, b, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
 			}
 			t_objdraw := time.tick_now()
 			world.draw_object_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.wind, g.elapsed) // baked per-quad distant objects
