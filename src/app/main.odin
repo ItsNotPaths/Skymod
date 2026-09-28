@@ -15,7 +15,9 @@ import "core:log"
 import "core:mem"
 import "core:os"
 import "core:slice"
+import "core:strconv"
 import "core:thread"
+import "core:time"
 
 import "../installer"
 import "../platform"
@@ -309,8 +311,17 @@ run_game :: proc(logging: ^slog.Logging, cfg: ^settings.Config, loader_alloc: ru
 	if !game_setup(&g, logging, cfg, loader_alloc, base) {
 		return .Desktop
 	}
+	// --seconds N: quit after N seconds of play (with --skipmenu, an unattended run to profile).
+	seconds := -1.0
+	if i, found := slice.linear_search(os.args, "--seconds"); found && i + 1 < len(os.args) {
+		seconds, _ = strconv.parse_f64(os.args[i + 1])
+	}
+	start := time.tick_now()
 	for {
 		if !platform.pump(&g.p) || g.quit != .Stay {
+			break
+		}
+		if seconds >= 0 && time.duration_seconds(time.tick_since(start)) > seconds {
 			break
 		}
 		game_frame(&g)
