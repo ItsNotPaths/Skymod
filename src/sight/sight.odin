@@ -20,16 +20,6 @@ Mode :: enum u8 {
 	Detect, // the viewer's awareness of the target (detection)
 }
 
-// Body is what sight needs of a ref.
-Body :: struct {
-	loaded:   bool, // its 3D is in the world
-	actor:    bool,
-	interior: bool,
-	pos:      [3]f32,
-	heading:  f32, // radians, z rotation
-	lo, hi:   f32, // its bounds' bottom and top above pos, scaled
-}
-
 Ray :: struct {
 	from, to: [3]f32,
 }
@@ -44,15 +34,12 @@ MAX_HITS :: 32
 
 // Host is what the engine answers; each proc gets `data` back.
 Host :: struct {
-	data:      rawptr,
-	player:    Form_ID,
-	eye:       [3]f32, // the player's camera
-	vp:        matrix[4, 4]f32, // the player's view-projection
-	space:     bool, // a physics world to cast rays in
-	body:      proc "c" (data: rawptr, ref: Form_ID) -> Body,
-	hits:      proc "c" (data: rawptr, ray: Ray, out: [^]Hit, cap: int) -> int,
-	setting:   proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32, // a GMST
-	awareness: proc "c" (data: rawptr, viewer, target: Form_ID) -> f32,
+	world: plugin.World,
+	data:  rawptr,
+	eye:   [3]f32, // the player's camera
+	vp:    matrix[4, 4]f32, // the player's view-projection
+	space: bool, // a physics world to cast rays in
+	hits:  proc "c" (data: rawptr, ray: Ray, out: [^]Hit, cap: int) -> int,
 }
 
 Table :: struct {
@@ -77,20 +64,21 @@ level_builtin :: proc "c" (h: ^Host, viewer, target: Form_ID, mode: Mode) -> f32
 	switch mode {
 	case .Raw:    return seen(h, viewer, target, false)
 	case .Cone:   return seen(h, viewer, target, true)
-	case .Detect: return h.awareness(h.data, viewer, target)
+	case .Detect: return h.world.awareness(h.world.data, viewer, target).level
 	}
 	return 0
 }
 
 has_los_builtin :: proc "c" (h: ^Host, viewer, target: Form_ID) -> bool {
-	if viewer != h.player && !h.body(h.data, target).actor {return false}
-	return seen(h, viewer, target, viewer == h.player) > 0
+	player := h.world.player
+	if viewer != player && !ref(h, target).actor {return false}
+	return seen(h, viewer, target, viewer == player) > 0
 }
 
 // range_builtin is fSneakMaxDistance, times fSneakExteriorDistanceMult outdoors.
 range_builtin :: proc "c" (h: ^Host, viewer: Form_ID) -> f32 {
-	r := h.setting(h.data, "fSneakMaxDistance", 2500)
-	if !h.body(h.data, viewer).interior {r *= h.setting(h.data, "fSneakExteriorDistanceMult", 2.1)}
+	r := h.world.setting(h.world.data, "fSneakMaxDistance", 2500)
+	if !ref(h, viewer).interior {r *= h.world.setting(h.world.data, "fSneakExteriorDistanceMult", 2.1)}
 	return r
 }
 
@@ -102,14 +90,14 @@ light_builtin :: proc "c" (h: ^Host, ref: Form_ID) -> f32 {
 // seen is the mean visibility of the target's three picks; `cone` counts only picks inside its view.
 @(private = "file")
 seen :: proc "contextless" (h: ^Host, viewer, target: Form_ID, cone: bool) -> f32 {
-	t := h.body(h.data, target)
+	t := ref(h, target)
 	if !h.space || !t.loaded {return 0}
 	eye := h.eye
-	v: Body
-	if viewer != h.player {
-		v = h.body(h.data, viewer)
+	v: plugin.Ref
+	if viewer != h.world.player {
+		v = ref(h, viewer)
 		if !v.loaded {return 0}
-		eye = v.pos + {0, 0, v.hi * NPC_EYE}
+		eye = v.pos + {0, 0, v.hi.z * NPC_EYE}
 	}
 	reach := range_builtin(h, viewer)
 	sum: f32
@@ -121,22 +109,22 @@ seen :: proc "contextless" (h: ^Host, viewer, target: Form_ID, cone: bool) -> f3
 }
 
 @(private = "file")
-in_cone :: proc "contextless" (h: ^Host, viewer: Form_ID, v: Body, eye, p: [3]f32, reach: f32) -> bool {
-	if viewer == h.player {
+in_cone :: proc "contextless" (h: ^Host, viewer: Form_ID, v: plugin.Ref, eye, p: [3]f32, reach: f32) -> bool {
+	if viewer == h.world.player {
 		c := h.vp * [4]f32{p.x, p.y, p.z, 1}
 		return c.w > 0 && abs(c.x) <= c.w && abs(c.y) <= c.w
 	}
 	d := p - eye
 	if math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z) > reach {return false}
-	turn := math.to_degrees(math.atan2(d.x, d.y) - v.heading)
+	turn := math.to_degrees(math.atan2(d.x, d.y) - v.rot.z)
 	return abs(math.mod(math.mod(turn, 360) + 540, 360) - 180) <= VIEW_CONE / 2
 }
 
 // picks are the target's bottom, middle and top, inside its bounds.
 @(private = "file")
-picks :: proc "contextless" (t: Body) -> [3][3]f32 {
-	h := t.hi - t.lo
-	return {t.pos + {0, 0, t.lo + 0.1 * h}, t.pos + {0, 0, t.lo + 0.5 * h}, t.pos + {0, 0, t.lo + 0.9 * h}}
+picks :: proc "contextless" (t: plugin.Ref) -> [3][3]f32 {
+	lo, h := t.lo.z, t.hi.z - t.lo.z
+	return {t.pos + {0, 0, lo + 0.1 * h}, t.pos + {0, 0, lo + 0.5 * h}, t.pos + {0, 0, lo + 0.9 * h}}
 }
 
 // visibility is how much of the ray reaches the target, 0..1: a solid body blocks it, each cutout
@@ -153,4 +141,9 @@ visibility :: proc "contextless" (h: ^Host, viewer, target: Form_ID, from, to: [
 		v *= 1 - CUTOUT_COVER
 	}
 	return v
+}
+
+@(private = "file")
+ref :: proc "contextless" (h: ^Host, r: Form_ID) -> plugin.Ref {
+	return h.world.ref(h.world.data, r)
 }

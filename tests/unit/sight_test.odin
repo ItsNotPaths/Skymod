@@ -12,22 +12,22 @@ Fake_Sight :: struct {
 }
 
 fake_sight_host :: proc(f: ^Fake_Sight) -> sight.Host {
+	w := fake_world(f)
+	w.ref = proc "c" (data: rawptr, ref: plugin.Form_ID) -> plugin.Ref {
+		f := (^Fake_Sight)(data)
+		y := f32(-100) if f.behind else 100
+		return {loaded = true, actor = true, pos = {0, y if ref == 0xB1 else 0, 0}, hi = {0, 0, 128}}
+	}
+	w.awareness = proc "c" (data: rawptr, viewer, target: plugin.Form_ID) -> plugin.Awareness {return {0.25, false}}
 	return {
+		world = w,
 		data = f,
-		player = 0x14,
 		space = true,
-		body = proc "c" (data: rawptr, ref: sight.Form_ID) -> sight.Body {
-			f := (^Fake_Sight)(data)
-			y := f32(-100) if f.behind else 100
-			return {loaded = true, actor = true, pos = {0, y if ref == 0xB1 else 0, 0}, hi = 128}
-		},
 		hits = proc "c" (data: rawptr, ray: sight.Ray, out: [^]sight.Hit, cap: int) -> int {
 			f := (^Fake_Sight)(data)
 			for h, i in f.hits {out[i] = h}
 			return len(f.hits)
 		},
-		setting = proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {return fallback},
-		awareness = proc "c" (data: rawptr, viewer, target: sight.Form_ID) -> f32 {return 0.25},
 	}
 }
 

@@ -28,15 +28,9 @@ Answer :: struct {
 	answered: bool, // false = not this plugin's function
 }
 
-// Host is what the engine answers; each proc gets `data` back.
+// Host is what the engine answers.
 Host :: struct {
-	data:         rawptr,
-	actor_value:  proc "c" (data: rawptr, actor: Form_ID, name: cstring) -> f32, // current value
-	has_keyword:  proc "c" (data: rawptr, form, keyword: Form_ID) -> bool, // the form, its base or an alias holding it
-	faction_rank: proc "c" (data: rawptr, actor, faction: Form_ID) -> i32, // -1 = not a member
-	quest_stage:  proc "c" (data: rawptr, quest: Form_ID) -> i32,
-	global:       proc "c" (data: rawptr, global: Form_ID) -> f32,
-	base:         proc "c" (data: rawptr, ref: Form_ID) -> Form_ID,
+	world: plugin.World,
 }
 
 Table :: struct {

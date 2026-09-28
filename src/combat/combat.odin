@@ -41,14 +41,10 @@ Aggro :: struct {
 
 // Host is what the engine answers and takes; each proc gets `data` back.
 Host :: struct {
-	data:        rawptr,
-	detected:    proc "c" (data: rawptr, viewer, target: Form_ID) -> bool,
-	ally:        proc "c" (data: rawptr, a, b: Form_ID) -> bool, // ally or friend
-	hostile:     proc "c" (data: rawptr, a, b: Form_ID) -> bool,
-	actor_value: proc "c" (data: rawptr, actor: Form_ID, name: cstring) -> f32, // current value
-	aggro:       proc "c" (data: rawptr, actor: Form_ID) -> Aggro,
-	setting:     proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32, // a GMST
-	set:         proc "c" (data: rawptr, actor: Form_ID, f: Fight), // applied after tick returns
+	world: plugin.World,
+	data:  rawptr,
+	aggro: proc "c" (data: rawptr, actor: Form_ID) -> Aggro,
+	set:   proc "c" (data: rawptr, actor: Form_ID, f: Fight), // applied after tick returns
 }
 
 Input :: struct {
@@ -99,9 +95,9 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 	reach := max(aggro.warn, aggro.warn_attack, aggro.attack) if aggro.on else 0
 	for other in actors {
 		if other.id == me.id {continue}
-		seen := h.detected(h.data, me.id, other.id)
+		seen := detected(h, me.id, other.id)
 		d := distance_xy(me, other)
-		if !seen && d > reach || other.dead || h.ally(h.data, me.id, other.id) {continue}
+		if !seen && d > reach || other.dead || h.world.relation(h.world.data, me.id, other.id) >= .Ally {continue}
 		if seen && d < attack_d && attacks_on_sight(h, me.id, other.id) {attack, attack_d = other.id, d}
 		if d < near_d {near, near_d = other.id, d}
 	}
@@ -110,14 +106,14 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 	if near != c.target {c.target, c.warned = near, 0}
 	if near_d <= aggro.warn_attack {c.warned += inp.dt} else {c.warned = 0}
 	c.state = .Warn
-	if near_d <= aggro.attack || c.warned >= h.setting(h.data, "fWarningTimer", 5) {c.state = engage(h, me.id)}
+	if near_d <= aggro.attack || c.warned >= h.world.setting(h.world.data, "fWarningTimer", 5) {c.state = engage(h, me.id)}
 	return c
 }
 
 // engage is Combat, or Flee for a Cowardly actor.
 @(private = "file")
 engage :: proc "contextless" (h: Host, actor: Form_ID) -> State {
-	return .Flee if h.actor_value(h.data, actor, "Confidence") == 0 else .Combat
+	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Current) == 0 else .Combat
 }
 
 // keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
@@ -128,21 +124,26 @@ keeps :: proc "contextless" (inp: ^Input, me: plugin.Actor, c: Fight, aggro: Agg
 	if c.target == 0 || loaded && target.dead {return false}
 	d := distance_xy(me, target) if loaded else FAR
 	if c.state == .Flee {return d <= flee_distance(h, me)}
-	return h.detected(h.data, me.id, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE
+	return detected(h, me.id, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE
 }
 
 // attacks_on_sight: Aggressive attacks the hostile actors it has detected, Very Aggressive
 // neutrals too, Frenzied anyone.
 @(private = "file")
 attacks_on_sight :: proc "contextless" (h: Host, actor, other: Form_ID) -> bool {
-	aggression := h.actor_value(h.data, actor, "Aggression")
-	return aggression >= 2 || aggression >= 1 && h.hostile(h.data, actor, other)
+	aggression := h.world.actor_value(h.world.data, actor, "Aggression", .Current)
+	return aggression >= 2 || aggression >= 1 && h.world.hostile(h.world.data, actor, other)
 }
 
 @(private = "file")
 flee_distance :: proc "contextless" (h: Host, me: plugin.Actor) -> f32 {
-	if me.interior {return h.setting(h.data, "fFleeDistanceInterior", 3000)}
-	return h.setting(h.data, "fFleeDistanceExterior", 5000)
+	if me.interior {return h.world.setting(h.world.data, "fFleeDistanceInterior", 3000)}
+	return h.world.setting(h.world.data, "fFleeDistanceExterior", 5000)
+}
+
+@(private = "file")
+detected :: proc "contextless" (h: Host, viewer, target: Form_ID) -> bool {
+	return h.world.awareness(h.world.data, viewer, target).detected
 }
 
 @(private = "file")

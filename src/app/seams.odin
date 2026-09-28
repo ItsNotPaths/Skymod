@@ -1,6 +1,5 @@
 package main
 
-// (hole seam-adapters :tags plugins :sev struct :needs (world-api)) the seams' host procs live in four places (here, ai/combat.odin, sighthost, conditions/seam.odin), and each writes its own copy of the shared queries. Wanted: the world-api answered once; each place keeps only its seam's own queries.
 // The host side of the plugin seams (ws.md Workstream H): the actor snapshot every seam reads, and
 // each seam's host procs over worldstate.
 
@@ -11,6 +10,7 @@ import "../gamedb"
 import smath "../math"
 import "../plugin"
 import "../sighthost"
+import "../worldhost"
 import "../worldstate"
 
 // Actor_Snapshot is the loaded actors as the seams see them, rebuilt each tick.
@@ -58,8 +58,9 @@ detection_tick :: proc(t: ^detection.Table, s: ^Actor_Snapshot, ws: ^worldstate.
 	known := make([dynamic]detection.Pair, 0, len(ws.awareness), context.temp_allocator)
 	for k, a in ws.awareness {append(&known, detection.Pair{k[0], k[1], {a.level, a.detected}})}
 	h := Detection_Host{context, ws, db, make([dynamic]detection.Pair, context.temp_allocator)}
+	wd := worldhost.Data{context, ws, db}
 	inp := detection.Input {
-		host   = {&h, detection_sight, detection_range, detection_light, detection_known, detection_set},
+		host   = {worldhost.world(&wd), &h, detection_sight, detection_range, detection_light, detection_set},
 		table  = t,
 		tick   = s.ticks,
 		dt     = dt,
@@ -89,14 +90,6 @@ detection_light :: proc "c" (data: rawptr, target: Form_ID) -> f32 {
 	h := (^Detection_Host)(data)
 	context = h.ctx
 	return sighthost.light(h.ws, h.db, target)
-}
-
-@(private = "file")
-detection_known :: proc "c" (data: rawptr, viewer, target: Form_ID) -> detection.Awareness {
-	h := (^Detection_Host)(data)
-	context = h.ctx
-	a := worldstate.awareness(h.ws, viewer, target)
-	return {a.level, a.detected}
 }
 
 @(private = "file")

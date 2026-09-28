@@ -17,17 +17,17 @@ Fake_Combat :: struct {
 }
 
 fake_combat_host :: proc(h: ^Fake_Combat) -> combat.Host {
+	w := fake_world(h)
+	w.awareness = proc "c" (data: rawptr, viewer, target: plugin.Form_ID) -> plugin.Awareness {return {0, (^Fake_Combat)(data).detected}}
+	w.hostile = proc "c" (data: rawptr, a, b: plugin.Form_ID) -> bool {return (^Fake_Combat)(data).hostile}
+	w.actor_value = proc "c" (data: rawptr, actor: plugin.Form_ID, name: cstring, part: plugin.AV_Part) -> f32 {
+		h := (^Fake_Combat)(data)
+		return h.confidence if name == "Confidence" else h.aggression
+	}
 	return {
+		w,
 		h,
-		proc "c" (data: rawptr, viewer, target: combat.Form_ID) -> bool {return (^Fake_Combat)(data).detected},
-		proc "c" (data: rawptr, a, b: combat.Form_ID) -> bool {return false},
-		proc "c" (data: rawptr, a, b: combat.Form_ID) -> bool {return (^Fake_Combat)(data).hostile},
-		proc "c" (data: rawptr, actor: combat.Form_ID, name: cstring) -> f32 {
-			h := (^Fake_Combat)(data)
-			return h.confidence if name == "Confidence" else h.aggression
-		},
 		proc "c" (data: rawptr, actor: combat.Form_ID) -> combat.Aggro {return (^Fake_Combat)(data).aggro},
-		proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {return fallback},
 		proc "c" (data: rawptr, actor: combat.Form_ID, f: combat.Fight) {
 			h := (^Fake_Combat)(data)
 			context = h.ctx

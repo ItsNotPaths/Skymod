@@ -27,11 +27,11 @@ Fake_Host :: struct {
 
 fake_host :: proc(h: ^Fake_Host) -> detection.Host {
 	return {
+		fake_world(h),
 		h,
 		proc "c" (data: rawptr, viewer, target: detection.Form_ID) -> f32 {return 1},
 		proc "c" (data: rawptr, viewer: detection.Form_ID) -> f32 {return 1000},
 		proc "c" (data: rawptr, target: detection.Form_ID) -> f32 {return 1},
-		proc "c" (data: rawptr, viewer, target: detection.Form_ID) -> detection.Awareness {return {}},
 		proc "c" (data: rawptr, p: detection.Pair) {
 			h := (^Fake_Host)(data)
 			context = h.ctx

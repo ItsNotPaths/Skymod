@@ -10,6 +10,7 @@ import "../combat"
 import "../formats/esm"
 import "../gamedb"
 import "../plugin"
+import "../worldhost"
 import "../worldstate"
 
 FLEE_STEP :: f32(512) // how far each flee leg runs
@@ -51,8 +52,9 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 		append(&fighters, combat.Fighter{a.id, agent_of(w, ws, db, a.id).combat, by})
 	}
 	h := Combat_Host{context, ws, db, make([dynamic]combat.Fighter, context.temp_allocator)}
+	wd := worldhost.Data{context, ws, db}
 	inp := combat.Input {
-		host     = {&h, combat_detected, combat_ally, combat_hostile, combat_actor_value, combat_aggro, combat_setting, combat_set},
+		host     = {worldhost.world(&wd), &h, combat_aggro, combat_set},
 		table    = t,
 		dt       = dt,
 		actors   = plugin.span(actors),
@@ -66,34 +68,6 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 	}
 }
 
-@(private = "file")
-combat_detected :: proc "c" (data: rawptr, viewer, target: Form_ID) -> bool {
-	h := (^Combat_Host)(data)
-	context = h.ctx
-	return worldstate.detected(h.ws, viewer, target)
-}
-
-@(private = "file")
-combat_ally :: proc "c" (data: rawptr, a, b: Form_ID) -> bool {
-	h := (^Combat_Host)(data)
-	context = h.ctx
-	return worldstate.faction_relation(h.ws, h.db, a, b) >= .Ally
-}
-
-@(private = "file")
-combat_hostile :: proc "c" (data: rawptr, a, b: Form_ID) -> bool {
-	h := (^Combat_Host)(data)
-	context = h.ctx
-	return worldstate.hostile(h.ws, h.db, a, b)
-}
-
-@(private = "file")
-combat_actor_value :: proc "c" (data: rawptr, actor: Form_ID, name: cstring) -> f32 {
-	h := (^Combat_Host)(data)
-	context = h.ctx
-	return worldstate.av_current(h.ws, h.db, actor, string(name))
-}
-
 // combat_aggro is the actor's aggro radii, through its AI data template.
 @(private = "file")
 combat_aggro :: proc "c" (data: rawptr, actor: Form_ID) -> combat.Aggro {
@@ -103,13 +77,6 @@ combat_aggro :: proc "c" (data: rawptr, actor: Form_ID) -> combat.Aggro {
 	if r, ok := gamedb.ref_by_formid(h.db, base); ok {base = r.base}
 	a := gamedb.template_part(h.db, base, esm.ACBS_TEMPLATE_AI_DATA, worldstate.actor_pick(h.ws, h.db, actor)).aggro
 	return {a.on, a.warn, a.warn_attack, a.attack}
-}
-
-@(private = "file")
-combat_setting :: proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {
-	h := (^Combat_Host)(data)
-	context = h.ctx
-	return gamedb.setting_float(h.db, string(name), fallback)
 }
 
 @(private = "file")

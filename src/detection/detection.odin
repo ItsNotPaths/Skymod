@@ -16,10 +16,7 @@ VERSION :: u32(1)
 GROUPS :: 6 // viewers take turns: at 60 Hz each looks every 0.1 s
 FAR :: f32(1e9) // the distance to a target not in the viewer's space
 
-Awareness :: struct {
-	level:    f32,
-	detected: bool,
-}
+Awareness :: plugin.Awareness
 
 // Pair is one viewer's awareness of one target.
 Pair :: struct {
@@ -29,11 +26,11 @@ Pair :: struct {
 
 // Host is what the engine answers and takes; each proc gets `data` back.
 Host :: struct {
+	world: plugin.World, // the awareness store before this tick is world.awareness
 	data:  rawptr,
 	sight: proc "c" (data: rawptr, viewer, target: Form_ID) -> f32, // sight.Mode.Cone, 0..1
 	range: proc "c" (data: rawptr, viewer: Form_ID) -> f32, // how far the viewer sees
 	light: proc "c" (data: rawptr, target: Form_ID) -> f32, // at the target, 0 dark .. 1 lit
-	known: proc "c" (data: rawptr, viewer, target: Form_ID) -> Awareness, // the store before this tick
 	set:   proc "c" (data: rawptr, p: Pair), // applied in order after tick returns: a later set of a pair wins
 }
 
@@ -76,7 +73,7 @@ tick_builtin :: proc "c" (inp: ^Input) {
 				light    = h.light(h.data, target.id),
 				noise    = heard(viewer.id, target.id),
 			}
-			h.set(h.data, {viewer.id, target.id, inp.table.judge(h.known(h.data, viewer.id, target.id), senses, step)})
+			h.set(h.data, {viewer.id, target.id, inp.table.judge(h.world.awareness(h.world.data, viewer.id, target.id), senses, step)})
 		}
 	}
 }
