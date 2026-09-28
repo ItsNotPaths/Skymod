@@ -3,6 +3,7 @@ package main
 // The sim's boundary (ws.md Workstream R): what main hands the tick and what the tick hands back.
 // The sim still runs inline on main; these types are what cross once it has its own thread.
 
+import "core:strings"
 import "core:sync"
 
 import "../ai"
@@ -11,6 +12,8 @@ import "../input"
 import smath "../math"
 import "../physics"
 import "../render"
+import "../script"
+import slua "../script/lua"
 import "../worldstate"
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
@@ -92,6 +95,7 @@ Sim_Command :: union {
 	Cmd_Talk_Next,
 	Cmd_Talk_Choose,
 	Cmd_Talk_Leave,
+	Cmd_Select,
 }
 
 Cmd_Noclip :: struct {} // toggle walking and free-fly
@@ -105,6 +109,7 @@ Cmd_Release :: struct {actor: Form_ID}
 Cmd_Talk_Next :: struct {info: Form_ID, response: int} // skip the response showing when pressed
 Cmd_Talk_Choose :: struct {choice: dialogue.Choice}
 Cmd_Talk_Leave :: struct {}
+Cmd_Select :: struct {form: Form_ID} // the console's `sel`
 
 // apply_commands runs what main sent since the last tick.
 apply_commands :: proc(g: ^Game) {
@@ -124,6 +129,7 @@ apply_commands :: proc(g: ^Game) {
 		case Cmd_Talk_Next:   talk_next(g, v)
 		case Cmd_Talk_Choose: talk_choose(g, v.choice)
 		case Cmd_Talk_Leave:  back_out(g)
+		case Cmd_Select:      if g.repl_ok {slua.repl_set_selection(&g.repl, script.Form_ID(v.form))}
 		}
 	}
 }
@@ -217,6 +223,23 @@ publish_snapshot :: proc(g: ^Game) {
 	view_subtitles(g, s)
 	view_talk(g, s)
 	publish(&g.snaps, s)
+}
+
+// run_console evaluates the console lines main sent on the gameplay REPL and sends their output
+// back. The lines in both string queues are heap copies the queue owns until drained.
+run_console :: proc(g: ^Game) {
+	drain(&g.console_in, &g.console_in_buf)
+	for line in g.console_in_buf {
+		for out in slua.repl_eval(&g.repl, line) {push(&g.console_out, strings.clone(out))}
+		delete(line)
+	}
+}
+
+// strings_queue_destroy frees a string queue and whatever it still owns.
+strings_queue_destroy :: proc(q: ^Queue(string), buf: ^[dynamic]string) {
+	for s in q.items {delete(s)}
+	queue_destroy(q)
+	delete(buf^)
 }
 
 // Sim_Event is one thing the sim tells main. Main handles them after each tick, in order.

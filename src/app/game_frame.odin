@@ -100,6 +100,7 @@ game_frame :: proc(g: ^Game) {
 		park_for_menu(g) // a menu the tick opened stops the rest of the catch-up
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
+	if g.parks > 0 {run_console(g)} // parked, main owns the VM: a pausing menu keeps the console live
 	take(&g.snaps, &g.snap)
 	sync_dialogue_menu(g)
 	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
@@ -149,13 +150,14 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (console-command sim-clock pick-on-render audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
 	script_run_pending(g) // timed as scripts, at the join
 	t := time.tick_now()
 	apply_commands(g)
+	run_console(g)
 	lap(g, .Commands, &t)
 	tick_jail(g) // before the follow check, which carries a jailed player's move out after this tick
 	lap(g, .Jail, &t)
@@ -334,18 +336,17 @@ frame_overlay :: proc(g: ^Game) {
 		}
 	}
 
-	// Dev console: evaluate the submitted line on the gameplay REPL and echo the
-	// captured output (results / print / errors). Falls back to a bare echo if the
-	// REPL failed to init.
-	// (hole console-command :tags threading :sev gap) the console evaluates Lua on the gameplay VM from main, and repl_set_selection writes it. Wanted: a line is a command, its output comes back as an event.
+	// Dev console: the submitted line goes to the sim, which evaluates it on the gameplay REPL
+	// (run_console); its output (results / print / errors) comes back and is echoed here.
 	if cmd := tools.console_panel(&g.console); cmd != "" {
 		tools.console_printf(&g.console, "> %s", cmd)
-		if g.repl_ok {
-			for line in slua.repl_eval(&g.repl, cmd) {
-				tools.console_print(&g.console, line)
-			}
-		}
+		if g.repl_ok {push(&g.console_in, strings.clone(cmd))}
 		log.infof("console: %q", cmd)
+	}
+	drain(&g.console_out, &g.console_out_buf)
+	for line in g.console_out_buf {
+		tools.console_print(&g.console, line)
+		delete(line)
 	}
 }
 
@@ -725,7 +726,7 @@ frame_inspect :: proc(g: ^Game) {
 			// Track the picked REFR as the console's `sel`. DIAG: echo the form so we can see
 			// whether the instance actually carries a REFR id (vs 0 → sel becomes None).
 			if g.repl_ok {
-				slua.repl_set_selection(&g.repl, script.Form_ID(inst.form_id))
+				push(&g.commands, Cmd_Select{inst.form_id})
 				tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(inst.form_id), inst.model_path)
 			}
 		}
@@ -783,7 +784,7 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	g.insp.sel_door_cell = ""
 	g.insp.sel_is_door = false
 	if g.repl_ok {
-		slua.repl_set_selection(&g.repl, script.Form_ID(actor))
+		push(&g.commands, Cmd_Select{actor})
 		tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(actor), g.insp.sel_display)
 	}
 }

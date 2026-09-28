@@ -240,6 +240,10 @@ Game :: struct {
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	events:      Queue(Sim_Event), // what the sim told main since main last looked
 	parks:       int, // main's holds on the sim (sim_drain): while any, no tick runs
+	console_in:  Queue(string), // console lines for the sim to evaluate (heap copies)
+	console_in_buf:  [dynamic]string,
+	console_out: Queue(string), // their output, back to main (heap copies)
+	console_out_buf: [dynamic]string,
 	menu_parked: bool, // one of those holds is an open menu's (park_for_menu)
 	event_buf:   [dynamic]Sim_Event, // main's drained copy
 	carried:     Cmd_Carry, // the dev carry, as the sim holds it
@@ -663,6 +667,8 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.command_buf)
 	queue_destroy(&g.events)
 	delete(g.event_buf)
+	strings_queue_destroy(&g.console_in, &g.console_in_buf)
+	strings_queue_destroy(&g.console_out, &g.console_out_buf)
 	for s in ([]^Snapshot{&g.snaps.slot, &g.snap_back, &g.snap}) {snapshot_destroy(s)}
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)
