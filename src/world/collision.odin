@@ -520,6 +520,11 @@ build_instance_bodies :: proc(w: ^physics.World, c: ^Sim_Cell, inst: ^Sim_Ref, m
 			}
 		}
 	}
+	if nmov == 0 && len(m.cutout.indices) > 0 { // a moving ref's cutouts would not follow it
+		if b := physics.add_sight_mesh(w, xform_points(inst.world, m.cutout.verts), m.cutout.indices); b != 0 {
+			append(&c.bodies, b)
+		}
+	}
 	inst.body_count = len(c.bodies) - inst.body_first
 	for b in c.bodies[inst.body_first:] {physics.set_owner(w, b, u64(inst.form_id))}
 

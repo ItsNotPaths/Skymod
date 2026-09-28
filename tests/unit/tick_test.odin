@@ -22,6 +22,28 @@ test_fixed_tick_interpolation :: proc(t: ^testing.T) {
 	body_step_blends(t)
 	character_step_spans_the_move(t)
 	ray_hits_nearest_first(t)
+	cutouts_only_for_sight(t)
+}
+
+// A sight mesh is seen only by a ray that asks for cutouts, and it stops no shape test.
+@(private = "file")
+cutouts_only_for_sight :: proc(t: ^testing.T) {
+	w, ok := physics.world_create()
+	testing.expect(t, ok, "world_create")
+	defer physics.world_destroy(&w)
+
+	leaves := physics.add_sight_mesh(&w, {{50, -100, -100}, {50, 100, -100}, {50, 0, 100}}, {0, 1, 2})
+	physics.set_owner(&w, leaves, 7)
+	physics.optimize_broadphase(&w)
+
+	testing.expect_value(t, len(physics.ray_hits(&w, {0, 0, 0}, {100, 0, 0})), 0)
+	hits := physics.ray_hits(&w, {0, 0, 0}, {100, 0, 0}, cutouts = true)
+	testing.expect_value(t, len(hits), 1)
+	if len(hits) == 1 {
+		testing.expect_value(t, hits[0].owner, 7)
+		testing.expect(t, hits[0].cutout, "a sight hit is a cutout")
+	}
+	testing.expect(t, physics.capsule_fits(&w, {50, 0, -60}, 20, 40), "a capsule fits inside leaves")
 }
 
 // A ray names each body it crosses by owner, nearest first; a one-sided mesh blocks from behind.

@@ -1,8 +1,8 @@
 package assetdb
 
 // (hole collision-store-package :tags (threading assets) :sev struct) the collision store is sim data inside the render asset package (assetdb), and world imports assetdb partly to reach it; once the streamer is a loader it is the loader-to-sim handoff and wants its own package beside the streamer.
-// Collision_Store holds what the sim knows of each model: its collision, bounds, furniture markers
-// and ProjectileNode, put when its decode lands. A read of a model not in yet is a request: the store
+// Collision_Store holds what the sim knows of each model: its collision, cutout geometry, bounds,
+// furniture markers and ProjectileNode, put when its decode lands. A read of a model not in yet is a request: the store
 // lists it, and the streamer takes the list (take_wanted). Any thread may read; an entry never
 // changes once put, so a reader holds it without the lock. Keyed by lowercased model path; nothing
 // is evicted.
@@ -12,6 +12,7 @@ import "core:strings"
 import "core:sync"
 import "../formats/nif"
 import smath "../math"
+import "../render"
 
 Collision_Store :: struct {
 	mu:     sync.Mutex,
@@ -22,9 +23,17 @@ Collision_Store :: struct {
 
 Model_Collision :: struct {
 	collision:  nif.Collision,
+	cutout:     Cutout_Mesh,
 	lo, hi:     smath.Vec3, // the render mesh's model-space bounds (a projectile's capsule)
 	furniture:  []nif.Furniture_Marker,
 	projectile: Maybe(matrix[4, 4]f32),
+}
+
+// Cutout_Mesh is what of a model dims sight, in model space: a tree's canopy hull, else its
+// alpha-tested shapes (fences, cobwebs, bushes).
+Cutout_Mesh :: struct {
+	verts:   [][3]f32,
+	indices: []u32,
 }
 
 collision_store_destroy :: proc(s: ^Collision_Store) {
@@ -92,6 +101,7 @@ want :: proc(s: ^Collision_Store, key: string) {
 store_collision :: proc(s: ^Collision_Store, cpu: Cpu_Model) {
 	m := new(Model_Collision)
 	m.collision = clone_collision(cpu.collision)
+	m.cutout = cutout_mesh(cpu)
 	m.lo, m.hi = model_bounds(cpu)
 	m.furniture = slice.clone(cpu.furniture)
 	m.projectile = cpu.projectile
@@ -119,6 +129,8 @@ put_model :: proc(s: ^Collision_Store, modl: string, m: ^Model_Collision) {
 free_entry :: proc(m: ^Model_Collision) {
 	if m == nil {return}
 	nif.destroy_collision(&m.collision)
+	delete(m.cutout.verts)
+	delete(m.cutout.indices)
 	delete(m.furniture)
 	free(m)
 }
@@ -135,4 +147,27 @@ model_bounds :: proc(cpu: Cpu_Model) -> (lo, hi: smath.Vec3) {
 		}
 	}
 	return
+}
+
+// cutout_mesh is a model's cutout geometry. A canopy uses its hull: a tree's leaf cards are thousands
+// of triangles, too many to cook per placed tree.
+@(private)
+cutout_mesh :: proc(cpu: Cpu_Model) -> (out: Cutout_Mesh) {
+	verts: [dynamic][3]f32
+	indices: [dynamic]u32
+	add :: proc(verts: ^[dynamic][3]f32, indices: ^[dynamic]u32, local: smath.Mat4, vs: []render.Mesh_Vertex, is: []u16) {
+		base := u32(len(verts))
+		for v in vs {append(verts, (local * [4]f32{v.pos.x, v.pos.y, v.pos.z, 1}).xyz)}
+		for i in is {append(indices, base + u32(i))}
+	}
+	if cpu.has_proxy {
+		add(&verts, &indices, 1, cpu.proxy_verts, cpu.proxy_indices)
+	} else {
+		for cs in cpu.shapes {
+			if cs.alpha_cutoff > 0 && !cs.is_effect {add(&verts, &indices, cs.local, cs.verts, cs.indices)}
+		}
+	}
+	shrink(&verts)
+	shrink(&indices)
+	return {verts[:], indices[:]}
 }

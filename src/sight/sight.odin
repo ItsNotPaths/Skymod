@@ -23,7 +23,7 @@ View :: struct {
 view: View
 
 Mode :: enum u8 {
-	Raw, // the share of the target's picks with a clear ray from the eye
+	Raw, // how much of the target the eye sees along its three picks; cutouts dim, solids block
 	Cone, // Raw, counting only picks inside the view cone and range
 	Detect, // the viewer's awareness of the target (detection)
 }
@@ -57,14 +57,13 @@ range :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID) -> f
 	return r
 }
 
-// (hole light-at-point :tags (query ai) :sev gap) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit. It runs on the sim: build it from LIGH refs, the cell lighting and the game clock and weather, never from render's lighting state.
+// (hole light-at-point :tags (query ai unclaimed) :sev gap :needs (day-night weather-select)) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit. It runs on the sim: build it from LIGH refs, the cell lighting and the game clock and weather, never from render's lighting state.
 // light_at is how lit a point is, 0 dark .. 1 fully lit.
 light_at :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, p: smath.Vec3) -> f32 {
 	return 1
 }
 
-// seen is the share of the target's picks the viewer has a clear ray to; `cone` counts only picks
-// inside its view.
+// seen is the mean visibility of the target's three picks; `cone` counts only picks inside its view.
 @(private)
 seen :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, cone: bool) -> f32 {
 	if view.space == nil || !worldstate.ref_3d_loaded(ws, db, target) {return 0}
@@ -74,12 +73,12 @@ seen :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_I
 		eye = worldstate.ref_pos(ws, db, viewer) + {0, 0, worldstate.actor_box(ws, db, viewer)[1].z * NPC_EYE}
 	}
 	reach := range(ws, db, viewer)
-	n := 0
+	sum: f32
 	for p in target_picks(ws, db, target) {
 		if cone && !in_cone(ws, db, viewer, eye, p, reach) {continue}
-		if clear(viewer, target, eye, p) {n += 1}
+		sum += visibility(viewer, target, eye, p)
 	}
-	return f32(n) / 3
+	return sum / 3
 }
 
 @(private)
@@ -109,14 +108,21 @@ target_picks :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, target: Form_I
 	return {pos + {0, 0, lo + 0.1 * h}, pos + {0, 0, lo + 0.5 * h}, pos + {0, 0, lo + 0.9 * h}}
 }
 
-// clear reports whether the first body on the ray that is not the viewer's is the target's.
+// (hole cutout-cover-source :tags query :sev polish) unsourced: how much one cutout surface (a leaf canopy wall, a fence) hides; a guess.
+CUTOUT_COVER :: f32(0.4)
+
+// visibility is how much of the ray reaches the target, 0..1: a solid body blocks it, each cutout
+// surface dims it.
 @(private)
-clear :: proc(viewer, target: Form_ID, from, to: smath.Vec3) -> bool {
-	for h in physics.ray_hits(view.space, from, to) {
+visibility :: proc(viewer, target: Form_ID, from, to: smath.Vec3) -> f32 {
+	v := f32(1)
+	for h in physics.ray_hits(view.space, from, to, cutouts = true) {
 		if h.owner == u64(viewer) {continue}
-		return h.owner == u64(target)
+		if h.owner == u64(target) {return v}
+		if !h.cutout {return 0}
+		v *= 1 - CUTOUT_COVER
 	}
-	return true
+	return v
 }
 
 @(private)

@@ -94,11 +94,13 @@ clutter_ccd := true
 LAYER_STATIC :: jolt.ObjectLayer(0)
 LAYER_MOVING :: jolt.ObjectLayer(1)
 LAYER_PROJECTILE :: jolt.ObjectLayer(2) // collides with nothing: a flight's hits come from rays
+LAYER_SIGHT :: jolt.ObjectLayer(3) // cutout geometry (leaves, fences): collides with nothing, only sight rays see it
 
-@(private) NUM_OBJECT_LAYERS :: 3
+@(private) NUM_OBJECT_LAYERS :: 4
 @(private) BP_STATIC :: jolt.BroadPhaseLayer(0)
 @(private) BP_MOVING :: jolt.BroadPhaseLayer(1)
-@(private) NUM_BP_LAYERS :: 2
+@(private) BP_SIGHT :: jolt.BroadPhaseLayer(2)
+@(private) NUM_BP_LAYERS :: 3
 
 // Body is an opaque handle into a World (Jolt's BodyID).
 Body :: jolt.BodyID
@@ -127,12 +129,21 @@ Pose :: struct {
 
 @(private) g_inited := false
 @(private) g_init_lock: sync.Mutex // worlds may be made on several threads (the unit tests)
+@(private) g_solid_only: ^jolt.BroadPhaseLayerFilter // queries that are not sight skip BP_SIGHT
 
 // init brings up Jolt's global factory/allocator (once per process). Idempotent; safe to
 // call before each world_create. Returns false if Jolt failed to initialize.
 init :: proc() -> bool {
 	sync.guard(&g_init_lock)
-	if !g_inited {g_inited = jolt.Init()}
+	if !g_inited {
+		g_inited = jolt.Init()
+		// Procs are global to every BroadPhaseLayerFilter; this is the only one.
+		@(static) procs := jolt.BroadPhaseLayerFilter_Procs {
+			ShouldCollide = proc "c" (_: rawptr, layer: jolt.BroadPhaseLayer) -> bool {return layer != BP_SIGHT},
+		}
+		jolt.BroadPhaseLayerFilter_SetProcs(&procs)
+		g_solid_only = jolt.BroadPhaseLayerFilter_Create(nil)
+	}
 	return g_inited
 }
 
@@ -161,6 +172,7 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_STATIC, BP_STATIC)
 	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_MOVING, BP_MOVING)
 	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_PROJECTILE, BP_MOVING)
+	jolt.BroadPhaseLayerInterfaceTable_MapObjectToBroadPhaseLayer(w.bp_iface, LAYER_SIGHT, BP_SIGHT)
 
 	w.obj_vs_bp = jolt.ObjectVsBroadPhaseLayerFilterTable_Create(
 		w.bp_iface, NUM_BP_LAYERS, w.obj_pair, NUM_OBJECT_LAYERS,
@@ -337,7 +349,20 @@ add_sphere :: proc(w: ^World, radius: f32, pos: [3]f32, is_dynamic := false) -> 
 // from triangle strips alternates winding, so single-sided lets every other triangle be
 // passed through). Terrain (winding we control) can stay single-sided.
 add_static_mesh :: proc(w: ^World, verts: [][3]f32, indices: []u32, origin: [3]f32 = {0, 0, 0}, two_sided := false) -> Body {
-	if len(verts) == 0 || len(indices) < 3 {return 0}
+	shape := mesh_shape(verts, indices, two_sided)
+	return make_body(w, shape, origin, IDENTITY_QUAT, false) if shape != nil else 0
+}
+
+// add_sight_mesh is a mesh on the sight layer: nothing collides with it, and only ray_hits with
+// `cutouts` sees it.
+add_sight_mesh :: proc(w: ^World, verts: [][3]f32, indices: []u32) -> Body {
+	shape := mesh_shape(verts, indices, false)
+	return make_body(w, shape, {}, IDENTITY_QUAT, false, sight = true) if shape != nil else 0
+}
+
+@(private)
+mesh_shape :: proc(verts: [][3]f32, indices: []u32, two_sided: bool) -> ^jolt.Shape {
+	if len(verts) == 0 || len(indices) < 3 {return nil}
 	vs := make([]jolt.Vec3, len(verts), context.temp_allocator)
 	for v, i in verts {vs[i] = {v.x, v.y, v.z}}
 	nt := len(indices) / 3
@@ -356,8 +381,7 @@ add_static_mesh :: proc(w: ^World, verts: [][3]f32, indices: []u32, origin: [3]f
 	if mesh_active_edge_cos <= 1 {jolt.MeshShapeSettings_SetActiveEdgeCosThresholdAngle(settings, mesh_active_edge_cos)}
 	shape := jolt.MeshShapeSettings_CreateShape(settings)
 	jolt.ShapeSettings_Destroy(cast(^jolt.ShapeSettings)settings)
-	if shape == nil {return 0}
-	return make_body(w, cast(^jolt.Shape)shape, origin, IDENTITY_QUAT, false)
+	return cast(^jolt.Shape)shape
 }
 
 // add_static_hull builds a convex-hull body from points relative to `origin` (pass local points + the
@@ -564,11 +588,11 @@ add_static_capsule :: proc(w: ^World, a: [3]f32, b: [3]f32, radius: f32) -> Body
 // the body holds its own ref, so remove_body frees the shape). Jolt shapes are ref-counted;
 // without this the streaming churn would leak C++ shapes (invisible to the Odin [mem] report).
 @(private)
-make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool, ccd := false, activate := true, projectile := false) -> Body {
+make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is_dynamic: bool, ccd := false, activate := true, projectile := false, sight := false) -> Body {
 	p := to_rvec(pos)
 	r := rot
 	motion := jolt.MotionType.Dynamic if is_dynamic else jolt.MotionType.Static
-	layer := LAYER_PROJECTILE if projectile else LAYER_MOVING if is_dynamic else LAYER_STATIC
+	layer := LAYER_SIGHT if sight else LAYER_PROJECTILE if projectile else LAYER_MOVING if is_dynamic else LAYER_STATIC
 	bcs := jolt.BodyCreationSettings_Create3(shape, &p, &r, motion, layer)
 	jolt.BodyCreationSettings_SetFriction(bcs, WORLD_FRICTION) // default 0.2 = ice; grip so clutter settles
 	if is_dynamic {
@@ -607,16 +631,18 @@ set_owner :: proc(w: ^World, b: Body, owner: u64) {
 	jolt.BodyInterface_SetUserData(w.bodies, b, owner)
 }
 
-// Ray_Hit is one body a ray crossed: its owner (0 = none) and how far along the ray, 0..1.
+// Ray_Hit is one body a ray crossed: its owner (0 = none), how far along the ray, 0..1, and whether
+// it is cutout geometry (a sight body), which dims sight and blocks nothing.
 Ray_Hit :: struct {
 	owner:    u64,
 	fraction: f32,
+	cutout:   bool,
 }
 
-// (hole sight-occluders :tags (physics query) :sev gap) cutout shapes (leaves, grass, fences: nif alpha_cutoff) have no bodies, so sight rays pass through them. Wanted: bodies on a sight-only layer that nothing collides with, each hit carrying its coverage.
 // ray_hits returns every body the segment from→to crosses, nearest first. Mesh back faces count, so a
-// one-sided wall blocks from both sides. Safe from any thread while the world does not step.
-ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocator) -> []Ray_Hit {
+// one-sided wall blocks from both sides. Cutout bodies count only with `cutouts`. Safe from any thread
+// while the world does not step.
+ray_hits :: proc(w: ^World, from, to: [3]f32, cutouts := false, allocator := context.temp_allocator) -> []Ray_Hit {
 	found := make([dynamic]jolt.RayCastResult, context.temp_allocator)
 	collect :: proc "c" (found: rawptr, r: ^jolt.RayCastResult) {
 		context = runtime.default_context()
@@ -627,10 +653,13 @@ ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocato
 	settings := jolt.RayCastSettings{.CollideWithBackFaces, .IgnoreBackFaces, true}
 	query := jolt.PhysicsSystem_GetNarrowPhaseQuery(w.system)
 	callback := (^jolt.CastRayResultCallback)(rawptr(collect)) // the binding types the C function pointer as a pointer to one
-	jolt.NarrowPhaseQuery_CastRay3(query, &origin, &dir, &settings, .AllHit, callback, &found, nil, nil, nil, nil)
+	jolt.NarrowPhaseQuery_CastRay3(query, &origin, &dir, &settings, .AllHit, callback, &found, nil if cutouts else g_solid_only, nil, nil, nil)
 
 	hits := make([]Ray_Hit, len(found), allocator)
-	for r, i in found {hits[i] = {jolt.BodyInterface_GetUserData(w.bodies, r.bodyID), r.fraction}}
+	for r, i in found {
+		cutout := jolt.BodyInterface_GetObjectLayer(w.bodies, r.bodyID) == LAYER_SIGHT
+		hits[i] = {jolt.BodyInterface_GetUserData(w.bodies, r.bodyID), r.fraction, cutout}
+	}
 	slice.sort_by(hits, proc(a, b: Ray_Hit) -> bool {return a.fraction < b.fraction})
 	return hits
 }
@@ -872,7 +901,7 @@ capsule_fits :: proc(w: ^World, feet: [3]f32, radius, half_h: f32) -> bool {
 	count :: proc "c" (hits: rawptr, _: ^jolt.CollideShapeResult) {(^int)(hits)^ += 1}
 	callback := (^jolt.CollideShapeResultCallback)(rawptr(count))
 	query := jolt.PhysicsSystem_GetNarrowPhaseQuery(w.system)
-	jolt.NarrowPhaseQuery_CollideShape2(query, cast(^jolt.Shape)cap, &scale, &xf, &settings, &base, .AnyHit, callback, &hits, nil, nil, nil, nil)
+	jolt.NarrowPhaseQuery_CollideShape2(query, cast(^jolt.Shape)cap, &scale, &xf, &settings, &base, .AnyHit, callback, &hits, g_solid_only, nil, nil, nil)
 	return hits == 0
 }
 

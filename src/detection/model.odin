@@ -5,7 +5,7 @@ package detection
 
 import "../worldstate"
 
-// (hole sneak-detection :tags (ai player unclaimed) :sev gap :needs (light-at-point noise-events sight-occluders)) the real detection model: awareness that grows and decays with view direction, distance, movement, sneak (and the Sneak skill), light, noise and cutout cover. It replaces judge behind the same Senses and awareness store.
+// (hole sneak-detection :tags (ai player unclaimed) :sev gap :needs (light-at-point noise-events)) the real detection model: awareness that grows and decays with view direction, distance, movement, sneak (and the Sneak skill), light, noise and cutout cover. It replaces judge behind the same Senses and awareness store.
 // Senses is what a viewer takes in of one target in one look.
 Senses :: struct {
 	sight:    f32, // sight.Mode.Cone, 0..1
