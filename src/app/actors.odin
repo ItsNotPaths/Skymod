@@ -245,21 +245,24 @@ Actor_View :: struct {
 	name:    Text_Span, // in Snapshot.text
 }
 
-// view_actors fills the snapshot's actor views from the sim's capsules.
+// view_actors fills the snapshot's actor views from the sim's capsules, all but the player's.
 view_actors :: proc(g: ^Game, s: ^Snapshot) {
 	clear(&s.actors)
 	for f, &b in g.sim.actor_bodies {
-		if f == g.sim.ws.player {continue} // the camera is in it
-		from, to := physics.character_step(&b.char)
-		append(&s.actors, Actor_View {
-			form    = f,
-			base    = worldstate.ref_base(&g.sim.ws, &g.db, f),
-			feet    = {from, to},
-			capsule = b.capsule,
-			dead    = worldstate.is_dead(&g.sim.ws, &g.db, f),
-			combat  = ai.combat_state(&g.sim.agents, f),
-			name    = add_text(s, worldstate.display_name(&g.sim.ws, &g.db, f)),
-		})
+		if f != g.sim.ws.player {append(&s.actors, actor_view(g, s, f, &b))}
+	}
+}
+
+actor_view :: proc(g: ^Game, s: ^Snapshot, f: Form_ID, b: ^Actor_Body) -> Actor_View {
+	from, to := physics.character_step(&b.char)
+	return {
+		form    = f,
+		base    = worldstate.ref_base(&g.sim.ws, &g.db, f),
+		feet    = {from, to},
+		capsule = b.capsule,
+		dead    = worldstate.is_dead(&g.sim.ws, &g.db, f),
+		combat  = ai.combat_state(&g.sim.agents, f),
+		name    = add_text(s, worldstate.display_name(&g.sim.ws, &g.db, f)),
 	}
 }
 
@@ -283,11 +286,15 @@ pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f
 	return
 }
 
-// draw_actor_bodies draws each NPC capsule see-through in its own colour; the hovered one is near opaque.
+// draw_actor_bodies draws each actor capsule see-through in its own colour; the hovered one is near
+// opaque. The player's shows outside first person.
 draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	render.release_mesh(&g.r, g.actor_mesh)
 	g.actor_mesh = {}
-	if len(g.snap.actors) == 0 {return}
+	views := make([dynamic]Actor_View, 0, len(g.snap.actors) + 1, context.temp_allocator)
+	append(&views, ..g.snap.actors[:])
+	if !g.snap.first_person && g.snap.body.capsule != {} {append(&views, g.snap.body)}
+	if len(views) == 0 {return}
 	Range :: struct {
 		form:        Form_ID,
 		first, count: u32,
@@ -296,7 +303,7 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	verts := make([dynamic]render.Mesh_Vertex, context.temp_allocator)
 	idx := make([dynamic]u16, context.temp_allocator)
 	ranges := make([dynamic]Range, context.temp_allocator)
-	for v in g.snap.actors {
+	for v in views {
 		if len(verts) > 60000 {break}
 		first := u32(len(idx))
 		emit_capsule(&verts, &idx, blend(v.feet, g.fr.alpha), v.capsule)

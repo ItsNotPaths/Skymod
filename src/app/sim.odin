@@ -252,10 +252,10 @@ Snapshot :: struct {
 	prof:    Tick_Profile, // the ticks' running totals
 	phys:    world.Phys_Stats, // the exterior's bodies
 	walking: bool, // the player walks the capsule; else main flies the camera
-	player:  Segment, // the player's feet
+	body:    Actor_View, // the actor the player controls; not in `actors`
+	first_person: bool, // the camera is in `body`'s head: its body hides
 	follow:  Segment, // the feet the camera follows: the player's, or a SetCameraTarget actor's
 	boom:    f32, // how far behind the followed head the camera sits; 0 in first person
-	controlled: Form_ID, // the actor the player controls
 	bodies: world.Poses, // every dynamic body of the active scene's refs
 	drops:  int, // the dev drop-test balls, posed in `bodies` as ref 0
 	actors: [dynamic]Actor_View,
@@ -306,10 +306,11 @@ publish_snapshot :: proc(g: ^Game) {
 	s.phys = world.phys_stats(&g.sim.ext)
 	body, has_body := &g.sim.actor_bodies[g.sim.ws.player]
 	s.walking = has_body && !g.sim.noclip
-	s.controlled = g.sim.ws.player
+	s.first_person = worldstate.first_person(g.sim.ws.camera)
 	clear(&s.text)
-	if has_body {s.player.from, s.player.to = physics.character_step(&body.char)}
-	s.follow = s.player
+	s.body.form = g.sim.ws.player
+	if has_body {s.body = actor_view(g, s, g.sim.ws.player, body)}
+	s.follow = s.body.feet
 	if b, ok := &g.sim.actor_bodies[g.sim.ws.camera.target]; ok {s.follow.from, s.follow.to = physics.character_step(&b.char)}
 	s.boom = camera_boom(g, s.follow.to + {0, 0, EYE_HEIGHT})
 	world.capture_poses(active_space(g), &s.bodies)

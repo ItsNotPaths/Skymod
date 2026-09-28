@@ -240,7 +240,7 @@ frame_diag :: proc(g: ^Game) {
 	}
 	g.diag_t = 0
 	st := g.fr.st
-	cell := world.grid_of(g.snap.player.to)
+	cell := world.grid_of(g.snap.body.feet.to)
 	mc, tc, mb, tb, cold, coldb, tcold, tcoldb := world.cache_counts(&g.scene)
 	lob, lor := world.lod_object_stats(&g.scene)
 	ps := g.snap.phys // the exterior — where the streaming-churn leak would be
@@ -324,7 +324,7 @@ frame_overlay :: proc(g: ^Game) {
 		_ = slog.persist_run(g.logging)
 	}
 	st := g.fr.st
-	cell := world.grid_of(g.snap.player.to)
+	cell := world.grid_of(g.snap.body.feet.to)
 	tools.stream_panel(cell.x, cell.y, st.chunks, st.inflight, st.reqs, st.ready)
 	if g.interiors_on {
 		is := world.interiors_stats(&g.interiors, g.cam.pos)
@@ -1020,7 +1020,7 @@ proc_rss_mb :: proc() -> int {
 // emitters are where the snapshot's moving refs are this frame, for sounds that follow them.
 emitters :: proc(g: ^Game) -> map[Form_ID][3]f32 {
 	at := make(map[Form_ID][3]f32, allocator = context.temp_allocator)
-	at[g.snap.controlled] = blend(g.snap.player, g.fr.alpha)
+	at[g.snap.body.form] = blend(g.snap.body.feet, g.fr.alpha)
 	for v in g.snap.actors {at[v.form] = blend(v.feet, g.fr.alpha)}
 	for key in g.snap.bodies.at {
 		if key.part != world.WHOLE {continue}
