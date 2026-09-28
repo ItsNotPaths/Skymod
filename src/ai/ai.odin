@@ -392,7 +392,7 @@ destination :: proc(c: ^Proc_Context) -> (p: Place, ok: bool) {
 			return p, true
 		}
 		p = location(c) or_continue
-		if p.ref == formid.PLAYER {continue} // a ForceGreet's trigger zone, or a walk up to the player once near: no trip across the world
+		if p.ref == c.cond.ws.player {continue} // a ForceGreet's trigger zone, or a walk up to the player once near: no trip across the world
 		p.radius = travel_radius(c, p)
 		return p, true
 	}

@@ -29,14 +29,14 @@ IDLE :: [4]u8{'I', 'D', 'L', 'E'}
 // (hole combat-barks :tags (dialogue combat) :sev gap :needs (detection-events combat-damage)) no combat or detection lines (Attack, Taunt, Flee, Block, AlertIdle, LostToNormal...): nothing sends the moments they belong to. Hit (from projectiles) and death cries are said.
 // (hole social-timing :tags (ai dialogue) :sev polish) unsourced: a Hello fires once as the player comes within iAISocialDistanceToTriggerEvent and re-arms at twice that; one idle line per fIdleChatterCommentTimer among the actors within CONVERSATION_RADIUS of the player; conversations, AHEL and body finds are checked on each actor's social timer, bodies within CONVERSATION_RADIUS in sight, AHEL between NPCs only.
 tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool, dt: f32) {
-	player := worldstate.ref_pos(ws, db, formid.PLAYER)
+	player := worldstate.ref_pos(ws, db, ws.player)
 	chatty := make([dynamic]Form_ID, context.temp_allocator)
 	for actor in loaded {
 		a, ok := &w.agents[actor]
 		if !ok || worldstate.is_dead(ws, db, actor) || busy(ws, db, actor, a) {continue}
 		flags := interrupt_flags(db, a.pack)
 		feet := worldstate.ref_pos(ws, db, actor)
-		to_player := apart(ws, db, actor, formid.PLAYER, feet, player)
+		to_player := apart(ws, db, actor, ws.player, feet, player)
 		if flags & INTERRUPT_HELLO != 0 {hello(ws, db, actor, a, to_player)}
 		if flags & INTERRUPT_IDLE_CHATTER != 0 && to_player <= CONVERSATION_RADIUS {append(&chatty, actor)}
 		a.social_in -= dt
@@ -54,9 +54,9 @@ tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 @(private = "file")
 hello :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, a: ^Agent, to_player: f32) {
 	if to_player > 2 * SOCIAL_EVENT_DISTANCE {a.greeted = false}
-	if a.greeted || to_player > SOCIAL_EVENT_DISTANCE || !sight.has_los(ws, db, actor, formid.PLAYER) {return}
+	if a.greeted || to_player > SOCIAL_EVENT_DISTANCE || !sight.has_los(ws, db, actor, ws.player) {return}
 	a.greeted = true
-	append(&ws.barks, worldstate.Bark{speaker = actor, to = formid.PLAYER, subtype = HELO})
+	append(&ws.barks, worldstate.Bark{speaker = actor, to = ws.player, subtype = HELO})
 }
 
 // look_around reports the bodies the actor sees, then may start a conversation with the nearest

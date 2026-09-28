@@ -23,8 +23,7 @@ select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a
 		priority:    u8,
 	}
 	list := make([dynamic]Candidate, context.temp_allocator)
-	holders, _ := ws.alias_holders[actor] // never range a missing map key
-	for h in holders {
+	for h in worldstate.aliases_of(ws, actor) {
 		q, id, _ := formid.alias_key(h)
 		alias, _ := gamedb.quest_alias(db, q, id)
 		qb, _ := gamedb.quest_baseline_of(db, q)
@@ -250,7 +249,7 @@ place_of :: proc(c: ^Proc_Context, loc: gamedb.Package_Location) -> (p: Place, o
 	ref: Form_ID
 	#partial switch loc.kind {
 	case .NearRef:
-		ref = loc.form
+		ref = worldstate.resolve(ws, loc.form)
 	case .NearLinkedRef:
 		ref = gamedb.linked_ref(db, actor, loc.form) or_return
 	case .AliasRef:

@@ -111,6 +111,12 @@ register :: proc(reg: ^Registry, class, fn: string, impl: Native) {
 // None (a call the manifest never declared: usually a form whose kind resolved wrong, rt.odin).
 call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Value {
 	c.reg = reg
+	if c.ws != nil {
+		c.self = worldstate.resolve(c.ws, c.self)
+		for &a in args {
+			if f, ok := a.(Form_ID); ok {a = worldstate.resolve(c.ws, f)}
+		}
+	}
 	k := key_temp(class, fn)
 	if impl, ok := reg.natives[k]; ok {
 		return impl(c, args)

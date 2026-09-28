@@ -245,13 +245,24 @@ remove_item_filters :: proc(ws: ^World_State, container: Form_ID) {
 // alias_ref is the ref in alias `id` of `quest`; 0 when it is empty.
 alias_ref :: proc(ws: ^World_State, quest: Form_ID, id: i32) -> Form_ID {
 	h, ok := formid.alias_handle(quest, u32(id))
-	return ws.aliases[h] if ok && id >= 0 else 0
+	return resolve(ws, ws.aliases[h]) if ok && id >= 0 else 0
+}
+
+// aliases_of are the alias handles that hold `form` now: the controlled actor also holds the ones
+// filled with PlayerRef.
+aliases_of :: proc(ws: ^World_State, form: Form_ID) -> []Form_ID {
+	own, _ := ws.alias_holders[form] // never range a missing map key
+	if form != ws.player || formid.PLAYER not_in ws.alias_holders {return own[:]}
+	out := make([dynamic]Form_ID, 0, len(own) + len(ws.alias_holders[formid.PLAYER]), context.temp_allocator)
+	append(&out, ..own[:])
+	append(&out, ..ws.alias_holders[formid.PLAYER][:])
+	return out[:]
 }
 
 // holder_aliases are the quest aliases that hold `form` now.
 holder_aliases :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> []gamedb.Quest_Alias {
-	holders, ok := ws.alias_holders[form]
-	if !ok || db == nil {return nil}
+	holders := aliases_of(ws, form)
+	if db == nil {return nil}
 	out := make([dynamic]gamedb.Quest_Alias, 0, len(holders), context.temp_allocator)
 	for h in holders {
 		quest, id, _ := formid.alias_key(h)
@@ -289,7 +300,7 @@ holds_quest_object :: proc(ws: ^World_State, db: ^gamedb.DB, container: Form_ID)
 // quest_object_quests are the quests whose Quest Object aliases hold `ref` now.
 @(private = "file")
 quest_object_quests :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> []Form_ID {
-	holders, _ := ws.alias_holders[ref]
+	holders := aliases_of(ws, ref)
 	out := make([dynamic]Form_ID, context.temp_allocator)
 	for h in holders {
 		quest, id, _ := formid.alias_key(h)
@@ -305,7 +316,7 @@ fill_alias :: proc(ws: ^World_State, alias, form: Form_ID) {
 	ws.aliases[alias] = form
 	if form not_in ws.alias_holders {ws.alias_holders[form] = make([dynamic]Form_ID)}
 	append(&ws.alias_holders[form], alias)
-	append(&ws.refiles, Refile{form, false})
+	append(&ws.refiles, Refile{resolve(ws, form), false})
 }
 
 // clear_alias empties `alias`.

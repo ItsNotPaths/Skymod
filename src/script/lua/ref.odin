@@ -22,6 +22,7 @@ import "core:log"
 import "core:strings"
 import lua "../../../vendor/lua"
 import "../../gamedb"
+import "../../worldstate"
 import script ".."
 
 // Registry keys / metatable names. The metatables live in the Lua registry under
@@ -51,7 +52,8 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.pushlightuserdata(L, vm)
 	lua.pushcclosure(L, ref_tostring, 1)
 	lua.setfield(L, -2, "__tostring")
-	lua.pushcfunction(L, papyrus_eq)
+	lua.pushlightuserdata(L, vm)
+	lua.pushcclosure(L, papyrus_eq, 1)
 	lua.setfield(L, -2, "__eq")
 	lua.pushstring(L, "ref")
 	lua.setfield(L, -2, "__name")
@@ -77,7 +79,8 @@ setup_ref_system :: proc(vm: ^VM) {
 	lua.setfield(L, -2, "__call")
 	lua.pushcfunction(L, none_tostring)
 	lua.setfield(L, -2, "__tostring")
-	lua.pushcfunction(L, papyrus_eq)
+	lua.pushlightuserdata(L, vm)
+	lua.pushcclosure(L, papyrus_eq, 1)
 	lua.setfield(L, -2, "__eq")
 	lua.pushstring(L, "None")
 	lua.setfield(L, -2, "__name")
@@ -220,11 +223,15 @@ tcstr :: proc(format: string, args: ..any) -> cstring {
 
 // papyrus_eq is `==` for refs and None, the Papyrus rule: a ref, a script instance (its .form)
 // and None/nil each reduce to a form (None is 0), and equal forms are equal. The patched VM
-// consults __eq across types, so `ref == inst` and `None == nil` both land here.
+// consults __eq across types, so `ref == inst` and `None == nil` both land here. PlayerRef equals
+// the actor the player controls.
 @(private)
 papyrus_eq :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, upvalueindex(1))
+	context = vm.host_context
 	a, aok := papyrus_form(L, 1)
 	b, bok := papyrus_form(L, 2)
+	if vm.ctx.ws != nil {a, b = worldstate.resolve(vm.ctx.ws, a), worldstate.resolve(vm.ctx.ws, b)}
 	lua.pushboolean(L, b32(aok && bok && a == b))
 	return 1
 }

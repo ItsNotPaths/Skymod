@@ -164,10 +164,10 @@ repl_level_up :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	ws, db := vm.ctx.ws, vm.ctx.db
 	line: string
-	if worldstate.level_up(ws, db, formid.PLAYER, to_string(L, 1)) {
-		line = fmt.tprintf("level %d", worldstate.actor_level(ws, db, formid.PLAYER))
+	if worldstate.level_up(ws, db, ws.player, to_string(L, 1)) {
+		line = fmt.tprintf("level %d", worldstate.actor_level(ws, db, ws.player))
 	} else {
-		line = fmt.tprintf("no level-up: XP %.0f of %.0f, or no choice %q", ws.levels[formid.PLAYER].xp, worldstate.level_up_cost(ws, db, formid.PLAYER), to_string(L, 1))
+		line = fmt.tprintf("no level-up: XP %.0f of %.0f, or no choice %q", ws.levels[ws.player].xp, worldstate.level_up_cost(ws, db, ws.player), to_string(L, 1))
 	}
 	console_print(L, line)
 	return 0
@@ -183,7 +183,7 @@ repl_trigger :: proc "c" (L: ^lua.State) -> c.int {
 		lua.getglobal(L, "sel")
 		form, _ = ref_form(L, -1)
 	}
-	if form != 0 {send(vm, form, "OnTriggerEnter", script.Form_ID(formid.PLAYER))}
+	if form != 0 {send(vm, form, "OnTriggerEnter", vm.ctx.ws.player)}
 	return 0
 }
 

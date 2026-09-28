@@ -402,12 +402,12 @@ test_send_runs_on_drain :: proc(t: ^testing.T) {
 
 	LEVER :: script.Form_ID(0x500)
 	testing.expect_value(t, slua.attach(&f.vm, LEVER, []esm.Script_Attach{{name = "Lever"}}, false), 1)
-	slua.send(&f.vm, LEVER, "OnActivate", formid.PLAYER)
-	slua.send(&f.vm, script.Form_ID(0x999), "OnActivate", formid.PLAYER)
+	slua.send(&f.vm, LEVER, "OnActivate", f.ws.player)
+	slua.send(&f.vm, script.Form_ID(0x999), "OnActivate", f.ws.player)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == nil)`), "nothing runs before the drain")
 
 	testing.expect_value(t, slua.drain(&f.vm), 1)
-	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == 1 and __who === ref(0x14) and not __again)`), "OnActivate ran by the player")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__acts == 1 and __who == ref(0x14) and not __again)`), "OnActivate ran by the player")
 	testing.expect_value(t, slua.drain(&f.vm), 1)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__again)`), "a handler's event ran on the next drain")
 }
@@ -669,7 +669,7 @@ test_item_events :: proc(t: ^testing.T) {
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1+src;moved+new+old;"), "and back")
 	c := script.Call{ws = &f.ws, db = &f.db}
-	script.move_items(&c, {base = 0x20, from = OTHER, to = formid.PLAYER, count = 1, via = .Dead_Body}) // the container menu's Take
+	script.move_items(&c, {base = 0x20, from = OTHER, to = f.ws.player, count = 1, via = .Dead_Body}) // the container menu's Take
 	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "a carried ref taken by base hears OnContainerChanged")
 
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
@@ -945,7 +945,7 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 	quest(&f, "Start")
 	testing.expect_value(t, f.ws.aliases[forced], DOOR)
 	testing.expect_value(t, f.ws.aliases[external], DOOR)
-	slua.send(&f.vm, DOOR, "OnActivate", formid.PLAYER)
+	slua.send(&f.vm, DOOR, "OnActivate", f.ws.player)
 	testing.expect(t, guard_saw(&f, "[ObjectReference 0x00000901];"), "the alias hears its ref's OnActivate")
 
 	worldstate.register_update(&f.ws.updates, DOOR, 0, false)
@@ -954,7 +954,7 @@ test_alias_fills_and_events :: proc(t: ^testing.T) {
 
 	quest(&f, "Stop")
 	testing.expect_value(t, len(f.ws.aliases), 0)
-	slua.send(&f.vm, DOOR, "OnActivate", formid.PLAYER)
+	slua.send(&f.vm, DOOR, "OnActivate", f.ws.player)
 	testing.expect(t, guard_saw(&f, ""), "an empty alias hears nothing")
 
 	f.db.quest_baseline[QUEST] = {start_game_enabled = true, aliases = aliases}
@@ -1375,11 +1375,11 @@ test_mod_actor_values :: proc(t: ^testing.T) {
 	testing.expect(t, ok && hunger == "Hunger", "a mod AV resolves in any case")
 	_, thirst := worldstate.av_name(&f.ws, "Thirst")
 	testing.expect(t, !thirst, "no AV outside OnGameLoaded")
-	testing.expect_value(t, worldstate.av_base(&f.ws, &f.db, formid.PLAYER, hunger), -1)
+	testing.expect_value(t, worldstate.av_base(&f.ws, &f.db, f.ws.player, hunger), -1)
 
 	old, _ := worldstate.av_name(&f.ws, "Old")
-	worldstate.av_mod(&f.ws, formid.PLAYER, hunger, 5)
-	worldstate.av_mod(&f.ws, formid.PLAYER, old, 2)
+	worldstate.av_mod(&f.ws, f.ws.player, hunger, 5)
+	worldstate.av_mod(&f.ws, f.ws.player, old, 2)
 	slua.save_scripts(&f.vm)
 	path := "/tmp/skymod_mod_avs.skysave"
 	defer os.remove(path)
@@ -1391,7 +1391,7 @@ test_mod_actor_values :: proc(t: ^testing.T) {
 	slua.reload_scripts(&f.vm, &f.db)
 	testing.expect(t, slua.do_string(&f.vm, `assert(__order == "loaded;init;loaded;", __order)`), "a load runs OnGameLoaded, not OnInit")
 	hunger, _ = worldstate.av_name(&f.ws, "hunger")
-	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, formid.PLAYER, hunger), 4)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, f.ws.player, hunger), 4)
 	_, kept := worldstate.av_name(&f.ws, "Old")
 	testing.expect(t, !kept && len(f.ws.pending_avs) == 0, "an AV nobody created again is gone")
 }
@@ -1430,7 +1430,7 @@ test_condition_reads_quest_member :: proc(t: ^testing.T) {
 	counter := []esm.Script_Attach{{name = "Counter", props = {{name = "Count", kind = .Int, status = 1, value = i32(5)}}}}
 	testing.expect_value(t, slua.attach_known(&f.vm, QUEST, counter), 1)
 
-	ctx := script.condition_context(&f.vm.ctx, formid.PLAYER, 0)
+	ctx := script.condition_context(&f.vm.ctx, f.ws.player, 0)
 	is :: proc(ctx: ^conditions.Context, name: string, v: f32) -> bool {
 		c := [1]gamedb.Condition{{function = 629, op = .Equal, value = v, param1 = u64(QUEST), text = name}}
 		return conditions.all(ctx, c[:])
@@ -1453,7 +1453,7 @@ test_change_location_event :: proc(t: ^testing.T) {
 	trans: slua.Transitions
 	defer slua.transitions_destroy(&trans)
 	A, B :: script.Form_ID(0xA01), script.Form_ID(0xA02)
-	slua.attach(&f.vm, formid.PLAYER, []esm.Script_Attach{{name = "Mortal"}}, false)
+	slua.attach(&f.vm, f.ws.player, []esm.Script_Attach{{name = "Mortal"}}, false)
 
 	slua.tick_location(&f.vm, &f.ws, &trans, A)
 	slua.tick_location(&f.vm, &f.ws, &trans, A)
@@ -1461,7 +1461,7 @@ test_change_location_event :: proc(t: ^testing.T) {
 	slua.tick_location(&f.vm, &f.ws, &trans, B)
 	if testing.expect_value(t, len(f.ws.story_events), 1) {
 		e := f.ws.story_events[0]
-		testing.expect(t, e.type == worldstate.STORY_CHANGE_LOCATION && e.ref1 == formid.PLAYER, "CLOC by the player")
+		testing.expect(t, e.type == worldstate.STORY_CHANGE_LOCATION && e.ref1 == f.ws.player, "CLOC by the player")
 		testing.expect(t, e.location1 == A && e.location2 == B, "old then new")
 	}
 	slua.drain(&f.vm)
@@ -1483,7 +1483,7 @@ test_kill_events :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `ref(0x600):Kill(ref(0x14)); ref(0x600):Kill(ref(0x14))`), "Kill twice")
 	slua.tick_deaths(&f.vm, &f.ws)
 	slua.drain(&f.vm)
-	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "dying;death;" and __killer === ref(0x14), __log)`), "OnDying then OnDeath, once")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "dying;death;" and __killer == ref(0x14), __log)`), "OnDying then OnDeath, once")
 	testing.expect(t, worldstate.is_dead(&f.ws, &f.db, VICTIM), "dead")
 }
 
@@ -1494,7 +1494,7 @@ test_trigger_events :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture_init(t, &f, "skymod_instances_trigger", {{"mortal.lua", MORTAL_LUA}})
 	defer fixture_destroy(&f)
-	f.ws.ai.loaded[formid.PLAYER] = true // the app lists the player's capsule with the others
+	f.ws.ai.loaded[f.ws.player] = true // the app lists the player's capsule with the others
 	CELL, TRIG :: script.Form_ID(0x100), script.Form_ID(0x700)
 	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
 	f.db.ref_by_id[TRIG] = {form_id = TRIG, cell_form_id = CELL, pos = {1000, 0, 0}, rot = {0, 0, math.PI / 2}, scale = 1}
@@ -1505,7 +1505,7 @@ test_trigger_events :: proc(t: ^testing.T) {
 	slua.attach(&f.vm, TRIG, []esm.Script_Attach{{name = "Mortal"}}, false)
 
 	at :: proc(f: ^Fixture, pos: [3]f32) {
-		worldstate.set_moved(&f.ws, formid.PLAYER, 0x100, {}, pos)
+		worldstate.set_moved(&f.ws, f.ws.player, 0x100, {}, pos)
 		slua.tick_triggers(&f.vm, &f.db, &f.ws)
 		slua.drain(&f.vm)
 	}
@@ -1514,7 +1514,7 @@ test_trigger_events :: proc(t: ^testing.T) {
 	at(&f, {1000, 250, 0})
 	testing.expect_value(t, len(f.ws.in_triggers), 1)
 	at(&f, {1000, 400, 0})
-	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;leave;", __log); assert(__who === ref(0x14)); __log = nil`), "enter once, then leave")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;leave;", __log); assert(__who == ref(0x14)); __log = nil`), "enter once, then leave")
 	at(&f, {1000, 200, 0})
 	worldstate.set_disabled(&f.ws, TRIG, CELL, true)
 	at(&f, {1000, 400, 0})

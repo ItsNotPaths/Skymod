@@ -29,7 +29,7 @@ Sim :: struct {
 	agents:       ai.World, // every actor's running package
 	detection:    detection.State, // who has seen whom
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
-	// (hole player-controller) the player has its own body path (this capsule, tick_locomotion) apart from actor_bodies, and the AI skips it. Wanted: one Actor_Body path for every actor, fed by input or by its AI agent.
+	// (hole player-controller :tags player :sev blocker) ws.player (the actor 0x14 means) has its own body path (this capsule, tick_locomotion, player_publish) apart from actor_bodies, and the AI skips it, so taking over an NPC moves only the id. Wanted: one Actor_Body path for every actor, fed by input or by its AI agent, and a console command to take over an actor.
 	// The player's capsule, and the physics world it lives in: the exterior `phys` until a load door
 	// swaps the active scene to an interior (its own world); on each swap the capsule is re-homed.
 	// nil when physics is off (free-fly). `noclip`'s address rides the console's tcl command.

@@ -78,7 +78,7 @@ drop_created :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, cell: Form_ID)
 // kept: a ref an alias holds, or a container with a Quest Object in it, never resets.
 @(private)
 kept :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: Form_ID) -> bool {
-	return len(ws.alias_holders[form]) > 0 || worldstate.holds_quest_object(ws, db, form)
+	return len(worldstate.aliases_of(ws, form)) > 0 || worldstate.holds_quest_object(ws, db, form)
 }
 
 // restock_vendors empties what the player changed in each merchant chest every iDaysToRespawnVendor
@@ -104,7 +104,7 @@ n_cell_reset :: proc(c: ^Call, args: []Value) -> Value {
 // A script asks for this ref, so the respawn flags do not apply. Its scripts keep running and get
 // no OnReset: vanilla calls Reset from inside OnReset (dunRaldbtharPuzzleGearBlockerScript).
 n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
-	if c.self == formid.PLAYER {return nil}
+	if c.self == c.ws.player {return nil}
 	was := worldstate.ref_cell(c.ws, c.db, c.self)
 	worldstate.reset_ref_state(c.ws, c.self, true)
 	if target := arg_form(args, 0); target != 0 {move_to(c, c.self, target, {})}

@@ -26,7 +26,7 @@ test_effect_resistance :: proc(t: ^testing.T) {
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
-	for a in ([]gamedb.Form_ID{NPC, formid.PLAYER}) {
+	for a in ([]gamedb.Form_ID{NPC, ws.player}) {
 		worldstate.av_set_base(&ws, a, "MagicResist", 50)
 		worldstate.av_set_base(&ws, a, "FireResist", 50)
 		worldstate.av_set_base(&ws, a, "PoisonResist", -50)
@@ -38,7 +38,7 @@ test_effect_resistance :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.resisted(&ws, &db, VENOM, FIRE, NPC, 100), 150)
 
 	worldstate.av_set_base(&ws, NPC, "FireResist", 120)
-	worldstate.av_set_base(&ws, formid.PLAYER, "FireResist", 120)
+	worldstate.av_set_base(&ws, ws.player, "FireResist", 120)
 	testing.expect_value(t, worldstate.resisted(&ws, &db, BOLT, FIRE, NPC, 100), 0)
-	testing.expect(t, abs(worldstate.resisted(&ws, &db, BOLT, FIRE, formid.PLAYER, 100) - 7.5) < 1e-4, "the player caps at 85")
+	testing.expect(t, abs(worldstate.resisted(&ws, &db, BOLT, FIRE, ws.player, 100) - 7.5) < 1e-4, "the player caps at 85")
 }

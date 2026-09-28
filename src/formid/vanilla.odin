@@ -2,9 +2,12 @@ package formid
 
 // Skyrim.esm forms the engine names directly. Skyrim.esm is slot 0, so the Form_ID is its local id.
 
-// (hole player-controller :tags player :sev blocker) no controller: 163 `== PLAYER` compares in ~45 files stand in for "the actor input drives", so no NPC can take over the player or be taken over. Wanted: a saved, movable controller store that 0x14 and Game.GetPlayer() resolve through; sort each compare into controlled-actor or a stated fixed-0x14 reason.
+// PLAYER (PlayerRef) is not one actor: it means the actor the player controls, ws.player.
+// worldstate.resolve turns it into that actor's real ref where a record or script value enters the engine.
+// (hole playerref-lua-keys :tags (player script) :sev gap) Lua `==` resolves PlayerRef, but a Lua table keyed by ref holds ref(0x14) and the controlled actor's own ref as two keys. Wanted: a transpiler guard that keys refs by their resolved form.
+// (hole playerref-stored-by-natives :tags (player script) :sev gap) script.call resolves every form argument, so ForceRefTo(Game.GetPlayer()) and other storing natives keep the actor controlled at that moment, not PlayerRef. Wanted: storing natives keep 0x14 so the stored value follows a takeover.
 PLAYER :: Form_ID(0x14)
-PLAYER_BASE :: Form_ID(0x7) // the NPC_ the player ref places
+PLAYER_BASE :: Form_ID(0x7) // the NPC_ a new game's character places
 GOLD :: Form_ID(0xF) // Gold001
 PRISON_MARKER :: Form_ID(0x4) // a DOOR base whose refs mark a jail's way in and out; its teleport is data, not a door
 IS_GUARD_FACTION :: Form_ID(0x86EEE) // IsGuardFaction: its members are guards (IsGuard)

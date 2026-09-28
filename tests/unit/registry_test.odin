@@ -82,7 +82,7 @@ test_registry_scale_and_player :: proc(t: ^testing.T) {
 	testing.expect(t, oks, "GetScale returns a float")
 	testing.expect_value(t, sv, f32(2.5))
 
-	// Game.GetPlayer is a global (self unused) returning the player form 0x14.
+	// Game.GetPlayer is a global (self unused) returning PlayerRef, 0x14, which follows the controlled actor.
 	gp := script.call(&reg, "Game", "GetPlayer", &c, nil)
 	pf, okf := gp.(script.Form_ID)
 	testing.expect(t, okf, "GetPlayer returns a form")
@@ -547,13 +547,13 @@ test_registry_activate_queues :: proc(t: ^testing.T) {
 		return b
 	}
 
-	testing.expect(t, activate(&reg, &c, {formid.PLAYER}), "an unblocked ref will process")
+	testing.expect(t, activate(&reg, &c, {ws.player}), "an unblocked ref will process")
 	script.call(&reg, "ObjectReference", "BlockActivation", &c, nil)
-	testing.expect(t, !activate(&reg, &c, {formid.PLAYER}), "a blocked ref will not")
-	testing.expect(t, activate(&reg, &c, {formid.PLAYER, true}), "default-only ignores the block")
+	testing.expect(t, !activate(&reg, &c, {ws.player}), "a blocked ref will not")
+	testing.expect(t, activate(&reg, &c, {ws.player, true}), "default-only ignores the block")
 
 	testing.expect_value(t, len(ws.activations), 3)
-	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = formid.PLAYER, default_only = true})
+	testing.expect_value(t, ws.activations[2], worldstate.Activation{target = lever, by = ws.player, default_only = true})
 }
 
 // A stub answers its fallback: Papyrus's value where the zero would be wrong, else the zero.
@@ -616,9 +616,9 @@ test_registry_ref_reads :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, call(&reg, &a, "GetDistance", B).(f32), f32(5))
 	testing.expect_value(t, call(&reg, &a, "GetDistance", OUT).(f32), worldstate.FAR_DISTANCE)
-	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), worldstate.FAR_DISTANCE)
-	worldstate.set_moved(&ws, formid.PLAYER, INT, {}, {0, 0, 10})
-	testing.expect_value(t, call(&reg, &a, "GetDistance", formid.PLAYER).(f32), f32(10))
+	testing.expect_value(t, call(&reg, &a, "GetDistance", ws.player).(f32), worldstate.FAR_DISTANCE)
+	worldstate.set_moved(&ws, ws.player, INT, {}, {0, 0, 10})
+	testing.expect_value(t, call(&reg, &a, "GetDistance", ws.player).(f32), f32(10))
 
 	testing.expect_value(t, call(&reg, &a, "GetLinkedRef").(F), B)
 	testing.expect_value(t, call(&reg, &a, "GetLinkedRef", KW).(F), OUT)
@@ -776,7 +776,7 @@ test_registry_magic_state :: proc(t: ^testing.T) {
 	c := script.Call{ws = &ws, db = &db}
 
 	script.call(&reg, "Game", "TeachWord", &c, {WORD})
-	testing.expect(t, worldstate.word_taught(&ws, formid.PLAYER, WORD), "taught")
+	testing.expect(t, worldstate.word_taught(&ws, ws.player, WORD), "taught")
 	testing.expect_value(t, script.call(&reg, "Game", "IsWordUnlocked", &c, {WORD}).(bool), false)
 	script.call(&reg, "Game", "UnlockWord", &c, {WORD})
 	script.call(&reg, "Game", "SetBeastForm", &c, {true})
@@ -860,13 +860,13 @@ test_courier_waits_for_dialogue :: proc(t: ^testing.T) {
 	ws.talking = COURIER
 	script.call(&reg, "Courier", "RemoveRef", &c, {COURIER, BAG, LETTER, true, script.Form_ID(0)})
 	script.tick_courier(&c)
-	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(0))
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, ws.player, LETTER), i32(0))
 	ws.talking = 0
 	script.tick_courier(&c)
-	testing.expect_value(t, worldstate.inv_count(&ws, &db, formid.PLAYER, LETTER), i32(1))
+	testing.expect_value(t, worldstate.inv_count(&ws, &db, ws.player, LETTER), i32(1))
 	e := ws.story_events[len(ws.story_events) - 1]
 	testing.expect(t, e.type == worldstate.STORY_ADD_ITEM && e.value1 == 0 && e.ref2 == BAG, "a script's give is AIPL, acquire type none")
-	script.move_items(&c, {base = LETTER, to = formid.PLAYER, count = 1, via = .World})
+	script.move_items(&c, {base = LETTER, to = ws.player, count = 1, via = .World})
 	e = ws.story_events[len(ws.story_events) - 1]
 	testing.expect_value(t, e.value1, i32(4)) // picked up from the world
 }

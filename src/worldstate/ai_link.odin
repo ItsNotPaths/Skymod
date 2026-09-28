@@ -40,7 +40,7 @@ set_package_done :: proc(ws: ^World_State, db: ^gamedb.DB, actor, pack: Form_ID)
 // linked ref, an alias's ref (of `quest`), or itself.
 package_target_ref :: proc(ws: ^World_State, db: ^gamedb.DB, t: gamedb.Package_Target, subject, quest: Form_ID) -> Form_ID {
 	#partial switch t.kind {
-	case .SpecificRef: return t.form
+	case .SpecificRef: return resolve(ws, t.form)
 	case .LinkedRef:
 		ref, _ := gamedb.linked_ref(db, subject, t.form)
 		return ref

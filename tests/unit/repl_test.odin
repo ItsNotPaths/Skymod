@@ -56,7 +56,7 @@ test_repl_ref_identity_and_dispatch :: proc(t: ^testing.T) {
 
 	// Method dispatch through a ref writes the overlay (player:Disable()).
 	slua.repl_eval(&repl, "player:Disable()")
-	d, found := worldstate.get(&ws, formid.PLAYER)
+	d, found := worldstate.get(&ws, ws.player)
 	testing.expect(t, found && .Disabled in d.live && d.disabled, "player:Disable() wrote overlay")
 }
 

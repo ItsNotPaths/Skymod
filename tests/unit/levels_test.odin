@@ -207,6 +207,6 @@ test_pc_level_mult_follows_player :: proc(t: ^testing.T) {
 	defer worldstate.destroy(&ws)
 
 	testing.expect_value(t, worldstate.actor_level(&ws, &db, NPC), 2)
-	ws.levels[formid.PLAYER] = {level = 5}
+	ws.levels[ws.player] = {level = 5}
 	testing.expect_value(t, worldstate.actor_level(&ws, &db, NPC), 10)
 }

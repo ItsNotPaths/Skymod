@@ -78,7 +78,7 @@ start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	for _, cell in db.actor_refs {
 		for r in cell {if r.persistent {append(&refs, r)}}
 	}
-	if p, ok := db.ref_by_id[formid.PLAYER]; ok {append(&refs, p)} // in no cell
+	if p, ok := db.ref_by_id[formid.START_CHARACTER]; ok {append(&refs, p)} // in no cell
 	slice.sort_by(refs[:], proc(a, b: gamedb.Ref) -> bool {return a.form_id < b.form_id})
 	for r in refs {
 		made += attach_ref(vm, db, r)

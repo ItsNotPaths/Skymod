@@ -359,7 +359,7 @@ fn_get_is_race :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32,
 
 @(private = "file")
 fn_get_pc_is_race :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return fn_get_is_race(ctx, c, formid.PLAYER)
+	return fn_get_is_race(ctx, c, ctx.ws.player)
 }
 
 // GetIsSex(sex): 0 male, 1 female.
@@ -371,7 +371,7 @@ fn_get_is_sex :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, 
 
 @(private = "file")
 fn_get_pc_is_sex :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return fn_get_is_sex(ctx, c, formid.PLAYER)
+	return fn_get_is_sex(ctx, c, ctx.ws.player)
 }
 
 @(private = "file")
@@ -429,7 +429,7 @@ fn_is_child :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bo
 
 @(private = "file")
 fn_is_actor :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(on == formid.PLAYER || worldstate.ref_base(ctx.ws, ctx.db, on) in ctx.db.actors)
+	return yes(worldstate.ref_base(ctx.ws, ctx.db, on) in ctx.db.actors)
 }
 
 @(private = "file")
@@ -442,7 +442,7 @@ fn_get_in_same_cell :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 
 @(private = "file")
 fn_get_pc_in_faction :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(worldstate.in_faction(ctx.ws, ctx.db, formid.PLAYER, p1(c)))
+	return yes(worldstate.in_faction(ctx.ws, ctx.db, ctx.ws.player, p1(c)))
 }
 
 // GetHealthPercentage: current Health over its maximum, 0 to 1.
@@ -510,7 +510,7 @@ fn_get_lowest_relationship_rank :: proc(ctx: ^Context, c: gamedb.Condition, on: 
 // IsInFriendStateWithPlayer: the actor is the player's Friend or closer (rank 1 or more).
 @(private = "file")
 fn_is_in_friend_state_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return yes(worldstate.rel_rank(ctx.ws, ctx.db, on, formid.PLAYER) >= 1)
+	return yes(worldstate.rel_rank(ctx.ws, ctx.db, on, ctx.ws.player) >= 1)
 }
 
 // IsKiller(actor): the actor killed `on`.
@@ -556,7 +556,7 @@ fn_get_offers_services_now :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 		v := f.vendor
 		if f.flags & esm.FACT_VENDOR == 0 {continue}
 		open := f64(v.start) <= hour && hour < f64(v.end) if v.start <= v.end else hour >= f64(v.start) || hour < f64(v.end)
-		sub := Context{db = ctx.db, ws = ctx.ws, subject = on, target = formid.PLAYER, quest_vars = ctx.quest_vars}
+		sub := Context{db = ctx.db, ws = ctx.ws, subject = on, target = ctx.ws.player, quest_vars = ctx.quest_vars}
 		if open && all(&sub, v.conditions) {return 1, true}
 	}
 	return 0, true
@@ -593,7 +593,7 @@ fn_get_is_object_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 	switch c.param1 {
 	case 1:  return yes(gamedb.form_kind(ctx.db, base) == .Armor)
 	case 12: return yes(gamedb.form_kind(ctx.db, base) == .Weapon)
-	case 13: return yes(on == formid.PLAYER || base in ctx.db.actors)
+	case 13: return yes(base in ctx.db.actors)
 	}
 	return 0, false
 }

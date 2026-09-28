@@ -55,7 +55,7 @@ tick_courier :: proc(c: ^Call) {
 courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
 	base, ref := item_of(c, r.item)
 	if worldstate.inv_count(c.ws, c.db, r.container, base) <= 0 {return}
-	move_items(c, {base = base, ref = ref, from = r.container, to = formid.PLAYER if r.to_player else 0, count = 1})
+	move_items(c, {base = base, ref = ref, from = r.container, to = c.ws.player if r.to_player else 0, count = 1})
 	if r.count != 0 {
 		v, _ := worldstate.get_global(c.ws, r.count)
 		worldstate.set_global(c.ws, r.count, v - 1)
@@ -219,8 +219,8 @@ new_stack :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
 // the container, the player's location, the item, how.
 @(private = "file")
 queue_item_event :: proc(c: ^Call, m: worldstate.Item_Move) {
-	loc := worldstate.ref_location(c.ws, c.db, formid.PLAYER)
-	switch formid.PLAYER {
+	loc := worldstate.ref_location(c.ws, c.db, c.ws.player)
+	switch c.ws.player {
 	case m.to:
 		worldstate.queue_story_event(c.ws, {type = worldstate.STORY_ADD_ITEM, ref2 = m.from, location1 = loc, object = m.base, value1 = i32(m.via)})
 	case m.from:

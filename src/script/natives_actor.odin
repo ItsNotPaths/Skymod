@@ -122,7 +122,7 @@ damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) 
 check_death :: proc(c: ^Call, actor: Form_ID, attacker: Form_ID) {
 	if worldstate.is_dead(c.ws, c.db, actor) || worldstate.av_current(c.ws, c.db, actor, "Health") > 0 {return}
 	if worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
-	if attacker != formid.PLAYER && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
+	if attacker != c.ws.player && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
 	kill(c, actor, attacker)
 }
 

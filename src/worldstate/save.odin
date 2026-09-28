@@ -306,6 +306,7 @@ Saved_Rel :: struct {
 // tagged encoding loads old saves into the extended struct unharmed (a save without a field decodes it
 // as zero — handled in load_from_file).
 Save_Body :: struct {
+	player:       Form_ID,
 	deltas:       []Saved_Delta,
 	created:      []Saved_Created,
 	next_created:  Form_ID,
@@ -586,6 +587,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		for r in list {append(&anim_regs, Saved_Anim_Reg{sender, r.form, r.event})}
 	}
 	body := Save_Body {
+		player       = ws.player,
 		deltas       = deltas,
 		created      = created,
 		next_created  = ws.next_created,
@@ -727,7 +729,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
 	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
-		if !on || fid == 0 || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) || formid.is_script_faction(fid) {return fid, true}
+		if !on || fid == 0 || fid == formid.START_CHARACTER || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) || formid.is_script_faction(fid) {return fid, true}
 		quest, id, is_alias := formid.alias_key(fid)
 		src := quest if is_alias else fid
 		ns, rok := remap[u32(src >> 32)]
@@ -761,6 +763,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// which would hand out fresh ids). Clamp next_created to the floor for saves predating the field.
 	// form_id is a created-slot id (passes through); base/cell reference records → remapped.
 	ws.next_created = max(body.next_created, formid.CREATED_FORM_BASE)
+	if p, ok := rf(remap, have_remap, body.player); ok && p != 0 {ws.player = p}
 	for c in body.created {
 		base, _ := rf(remap, have_remap, c.base)
 		cell, _ := rf(remap, have_remap, c.cell)

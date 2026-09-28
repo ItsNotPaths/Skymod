@@ -44,8 +44,8 @@ level :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_
 }
 
 has_los :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID) -> bool {
-	if viewer != formid.PLAYER && !is_actor(ws, db, target) {return false}
-	return seen(ws, db, viewer, target, viewer == formid.PLAYER) > 0
+	if viewer != ws.player && !is_actor(ws, db, target) {return false}
+	return seen(ws, db, viewer, target, viewer == ws.player) > 0
 }
 
 // range is how far an NPC sees: fSneakMaxDistance, times fSneakExteriorDistanceMult outdoors.
@@ -69,7 +69,7 @@ light_at :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, p: smath.Vec3) -> 
 seen :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_ID, cone: bool) -> f32 {
 	if view.space == nil || !worldstate.ref_3d_loaded(ws, db, target) {return 0}
 	eye := view.eye
-	if viewer != formid.PLAYER {
+	if viewer != ws.player {
 		if !worldstate.ref_3d_loaded(ws, db, viewer) {return 0}
 		eye = worldstate.ref_pos(ws, db, viewer) + {0, 0, worldstate.actor_box(ws, db, viewer)[1].z * NPC_EYE}
 	}
@@ -84,7 +84,7 @@ seen :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer, target: Form_I
 
 @(private)
 in_cone :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, viewer: Form_ID, eye, p: smath.Vec3, reach: f32) -> bool {
-	if viewer == formid.PLAYER {
+	if viewer == ws.player {
 		c := view.vp * [4]f32{p.x, p.y, p.z, 1}
 		return c.w > 0 && abs(c.x) <= c.w && abs(c.y) <= c.w
 	}

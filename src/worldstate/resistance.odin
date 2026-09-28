@@ -29,7 +29,7 @@ resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_
 	} else if _, potion := gamedb.potion_of(db, source); potion {
 		magic = false
 	}
-	cap := gamedb.setting_float(db, "fPlayerMaxResistance", 85) if target == formid.PLAYER else 100
+	cap := gamedb.setting_float(db, "fPlayerMaxResistance", 85) if target == ws.player else 100
 	m := m
 	if magic && resist != "MagicResist" {m *= 1 - min(av_current(ws, db, target, "MagicResist"), cap) / 100}
 	if resist != "" {m *= 1 - min(av_current(ws, db, target, resist), cap) / 100}

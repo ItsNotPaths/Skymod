@@ -639,7 +639,7 @@ index_alias_targets :: proc(db: ^DB) {
 	}
 	persistent := make([dynamic]Form_ID, db.allocator)
 	for id, r in db.ref_by_id {
-		if r.persistent && !r.deleted && id != formid.PLAYER {append(&persistent, id)}
+		if r.persistent && !r.deleted && id != formid.START_CHARACTER {append(&persistent, id)}
 	}
 	slice.sort(persistent[:])
 	db.persistent_refs = persistent[:]

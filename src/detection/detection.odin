@@ -25,7 +25,7 @@ tick :: proc(s: ^State, ws: ^worldstate.World_State, db: ^gamedb.DB, actors: map
 	s.tick += 1
 	speeds := make(map[Form_ID]f32, context.temp_allocator)
 	for a in actors {speeds[a] = speed(s, ws, db, a, dt)}
-	speeds[formid.PLAYER] = speed(s, ws, db, formid.PLAYER, dt)
+	speeds[ws.player] = speed(s, ws, db, ws.player, dt)
 	clear(&s.last)
 	for a in speeds {s.last[a] = worldstate.ref_pos(ws, db, a)}
 

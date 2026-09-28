@@ -128,6 +128,6 @@ frame_dev_shot :: proc(g: ^Game) {
 }
 
 dev_shoot :: proc(g: ^Game, c: Cmd_Shoot) {
-	cell := worldstate.ref_cell(&g.sim.ws, &g.db, formid.PLAYER)
-	worldstate.launch(&g.sim.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, formid.PLAYER, 0, DEV_SHOT_DAMAGE)
+	cell := worldstate.ref_cell(&g.sim.ws, &g.db, g.sim.ws.player)
+	worldstate.launch(&g.sim.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, g.sim.ws.player, 0, DEV_SHOT_DAMAGE)
 }

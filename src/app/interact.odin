@@ -95,7 +95,7 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 				g.sim.interact.pressing = false
 			}
 		} else {
-			activate(g, g.sim.interact.press_form, formid.PLAYER)
+			activate(g, g.sim.interact.press_form, g.sim.ws.player)
 			g.sim.interact.pressing = false
 		}
 		return
@@ -110,7 +110,7 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 			g.sim.interact.press_form = tgt.form
 			g.sim.interact.held_s = 0
 		} else {
-			activate(g, tgt.form, formid.PLAYER)
+			activate(g, tgt.form, g.sim.ws.player)
 		}
 	}
 }
@@ -120,11 +120,11 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	if g.sim.input.in_menu {return}
 	in_, was := g.sim.input, g.sim.input_was
-	if in_.sneak && !was.sneak {worldstate.set_sneaking(&g.sim.ws, formid.PLAYER, !worldstate.is_sneaking(&g.sim.ws, formid.PLAYER))}
+	if in_.sneak && !was.sneak {worldstate.set_sneaking(&g.sim.ws, g.sim.ws.player, !worldstate.is_sneaking(&g.sim.ws, g.sim.ws.player))}
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := tgt.form if tgt.present else 0
-	if in_.cast_left && !was.cast_left {script.cast_hand(&c, formid.PLAYER, .LeftHand, target)}
-	if in_.cast_right && !was.cast_right {script.cast_hand(&c, formid.PLAYER, .RightHand, target)}
+	if in_.cast_left && !was.cast_left {script.cast_hand(&c, g.sim.ws.player, .LeftHand, target)}
+	if in_.cast_right && !was.cast_right {script.cast_hand(&c, g.sim.ws.player, .RightHand, target)}
 }
 
 // (hole lockpicking :tags (ui player) :sev gap) a locked door or container opens like any other: no key check, no lockpicking screen, no Lockpicking XP.
@@ -147,7 +147,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	switch kind := Activate_Kind.Door if is_record && ref.has_tp else classify_base(&g.db, base); kind {
 	case .Door:
 		if !ref.has_tp {break}
-		if by != formid.PLAYER {
+		if by != g.sim.ws.player {
 			move_through_door(g, by, ref.teleport)
 			break
 		}
@@ -157,7 +157,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Item:
 		take_item(g, form, base, by)
 	case .Book:
-		if by == formid.PLAYER && read_book(g, form, base) {
+		if by == g.sim.ws.player && read_book(g, form, base) {
 			worldstate.set_disabled(&g.sim.ws, form, worldstate.ref_cell(&g.sim.ws, &g.db, form), true) // a learned tome is used up
 			worldstate.mark_scene_dirty(&g.sim.ws, form)
 			log.infof("read: %q", interact_subject(g, form))
@@ -167,18 +167,18 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Flora:
 		harvest(g, form, base, by)
 	case .Container:
-		if by == formid.PLAYER {send_parked(g, Evt_Open_Container{form})}
+		if by == g.sim.ws.player {send_parked(g, Evt_Open_Container{form})}
 	// (hole mount-attach :tags (threading animation player) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
-		if by != formid.PLAYER {break}
+		if by != g.sim.ws.player {break}
 		if worldstate.is_dead(&g.sim.ws, &g.db, form) {send_parked(g, Evt_Open_Container{form})} else {open_dialogue(g, form)}
 	case .None, .Activator:
-		if by == formid.PLAYER && by in g.sim.ws.jailed && ai.is_bed(&g.sim.agents, &g.sim.ws, &g.db, form) {
+		if by == g.sim.ws.player && by in g.sim.ws.jailed && ai.is_bed(&g.sim.agents, &g.sim.ws, &g.db, form) {
 			worldstate.serve_time(&g.sim.ws, by) // a jail bed: the player sleeps the sentence away
 			break
 		}
-		if by == formid.PLAYER {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
+		if by == g.sim.ws.player {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}
 	}
 }
 
@@ -225,7 +225,7 @@ grab_update :: proc(g: ^Game) {
 take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.sim.ws, db = &g.db}
 	script.take(&c, form, base, by)
-	if by == formid.PLAYER {log.infof("take: %q", interact_subject(g, form))}
+	if by == g.sim.ws.player {log.infof("take: %q", interact_subject(g, form))}
 }
 
 // read_book is the player reading a book: OnRead to its ref (for a book in the pack, a carried
@@ -235,7 +235,7 @@ read_book :: proc(g: ^Game, ref, base: Form_ID) -> bool {
 		slua.sync_refs(&g.sim.repl.vm) // a stack script.item_stack just made gets its instance first
 		slua.send(&g.sim.repl.vm, ref, "OnRead")
 	}
-	return worldstate.read_book(&g.sim.ws, &g.db, formid.PLAYER, base)
+	return worldstate.read_book(&g.sim.ws, &g.db, g.sim.ws.player, base)
 }
 
 // harvest gives an actor a plant's produce, rolled at its zone level, once until its cell resets.
@@ -247,7 +247,7 @@ harvest :: proc(g: ^Game, form, base, by: Form_ID) {
 	worldstate.roll(&g.sim.ws, &g.db, produce, worldstate.zone_level(&g.sim.ws, &g.db, gamedb.zone_of(&g.db, form)), 1, &rolled)
 	for e in rolled {script.move_items(&c, {base = e.item, to = by, count = e.count})}
 	worldstate.set_harvested(&g.sim.ws, form, worldstate.ref_cell(&g.sim.ws, &g.db, form))
-	if by == formid.PLAYER {log.infof("harvest: %q", interact_subject(g, form))}
+	if by == g.sim.ws.player {log.infof("harvest: %q", interact_subject(g, form))}
 }
 
 // interact_subject is a ref's display name for a log line, or a placeholder when it's unnamed.

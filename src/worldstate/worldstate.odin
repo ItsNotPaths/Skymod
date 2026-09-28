@@ -34,6 +34,7 @@ World_State :: struct {
 // FormID→delta map + per-cell index (patches to EXISTING ESM refs), the created-ref space, the
 // coarse stores and the player. A new game is all zero; a load replaces it whole.
 Overlay :: struct {
+	player:          Form_ID,                      // the actor the player controls: what formid.PLAYER (0x14) means
 	ref_deltas:      map[Form_ID]Ref_Delta,       // FormID -> delta (the ChangeForm-equivalent table)
 	by_cell:         map[Form_ID][dynamic]Form_ID,     // CellFormID -> FormIDs with deltas (patch index)
 	created:         map[Form_ID]Created_Ref,      // FormID (0xFF space) -> runtime-spawned ref
@@ -281,12 +282,18 @@ destroy :: proc(ws: ^World_State) {
 	ws^ = {}
 }
 
+// resolve turns PlayerRef (0x14) into the actor the player controls; every other form stays.
+resolve :: proc(ws: ^World_State, form: Form_ID) -> Form_ID {
+	return ws.player if form == formid.PLAYER else form
+}
+
 init_overlay :: proc(o: ^Overlay) {
 	o.ref_deltas = make(map[Form_ID]Ref_Delta)
 	o.by_cell = make(map[Form_ID][dynamic]Form_ID)
 	o.created = make(map[Form_ID]Created_Ref)
 	o.created_by_cell = make(map[Form_ID][dynamic]Form_ID)
 	o.next_created = formid.CREATED_FORM_BASE
+	o.player = formid.START_CHARACTER
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(Deltas)

@@ -62,7 +62,7 @@ proc_escort :: proc(c: ^Proc_Context) -> Status {
 		c.agent.mover.goal = {}
 		return .Done
 	}
-	if who != 0 && who != formid.PLAYER {
+	if who != 0 && who != ws.player {
 		near := max(input_value(c, 4, f32) or_else 0, ARRIVED)
 		c.w.escorts[who] = {c.cond.subject, near, max(input_value(c, 5, f32) or_else 0, near), input_value(c, 8, f32) or_else FOLLOW_SPRINT, ws.clock.played}
 	}
@@ -172,7 +172,7 @@ proc_force_greet :: proc(c: ^Proc_Context) -> Status {
 	c.agent.mover.goal = {}
 	if st.started {return .Running if ws.force_greet.speaker == actor else .Done}
 	if ws.talking != 0 || ws.force_greet.speaker != 0 {return .Running}
-	if p, ok := location(c); ok && !inside(c, formid.PLAYER, worldstate.ref_pos(ws, db, formid.PLAYER), p) {return .Running}
+	if p, ok := location(c); ok && !inside(c, ws.player, worldstate.ref_pos(ws, db, ws.player), p) {return .Running}
 	topic, _ := input_value(c, 0, gamedb.Package_Topic)
 	ws.force_greet = {speaker = actor, topic = topic.topic}
 	st.started = true
@@ -206,7 +206,7 @@ proc_dialogue_activate :: proc(c: ^Proc_Context) -> Status {
 		return .Running
 	}
 	c.agent.mover.goal = {}
-	if target == formid.PLAYER {
+	if target == ws.player {
 		if ws.talking != 0 || ws.force_greet.speaker != 0 {return .Running}
 		ws.force_greet = {speaker = actor}
 	} else {

@@ -949,7 +949,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 	order_story_nodes(&db)
 	order_topic_infos(&db)
 	// No plugin holds the player ref: the engine makes it, in no cell. Its placement is its Moved delta.
-	db.ref_by_id[formid.PLAYER] = Ref{form_id = formid.PLAYER, base = formid.PLAYER_BASE, scale = 1, count = 1, persistent = true}
+	db.ref_by_id[formid.START_CHARACTER] = Ref{form_id = formid.START_CHARACTER, base = formid.PLAYER_BASE, scale = 1, count = 1, persistent = true}
 	log.infof(
 		"gamedb: %d base meshes, %d with prebaked LOD (%.0f%%)",
 		len(db.base_models),

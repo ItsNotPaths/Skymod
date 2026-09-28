@@ -587,8 +587,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// objects. Spawns at the camera; V toggles no-clip free-fly (and inside interiors, which
 	// have no collision yet, locomotion falls back to free-fly automatically).
 	if g.phys_ok {
-		capsule := actor_capsule(g, formid.PLAYER)
-		g.sim.character, g.sim.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(formid.PLAYER))
+		capsule := actor_capsule(g, g.sim.ws.player)
+		g.sim.character, g.sim.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(g.sim.ws.player))
 	}
 	g.sim.noclip = !g.sim.char_ok
 	publish_snapshot(g)

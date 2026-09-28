@@ -23,22 +23,22 @@ n_get_level :: proc(c: ^Call, args: []Value) -> Value {
 
 // AdvanceSkill(asSkillName, afMagnitude): skill XP for the player, as using the skill gives.
 n_advance_skill :: proc(c: ^Call, args: []Value) -> Value {
-	if skill, ok := av_arg(c, args); ok {worldstate.advance_skill(c.ws, c.db, formid.PLAYER, skill, arg_f32(args, 1, 0))}
+	if skill, ok := av_arg(c, args); ok {worldstate.advance_skill(c.ws, c.db, c.ws.player, skill, arg_f32(args, 1, 0))}
 	return nil
 }
 
 n_increment_skill :: proc(c: ^Call, args: []Value) -> Value {
-	if skill, ok := av_arg(c, args); ok {worldstate.raise_skill(c.ws, c.db, formid.PLAYER, skill, 1)}
+	if skill, ok := av_arg(c, args); ok {worldstate.raise_skill(c.ws, c.db, c.ws.player, skill, 1)}
 	return nil
 }
 
 n_increment_skill_by :: proc(c: ^Call, args: []Value) -> Value {
-	if skill, ok := av_arg(c, args); ok {worldstate.raise_skill(c.ws, c.db, formid.PLAYER, skill, arg_i32(args, 1, 1))}
+	if skill, ok := av_arg(c, args); ok {worldstate.raise_skill(c.ws, c.db, c.ws.player, skill, arg_i32(args, 1, 1))}
 	return nil
 }
 
 n_add_perk_points :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.add_perk_points(c.ws, formid.PLAYER, arg_i32(args, 0, 0))
+	worldstate.add_perk_points(c.ws, c.ws.player, arg_i32(args, 0, 0))
 	return nil
 }
 

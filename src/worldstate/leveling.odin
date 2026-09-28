@@ -45,7 +45,7 @@ LEVEL_CHOICE_VARS := []string{"level"}
 // Level Mult NPC_ follows the player's.
 actor_level :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> i32 {
 	if s, ok := ws.levels[actor]; ok && s.level > 0 {return s.level}
-	player := 1 if actor == formid.PLAYER else int(player_level(ws, db))
+	player := 1 if actor == ws.player else int(player_level(ws, db))
 	return gamedb.record_level(db, record_of(ws, actor), actor_pick(ws, db, actor), player)
 }
 
@@ -89,7 +89,7 @@ raise_skill :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: str
 		if level >= av_train_cap(ws, db, actor, skill) {break}
 		av_set_base(ws, actor, skill, level + 1)
 		level_state(ws, actor).xp += f32(calc(ws, .PlayerXPFromSkill, f64(level + 1), per_rank))
-		if i, ok := skill_index(skill); ok && actor == formid.PLAYER {queue_story_event(ws, {type = STORY_SKILL, value1 = i32(6 + i)})}
+		if i, ok := skill_index(skill); ok && actor == ws.player {queue_story_event(ws, {type = STORY_SKILL, value1 = i32(6 + i)})}
 	}
 	return rose
 }
@@ -174,7 +174,7 @@ level_up :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, choice: strin
 		av_mod(ws, actor, av, f32(formula.eval(ch.amount, {f64(level)})))
 	}
 	append(&ws.level_ups, Level_Up{actor, level, strings.clone(key)})
-	if actor == formid.PLAYER {queue_story_event(ws, {type = STORY_LEVEL, value1 = level})}
+	if actor == ws.player {queue_story_event(ws, {type = STORY_LEVEL, value1 = level})}
 	return true
 }
 
@@ -257,5 +257,5 @@ init_level_choices :: proc(o: ^Overlay) {
 
 // player_level is the level rolls start from.
 player_level :: proc(ws: ^World_State, db: ^gamedb.DB) -> i32 {
-	return max(actor_level(ws, db, formid.PLAYER), 1)
+	return max(actor_level(ws, db, ws.player), 1)
 }

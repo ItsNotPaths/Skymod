@@ -34,7 +34,7 @@ transitions_destroy :: proc(t: ^Transitions) {
 // none of the 166 vanilla CLOC quest nodes checks that actor 1 is the player, so an NPC's move would
 // start the bounty and dungeon quests.
 tick_location :: proc(vm: ^VM, ws: ^worldstate.World_State, t: ^Transitions, now: script.Form_ID) {
-	if old, known := t.location.?; known && old != now {location_changed(vm, ws, formid.PLAYER, old, now)}
+	if old, known := t.location.?; known && old != now {location_changed(vm, ws, ws.player, old, now)}
 	t.location = now
 	for m in ws.ai.moves {location_changed(vm, ws, m.actor, m.old, m.now)}
 	clear(&ws.ai.moves)
@@ -43,7 +43,7 @@ tick_location :: proc(vm: ^VM, ws: ^worldstate.World_State, t: ^Transitions, now
 @(private = "file")
 location_changed :: proc(vm: ^VM, ws: ^worldstate.World_State, actor, old, now: script.Form_ID) {
 	send(vm, actor, "OnLocationChange", old, now)
-	if actor == formid.PLAYER {
+	if actor == ws.player {
 		worldstate.queue_story_event(ws, {type = worldstate.STORY_CHANGE_LOCATION, ref1 = actor, location1 = old, location2 = now})
 	}
 }
@@ -117,7 +117,7 @@ sync_loaded :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tr
 @(private)
 refile :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitions, still: map[script.Form_ID]bool, f: worldstate.Refile) {
 	r := f.ref
-	if r == formid.PLAYER {return}
+	if r == ws.player {return}
 	was := listed_cell(ws, r)
 	now := worldstate.ref_grid_cell(ws, db, r)
 	if now not_in still {now = 0}
@@ -168,13 +168,13 @@ scripted_refs :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Transitio
 	placed := len(out)
 	defer slice.sort(out[placed:]) // the rest come from maps; form order keeps a run reproducible
 	for id, d in ws.ref_deltas {
-		if .Moved in d.live && id != formid.PLAYER && tracked(db, ws, id) {add(&out, &seen, ws, db, cell, id)}
+		if .Moved in d.live && id != ws.player && tracked(db, ws, id) {add(&out, &seen, ws, db, cell, id)}
 	}
 	for id, cr in ws.created {
 		if len(gamedb.base_scripts(db, cr.base)) > 0 {add(&out, &seen, ws, db, cell, id)}
 	}
 	for id in ws.alias_holders {
-		if id != formid.PLAYER {add(&out, &seen, ws, db, cell, id)}
+		if worldstate.resolve(ws, id) != ws.player {add(&out, &seen, ws, db, cell, id)}
 	}
 	return out
 }

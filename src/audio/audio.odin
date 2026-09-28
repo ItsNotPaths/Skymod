@@ -436,7 +436,7 @@ feed :: proc "c" (userdata: rawptr, stream: ^sdl.AudioStream, additional, total:
 // the player's worldspace. Each interior has its own coordinates, so distance alone would hear a
 // speaker in another building.
 same_space :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, ref: gamedb.Form_ID) -> bool {
-	here := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)]
+	here := db.cells[worldstate.ref_cell(ws, db, ws.player)]
 	there := db.cells[worldstate.ref_cell(ws, db, ref)]
 	if here.interior || there.interior {return here.form_id == there.form_id}
 	return here.world_form_id == there.world_form_id

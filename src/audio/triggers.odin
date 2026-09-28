@@ -53,7 +53,7 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	for hops := 0; track.kind == .Palette && len(track.children) > 0 && hops < 4; hops += 1 {
 		track = db.music_tracks[rand.choice(track.children)]
 	}
-	if !allowed(db, ws, track.conditions, formid.PLAYER) {return} // the next tick picks again
+	if !allowed(db, ws, track.conditions, ws.player) {return} // the next tick picks again
 	switch track.kind {
 	case .Silent:
 		m.wait = track.duration
@@ -71,7 +71,7 @@ wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_
 	}
 	for t in music_wanted(a) {consider(db, t, &best, &best_priority)}
 	if in_combat {consider(db, gamedb.default_object(db, "BTMS"), &best, &best_priority)}
-	cell := db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)]
+	cell := db.cells[worldstate.ref_cell(ws, db, ws.player)]
 	place := cell.music if cell.music != 0 else db.world_music[cell.world_form_id]
 	consider(db, place if place != 0 else gamedb.default_object(db, "DFMS"), &best, &best_priority)
 	return best
@@ -96,7 +96,7 @@ MARKER_SCAN_TICKS :: 10
 
 ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	if a.device == 0 {return}
-	space := am.box if am.box != 0 else db.cells[worldstate.ref_cell(ws, db, formid.PLAYER)].acoustic
+	space := am.box if am.box != 0 else db.cells[worldstate.ref_cell(ws, db, ws.player)].acoustic
 	if space != am.space {
 		stop(a, am.loop)
 		am.space, am.loop = space, play_descriptor(a, v, db, db.acoustic_loops[space])
@@ -104,7 +104,7 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 	am.tick += 1
 	if am.tick % MARKER_SCAN_TICKS != 0 {return}
 	want := make(map[formid.Form_ID]bool, context.temp_allocator)
-	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
+	feet := worldstate.ref_pos(ws, db, ws.player)
 	am.box = 0
 	for cell in ws.attached {
 		for r in db.cell_refs[cell] or_else nil { // a missing key in `for x in m[k]` segfaults (odin-map-index-iteration)

@@ -73,7 +73,9 @@ test :: proc(ctx: ^Context, c: gamedb.Condition) -> bool {
 		warn_once(ctx, c.function)
 		return true // never hide content over a question we cannot answer
 	}
+	ctx.subject, ctx.target = worldstate.resolve(ctx.ws, ctx.subject), worldstate.resolve(ctx.ws, ctx.target)
 	on, known_on := run_on_form(ctx, c)
+	on = worldstate.resolve(ctx.ws, on)
 	if !known_on {
 		return true
 	}
@@ -129,7 +131,7 @@ param_ref :: proc(ctx: ^Context, c: gamedb.Condition, i: int) -> (Form_ID, bool)
 		return worldstate.package_target_ref(ctx.ws, ctx.db, t, ctx.subject, ctx.quest), true
 	}
 	if .Use_Aliases in c.flags {return alias_ref(ctx, i32(raw))}
-	return Form_ID(raw), true
+	return worldstate.resolve(ctx.ws, Form_ID(raw)), true
 }
 
 @(private)

@@ -41,7 +41,7 @@ confront :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Age
 	}
 	a.mover.goal = {}
 	worldstate.queue_story_event(ws, {type = worldstate.STORY_ARREST, ref1 = guard, ref2 = c.target, location1 = worldstate.ref_location(ws, db, guard)})
-	if c.target == formid.PLAYER {
+	if c.target == ws.player {
 		if ws.talking != 0 || ws.force_greet.speaker != 0 {return true}
 		ws.force_greet = {speaker = guard, subtype = "PFGT"}
 	} else {

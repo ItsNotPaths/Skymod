@@ -59,9 +59,9 @@ fill :: proc(c: ^Call, quest, h: Form_ID, a: gamedb.Quest_Alias, used: map[Form_
 		return form if fits(c, quest, a, form, used, new_game, true) else 0, true
 	case .Unique_Actor:
 		ref, _ := gamedb.unique_actor_ref(c.db, a.target)
-		return ref if passes(c, quest, a, formid.PLAYER) && usable(c, quest, a, ref, nil, new_game) else 0, true
+		return ref if passes(c, quest, a, c.ws.player) && usable(c, quest, a, ref, nil, new_game) else 0, true
 	case .Create_Ref:
-		return create_ref(c, quest, a) if passes(c, quest, a, formid.PLAYER) else 0, true
+		return create_ref(c, quest, a) if passes(c, quest, a, c.ws.player) else 0, true
 	case .Location_Ref, .Matching:
 		if a.location && a.fill == .Location_Ref {
 			loc := ref_alias_location(c, quest, a)
@@ -193,9 +193,7 @@ usable :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias, ref: Form_ID, us
 // reserved: another quest's Reserves alias holds the ref.
 @(private = "file")
 reserved :: proc(c: ^Call, quest, ref: Form_ID) -> bool {
-	holders, ok := c.ws.alias_holders[ref]
-	if !ok {return false}
-	for h in holders {
+	for h in worldstate.aliases_of(c.ws, ref) {
 		q, id, _ := formid.alias_key(h)
 		if a, aok := gamedb.quest_alias(c.db, q, id); aok && q != quest && a.flags & esm.ALIAS_RESERVES != 0 {return true}
 	}
@@ -236,7 +234,7 @@ create_ref :: proc(c: ^Call, quest: Form_ID, a: gamedb.Quest_Alias) -> Form_ID {
 closest :: proc(c: ^Call, found: []Form_ID) -> Form_ID {
 	best, best_d := found[0], worldstate.FAR_DISTANCE
 	for ref in found {
-		if d := worldstate.ref_distance(c.ws, c.db, formid.PLAYER, ref); d < best_d {best, best_d = ref, d}
+		if d := worldstate.ref_distance(c.ws, c.db, c.ws.player, ref); d < best_d {best, best_d = ref, d}
 	}
 	return best
 }

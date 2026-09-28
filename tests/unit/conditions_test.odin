@@ -169,28 +169,28 @@ test_conditions_evaluate :: proc(t: ^testing.T) {
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
 
-	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player}
 	p, _ := gamedb.perk_of(&db, 0x0000_0A02)
 
 	// Nothing taken, no skill: both halves fail.
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "gate closed at the start")
 
 	// The prerequisite perk alone is not enough.
-	worldstate.perk_add(&ws, formid.PLAYER, 0x0000_0A01)
+	worldstate.perk_add(&ws, ws.player, 0x0000_0A01)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "skill still too low")
 
 	// Skill just under the bar still fails — the operator is >=, not >. 277 reads the base, so a
 	// fortify does not open it.
 	ONE_HANDED :: "OneHanded"
-	worldstate.av_set_base(&ws, formid.PLAYER, ONE_HANDED, 29)
-	worldstate.av_mod(&ws, formid.PLAYER, ONE_HANDED, 5)
+	worldstate.av_set_base(&ws, ws.player, ONE_HANDED, 29)
+	worldstate.av_mod(&ws, ws.player, ONE_HANDED, 5)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "29 is below 30")
 
-	worldstate.av_set_base(&ws, formid.PLAYER, ONE_HANDED, 30)
+	worldstate.av_set_base(&ws, ws.player, ONE_HANDED, 30)
 	testing.expect(t, conditions.all(&ctx, p.take_conditions), "gate opens at exactly 30")
 
 	// Losing the prerequisite closes it again.
-	worldstate.perk_remove(&ws, formid.PLAYER, 0x0000_0A01)
+	worldstate.perk_remove(&ws, ws.player, 0x0000_0A01)
 	testing.expect(t, !conditions.all(&ctx, p.take_conditions), "gate closed without the prerequisite")
 }
 
@@ -201,7 +201,7 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
-	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player}
 
 	testing.expect(t, conditions.all(&ctx, {}), "an empty list passes")
 
@@ -219,34 +219,34 @@ test_conditions_and_or_grouping :: proc(t: ^testing.T) {
 	// AND: both required.
 	and_list := []gamedb.Condition{has(A, false), has(B, false)}
 	testing.expect(t, !conditions.all(&ctx, and_list), "AND fails with neither")
-	worldstate.perk_add(&ws, formid.PLAYER, A)
+	worldstate.perk_add(&ws, ws.player, A)
 	testing.expect(t, !conditions.all(&ctx, and_list), "AND fails with only one")
-	worldstate.perk_add(&ws, formid.PLAYER, B)
+	worldstate.perk_add(&ws, ws.player, B)
 	testing.expect(t, conditions.all(&ctx, and_list), "AND passes with both")
 
 	// OR: the first condition carries the flag, joining it to the second. Either suffices.
-	worldstate.perk_remove(&ws, formid.PLAYER, A)
-	worldstate.perk_remove(&ws, formid.PLAYER, B)
+	worldstate.perk_remove(&ws, ws.player, A)
+	worldstate.perk_remove(&ws, ws.player, B)
 	or_list := []gamedb.Condition{has(A, true), has(B, false)}
 	testing.expect(t, !conditions.all(&ctx, or_list), "OR fails with neither")
-	worldstate.perk_add(&ws, formid.PLAYER, A)
+	worldstate.perk_add(&ws, ws.player, A)
 	testing.expect(t, conditions.all(&ctx, or_list), "OR passes on the first alone")
-	worldstate.perk_remove(&ws, formid.PLAYER, A)
-	worldstate.perk_add(&ws, formid.PLAYER, B)
+	worldstate.perk_remove(&ws, ws.player, A)
+	worldstate.perk_add(&ws, ws.player, B)
 	testing.expect(t, conditions.all(&ctx, or_list), "OR passes on the second alone")
 
 	// A group followed by a required AND term: (A OR B) AND C.
 	C :: gamedb.Form_ID(0xC1)
 	mixed := []gamedb.Condition{has(A, true), has(B, false), has(C, false)}
 	testing.expect(t, !conditions.all(&ctx, mixed), "the trailing AND term still gates")
-	worldstate.perk_add(&ws, formid.PLAYER, C)
+	worldstate.perk_add(&ws, ws.player, C)
 	testing.expect(t, conditions.all(&ctx, mixed), "(A OR B) AND C passes")
 
 	// The CK flags every member of a trailing OR run, the last one too: C AND (A OR B).
 	trailing := []gamedb.Condition{has(C, false), has(A, true), has(B, true)}
-	worldstate.perk_remove(&ws, formid.PLAYER, B)
+	worldstate.perk_remove(&ws, ws.player, B)
 	testing.expect(t, !conditions.all(&ctx, trailing), "a trailing OR group still gates")
-	worldstate.perk_add(&ws, formid.PLAYER, A)
+	worldstate.perk_add(&ws, ws.player, A)
 	testing.expect(t, conditions.all(&ctx, trailing), "C AND (A OR B) passes")
 }
 
@@ -326,8 +326,8 @@ test_conditions_global_and_swap :: proc(t: ^testing.T) {
 	OTHER :: gamedb.Form_ID(0x0000_0B0B)
 	PERK :: gamedb.Form_ID(0xA1)
 	GLOB :: gamedb.Form_ID(0xE1)
-	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER, target = OTHER}
-	worldstate.perk_add(&ws, formid.PLAYER, PERK)
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player, target = OTHER}
+	worldstate.perk_add(&ws, ws.player, PERK)
 
 	global := []gamedb.Condition{{function = 448, op = .Equal, flags = {.Use_Global}, global = GLOB, param1 = u64(PERK)}}
 	worldstate.set_global(&ws, GLOB, 1)
@@ -356,9 +356,9 @@ test_conditions_aliases_and_events :: proc(t: ^testing.T) {
 	worldstate.fill_alias(&ws, h, ref)
 
 	is_base := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .QuestAlias, param3 = 2}}
-	none := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	none := conditions.Context{db = &db, ws = &ws, subject = ws.player}
 	testing.expect(t, conditions.all(&none, is_base), "no owning quest: passes")
-	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER, quest = QUEST}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player, quest = QUEST}
 	testing.expect(t, conditions.all(&ctx, is_base), "the alias holds a ref of that base")
 	empty := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .QuestAlias, param3 = 3}}
 	testing.expect(t, !conditions.all(&ctx, empty), "an empty alias is a real answer")
@@ -372,7 +372,7 @@ test_conditions_aliases_and_events :: proc(t: ^testing.T) {
 	on_event := []gamedb.Condition{{function = 72, op = .Equal, value = 1, param1 = u64(BASE), run_on = .EventData, param3 = conditions.EVENT_ACTOR_1}}
 	testing.expect(t, conditions.all(&ctx, on_event), "no event: passes")
 	ctx.event = &e
-	e.ref1 = formid.PLAYER
+	e.ref1 = ws.player
 	testing.expect(t, !conditions.all(&ctx, on_event), "actor 1 is the player")
 	e.ref1 = ref
 	testing.expect(t, conditions.all(&ctx, on_event), "actor 1 is the ref")
@@ -383,7 +383,7 @@ test_conditions_aliases_and_events :: proc(t: ^testing.T) {
 	testing.expect(t, conditions.all(&ctx, value), "GetValue V1")
 	is_id := []gamedb.Condition{{function = 576, op = .Equal, value = 1, param1 = 0 | conditions.EVENT_ACTOR_1 << 16, param2 = u64(BASE)}}
 	testing.expect(t, conditions.all(&ctx, is_id), "GetIsID R1 reads the ref's base")
-	e.ref1 = formid.PLAYER
+	e.ref1 = ws.player
 	testing.expect(t, !conditions.all(&ctx, is_id), "the player is not that base")
 }
 
@@ -394,7 +394,7 @@ test_conditions_quest_and_faction_reads :: proc(t: ^testing.T) {
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
-	ctx := conditions.Context{db = &db, ws = &ws, subject = formid.PLAYER}
+	ctx := conditions.Context{db = &db, ws = &ws, subject = ws.player}
 	QUEST :: gamedb.Form_ID(0x0000_0C01)
 	FACTION :: gamedb.Form_ID(0x0000_0F01)
 	GLOB :: gamedb.Form_ID(0x0000_0E01)
@@ -418,9 +418,9 @@ test_conditions_quest_and_faction_reads :: proc(t: ^testing.T) {
 	member := []gamedb.Condition{{function = 71, op = .Equal, value = 1, param1 = u64(FACTION)}}
 	rank := []gamedb.Condition{{function = 73, op = .Equal, value = -1, param1 = u64(FACTION)}}
 	testing.expect(t, !conditions.all(&ctx, member) && conditions.all(&ctx, rank), "not in the faction")
-	worldstate.faction_set_rank(&ws, formid.PLAYER, FACTION, -1)
+	worldstate.faction_set_rank(&ws, ws.player, FACTION, -1)
 	testing.expect(t, !conditions.all(&ctx, member) && conditions.all(&ctx, rank), "rank -1 is not a member")
-	worldstate.faction_set_rank(&ws, formid.PLAYER, FACTION, 0)
+	worldstate.faction_set_rank(&ws, ws.player, FACTION, 0)
 	testing.expect(t, conditions.all(&ctx, member), "rank 0 is")
 }
 
@@ -562,7 +562,7 @@ test_story_manager :: proc(t: ^testing.T) {
 	c := script.Call{ws = &ws, db = &db}
 	running :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, q: u32) -> bool {return worldstate.quest_running(ws, db, gamedb.Form_ID(q))}
 	send :: proc(c: ^script.Call, value1: i32) -> bool {
-		return script.story_event(c, {type = worldstate.STORY_SCRIPT, ref1 = formid.PLAYER, value1 = value1})
+		return script.story_event(c, {type = worldstate.STORY_SCRIPT, ref1 = c.ws.player, value1 = value1})
 	}
 
 	testing.expect(t, !send(&c, 9), "no node takes value 9")
@@ -723,15 +723,15 @@ test_alias_fills :: proc(t: ^testing.T) {
 	Q9, BOX :: gamedb.Form_ID(0xC09), gamedb.Form_ID(0xA09)
 	q9 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = C, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED | esm.ALIAS_QUEST_OBJECT}}
 	db.quest_baseline[Q9] = {aliases = q9}
-	ws.carried[C] = formid.PLAYER
+	ws.carried[C] = ws.player
 	testing.expect(t, script.start_quest(&c, Q9), "Q9 starts")
-	testing.expect(t, worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER), "no drop")
-	testing.expect(t, worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER, BOX), "no store")
+	testing.expect(t, worldstate.quest_object_kept(&ws, &db, ws.player, OTHER), "no drop")
+	testing.expect(t, worldstate.quest_object_kept(&ws, &db, ws.player, OTHER, BOX), "no store")
 	worldstate.fill_alias(&ws, formid.alias_handle(Q9, 1) or_else 0, BOX)
 	q9b := []gamedb.Quest_Alias{q9[0], {id = 1, alias = -1, force_into = -1, flags = esm.ALIAS_QUEST_OBJECT}}
 	db.quest_baseline[Q9] = {aliases = q9b}
-	testing.expect(t, !worldstate.quest_object_kept(&ws, &db, formid.PLAYER, OTHER, BOX), "a Quest Object box of the quest takes it")
-	testing.expect(t, worldstate.holds_quest_object(&ws, &db, formid.PLAYER), "its holder is never cleaned up")
+	testing.expect(t, !worldstate.quest_object_kept(&ws, &db, ws.player, OTHER, BOX), "a Quest Object box of the quest takes it")
+	testing.expect(t, worldstate.holds_quest_object(&ws, &db, ws.player), "its holder is never cleaned up")
 	delete_key(&ws.carried, C)
 
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
@@ -935,7 +935,7 @@ test_condition_tail_queries :: proc(t: ^testing.T) {
 	testing.expect(t, holds(&ctx, 79, 0), "GetQuestVariable is deprecated")
 	testing.expect(t, holds(&ctx, 25, 0), "IsMoving rests at 0")
 	testing.expect(t, holds(&ctx, 638, 0), "an acquaintance")
-	worldstate.rel_set(&ws, &db, ACTOR, formid.PLAYER, 1)
+	worldstate.rel_set(&ws, &db, ACTOR, ws.player, 1)
 	testing.expect(t, holds(&ctx, 638, 1), "a friend")
 }
 
@@ -957,6 +957,6 @@ test_conditions_package_data :: proc(t: ^testing.T) {
 	must := []gamedb.Condition{{function = 612, op = .Equal, value = 1, param1 = 0x4f}}
 	testing.expect(t, !conditions.all(&ctx, detected), "the player is not detected yet")
 	testing.expect(t, conditions.all(&ctx, must), "the Bool slot reads 1")
-	worldstate.set_awareness(&ws, NPC, formid.PLAYER, {1, true})
+	worldstate.set_awareness(&ws, NPC, ws.player, {1, true})
 	testing.expect(t, conditions.all(&ctx, detected), "detected through the data slot")
 }

@@ -177,7 +177,7 @@ game_tick :: proc(g: ^Game) {
 	frame_traversal(g)
 	tick_force_greet(g)
 	lap(g, .Traversal, &t)
-	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, ai.player_in_combat(&g.sim.agents), TICK_DT)
+	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, ai.fought(&g.sim.agents, g.sim.ws.player), TICK_DT)
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	run_scripts(g)
@@ -436,8 +436,8 @@ frame_scene_select :: proc(g: ^Game) {
 		if g.sim.char_ok {physics.character_destroy(&g.sim.character);g.sim.char_ok = false}
 		actor_bodies_clear(g)
 		if want_phys != nil {
-			player_capsule := actor_capsule(g, formid.PLAYER)
-			g.sim.character, g.sim.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
+			player_capsule := actor_capsule(g, g.sim.ws.player)
+			g.sim.character, g.sim.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(g.sim.ws.player))
 			if !g.sim.char_ok {g.sim.noclip = true}
 		}
 		g.sim.cur_phys = want_phys
@@ -467,8 +467,8 @@ tick_locomotion :: proc(g: ^Game) {
 	cy, sy := math.cos(g.sim.input.yaw), math.sin(g.sim.input.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	if g.sim.input.sprint {worldstate.set_sneaking(&g.sim.ws, formid.PLAYER, false)} // sprinting stands up
-	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.sim.ws, formid.PLAYER) else RUN_SPEED
+	if g.sim.input.sprint {worldstate.set_sneaking(&g.sim.ws, g.sim.ws.player, false)} // sprinting stands up
+	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.sim.ws, g.sim.ws.player) else RUN_SPEED
 	hv: [2]f32
 	if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
 	physics.character_move(g.sim.cur_phys, &g.sim.character, hv, move.z > 0.5, TICK_DT)
@@ -541,7 +541,7 @@ quicksave :: proc(g: ^Game) {
 	_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
 	player_follow(g)
 	player_publish(g)
-	player, _ := worldstate.get(&g.sim.ws, formid.PLAYER)
+	player, _ := worldstate.get(&g.sim.ws, g.sim.ws.player)
 	man := worldstate.Save_Manifest {
 		save_number  = g.save_no + 1,
 		created_unix = time.to_unix_nanoseconds(time.now()),
@@ -610,14 +610,14 @@ player_publish :: proc(g: ^Game) {
 	feet := player_feet(g)
 	cell := place.interior if place.interior != 0 else gamedb.cell_under(&g.db, place.world, feet)
 	heading := math.PI / 2 - g.sim.input.yaw
-	worldstate.set_moved(&g.sim.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	worldstate.set_moved(&g.sim.ws, g.sim.ws.player, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	g.sim.published = {cell, feet}
 }
 
 // player_moved reports whether a script moved the player's ref (MoveTo, SetPosition) since the
 // last player_publish.
 player_moved :: proc(g: ^Game) -> bool {
-	d, ok := worldstate.get(&g.sim.ws, formid.PLAYER)
+	d, ok := worldstate.get(&g.sim.ws, g.sim.ws.player)
 	return ok && .Moved in d.live && Placement{d.cell, d.pos} != g.sim.published
 }
 
@@ -639,7 +639,7 @@ cross_door :: proc(g: ^Game, hit: Door_Hit) {
 // player_restore places the player where its ref's delta says, in any cell, and returns what the
 // traversal did; the caller runs the load screen it still needs.
 player_restore :: proc(g: ^Game) -> Traversal_Kind {
-	d, ok := worldstate.get(&g.sim.ws, formid.PLAYER)
+	d, ok := worldstate.get(&g.sim.ws, g.sim.ws.player)
 	if !ok || .Moved not_in d.live || g.interiors_on {return .None}
 	kind := traversal_go_to(&g.sim.trav, d.cell, d.pos)
 	if kind == .None {return .None}

@@ -71,9 +71,9 @@ n_add_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.give_sp
 n_remove_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.remove_spell(c.ws, c.db, c.self, arg_form(args, 0))}
 
 // The player's words of power: taught is not unlocked (Game.TeachWord / UnlockWord).
-n_teach_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.teach_word(c.ws, formid.PLAYER, arg_form(args, 0)); return nil}
-n_unlock_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.unlock_word(c.ws, formid.PLAYER, arg_form(args, 0)); return nil}
-n_is_word_unlocked :: proc(c: ^Call, args: []Value) -> Value {return worldstate.word_unlocked(c.ws, formid.PLAYER, arg_form(args, 0))}
+n_teach_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.teach_word(c.ws, c.ws.player, arg_form(args, 0)); return nil}
+n_unlock_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.unlock_word(c.ws, c.ws.player, arg_form(args, 0)); return nil}
+n_is_word_unlocked :: proc(c: ^Call, args: []Value) -> Value {return worldstate.word_unlocked(c.ws, c.ws.player, arg_form(args, 0))}
 
 n_set_beast_form :: proc(c: ^Call, args: []Value) -> Value {c.ws.beast_form = arg_bool(args, 0, false); return nil}
 n_vampirism_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in_set(&c.ws.vampires, c.self, arg_bool(args, 0, false)); return nil}

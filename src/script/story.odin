@@ -34,7 +34,7 @@ story_event :: proc(c: ^Call, e: Story_Event) -> bool {
 walk :: proc(c: ^Call, form: Form_ID, e: ^Story_Event, started: ^int) -> bool {
 	n, ok := gamedb.story_node_of(c.db, form)
 	if !ok || (n.kind == .Event && n.event != e.type) {return false}
-	ctx := condition_context(c, formid.PLAYER, 0)
+	ctx := condition_context(c, c.ws.player, 0)
 	ctx.event = e
 	if !conditions.all(&ctx, n.conditions) {return false}
 	if n.kind == .Quest {
@@ -108,7 +108,7 @@ may_start :: proc(c: ^Call, q: gamedb.Story_Quest, e: ^Story_Event) -> bool {
 		return false
 	}
 	qb, _ := gamedb.quest_baseline_of(c.db, q.quest)
-	ctx := condition_context(c, formid.PLAYER, 0, q.quest)
+	ctx := condition_context(c, c.ws.player, 0, q.quest)
 	ctx.event = e
 	return conditions.all(&ctx, qb.event_conditions)
 }

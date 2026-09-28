@@ -35,7 +35,7 @@ n_sound_play :: proc(c: ^Call, args: []Value) -> Value {
 	at: Maybe([3]f32)
 	src := arg_form(args, 0)
 	if src != 0 {at = worldstate.ref_pos(c.ws, c.db, src)}
-	return i32(audio.play_descriptor(c.audio, c.vfs, c.db, c.db.sound_markers[c.self], at, c.ws, src if src != 0 else formid.PLAYER))
+	return i32(audio.play_descriptor(c.audio, c.vfs, c.db, c.db.sound_markers[c.self], at, c.ws, src if src != 0 else c.ws.player))
 }
 
 n_sound_is_playing :: proc(c: ^Call, args: []Value) -> Value {

@@ -77,7 +77,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 	lap(g, .Actors, &t)
 	detection.tick(&g.sim.detection, &g.sim.ws, &g.db, seen, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
-	ai.set_present(&g.sim.agents, seen)
+	ai.set_present(&g.sim.agents, seen, g.sim.ws.player)
 	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
 	lap(g, .Actors, &t)
 	gone := make([dynamic]Form_ID, context.temp_allocator)
@@ -108,7 +108,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 	for form in gone {delete_key(&g.sim.actor_bodies, form)}
 	clear(&g.sim.ws.ai.loaded)
 	for form in g.sim.actor_bodies {g.sim.ws.ai.loaded[form] = true}
-	g.sim.ws.ai.loaded[formid.PLAYER] = true // its capsule is g.sim.character (hole player-controller)
+	g.sim.ws.ai.loaded[g.sim.ws.player] = true // its capsule is g.sim.character (hole player-controller)
 	lap(g, .AI, &t)
 	ai.tick_social(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
 	lap(g, .Social, &t)
@@ -161,7 +161,7 @@ SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit u
 
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, cell: ^world.Sim_Cell) {
-	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
+	if form == g.sim.ws.player || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := worldstate.ref_pos(&g.sim.ws, &g.db, form)
 	if form not_in g.sim.actor_bodies && !world.collision_ready_near(cell, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it

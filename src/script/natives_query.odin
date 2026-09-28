@@ -360,7 +360,7 @@ n_get_form :: proc(c: ^Call, args: []Value) -> Value {
 
 // (hole crafting-screen :tags ui :sev gap) PlayerKnows is true only for a word of power the player learned: no crafting screen teaches an ingredient effect or an enchantment.
 n_player_knows :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.word_taught(c.ws, formid.PLAYER, c.self)
+	return worldstate.word_taught(c.ws, c.ws.player, c.self)
 }
 
 n_get_setting_float :: proc(c: ^Call, args: []Value) -> Value {return gamedb.setting_float(c.db, arg_str(args, 0))}

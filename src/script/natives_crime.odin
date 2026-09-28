@@ -79,7 +79,7 @@ set_combat_both :: proc(c: ^Call, other: Form_ID, mine, theirs: esm.Combat_React
 
 @(private = "file")
 player_bounty :: proc(c: ^Call) -> worldstate.Bounty {
-	return worldstate.wanted(c.ws, formid.PLAYER, c.self).bounty
+	return worldstate.wanted(c.ws, c.ws.player, c.self).bounty
 }
 
 n_get_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
@@ -97,14 +97,14 @@ n_get_crime_gold_nonviolent :: proc(c: ^Call, args: []Value) -> Value {
 n_set_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	b := player_bounty(c)
 	b.nonviolent = arg_i32(args, 0, 0)
-	worldstate.set_faction_bounty(c.ws, formid.PLAYER, c.self, b)
+	worldstate.set_faction_bounty(c.ws, c.ws.player, c.self, b)
 	return nil
 }
 
 n_set_crime_gold_violent :: proc(c: ^Call, args: []Value) -> Value {
 	b := player_bounty(c)
 	b.violent = arg_i32(args, 0, 0)
-	worldstate.set_faction_bounty(c.ws, formid.PLAYER, c.self, b)
+	worldstate.set_faction_bounty(c.ws, c.ws.player, c.self, b)
 	return nil
 }
 
@@ -112,12 +112,12 @@ n_set_crime_gold_violent :: proc(c: ^Call, args: []Value) -> Value {
 n_mod_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	b := player_bounty(c)
 	if arg_bool(args, 1, false) {b.violent += arg_i32(args, 0, 0)} else {b.nonviolent += arg_i32(args, 0, 0)}
-	worldstate.set_faction_bounty(c.ws, formid.PLAYER, c.self, b)
+	worldstate.set_faction_bounty(c.ws, c.ws.player, c.self, b)
 	return nil
 }
 
 n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.inv_count(c.ws, c.db, formid.PLAYER, formid.GOLD) >= worldstate.total(player_bounty(c))
+	return worldstate.inv_count(c.ws, c.db, c.ws.player, formid.GOLD) >= worldstate.total(player_bounty(c))
 }
 
 // PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes, the bounty
@@ -125,16 +125,16 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 // possession will be seized"); abGoToJail takes the player outside the faction's jail (UESP:
 // "transport outside the nearest jail").
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
-	move_items(c, {base = formid.GOLD, from = formid.PLAYER, count = worldstate.total(player_bounty(c))})
-	worldstate.pay_bounty(c.ws, formid.PLAYER, c.self)
+	move_items(c, {base = formid.GOLD, from = c.ws.player, count = worldstate.total(player_bounty(c))})
+	worldstate.pay_bounty(c.ws, c.ws.player, c.self)
 	if arg_bool(args, 0, true) {
 		f, _ := worldstate.faction(c.ws, c.db, c.self)
-		for s in worldstate.inv_stacks(c.ws, c.db, formid.PLAYER) {
-			if s.stolen {move_items(c, {base = s.item, from = formid.PLAYER, to = f.stolen_chest, count = s.count, stolen = true})}
+		for s in worldstate.inv_stacks(c.ws, c.db, c.ws.player) {
+			if s.stolen {move_items(c, {base = s.item, from = c.ws.player, to = f.stolen_chest, count = s.count, stolen = true})}
 		}
 	}
 	if _, outside, ok := worldstate.jail_spots(c.ws, c.db, c.self); ok && arg_bool(args, 1, true) {
-		worldstate.relocate(c.ws, formid.PLAYER, outside.cell, outside.pos, outside.rot)
+		worldstate.relocate(c.ws, c.ws.player, outside.cell, outside.pos, outside.rot)
 	}
 	return nil
 }
@@ -142,31 +142,31 @@ n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 // SendPlayerToJail(abRemoveInventory = true, abRealJail = true): the guard the player talks to
 // takes it in.
 n_send_player_to_jail :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.send_to_jail(c.ws, c.db, formid.PLAYER, c.self, c.ws.talking)
+	worldstate.send_to_jail(c.ws, c.db, c.ws.player, c.self, c.ws.talking)
 	return nil
 }
 
 n_serve_time :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.serve_time(c.ws, formid.PLAYER)
+	worldstate.serve_time(c.ws, c.ws.player)
 	return nil
 }
 
 n_set_player_enemy :: proc(c: ^Call, args: []Value) -> Value {
-	w := worldstate.wanted(c.ws, formid.PLAYER, c.self)
+	w := worldstate.wanted(c.ws, c.ws.player, c.self)
 	w.enemy = arg_bool(args, 0, true)
-	worldstate.set_wanted(c.ws, formid.PLAYER, c.self, w)
+	worldstate.set_wanted(c.ws, c.ws.player, c.self, w)
 	return nil
 }
 
 n_set_player_report_crime :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_reports_crime(c.ws, formid.PLAYER, arg_bool(args, 0, true))
+	worldstate.set_reports_crime(c.ws, c.ws.player, arg_bool(args, 0, true))
 	return nil
 }
 
 // SendAssaultAlarm: this actor was assaulted by the player; it reports it and fights back.
 n_send_assault_alarm :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.report_crime(c.ws, c.db, formid.PLAYER, c.self, .Assault, 0)
-	worldstate.strike(c.ws, c.self, formid.PLAYER)
+	worldstate.report_crime(c.ws, c.db, c.ws.player, c.self, .Assault, 0)
+	worldstate.strike(c.ws, c.self, c.ws.player)
 	return nil
 }
 
@@ -184,9 +184,9 @@ n_send_steal_alarm :: proc(c: ^Call, args: []Value) -> Value {
 n_set_player_resisting_arrest :: proc(c: ^Call, args: []Value) -> Value {
 	faction := worldstate.crime_faction(c.ws, c.db, c.self)
 	if faction == 0 {return nil}
-	w := worldstate.wanted(c.ws, formid.PLAYER, faction)
+	w := worldstate.wanted(c.ws, c.ws.player, faction)
 	w.enemy = true
-	worldstate.set_wanted(c.ws, formid.PLAYER, faction, w)
+	worldstate.set_wanted(c.ws, c.ws.player, faction, w)
 	return nil
 }
 

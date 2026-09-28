@@ -51,7 +51,7 @@ test_find_refs :: proc(t: ^testing.T) {
 	place(&db, &db.cell_refs, PERSISTENT, PERSIST, GEM, 20)
 	place(&db, &db.cell_refs, FAR, FAR_GRID, GEM, 4100)
 	place(&db, &db.actor_refs, ACTOR, GRID, NPC, 30)
-	db.ref_by_id[formid.PLAYER] = {form_id = formid.PLAYER, base = formid.PLAYER_BASE}
+	db.ref_by_id[ws.player] = {form_id = ws.player, base = formid.PLAYER_BASE}
 	created := worldstate.create_ref(&ws, GEM, GRID, {5, 0, 0}, {}, 1)
 
 	c := script.Call{ws = &ws, db = &db}
@@ -72,8 +72,8 @@ test_find_refs :: proc(t: ^testing.T) {
 	testing.expect_value(t, find(&reg, &c, "FindRandomReferenceOfType", GEM, f32(50), x, x, f32(1)).(F), MID)
 
 	testing.expect_value(t, find(&reg, &c, "FindClosestActor", x, x, x, r).(F), ACTOR)
-	worldstate.set_moved(&ws, formid.PLAYER, GRID, {}, {1, 0, 0})
-	testing.expect_value(t, find(&reg, &c, "FindClosestActor", x, x, x, r).(F), formid.PLAYER)
+	worldstate.set_moved(&ws, ws.player, GRID, {}, {1, 0, 0})
+	testing.expect_value(t, find(&reg, &c, "FindClosestActor", x, x, x, r).(F), ws.player)
 	got := find(&reg, &c, "FindRandomActor", x, x, x, r).(F)
-	testing.expect(t, got == ACTOR || got == formid.PLAYER, "a random actor in range")
+	testing.expect(t, got == ACTOR || got == ws.player, "a random actor in range")
 }

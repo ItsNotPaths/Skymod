@@ -27,6 +27,10 @@ script_faction :: proc(n: u32) -> Form_ID {return Form_ID(SCRIPT_FACTION_SLOT) <
 
 is_script_faction :: proc(f: Form_ID) -> bool {return u32(f >> 32) == SCRIPT_FACTION_SLOT}
 
+// START_CHARACTER is the character a new game gives the player to control (base PLAYER_BASE). The
+// engine makes it, no plugin holds it, and no load order reaches its slot.
+START_CHARACTER :: Form_ID(0x8000_0002) << 32 | 1
+
 // An alias handle addresses one quest alias as a form, so its scripts, registrations and filters key
 // like any other form's. High word ALIAS_TAG | alias id << 16 | the quest's slot, low word the quest's
 // local id: the slot stays where a save's remap finds it.

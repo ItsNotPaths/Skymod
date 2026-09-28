@@ -27,10 +27,10 @@ Combat :: struct {
 COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
-// player_in_combat: some actor fights the player.
-player_in_combat :: proc(w: ^World) -> bool {
+// fought: some actor fights `target`.
+fought :: proc(w: ^World, target: Form_ID) -> bool {
 	for _, a in w.agents {
-		if a.combat.state == .Combat && a.combat.target == formid.PLAYER {return true}
+		if a.combat.state == .Combat && a.combat.target == target {return true}
 	}
 	return false
 }
@@ -88,10 +88,10 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 
 // set_present is the loaded actors this tick; with the player they are whom combat and guards
 // look at. Every persistent actor has an agent, so the agents are no candidate list.
-set_present :: proc(w: ^World, loaded: map[Form_ID]bool) {
+set_present :: proc(w: ^World, loaded: map[Form_ID]bool, player: Form_ID) {
 	clear(&w.present)
 	for a in loaded {append(&w.present, a)}
-	if formid.PLAYER not_in loaded {append(&w.present, formid.PLAYER)}
+	if player not_in loaded {append(&w.present, player)}
 }
 
 // engage is Combat, or Flee for a Cowardly actor.

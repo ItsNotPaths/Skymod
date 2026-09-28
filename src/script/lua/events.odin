@@ -30,10 +30,10 @@ send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
 // ActiveMagicEffect receives its target's events).
 @(private = "file")
 recipients :: proc(ws: ^worldstate.World_State, form: script.Form_ID) -> []script.Form_ID {
-	holders, _ := ws.alias_holders[form]
+	holders := worldstate.aliases_of(ws, form)
 	out := make([dynamic]script.Form_ID, 0, 1 + len(holders), context.temp_allocator)
 	append(&out, form)
-	append(&out, ..holders[:])
+	append(&out, ..holders)
 	append(&out, ..worldstate.effects_on(ws, form))
 	return out[:]
 }
@@ -226,7 +226,7 @@ tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	sync_refs(vm)
 	for e, i in changes {
 		// Only the player's: NPCs put their outfits on as they load, and their draws are animation.
-		if e.actor == formid.PLAYER && c.audio != nil {
+		if e.actor == c.ws.player && c.audio != nil {
 			audio.play_descriptor(c.audio, c.vfs, c.db, gamedb.equip_sound(c.db, e.item, e.on), worldstate.ref_pos(c.ws, c.db, e.actor), c.ws, e.actor)
 		}
 		send(vm, e.actor, "OnObjectEquipped" if e.on else "OnObjectUnequipped", e.item, refs[i])
@@ -242,7 +242,7 @@ tick_level_ups :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	for form in ws.level_listeners {append(&listeners, form)}
 	slice.sort(listeners[:])
 	for l in ws.level_ups {
-		if l.actor == formid.PLAYER && vm.ctx.audio != nil {
+		if l.actor == ws.player && vm.ctx.audio != nil {
 			audio.ui_sound(vm.ctx.audio, vm.ctx.vfs, vm.ctx.db, "UILevelUpSD")
 			audio.music_add(vm.ctx.audio, gamedb.default_object(vm.ctx.db, "LUMS"))
 		}
@@ -388,7 +388,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	step(vm, .Triggers, &at)
 	tick_los(vm, db, ws)
 	step(vm, .LOS, &at)
-	tick_location(vm, ws, t, worldstate.ref_location(ws, db, formid.PLAYER))
+	tick_location(vm, ws, t, worldstate.ref_location(ws, db, ws.player))
 	tick_updates(vm, ws, dt, hours)
 	step(vm, .Updates, &at)
 	tick_items(vm, db, ws)

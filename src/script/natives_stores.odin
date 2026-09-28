@@ -67,7 +67,7 @@ kill :: proc(c: ^Call, actor, killer: Form_ID) {
 		ref2      = killer,
 		location1 = worldstate.ref_location(c.ws, c.db, actor),
 		value1    = i32(crime),
-		value2    = worldstate.rel_rank(c.ws, c.db, actor, formid.PLAYER),
+		value2    = worldstate.rel_rank(c.ws, c.db, actor, c.ws.player),
 	})
 }
 
