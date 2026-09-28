@@ -72,7 +72,16 @@ test_installer_boot_gate :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(ms, "archive = Skyrim - Meshes.bsa"), "manifest lists the bsa")
 	testing.expect(t, strings.contains(ms, "plugin = Skyrim.esm"), "manifest lists the master")
 	testing.expect(t, strings.contains(ms, "plugin = MyMod.esp"), "manifest lists the plugin")
-	testing.expect(t, strings.contains(ms, "scripts = 0"), "manifest records the converted scripts")
+	testing.expect(t, strings.contains(ms, "part.Scripts = ") && strings.contains(ms, "part.Audio = "), "a key per part")
+
+	// A part whose key changed is the only one redone.
+	lines := strings.split_lines(ms, context.temp_allocator)
+	kept := strings.builder_make(context.temp_allocator)
+	for l in lines {
+		if !strings.has_prefix(l, "part.Audio") {strings.write_string(&kept, l);strings.write_byte(&kept, '\n')}
+	}
+	testing.expect(t, os.write_entire_file(manifest, kept.buf[:]) == nil, "drop the audio key")
+	testing.expect_value(t, installer.stale_parts(install_base), bit_set[installer.Part]{.Audio})
 
 	// An install of an older format is stale, so boot re-runs the installer.
 	testing.expect(t, os.write_entire_file(manifest, transmute([]byte)string("format = 1\n")) == nil, "write stale manifest")

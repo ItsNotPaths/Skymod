@@ -30,18 +30,48 @@ BETHASSETS_DIR :: "bethassets"   // a content mod's VFS-mounted asset root
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
 Progress       :: converters.Progress
 progress_read  :: converters.progress_read
-FORMAT_VERSION :: 4 // bump when converted output changes, so an older install re-runs
+// Bump a part's version when its converter's output changes, so an older install re-runs that part.
+SCRIPTS_VERSION :: 4
+AUDIO_VERSION   :: 4
 
-// content_ready reports whether <base>/content holds a finished install of this format. The
-// boot gate: true => launch the game, false => run the installer, so a stale install re-runs.
-content_ready :: proc(base: string) -> bool {
+// Part is a converted piece of the install. Each has its own key in the manifest; a part whose key
+// changed runs again alone, and the others keep their output.
+Part :: enum {
+	Scripts,
+	Audio,
+}
+
+// part_key is what a part's output depends on: its converter version, and for scripts the shipped
+// rewrites.
+@(private)
+part_key :: proc(p: Part) -> string {
+	switch p {
+	case .Scripts:
+		return fmt.tprintf("v%d %x", SCRIPTS_VERSION, converters.rewrites_hash())
+	case .Audio:
+		return fmt.tprintf("v%d", AUDIO_VERSION)
+	}
+	return ""
+}
+
+// stale_parts are the parts whose manifest key differs from this build's: all of them when there
+// is no manifest.
+stale_parts :: proc(base: string) -> (stale: bit_set[Part]) {
 	m := manifest_path(base)
 	defer delete(m)
 	data, err := os.read_entire_file(m, context.temp_allocator)
-	if err != nil {
-		return false
+	text := string(data) if err == nil else ""
+	for p in Part {
+		line := fmt.tprintf("part.%v = %s\n", p, part_key(p))
+		if !strings.contains(text, line) {stale += {p}}
 	}
-	return strings.has_prefix(string(data), manifest_head())
+	return
+}
+
+// content_ready reports whether <base>/content holds every part as this build makes it. The boot
+// gate: true => launch the game, false => run the installer, which redoes only the stale parts.
+content_ready :: proc(base: string) -> bool {
+	return stale_parts(base) == {}
 }
 
 // Edition is which Skyrim generation an install root holds, autodetected from the
@@ -115,24 +145,31 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 	esls := list_by_ext(data, ".esl")
 
 	ordered := archive_order(data, archives, {esms, esls, esps})
-	scripts_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
-	sst, sok := converters.convert_scripts(ordered, scripts_dir, progress)
-	if !sok {
-		return false
+	stale := stale_parts(base)
+	if .Scripts in stale {
+		scripts_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
+		sst, sok := converters.convert_scripts(ordered, scripts_dir, progress)
+		if !sok {
+			return false
+		}
+		log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
 	}
-	log.infof("installer: converted %d script(s) to Lua, %d unreadable, %d rewrite(s)", sst.converted, sst.failed, sst.rewrites)
-
-	audio_dir, _ := filepath.join({content, AUDIO_MOD, BETHASSETS_DIR}, context.temp_allocator)
-	ast, aok := converters.convert_audio(ordered, audio_dir, progress)
-	if !aok {
-		return false
+	if .Audio in stale {
+		audio_dir, _ := filepath.join({content, AUDIO_MOD, BETHASSETS_DIR}, context.temp_allocator)
+		ast, aok := converters.convert_audio(ordered, audio_dir, progress)
+		if !aok {
+			return false
+		}
+		log.infof("installer: converted %d sound(s) to Ogg, %d unreadable", ast.converted, ast.failed)
 	}
-	log.infof("installer: converted %d sound(s) to Ogg, %d unreadable", ast.converted, ast.failed)
+	log.infof("installer: parts redone %v, kept %v", stale, ~stale)
 
 	m := manifest_path(base)
 	defer delete(m)
 	b := strings.builder_make(context.temp_allocator)
-	strings.write_string(&b, manifest_head())
+	for p in Part {
+		fmt.sbprintfln(&b, "part.%v = %s", p, part_key(p))
+	}
 	fmt.sbprintfln(&b, "source = %s", source)
 	fmt.sbprintfln(&b, "installed = %s", stamp())
 	for a in archives {
@@ -144,7 +181,6 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 	for p in esps {
 		fmt.sbprintfln(&b, "plugin = %s", p)
 	}
-	fmt.sbprintfln(&b, "scripts = %d", sst.converted)
 	if err := os.write_entire_file(m, transmute([]byte)strings.to_string(b)); err != nil {
 		log.errorf("installer: could not write manifest %q: %v", m, err)
 		return false
@@ -215,13 +251,6 @@ list_by_ext :: proc(dir: string, ext: string) -> []string {
 	}
 	slice.sort(out[:])
 	return out[:]
-}
-
-// manifest_head is the manifest's first lines, which content_ready matches: another format or
-// another set of shipped rewrites means the install runs again.
-@(private)
-manifest_head :: proc() -> string {
-	return fmt.tprintf("format = %d\nrewrites = %x\n", FORMAT_VERSION, converters.rewrites_hash())
 }
 
 @(private)
