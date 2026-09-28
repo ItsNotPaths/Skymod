@@ -14,6 +14,7 @@ import "../detection"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
+import "../handoff"
 import "../models"
 import "../input"
 import "../nav"
@@ -138,7 +139,7 @@ Actor_Grab :: struct {
 
 frame_actor_grab :: proc(g: ^Game) {
 	if !input.held(&g.imgr, "DevGrabActor") || g.fr.kb_cap {
-		if g.actor_grab.actor != 0 {push(&g.commands, Cmd_Release{g.actor_grab.actor})}
+		if g.actor_grab.actor != 0 {handoff.push(&g.commands, Cmd_Release{g.actor_grab.actor})}
 		g.actor_grab = {}
 		return
 	}
@@ -150,7 +151,7 @@ frame_actor_grab :: proc(g: ^Game) {
 	}
 	grab := &g.actor_grab
 	grab.dist = clamp(grab.dist + g.p.input.scroll * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
-	push(&g.commands, Cmd_Carry{grab.actor, ro + rd * grab.dist})
+	handoff.push(&g.commands, Cmd_Carry{grab.actor, ro + rd * grab.dist})
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell

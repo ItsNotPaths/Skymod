@@ -6,6 +6,7 @@ import "../audio"
 import "../assetdb"
 import "../formid"
 import "../gamedb"
+import "../handoff"
 import "../models"
 import "../input"
 import smath "../math"
@@ -125,7 +126,7 @@ live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
 frame_dev_shot :: proc(g: ^Game) {
 	if !input.fired(&g.imgr, "DevShoot") || g.fr.kb_cap {return}
 	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
-	push(&g.commands, Cmd_Shoot{ro + rd * 48, rd})
+	handoff.push(&g.commands, Cmd_Shoot{ro + rd * 48, rd})
 }
 
 dev_shoot :: proc(g: ^Game, c: Cmd_Shoot) {

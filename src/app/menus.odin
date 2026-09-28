@@ -10,6 +10,7 @@ import imgui "../../vendor/odin-imgui"
 import "../audio"
 import "../formid"
 import "../gamedb"
+import "../handoff"
 import "../input"
 import "../script"
 import "../worldstate"
@@ -95,7 +96,7 @@ frame_menus :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "Pause") {
 		switch g.menu {
 		case .None:     g.menu = .Pause
-		case .Dialogue: push(&g.commands, Cmd_Talk_Leave{})
+		case .Dialogue: handoff.push(&g.commands, Cmd_Talk_Leave{})
 		case .Tween, .Inventory, .Magic, .Skills, .Map, .Container, .Pause: g.menu = .None // Esc closes any menu
 		}
 	}
@@ -122,7 +123,7 @@ frame_menus :: proc(g: ^Game) {
 	}
 	imgui.End()
 	if !open {
-		if g.menu == .Dialogue {push(&g.commands, Cmd_Talk_Leave{})} else {g.menu = .None}
+		if g.menu == .Dialogue {handoff.push(&g.commands, Cmd_Talk_Leave{})} else {g.menu = .None}
 	}
 }
 

@@ -27,6 +27,7 @@ import "../ai"
 import "../audio"
 import "../formid"
 import "../gamedb"
+import "../handoff"
 import "../models"
 import smath "../math"
 import "../physics"
@@ -93,11 +94,11 @@ game_frame :: proc(g: ^Game) {
 	// The sim ticks on its own thread (sim_thread.odin): main hands it the controls and handles what
 	// it sent.
 	input := latch_input(g)
-	publish(&g.simt.inputs, &input)
+	handoff.publish(&g.simt.inputs, &input)
 	handle_events(g)
 	park_for_menu(g)
 	if g.parks > 0 {run_console(g)} // parked, main owns the VM: a pausing menu keeps the console live
-	take(&g.snaps, &g.snap)
+	handoff.take(&g.snaps, &g.snap)
 	g.fr.alpha = tick_alpha(g.snap.at)
 	sync_dialogue_menu(g)
 	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
@@ -147,7 +148,7 @@ game_tick :: proc(g: ^Game) {
 	defer worldstate.sim_leave()
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
-	take(&g.simt.inputs, &g.sim.input)
+	handoff.take(&g.simt.inputs, &g.sim.input)
 	t := time.tick_now()
 	apply_commands(g)
 	run_console(g)
@@ -393,10 +394,10 @@ frame_overlay :: proc(g: ^Game) {
 	// (run_console); its output (results / print / errors) comes back and is echoed here.
 	if cmd := tools.console_panel(&g.console); cmd != "" {
 		tools.console_printf(&g.console, "> %s", cmd)
-		if g.repl_ok {push(&g.console_in, strings.clone(cmd))}
+		if g.repl_ok {handoff.push(&g.console_in, strings.clone(cmd))}
 		log.infof("console: %q", cmd)
 	}
-	drain(&g.console_out, &g.console_out_buf)
+	handoff.drain(&g.console_out, &g.console_out_buf)
 	for line in g.console_out_buf {
 		tools.console_print(&g.console, line)
 		delete(line)
@@ -482,9 +483,9 @@ frame_camera :: proc(g: ^Game) {
 // wireframe toggle, H clutter shove.
 @(private = "file")
 frame_debug_verbs :: proc(g: ^Game) {
-	if input.fired(&g.imgr, "NoClip") {push(&g.commands, Cmd_Noclip{})}
-	if input.fired(&g.imgr, "DevDrop") {push(&g.commands, Cmd_Drop{g.cam.pos})}
-	if input.fired(&g.imgr, "DevShove") {push(&g.commands, Cmd_Shove{g.cam.pos})}
+	if input.fired(&g.imgr, "NoClip") {handoff.push(&g.commands, Cmd_Noclip{})}
+	if input.fired(&g.imgr, "DevDrop") {handoff.push(&g.commands, Cmd_Drop{g.cam.pos})}
+	if input.fired(&g.imgr, "DevShove") {handoff.push(&g.commands, Cmd_Shove{g.cam.pos})}
 
 	// Collision-hitbox overlay toggle (K): show the green wireframe of what Jolt actually collides.
 	if input.fired(&g.imgr, "DevHitbox") {
@@ -741,7 +742,7 @@ traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 
 // catch_up has main draw what the parked sim changed: the player's place, then its live cells.
 catch_up :: proc(g: ^Game) {
-	push(&g.events, Evt_Place{g.sim.trav.place})
+	handoff.push(&g.events, Evt_Place{g.sim.trav.place})
 	forward_ref_events(g)
 	handle_events(g)
 }
@@ -801,7 +802,7 @@ frame_inspect :: proc(g: ^Game) {
 			// Track the picked REFR as the console's `sel`. DIAG: echo the form so we can see
 			// whether the instance actually carries a REFR id (vs 0 → sel becomes None).
 			if g.repl_ok {
-				push(&g.commands, Cmd_Select{inst.form_id})
+				handoff.push(&g.commands, Cmd_Select{inst.form_id})
 				tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(inst.form_id), models.path(inst.model_id))
 			}
 		}
@@ -813,7 +814,7 @@ frame_inspect :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "DevDisable") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
-			push(&g.commands, Cmd_Disable{chunk.instances[active_scene.hover_inst].form_id, active_scene.hover_cell})
+			handoff.push(&g.commands, Cmd_Disable{chunk.instances[active_scene.hover_inst].form_id, active_scene.hover_cell})
 		}
 	}
 
@@ -823,7 +824,7 @@ frame_inspect :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "DevSpawn") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
-			push(&g.commands, Cmd_Spawn{chunk.instances[active_scene.hover_inst].base, active_scene.hover_cell, g.cam.pos})
+			handoff.push(&g.commands, Cmd_Spawn{chunk.instances[active_scene.hover_inst].base, active_scene.hover_cell, g.cam.pos})
 		}
 	}
 }
@@ -863,7 +864,7 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	g.insp.sel_door_cell = ""
 	g.insp.sel_is_door = false
 	if g.repl_ok {
-		push(&g.commands, Cmd_Select{actor})
+		handoff.push(&g.commands, Cmd_Select{actor})
 		tools.console_printf(&g.console, "[sel] 0x%08X (%s)", u64(actor), g.insp.sel_display)
 	}
 }

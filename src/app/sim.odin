@@ -4,13 +4,13 @@ package main
 // The sim still runs inline on main; these types are what cross once it has its own thread.
 
 import "core:strings"
-import "core:sync"
 import "core:time"
 
 import "../ai"
 import "../audio"
 import "../detection"
 import "../dialogue"
+import "../handoff"
 import "../input"
 import smath "../math"
 import "../physics"
@@ -136,39 +136,6 @@ player_feet :: proc(g: ^Game) -> smath.Vec3 {
 	return g.sim.input.eye - {0, 0, EYE_HEIGHT}
 }
 
-// (hole sim-primitives-package :tags threading :sev struct) sim.odin holds generic concurrency primitives (Queue, Latest) beside the sim boundary protocol; the primitives want a small package of their own, so this file reads as the protocol only.
-// Queue is a list one side appends to and the other drains whole.
-Queue :: struct($T: typeid) {
-	mu:    sync.Mutex,
-	items: [dynamic]T,
-}
-
-push :: proc(q: ^Queue($T), item: T) {
-	sync.guard(&q.mu)
-	append(&q.items, item)
-}
-
-// drain moves everything queued into `into` (cleared first). The two buffers swap, so neither
-// side allocates once both have grown.
-drain :: proc(q: ^Queue($T), into: ^[dynamic]T) {
-	clear(into)
-	sync.guard(&q.mu)
-	q.items, into^ = into^, q.items
-}
-
-// take_first pops the oldest item.
-take_first :: proc(q: ^Queue($T)) -> (item: T, ok: bool) {
-	sync.guard(&q.mu)
-	if len(q.items) == 0 {return}
-	item = q.items[0]
-	ordered_remove(&q.items, 0)
-	return item, true
-}
-
-queue_destroy :: proc(q: ^Queue($T)) {
-	delete(q.items)
-}
-
 // Sim_Command is one thing main asks of the sim; the tick applies them in order before it runs.
 Sim_Command :: union {
 	Cmd_Noclip,
@@ -200,7 +167,7 @@ Cmd_Select :: struct {form: Form_ID} // the console's `sel`
 
 // apply_commands runs what main sent since the last tick.
 apply_commands :: proc(g: ^Game) {
-	drain(&g.commands, &g.command_buf)
+	handoff.drain(&g.commands, &g.command_buf)
 	for c in g.command_buf {
 		switch v in c {
 		case Cmd_Noclip:  g.sim.noclip = !g.sim.noclip
@@ -219,30 +186,6 @@ apply_commands :: proc(g: ^Game) {
 		case Cmd_Select:      if g.repl_ok {slua.repl_set_selection(&g.sim.repl, script.Form_ID(v.form))}
 		}
 	}
-}
-
-// Latest is a value one side publishes and the other takes the newest of. Three buffers turn —
-// the publisher's back, the shared slot and the taker's current — so nothing is copied.
-Latest :: struct($T: typeid) {
-	mu:    sync.Mutex,
-	slot:  T,
-	fresh: bool,
-}
-
-// publish hands `back` over as the newest and gets an old buffer back to fill next.
-publish :: proc(l: ^Latest($T), back: ^T) {
-	sync.guard(&l.mu)
-	l.slot, back^ = back^, l.slot
-	l.fresh = true
-}
-
-// take swaps the newest into `cur`, if one arrived since the last take.
-take :: proc(l: ^Latest($T), cur: ^T) -> bool {
-	sync.guard(&l.mu)
-	if !l.fresh {return false}
-	l.slot, cur^ = cur^, l.slot
-	l.fresh = false
-	return true
 }
 
 // Snapshot is what the sim shows main after a tick. A pose is the segment it moved along in that
@@ -320,23 +263,23 @@ publish_snapshot :: proc(g: ^Game) {
 	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
 	view_subtitles(g, s)
 	view_talk(g, s)
-	publish(&g.snaps, s)
+	handoff.publish(&g.snaps, s)
 }
 
 // run_console evaluates the console lines main sent on the gameplay REPL and sends their output
 // back. The lines in both string queues are heap copies the queue owns until drained.
 run_console :: proc(g: ^Game) {
-	drain(&g.console_in, &g.console_in_buf)
+	handoff.drain(&g.console_in, &g.console_in_buf)
 	for line in g.console_in_buf {
-		for out in slua.repl_eval(&g.sim.repl, line) {push(&g.console_out, strings.clone(out))}
+		for out in slua.repl_eval(&g.sim.repl, line) {handoff.push(&g.console_out, strings.clone(out))}
 		delete(line)
 	}
 }
 
 // strings_queue_destroy frees a string queue and whatever it still owns.
-strings_queue_destroy :: proc(q: ^Queue(string), buf: ^[dynamic]string) {
+strings_queue_destroy :: proc(q: ^handoff.Queue(string), buf: ^[dynamic]string) {
 	for s in q.items {delete(s)}
-	queue_destroy(q)
+	handoff.destroy(q)
 	delete(buf^)
 }
 
@@ -362,7 +305,7 @@ event_destroy :: proc(e: Sim_Event) {
 // forward_ref_events sends main what the sim changed in live cells since it last did.
 forward_ref_events :: proc(g: ^Game) {
 	forward :: proc(g: ^Game, sp: ^world.Space, ext: bool) {
-		for e in sp.changes {push(&g.events, Evt_Ref{ext, e})}
+		for e in sp.changes {handoff.push(&g.events, Evt_Ref{ext, e})}
 		clear(&sp.changes)
 	}
 	forward(g, &g.sim.ext, true)
@@ -373,7 +316,7 @@ forward_ref_events :: proc(g: ^Game) {
 // screen), and the inner run carries on in order.
 handle_events :: proc(g: ^Game) {
 	interior_placed := false
-	for e in take_first(&g.events) {
+	for e in handoff.take_first(&g.events) {
 		defer event_destroy(e)
 		switch v in e {
 		case Evt_Place:            show_place(g, v.place)

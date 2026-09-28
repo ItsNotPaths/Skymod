@@ -10,6 +10,7 @@ import "core:sync"
 import "core:thread"
 import "core:time"
 
+import "../handoff"
 import slua "../script/lua"
 import "../world"
 import "../worldstate"
@@ -21,7 +22,7 @@ Sim_Thread :: struct {
 	holds:  int, // parks asked for: main's, and the sim's own for events that need main
 	ticking: bool, // the sim thread runs, not parked; guarded by mu
 	quit:   bool,
-	inputs: Latest(Sim_Input), // the controls main latched each frame
+	inputs: handoff.Latest(Sim_Input), // the controls main latched each frame
 	// The script phase's inputs, kept to reuse their buffers.
 	loaded:   [dynamic]Form_ID,
 	attached: [dynamic]Form_ID,
@@ -85,7 +86,7 @@ sim_hold :: proc(g: ^Game) {
 // send_parked sends main an event it must handle with the sim parked, and parks the sim.
 send_parked :: proc(g: ^Game, e: Sim_Event) {
 	sim_hold(g)
-	push(&g.events, e)
+	handoff.push(&g.events, e)
 }
 
 // sim_drain brings the sim to rest and holds it there: queued commands apply and a snapshot goes

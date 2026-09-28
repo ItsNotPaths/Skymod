@@ -31,6 +31,7 @@ import "../assetdb"
 import "../detection"
 import "../formid"
 import "../gamedb"
+import "../handoff"
 import "../input"
 import smath "../math"
 import "../mods"
@@ -243,14 +244,14 @@ Game :: struct {
 	zoom_in, zoom_out: u32, // times each fired, latched into Sim_Input
 
 	// the boundary with the sim (sim.odin)
-	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
+	commands:    handoff.Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
-	events:      Queue(Sim_Event), // what the sim told main since main last looked
-	console_in:  Queue(string), // console lines for the sim to evaluate (heap copies)
+	events:      handoff.Queue(Sim_Event), // what the sim told main since main last looked
+	console_in:  handoff.Queue(string), // console lines for the sim to evaluate (heap copies)
 	console_in_buf:  [dynamic]string,
-	console_out: Queue(string), // their output, back to main (heap copies)
+	console_out: handoff.Queue(string), // their output, back to main (heap copies)
 	console_out_buf: [dynamic]string,
-	snaps:       Latest(Snapshot), // the sim's newest snapshot, for main to take
+	snaps:       handoff.Latest(Snapshot), // the sim's newest snapshot, for main to take
 	snap:        Snapshot, // the one main draws from
 	parks:       int, // main's holds on the sim (sim_drain): while any, no tick runs
 	menu_parked: bool, // one of those holds is an open menu's (park_for_menu)
@@ -659,10 +660,10 @@ game_teardown :: proc(g: ^Game) {
 	defer worldstate.sim_leave()
 	sim_thread_stop(g)
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
-	queue_destroy(&g.commands)
+	handoff.destroy(&g.commands)
 	delete(g.command_buf)
 	for e in g.events.items {event_destroy(e)}
-	queue_destroy(&g.events)
+	handoff.destroy(&g.events)
 	strings_queue_destroy(&g.console_in, &g.console_in_buf)
 	strings_queue_destroy(&g.console_out, &g.console_out_buf)
 	for s in ([]^Snapshot{&g.snaps.slot, &g.sim.snap_back, &g.snap}) {snapshot_destroy(s)}

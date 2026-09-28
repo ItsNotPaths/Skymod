@@ -12,6 +12,7 @@ import imgui "../../vendor/odin-imgui"
 import "../audio"
 import "../dialogue"
 import "../gamedb"
+import "../handoff"
 import "../script"
 import "../worldstate"
 
@@ -141,16 +142,16 @@ dialogue_menu :: proc(g: ^Game) {
 	imgui.Separator()
 	if v.info != 0 {
 		imgui.TextWrapped(fmt.ctprintf("%s", text(&g.snap, v.line)))
-		if imgui.Button("Next") {push(&g.commands, Cmd_Talk_Next{v.info, v.response})}
+		if imgui.Button("Next") {handoff.push(&g.commands, Cmd_Talk_Next{v.info, v.response})}
 		return
 	}
 	for ch, i in v.choices {
 		if imgui.Button(fmt.ctprintf("%s##%d", text(&g.snap, ch.prompt), i)) {
-			push(&g.commands, Cmd_Talk_Choose{ch.choice})
+			handoff.push(&g.commands, Cmd_Talk_Choose{ch.choice})
 			return
 		}
 	}
-	if imgui.Button("(leave)") {push(&g.commands, Cmd_Talk_Leave{})}
+	if imgui.Button("(leave)") {handoff.push(&g.commands, Cmd_Talk_Leave{})}
 }
 
 // sync_dialogue_menu keeps the dialogue menu open exactly while the sim has a conversation.
