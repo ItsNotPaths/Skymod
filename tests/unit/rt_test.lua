@@ -151,6 +151,15 @@ assert(math.abs(lever.sw - 2) < 1e-9 and math.abs(lever.cd - -0.2) < 1e-9, "cloc
 other.sw = nil
 rt.advance(1 / 60, 0)
 assert(other.sw == None and lever.sw > 2, "a clock set to None stops, the others keep moving")
+local seen = {}
+for k, v in pairs(lever.vars) do seen[k] = v end
+assert(seen.sw == lever.sw and seen.pulled == false and seen.TickRate == 0.5, "pairs sees a clock as its float, beside the other members")
+other.cd = 0.0
+assert(other.cd == 0.0, "a clock reads back exactly what was written, in the tick of the write")
+other.cd = "x"
+assert(other.cd == "x", "a non-number in a clock is kept as it is")
+rt.restore_var(ref(0x2001), "lever", "cd", 3.25)
+assert(other.cd == 3.25, "a restored clock reads its saved value")
 
 local saved = {}
 rt.save_vars(function(form, _, name, value, n)

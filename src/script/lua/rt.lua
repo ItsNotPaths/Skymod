@@ -249,17 +249,64 @@ local clock_kinds = {
   gamestopwatch = { sign = 1, game = true },
 }
 
--- Every clock field of every instance, flat: one list per kind, holding (vars table, key) pairs
--- at 2i and 2i+1, so rt.advance is one tight loop per kind with a constant step.
-local clocks = { timer = {}, stopwatch = {}, gametimer = {}, gamestopwatch = {} }
+-- A clock field holds the value last written and when (`base`, `since`), on the real clock (seconds)
+-- or the game clock (hours). A read is that value moved by the time since, so rt.advance moves two
+-- numbers, not every clock, and a read in the tick of its write gives back exactly what was
+-- written. Both live beside `vars`, never in it, so only clock keys reach these metamethods; pairs
+-- sees them as floats. A None (or any non-number) is kept and read back as it is: that clock
+-- stands still. An instance rt.reset dropped reads the clocks as they were then (`stopped`).
+local now_real, now_game = 0.0, 0.0
+local epoch, stopped = 0, {} -- stopped[e]: the clocks when rt.reset ended epoch e
+local number_type = math.type
 
-local function add_clocks(vars, fields)
-  for _, c in ipairs(fields) do
-    local list = clocks[c.kind]
-    list[#list] = vars
-    list[#list] = c.name
+local function clocked(vars, fields)
+  if #fields == 0 then return end
+  local kinds, base, since, mine = {}, {}, {}, epoch
+  local function now_of(kind)
+    if mine ~= epoch then
+      local c = stopped[mine]
+      return kind.game and c.game or c.real
+    end
+    return kind.game and now_game or now_real
   end
+  local function write(kind, k, v)
+    base[k], since[k] = v, now_of(kind)
+  end
+  for _, c in ipairs(fields) do
+    local kind = clock_kinds[c.kind]
+    kinds[c.name] = kind
+    write(kind, c.name, rawget(vars, c.name))
+    rawset(vars, c.name, nil)
+  end
+  setmetatable(vars, {
+    __index = function(_, k)
+      local kind, v = kinds[k], base[k]
+      if not kind or not number_type(v) then return v end
+      return v + kind.sign * (now_of(kind) - since[k])
+    end,
+    __newindex = function(t, k, v)
+      local kind = kinds[k]
+      if not kind then return rawset(t, k, v) end
+      write(kind, k, v)
+    end,
+    __pairs = function(t)
+      local key, clocks_now = nil, false
+      return function()
+        if not clocks_now then
+          local k, v = next(t, key)
+          if k ~= nil then
+            key = k
+            return k, v
+          end
+          clocks_now, key = true, nil
+        end
+        key = next(kinds, key)
+        if key ~= nil then return key, t[key] end
+      end, t, nil
+    end,
+  })
 end
+
 
 -- Keys an instance keeps for itself, so no field may use them.
 local reserved = { form = true, class = true, vars = true, base = true }
@@ -411,7 +458,7 @@ function rt.instance(form, script, props)
   local list = ordered[form] or {}
   ordered[form] = list
   list[#list] = inst
-  add_clocks(vars, cls.__clocks)
+  clocked(vars, cls.__clocks)
   if cls.__ticks then schedule(inst, vars.TickRate) end
   return inst
 end
@@ -1051,21 +1098,11 @@ function rt.drain()
   return #q
 end
 
--- rt.advance moves every clock field: real clocks by `dt` seconds, game clocks by `game_dt` hours.
--- Once per tick, before any handler of that tick runs. A clock a script set to None stays None.
-local function step(list, d)
-  for i = 0, #list - 1, 2 do
-    local vars, k = list[i], list[i + 1]
-    local v = vars[k]
-    if type(v) == "number" then vars[k] = v + d end
-  end
-end
-
+-- rt.advance moves the real clock by `dt` seconds and the game clock by `game_dt` hours, and with
+-- them every clock field. Once per tick, before any handler of that tick runs.
 function rt.advance(dt, game_dt)
-  step(clocks.timer, -dt)
-  step(clocks.stopwatch, dt)
-  step(clocks.gametimer, -game_dt)
-  step(clocks.gamestopwatch, game_dt)
+  now_real = now_real + dt
+  now_game = now_game + game_dt
 end
 
 -- rt.tick calls OnTick on the instances due this tick, once per tick after the queue drains: group
@@ -1261,9 +1298,10 @@ end
 
 -- rt.reset drops every instance and queued event: a loaded save rebuilds them.
 function rt.reset()
+  stopped[epoch] = { real = now_real, game = now_game }
+  epoch = epoch + 1
   instances = {}
   ordered = {}
-  clocks = { timer = {}, stopwatch = {}, gametimer = {}, gamestopwatch = {} }
   groups = {}
   rates = {}
   ticks = 0
