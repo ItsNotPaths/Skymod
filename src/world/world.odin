@@ -198,7 +198,7 @@ Instance_Vis :: enum u8 {
 // Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
 Form_ID :: gamedb.Form_ID
 
-// (hole sim-cell :tags (threading world physics) :sev gap :needs (collision-store)) Instance and Chunk mix render data, placement and Jolt bodies. Wanted: a sim cell (placements, bodies, actors, overlay, resident index) keyed by form ID and owned by the sim.
+// (hole sim-cell :tags (threading world physics) :sev gap) Instance and Chunk mix render data, placement and Jolt bodies. Wanted: a sim cell (placements, bodies, actors, overlay, resident index) keyed by form ID and owned by the sim.
 // Instance is one placed reference: its model (shared, nil until uploaded) referenced
 // by path, the raw REFR placement, and a door teleport if this is a load door.
 Instance :: struct {
@@ -299,6 +299,7 @@ Scene :: struct {
 	tree_billboards: map[Form_ID]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
 	phys:     ^physics.World, // borrowed static-collision world (Phase 2e); nil = physics off for this scene
+	collisions: ^assetdb.Collision_Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
 	poses:    ^physics.Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
@@ -324,9 +325,10 @@ Resident_Ref :: struct {
 	idx:  int,
 }
 
-scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Scene {
+scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^assetdb.Collision_Store = nil) -> Scene {
 	return Scene {
-		cache = assetdb.cache_init(r, v),
+		cache = assetdb.cache_init(r, v, collisions),
+		collisions = collisions,
 		chunks = make(map[Form_ID]Chunk),
 		lod_quads = make(map[u64]Lod_Quad),
 		water_quads = make(map[u64]Water_Quad),

@@ -199,12 +199,12 @@ free_spot :: proc(g: ^Game, phys: ^physics.World, feet: smath.Vec3, c: Capsule) 
 	return feet + lift
 }
 
-// actor_furniture_markers is ai.Furniture_Hook's markers: a FURN base's markers, read through the active scene's asset cache.
+// actor_furniture_markers is ai.Furniture_Hook's markers: a FURN base's markers, from the collision store.
 actor_furniture_markers :: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_Marker {
 	g := (^Game)(user)
 	modl, ok := gamedb.model_of(&g.db, base)
-	if !ok || g.fr.active_scene == nil {return nil}
-	return assetdb.furniture_markers(&g.fr.active_scene.cache, modl)
+	if !ok {return nil}
+	return assetdb.furniture_markers(&g.collisions, modl)
 }
 
 @(private = "file")

@@ -43,7 +43,7 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 	weapon, _ := gamedb.equip_slot_of(&g.db, f.weapon)
 	m := smath.trs(worldstate.ref_pos(&g.sim.ws, &g.db, f.source), worldstate.ref_rot(&g.sim.ws, &g.db, f.source), worldstate.ref_scale(&g.sim.ws, &g.db, f.source))
 	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, f.source)); ok {
-		if node, nok := assetdb.projectile_node(&g.fr.active_scene.cache, modl); nok {m = m * node}
+		if node, nok := assetdb.projectile_node(&g.collisions, modl); nok {m = m * node}
 	}
 	pos, dir := (m * [4]f32{0, 0, 0, 1}).xyz, (m * [4]f32{0, 1, 0, 0}).xyz
 	cell := worldstate.ref_cell(&g.sim.ws, &g.db, f.source)

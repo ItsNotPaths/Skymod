@@ -1074,7 +1074,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 		world.stream_pause(t.st, true)
 		world.stream_collapse(t.st, t.st.full_radius) // keep only the inner full-detail window
 	}
-	t.interior = world.scene_init(t.r, t.v)
+	t.interior = world.scene_init(t.r, t.v, t.ext_scene.collisions)
 	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
 	if t.int_phys_ok {
 		t.interior.phys = &t.int_phys // the interior's bhk* collision builds into the reusable world
@@ -1087,7 +1087,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	// synchronously, so sync_physics can cook them immediately): the player lands on a solid
 	// floor on arrival instead of falling through for the first few budgeted frames.
 	if t.int_phys_ok {
-		for world.sync_physics(&t.interior, &t.interior.cache) > 0 {}
+		for world.sync_physics(&t.interior) > 0 {}
 		physics.optimize_broadphase(&t.int_phys)
 		nbodies := 0
 		for _, &chunk in t.interior.chunks {

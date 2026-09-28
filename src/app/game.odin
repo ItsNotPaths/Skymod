@@ -193,9 +193,10 @@ Game :: struct {
 	db: gamedb.DB,
 
 	// physics + the exterior scene
-	phys:    physics.World,
-	phys_ok: bool,
-	scene:   world.Scene,
+	phys:       physics.World,
+	phys_ok:    bool,
+	scene:      world.Scene,
+	collisions: assetdb.Collision_Store, // every scene's model collision, for the sim (assetdb)
 
 	// scene lighting (configurator panel state included)
 	lights:          Lighting_State,
@@ -414,7 +415,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// bodies as cells load. Torn down AFTER scene_destroy — see game_teardown.
 	g.phys, g.phys_ok = physics.world_create()
 
-	g.scene = world.scene_init(&g.r, &g.v)
+	assetdb.collision_store_init(&g.collisions, &g.v)
+	g.scene = world.scene_init(&g.r, &g.v, &g.collisions)
 	g.up.scene = true
 	if g.phys_ok {g.scene.phys = &g.phys}
 	// Movable clutter (cups/plates/etc.) as DYNAMIC bodies in the exterior too — now that Jolt runs
@@ -678,6 +680,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.ws {worldstate.destroy(&g.sim.ws)} // outlives traversal (trav borrows the overlay)
 	if g.up.lights {lighting_state_destroy(&g.lights)}
 	if g.up.scene {world.scene_destroy(&g.scene)} // removes chunk bodies while the phys world lives
+	assetdb.collision_store_destroy(&g.collisions) // after every scene that reads it
 	if g.phys_ok {
 		physics.world_destroy(&g.phys)
 		physics.shutdown()

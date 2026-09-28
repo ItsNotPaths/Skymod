@@ -25,14 +25,13 @@ import "../render"
 // burst of newly-resolved models can't stall a frame on QuickHull/tree builds.
 PHYS_BUDGET :: 8
 
-// (hole collision-store :tags (threading physics assets) :sev gap) body building reads collision from assetdb.Model in the GPU cache (model_ptr, is_failed, m.collision). Wanted: a CPU collision store the sim owns, filled by the stream workers.
 // sync_physics creates collision bodies for loaded instances whose model has resolved but
 // whose bodies aren't built yet, up to `budget` instances. Call once per frame (main thread)
 // after stream_update. No-op if the scene has no physics world. Returns how many instances it
 // built — the caller optimizes the broadphase when this is > 0 (Jolt's quad-tree degrades on
 // incremental body adds that aren't followed by an OptimizeBroadPhase). Pass a large budget to
 // drain the whole bubble at once (the load screen / interior entry).
-sync_physics :: proc(s: ^Scene, cache: ^assetdb.Cache, budget := PHYS_BUDGET) -> int {
+sync_physics :: proc(s: ^Scene, budget := PHYS_BUDGET) -> int {
 	if s.phys == nil {
 		return 0
 	}
@@ -50,16 +49,13 @@ sync_physics :: proc(s: ^Scene, cache: ^assetdb.Cache, budget := PHYS_BUDGET) ->
 				inst.phys_built = true // overlay-disabled: no collision; mark done so it isn't rescanned
 				continue
 			}
-			m := inst.model
-			if m == nil {
-				m = assetdb.model_ptr(cache, inst.model_path)
-			}
-			if m == nil && assetdb.is_failed(cache, inst.model_path) {
-				inst.phys_built = true // a model that decoded to nothing has no collision; waiting on it would hold the chunk forever
+			m, known := assetdb.collision_of(s.collisions, inst.model_path)
+			if !known {
+				all_built = false // model not decoded yet — revisit next tick
 				continue
 			}
 			if m == nil {
-				all_built = false // model not uploaded yet — revisit next frame
+				inst.phys_built = true // a model that decoded to nothing has no collision; waiting on it would hold the chunk forever
 				continue
 			}
 			build_instance_bodies(s.phys, &chunk, &inst, m, s.dynamic_clutter)
@@ -261,10 +257,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 		// dynamic scene are drawn LIVE each frame (draw_collision_debug) at their body pose, so skip
 		// them here; skip gameplay-only layers too (those aren't bodies).
 		for &inst in chunk.instances {
-			m := inst.model
-			if m == nil {
-				m = assetdb.model_ptr(&s.cache, inst.model_path)
-			}
+			m, _ := assetdb.collision_of(s.collisions, inst.model_path)
 			if m == nil {
 				continue
 			}
@@ -305,7 +298,7 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 	idx := make([dynamic]u16, 0, 4096, context.temp_allocator)
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {
-			m := inst.model
+			m, _ := assetdb.collision_of(s.collisions, inst.model_path)
 			if m == nil {continue}
 			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {
@@ -480,7 +473,7 @@ dbg_vert :: proc(p: [3]f32) -> render.Mesh_Vertex {
 // gives Jolt an analytic narrow phase — the coplanar flat-box-on-flat-mesh EPA-storm fix. The
 // constraints that link the bodies (signs swing, wheels roll) are Phase B.
 @(private = "file")
-build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance, m: ^assetdb.Model, allow_dynamic: bool) {
+build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance, m: ^assetdb.Model_Collision, allow_dynamic: bool) {
 	inst.body_first = len(chunk.bodies) // record this instance's contiguous slice of chunk.bodies
 	shapes := m.collision.shapes
 	nmov := 0 // dynamic bodies built (a single one drives render-follow; multi is Phase B/C)
@@ -632,7 +625,7 @@ dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, wm0: smath.Mat4, origin: [3]f
 // projectile_capsule is a projectile's body: a capsule along the model's +Y, the way darts and arrows
 // point, fitted to its bounds.
 @(private = "file")
-projectile_capsule :: proc(inst: ^Instance, m: ^assetdb.Model) -> physics.Dyn_Shape {
+projectile_capsule :: proc(inst: ^Instance, m: ^assetdb.Model_Collision) -> physics.Dyn_Shape {
 	s := mat_scale(inst.world)
 	e := (m.hi - m.lo) * s * 0.5
 	radius := max(min(e.x, e.z), 0.5)

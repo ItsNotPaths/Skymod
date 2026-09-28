@@ -10,6 +10,7 @@ package main
 import "core:log"
 import "core:math"
 
+import "../assetdb"
 import "../gamedb"
 import smath "../math"
 import "../physics"
@@ -58,7 +59,10 @@ when DEVTOOLS {
 			physics.shutdown()
 		}
 
-		scene := world.scene_init(r, v)
+		collisions: assetdb.Collision_Store
+		assetdb.collision_store_init(&collisions, v)
+		defer assetdb.collision_store_destroy(&collisions)
+		scene := world.scene_init(r, v, &collisions)
 		defer world.scene_destroy(&scene) // LIFO: runs before phys destroy → removes bodies while world lives
 		scene.phys = &phys
 
@@ -86,7 +90,7 @@ when DEVTOOLS {
 		}
 		built := 0 // terrain collision is built by load_cell; objects below via sync_physics
 		for {
-			n := world.sync_physics(&scene, &scene.cache)
+			n := world.sync_physics(&scene)
 			built += n
 			if n == 0 {
 				break

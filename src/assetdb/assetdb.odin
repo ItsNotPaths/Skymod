@@ -69,12 +69,11 @@ Model :: struct {
 	                  // effects: rapids/fire/mist) has at least one bound diffuse, so untextured=false.
 	shadow_proxy: render.Mesh, // low-poly canopy hull for cheap tree shadows (Phase D2); zero mesh if none
 	has_shadow_proxy: bool, // canopy substantial enough for a proxy (else cast full alpha)
-	collision:    nif.Collision, // bhk* collision shapes (NIF-root space, Skyrim units), cache-owned (Phase 2e physics)
 	// shape_body maps each render Shape → the movable Collision_Body (index) that drives it, for
 	// ARTICULATED models only (hinged signs/carts — Phase C); -1 = static. nil for ordinary models.
 	// The world layer poses a mapped shape by its live body transform so the visible mesh swings/rolls.
 	shape_body:   []int,
-	// Approximate resident footprint of THIS model (GPU mesh buffers + CPU pick/collision),
+	// Approximate resident footprint of THIS model (GPU mesh buffers + CPU pick geometry),
 	// summed at upload. Feeds the cache byte tally (diag probe) and, later, the D1 eviction
 	// budget — eviction subtracts exactly what upload added.
 	bytes: int,
@@ -144,7 +143,7 @@ capped_mips :: proc(mips: []render.Tex_Mip) -> []render.Tex_Mip {
 // budget is shared across every Cache, but each Cache trims only its own cold list.
 MODEL_CACHE_BYTES := 0
 
-// (hole cache-eviction :tags (assets unclaimed) :sev gap :needs (rebuild-evict-reacquire release-from-tick collision-store)) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk.
+// (hole cache-eviction :tags (assets unclaimed) :sev gap :needs (rebuild-evict-reacquire release-from-tick)) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk. The collision store (collision_store.odin) never evicts; it is small CPU data.
 // TEXTURE_CACHE_BYTES is the texture eviction budget (bytes) — the same cold-LRU scheme as
 // MODEL_CACHE_BYTES but for the texture cache (D1 slice 2: textures are ~83% of a region's footprint).
 // 0 (default) = eviction OFF. Set from settings `texture_cache_mb`. Terrain-ground textures are PINNED
@@ -162,7 +161,7 @@ Tex_Entry :: struct {
 	pinned: bool,
 }
 
-// (hole model-id-intern :tags (threading assets) :sev gap :needs (collision-store)) models are keyed by lowercased path strings and held as ^Model. Wanted: a stable u32 model ID shared by placements, the collision store and render, so no string or pointer crosses the seam.
+// (hole model-id-intern :tags (threading assets) :sev gap) models are keyed by lowercased path strings and held as ^Model. Wanted: a stable u32 model ID shared by placements, the collision store and render, so no string or pointer crosses the seam.
 // Cache owns every loaded model + unique texture and frees them on destroy. Mutated
 // only on the main thread (upload_cpu_model / get_model); the worker never touches it.
 Cache :: struct {
@@ -171,8 +170,7 @@ Cache :: struct {
 	models:   map[string]^Model, // "meshes\..."-relative MODL path -> model (key owned)
 	textures: map[string]Tex_Entry, // tex_key(path,srgb) -> entry (key owned); see Tex_Entry
 	failed:   map[string]bool, // model paths that decoded to nothing (missing / no shapes) — don't retry (key owned)
-	furniture: map[string][]nif.Furniture_Marker, // model path -> its furniture markers, never evicted (key + slice owned)
-	projectile_nodes: map[string]Maybe(matrix[4, 4]f32), // model path -> its ProjectileNode, never evicted (key owned)
+	store:    ^Collision_Store, // gets each landing model's collision for the sim (nil: none)
 	// D1 eviction (models). refs = live holders per lowercased model path (a resident chunk's
 	// instances/grass, a baked LOD draw); set BY the world layer via model_acquire/model_release,
 	// independent of residency (a ref can precede the upload). A model with refs>0 is pinned. When
@@ -194,7 +192,7 @@ Cache :: struct {
 	tex_bytes:   int,
 }
 
-cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
+cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, store: ^Collision_Store = nil) -> Cache {
 	return Cache {
 		r        = r,
 		v        = v,
@@ -202,8 +200,7 @@ cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS) -> Cache {
 		textures = make(map[string]Tex_Entry),
 		failed   = make(map[string]bool),
 		refs     = make(map[string]int),
-		furniture = make(map[string][]nif.Furniture_Marker),
-		projectile_nodes = make(map[string]Maybe(matrix[4, 4]f32)),
+		store    = store,
 	}
 }
 
@@ -218,8 +215,8 @@ cache_counts :: proc(
 		len(c.tex_cold), c.tex_cold_bytes
 }
 
-// free_model_entry releases everything ONE cached Model owns (GPU meshes, retained CPU pick/
-// collision, the struct). Shared by cache_destroy (bulk) and evict_model (single) so the two can
+// free_model_entry releases everything ONE cached Model owns (GPU meshes, retained CPU pick
+// geometry, the struct). Shared by cache_destroy (bulk) and evict_model (single) so the two can
 // never drift on WHAT a model frees. Does NOT touch the map slot, the owned map key, or the byte
 // tally — the caller handles those (bulk destroy drops the whole map; eviction delete_keys + subtracts).
 @(private)
@@ -239,7 +236,6 @@ free_model_entry :: proc(c: ^Cache, m: ^Model) {
 	delete(m.pick_idx32)
 	delete(m.pick_shape)
 	delete(m.shape_body)
-	nif.destroy_collision(&m.collision) // cache-heap allocated (clone_collision)
 	free(m)
 }
 
@@ -262,13 +258,6 @@ cache_destroy :: proc(c: ^Cache) {
 		delete(key)
 	}
 	delete(c.failed)
-	for key, m in c.furniture {
-		delete(key)
-		delete(m)
-	}
-	delete(c.furniture)
-	for key in c.projectile_nodes {delete(key)}
-	delete(c.projectile_nodes)
 	for key, _ in c.refs {
 		delete(key)
 	}
@@ -494,46 +483,13 @@ mark_failed :: proc(c: ^Cache, modl: string) {
 	if key not_in c.failed {
 		c.failed[strings.clone(key)] = true
 	}
+	if c.store != nil {store_failed(c.store, modl)}
 }
 
 // model_ptr returns the cached model for a path, or nil if not yet uploaded.
 model_ptr :: proc(c: ^Cache, modl: string) -> ^Model {
 	key := strings.to_lower(modl, context.temp_allocator)
 	return c.models[key] if key in c.models else nil
-}
-
-// furniture_markers is a model's furniture markers (none for a missing or bad NIF), read once. MAIN THREAD.
-furniture_markers :: proc(c: ^Cache, modl: string) -> []nif.Furniture_Marker {
-	key := strings.to_lower(modl, context.temp_allocator)
-	if m, hit := c.furniture[key]; hit {
-		return m
-	}
-	markers: []nif.Furniture_Marker
-	full := strings.concatenate({"meshes\\", modl}, context.temp_allocator)
-	if data, ok := vfs.read(c.v, full, context.temp_allocator); ok {
-		if h, hok := nif.parse_header(data, context.temp_allocator); hok {
-			markers = nif.furniture_markers(data, &h)
-		}
-	}
-	c.furniture[strings.clone(key)] = markers
-	return markers
-}
-
-// (hole cache-mutation-from-tick :tags (threading assets) :sev gap :needs (collision-store)) projectile_node and furniture_markers (from the AI hook) write the GPU cache map from the tick; their data must come from the collision store.
-// projectile_node is where a model launches projectiles, in model space: its ProjectileNode, read once.
-// MAIN THREAD.
-projectile_node :: proc(c: ^Cache, modl: string) -> (matrix[4, 4]f32, bool) {
-	key := strings.to_lower(modl, context.temp_allocator)
-	if m, hit := c.projectile_nodes[key]; hit {return m.? or_else 1, m != nil}
-	node: Maybe(matrix[4, 4]f32)
-	full := strings.concatenate({"meshes\\", modl}, context.temp_allocator)
-	if data, ok := vfs.read(c.v, full, context.temp_allocator); ok {
-		if h, hok := nif.parse_header(data, context.temp_allocator); hok {
-			if m, found := nif.node_world_by_name(data, &h, "ProjectileNode"); found {node = m}
-		}
-	}
-	c.projectile_nodes[strings.clone(key)] = node
-	return node.? or_else 1, node != nil
 }
 
 // get_model loads (or returns the cached) model for a MODL path, synchronously. Used
@@ -590,6 +546,7 @@ get_texture :: proc(c: ^Cache, path: string) -> (render.Texture, bool) {
 // MAIN THREAD ONLY. Does NOT free `cpu` — the caller does (free_cpu_model, or temp
 // wipe). Textures dedup across models by path. Returns the cached shared ^Model.
 upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
+	if cpu.ok && cpu.extras && c.store != nil {store_collision(c.store, cpu)} // the sim's copy, before any GPU work
 	if !cpu.ok || len(cpu.shapes) == 0 {
 		return nil, false
 	}
@@ -651,12 +608,9 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 		m.shadow_proxy = proxy_mesh
 		m.has_shadow_proxy = true
 	}
-	// Instance-only extras (pick copy, collision clone, articulation map) — skipped for
-	// draw-only decodes (want_extras=false: LOD bake meshes, billboards, grass).
+	// Instance-only extras (pick copy, articulation map) — skipped for draw-only decodes
+	// (want_extras=false: LOD bake meshes, billboards, grass).
 	if cpu.extras {
-		// Collision is CPU data (no GPU): deep-copy it into the cache's allocator so it survives
-		// free_cpu_model (which frees the decode's loader/temp copy). Freed in cache_destroy.
-		m.collision = clone_collision(cpu.collision)
 		build_pick_geometry(m, cpu)
 		map_articulated_shapes(m, cpu)
 	}
@@ -676,7 +630,7 @@ upload_cpu_model :: proc(c: ^Cache, cpu: Cpu_Model) -> (^Model, bool) {
 }
 
 // model_bytes approximates a cached model's resident footprint: the GPU vertex/index buffers
-// (+ shadow proxy) plus the retained CPU copies (pick geometry, collision clone). Textures are
+// (+ shadow proxy) plus the retained CPU copy (pick geometry). Textures are
 // tallied separately (shared across models). Payload bytes, not allocator-exact — for the diag
 // probe + the eviction budget, where "close and consistent" beats exact.
 @(private)
@@ -688,9 +642,6 @@ model_bytes :: proc(m: ^Model, cpu: Cpu_Model) -> int {
 	b += len(cpu.proxy_verts) * size_of(render.Mesh_Vertex) + len(cpu.proxy_indices) * size_of(u16)
 	b += len(m.pick_pos) * size_of([3]u16) + len(m.pick_idx16) * size_of(u16) +
 		len(m.pick_idx32) * size_of(u32) + len(m.pick_shape) * size_of(u16)
-	for s in m.collision.shapes {
-		b += len(s.vertices) * size_of([3]f32) + len(s.indices) * size_of(u32) + size_of(s)
-	}
 	b += len(m.shapes) * size_of(Shape)
 	return b
 }
@@ -705,19 +656,19 @@ model_bytes :: proc(m: ^Model, cpu: Cpu_Model) -> int {
 @(private)
 map_articulated_shapes :: proc(m: ^Model, cpu: Cpu_Model) {
 	nmov := 0
-	for b in m.collision.bodies {
+	for b in cpu.collision.bodies {
 		if b.movable {nmov += 1}
 	}
-	if len(m.collision.constraints) == 0 && nmov <= 1 {return}
+	if len(cpu.collision.constraints) == 0 && nmov <= 1 {return}
 
 	// Per body: its collision AABB (NIF-root) → centre + radius, for the co-location test.
 	Box :: struct {
 		lo, hi:  [3]f32,
 		movable: bool,
 	}
-	boxes := make([]Box, len(m.collision.bodies), context.temp_allocator)
-	for &bx, i in boxes {bx = {lo = {max(f32), max(f32), max(f32)}, hi = {min(f32), min(f32), min(f32)}, movable = m.collision.bodies[i].movable}}
-	for sh in m.collision.shapes {
+	boxes := make([]Box, len(cpu.collision.bodies), context.temp_allocator)
+	for &bx, i in boxes {bx = {lo = {max(f32), max(f32), max(f32)}, hi = {min(f32), min(f32), min(f32)}, movable = cpu.collision.bodies[i].movable}}
+	for sh in cpu.collision.shapes {
 		if sh.body >= 0 && sh.body < len(boxes) {expand_collision_aabb(&boxes[sh.body].lo, &boxes[sh.body].hi, sh)}
 	}
 
