@@ -1494,6 +1494,7 @@ test_trigger_events :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture_init(t, &f, "skymod_instances_trigger", {{"mortal.lua", MORTAL_LUA}})
 	defer fixture_destroy(&f)
+	f.ws.ai.loaded[formid.PLAYER] = true // the app lists the player's capsule with the others
 	CELL, TRIG :: script.Form_ID(0x100), script.Form_ID(0x700)
 	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
 	f.db.ref_by_id[TRIG] = {form_id = TRIG, cell_form_id = CELL, pos = {1000, 0, 0}, rot = {0, 0, math.PI / 2}, scale = 1}

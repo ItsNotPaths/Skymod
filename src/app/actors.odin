@@ -108,6 +108,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 	for form in gone {delete_key(&g.sim.actor_bodies, form)}
 	clear(&g.sim.ws.ai.loaded)
 	for form in g.sim.actor_bodies {g.sim.ws.ai.loaded[form] = true}
+	g.sim.ws.ai.loaded[formid.PLAYER] = true // its capsule is g.sim.character (hole player-controller)
 	lap(g, .AI, &t)
 	ai.tick_social(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
 	lap(g, .Social, &t)

@@ -6,7 +6,6 @@ package script_lua
 
 import script ".."
 import "../../formats/esm"
-import "../../formid"
 import "../../gamedb"
 import "../../worldstate"
 
@@ -15,7 +14,6 @@ import "../../worldstate"
 // detaches or is disabled, or an actor that unloads, is forgotten without an event.
 tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	actors := make([dynamic]script.Form_ID, context.temp_allocator)
-	append(&actors, formid.PLAYER)
 	for actor in ws.ai.loaded {append(&actors, actor)}
 	live := make(map[[2]script.Form_ID]bool, context.temp_allocator)
 	for _, refs in ws.attached {
