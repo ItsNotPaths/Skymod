@@ -4,6 +4,7 @@ package ai
 // An unloaded actor that travels steps cell to cell; any other waits and is placed when its cell loads.
 
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:math/linalg"
 import "core:math/rand"
@@ -49,6 +50,8 @@ Agent :: struct {
 	social_in: f32, // seconds to the next look around (social.odin)
 	greeted:   bool, // said Hello to the player, who has not walked off since
 	location:  Maybe(Form_ID), // the location it was last seen in
+	cell:      Form_ID, // the cell it was last seen in, and the turn it came in (note_cell)
+	came_in:   u64,
 }
 
 World :: struct {
@@ -132,7 +135,30 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	worldstate.set_in_set(&ws.ai.sitting, actor, a.posture == .Sitting)
 	worldstate.set_sleeping(ws, db, actor, a.posture == .Sleeping)
 	if a.mover.door != 0 {cross_load_door(ws, db, a, actor, a.mover.door)}
+	note_cell(w, ws, db, a, actor, "loaded")
 	return vel
+}
+
+// BOUNCE_TICKS: an actor that changes cell twice in this many ticks is logged (note_cell).
+BOUNCE_TICKS :: 120
+
+// note_cell logs an actor that goes through a load door within BOUNCE_TICKS of its last cell change:
+// in, then straight back out, is a loaded and an unloaded step that disagree on where it belongs.
+@(private = "file")
+note_cell :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, side: string) {
+	cell := worldstate.ref_cell(ws, db, actor)
+	if cell == a.cell {return}
+	was, _ := gamedb.cell_by_formid(db, a.cell)
+	now, _ := gamedb.cell_by_formid(db, cell)
+	if a.cell != 0 && w.turn - a.came_in < BOUNCE_TICKS && (was.interior || now.interior) { // through a load door
+		c := Proc_Context{cond = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars}, agent = a, w = w, feet = worldstate.ref_pos(ws, db, actor)}
+		p, ok := destination(&c)
+		log.warnf(
+			"ai: 0x%08X changed cell again after %d ticks (%s step): 0x%08X -> 0x%08X at %v; package 0x%08X, destination 0x%08X (found %v), goal cell 0x%08X door 0x%08X, trip %d/%d",
+			actor, w.turn - a.came_in, side, a.cell, cell, c.feet, a.pack, p.cell, ok, a.mover.goal.cell, a.mover.goal.door, a.trip_at, len(a.trip),
+		)
+	}
+	a.cell, a.came_in = cell, w.turn
 }
 
 // stop_dead leaves a dead actor where it fell: no package, goal, seat or fight. Its world state
@@ -288,6 +314,7 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 	if a.pack != 0 && !a.planned {plan_trip(w, ws, db, a, actor, feet)}
 	walk_trip(ws, db, a, actor, feet, dt)
 	note_location(ws, db, a, actor)
+	note_cell(w, ws, db, a, actor, "unloaded")
 	if _, _, action := worldstate.scene_package(ws, db, actor); action != nil && action.pack == a.pack && a.trip_at >= len(a.trip) {action.done = true}
 }
 
