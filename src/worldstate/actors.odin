@@ -448,6 +448,7 @@ in_faction :: proc(ws: ^World_State, db: ^gamedb.DB, actor, faction: Form_ID) ->
 	return ok && r >= 0
 }
 
+// (hole actor-states :tags (animation ai unclaimed) :sev blocker) sneaking is a set here; it folds into src/actorstate.
 // set_sneaking puts an actor in or out of sneak mode.
 set_sneaking :: proc(ws: ^World_State, actor: Form_ID, on: bool) {
 	set_in_set(&ws.sneaking, actor, on)

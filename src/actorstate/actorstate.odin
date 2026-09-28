@@ -20,7 +20,7 @@ State :: struct {
 	time: f32, // seconds in it
 }
 
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) the stub: every actor stands and every request is refused. Seated, sleeping, mounted, leaning, attacking and in-an-action live in scattered sets or nowhere. Wanted: one model that AI, scripts and conditions write and read and animation plays, not a copy of Havok behaviour graphs or Nemesis/Pandora patching. Swinging, drinking a potion, a dodge roll, paragliding are states; a mod adds one through the model's own clean API (user 2026-09-28: not a native plugin seam), and the combat brain and scripts ask for states by name.
+// (hole actor-states :tags (animation ai unclaimed) :sev blocker) the stub: every actor stands and every request is refused. Seated, sleeping, mounted, leaning, attacking and in-an-action live in scattered sets or nowhere. Wanted: one model that AI, scripts and conditions write and read and animation plays, not a copy of Havok behaviour graphs or Nemesis/Pandora patching. Swinging, drinking a potion, a dodge roll, paragliding are states; a mod adds one through the model's own clean API (user 2026-09-28: not a native plugin seam), and the combat brain and scripts ask for states by name. Starting point (user 2026-09-28): one state per actor, not a set per state (ws.sneaking, ws.ai.sitting, ws.ai.sleeping); a state carries its own properties (Sleep has speed 0) and transitions (moving while asleep enters a WakeUp state for the get-out-of-bed clip). Open: states that overlap, such as sneaking while swinging.
 Model :: struct {
 	ids:   map[string]State_ID,
 	names: [dynamic]string, // by State_ID
