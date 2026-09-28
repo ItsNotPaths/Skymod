@@ -295,13 +295,32 @@ REGEN := [3]Regen {
 	{"Stamina", "StaminaRate", "StaminaRateMult", "fDamagedStaminaRegenDelay", "fStaminaRegenDelayMax"},
 }
 
+// REGEN_TURNS: an actor outside the loaded cells regenerates in turns, once every this many ticks
+// (10 Hz at 60); a loaded one every tick. Each turn group keeps the seconds it is owed since its
+// last turn, so a wait's skipped hours reach every actor whichever tick they came in.
+REGEN_TURNS :: 6
+
+Regen_Turns :: struct {
+	turn: u64,
+	owed: [REGEN_TURNS]f32,
+}
+
 // av_regen restores `seconds` of play time of regen on every damaged actor that is not dead.
 av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
+	t := &ws.regen
+	t.turn += 1
+	due := t.turn % REGEN_TURNS
+	for &o in t.owed {o += seconds}
 	for actor, &vals in ws.actor_values {
-		if d, ok := ws.ref_deltas[actor]; ok && .Dead in d.live {continue}
+		seconds := seconds
+		if actor not_in ws.ai.loaded {
+			if u64(actor) % REGEN_TURNS != due {continue}
+			seconds = t.owed[due]
+		}
 		for r in REGEN {
 			p, ok := &vals[r.av]
-			if !ok || p.damage >= 0 {continue}
+			if !ok || p.damage >= 0 {continue} // most are whole: the cheap test first
+			if d, dok := ws.ref_deltas[actor]; dok && .Dead in d.live {break}
 			left := seconds - p.pause
 			p.pause = max(p.pause - seconds, 0)
 			if left <= 0 {continue}
@@ -309,6 +328,7 @@ av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
 			p.damage = min(p.damage + per_second * left, 0)
 		}
 	}
+	t.owed[due] = 0
 }
 
 // ── mod actor values (ws.md, Workstream P) ──

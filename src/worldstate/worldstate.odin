@@ -174,6 +174,7 @@ Runtime :: struct {
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
+	regen:           Regen_Turns,           // whose turn it is to regenerate outside the loaded cells (av_regen)
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)

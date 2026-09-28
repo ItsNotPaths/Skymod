@@ -62,6 +62,7 @@ test_actor_value_regen :: proc(t: ^testing.T) {
 	STILL :: gamedb.Form_ID(0xA2)
 	for actor in ([]gamedb.Form_ID{A, STILL}) {worldstate.av_set_base(&ws, actor, "Health", 100)}
 	worldstate.av_set_base(&ws, A, "HealRate", 10)
+	ws.ai.loaded[A] = true // loaded: every tick
 
 	worldstate.av_damage(&ws, nil, A, "Health", 50)
 	worldstate.av_damage(&ws, nil, STILL, "Health", 50)
@@ -76,6 +77,20 @@ test_actor_value_regen :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 0) // the longer pause
 	worldstate.av_regen(&ws, nil, 100)
 	testing.expect_value(t, worldstate.av_current(&ws, nil, A, "Health"), 100) // never past max
+
+	// Outside the loaded cells an actor regenerates on its turn, with every second it is owed: here
+	// a wait's 2 s arrive on a tick that is not its turn.
+	ws2: worldstate.World_State
+	worldstate.init(&ws2)
+	defer worldstate.destroy(&ws2)
+	FAR :: gamedb.Form_ID(0xAE) // 0xAE % REGEN_TURNS == 0: its turn is every 6th tick
+	worldstate.av_set_base(&ws2, FAR, "Health", 100)
+	worldstate.av_set_base(&ws2, FAR, "HealRate", 10)
+	worldstate.av_damage(&ws2, nil, FAR, "Health", 50)
+	for s in ([]f32{0.5, 0.5, 2, 0.5, 0.5}) {worldstate.av_regen(&ws2, nil, s)}
+	testing.expect_value(t, worldstate.av_current(&ws2, nil, FAR, "Health"), 50) // not its turn yet
+	worldstate.av_regen(&ws2, nil, 0.5)
+	testing.expect_value(t, worldstate.av_current(&ws2, nil, FAR, "Health"), 85) // 4.5 s owed, less the 1 s pause
 }
 
 // A skill is latched: its capacity is its level, and training stops at a separate soft cap. A pool
