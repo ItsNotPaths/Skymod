@@ -26,6 +26,7 @@ import "core:sys/info"
 import "core:thread"
 
 import "../audio"
+import "../actorstate"
 import "../ai"
 import "../assetdb"
 import "../collisions"
@@ -604,6 +605,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// (`ws`) over the gamedb baseline (`db`). `&g.sim.noclip` lets the tcl/noclip command
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
 	if settings.get_bool(g.cfg, "native_plugins") {plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR))}
+	actorstate.init(&g.sim.states)
 	g.sim.detection = detection.BUILTIN
 	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
 	g.sim.combat = combat.BUILTIN
@@ -686,6 +688,7 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.sim.actor_bodies)
 	ai.destroy(&g.sim.agents)
 	actor_snapshot_destroy(&g.sim.actors)
+	actorstate.destroy(&g.sim.states)
 	plugin.destroy(&g.plugins)
 	render.release_mesh(&g.r, g.actor_mesh)
 	delete(g.sim.drops)

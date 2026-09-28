@@ -20,7 +20,7 @@ Furniture_Hook :: struct {
 }
 
 // Posture is how an actor holds its seat.
-// (hole actor-states :tags (animation ai unclaimed) :sev blocker) Posture is AI-only; it folds into the one actor-state model.
+// (hole actor-states :tags (animation ai unclaimed) :sev blocker) Posture is AI-only; it folds into src/actorstate.
 Posture :: enum u8 {
 	Standing,
 	Sitting,

@@ -6,6 +6,7 @@ package main
 import "core:strings"
 import "core:time"
 
+import "../actorstate"
 import "../ai"
 import "../audio"
 import "../combat"
@@ -29,6 +30,7 @@ Sim :: struct {
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	agents:       ai.World, // every actor's running package
 	detection:    detection.Table, // who sees whom: the built-in or a plugin's
+	states:       actorstate.Model, // what each actor does with its body
 	combat:       combat.Table, // who fights whom: the built-in brain or a plugin's
 	actors:       Actor_Snapshot, // the loaded actors as the seams see them
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref, the one the player controls too
