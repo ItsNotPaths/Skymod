@@ -20,7 +20,7 @@ close :: proc(a, b: f32) -> bool {return math.abs(a - b) < 0.01}
 @(test)
 test_fixed_tick_interpolation :: proc(t: ^testing.T) {
 	poses_interpolate(t)
-	character_render_position_interpolates(t)
+	character_step_spans_the_move(t)
 	ray_hits_nearest_first(t)
 }
 
@@ -91,7 +91,7 @@ poses_interpolate :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-character_render_position_interpolates :: proc(t: ^testing.T) {
+character_step_spans_the_move :: proc(t: ^testing.T) {
 	w, ok := physics.world_create()
 	testing.expect(t, ok, "world_create")
 	defer physics.world_destroy(&w)
@@ -108,16 +108,14 @@ character_render_position_interpolates :: proc(t: ^testing.T) {
 	to := physics.character_position(&c)
 	testing.expect(t, to.x > from.x, "the capsule should have walked +X over one tick")
 
-	testing.expect(t, close(physics.character_render_position(&c, 0).x, from.x), "alpha 0 is the tick's start")
-	testing.expect(t, close(physics.character_render_position(&c, 1).x, to.x), "alpha 1 is the live position")
-	testing.expect(
-		t, close(physics.character_render_position(&c, 0.5).x, (from.x + to.x) * 0.5),
-		"alpha 0.5 is the midpoint",
-	)
+	sf, st := physics.character_step(&c)
+	testing.expect(t, close(sf.x, from.x), "the step starts where the move started")
+	testing.expect(t, close(st.x, to.x), "the step ends at the live position")
 
-	// A teleport has nothing to blend from: every alpha lands on the destination.
+	// A teleport has nothing to blend from: the step is the destination alone.
 	physics.character_set_position(&c, {700, 0, 0})
-	testing.expect(t, close(physics.character_render_position(&c, 0).x, 700), "teleport lands outright")
+	sf, st = physics.character_step(&c)
+	testing.expect(t, close(sf.x, 700) && close(st.x, 700), "teleport lands outright")
 }
 
 // A capsule fits beside or on top of a box, not inside it (actor spawns avoid clipping furniture).

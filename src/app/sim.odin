@@ -117,10 +117,29 @@ Snapshot :: struct {
 	tick:   u64,
 	player: Segment, // the player's feet
 	bodies: physics.Poses, // every dynamic body in the active world
+	actors: [dynamic]Actor_View,
+	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
 }
 
 snapshot_destroy :: proc(s: ^Snapshot) {
 	physics.poses_destroy(&s.bodies)
+	delete(s.actors)
+	delete(s.text)
+}
+
+// Text_Span is a string copied into Snapshot.text.
+Text_Span :: struct {
+	at, len: int,
+}
+
+add_text :: proc(s: ^Snapshot, str: string) -> Text_Span {
+	span := Text_Span{len(s.text), len(str)}
+	append(&s.text, str)
+	return span
+}
+
+text :: proc(s: ^Snapshot, span: Text_Span) -> string {
+	return string(s.text[span.at:][:span.len])
 }
 
 Segment :: struct {
@@ -137,12 +156,14 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 publish_snapshot :: proc(g: ^Game) {
 	s := &g.snap_back
 	s.tick = g.tick.total
-	if g.char_ok {s.player = {g.character.prev, physics.character_position(&g.character)}}
+	clear(&s.text)
+	if g.char_ok {s.player.from, s.player.to = physics.character_step(&g.character)}
 	if g.cur_phys != nil {
 		physics.capture_poses(g.cur_phys, &s.bodies)
 	} else {
 		clear(&s.bodies.list)
 		clear(&s.bodies.at)
 	}
+	view_actors(g, s)
 	publish(&g.snaps, s)
 }

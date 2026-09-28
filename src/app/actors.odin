@@ -27,14 +27,13 @@ import "../worldstate"
 // (hole actor-fall-through :tags physics :sev gap) a capsule waits for its own cell's collision, but one standing on a neighbour cell's props can still spawn before that cell cooks, and nothing catches a falling actor (no out-of-bounds recovery).
 // (hole actor-ragdoll :tags (combat physics) :sev gap :needs (animation actor-states combat-damage)) a dead actor keeps its standing capsule; nothing falls as a ragdoll.
 
-// (hole anim-state-snapshot :tags (threading animation) :sev gap :needs (actor-view)) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
+// (hole anim-state-snapshot :tags (threading animation) :sev gap) the actor view carries only the capsule. Wanted: per actor the state, heading and (clip, t, weight) layers with transition info, so main samples the full skeleton at an interpolated t and cuts on a clip change.
 // Actor_Body is an actor's capsule. `placed` is the ref position it was last put at, so a script
-// move teleports it and a fall does not. `dead` is copied each tick, so drawing never reads worldstate.
+// move teleports it and a fall does not.
 Actor_Body :: struct {
 	char:    physics.Character,
 	placed:  smath.Vec3,
 	capsule: Capsule,
-	dead:    bool,
 }
 
 Capsule :: struct {
@@ -85,7 +84,6 @@ tick_actor_bodies :: proc(g: ^Game) {
 		if form in seen {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
-			b.dead = worldstate.is_dead(&g.ws, &g.db, form)
 			if form == g.carried.actor { // the dev carry pins it where main holds it
 				physics.character_set_position(&b.char, g.carried.at - {0, 0, b.capsule.half_h + b.capsule.radius})
 				actor_publish(g, form, &b, {})
@@ -219,33 +217,57 @@ actor_bodies_clear :: proc(g: ^Game) {
 	clear(&g.actor_bodies)
 }
 
-// actor_box is the wire box drawn and picked for an actor capsule, from its feet to its top.
-@(private = "file")
-actor_box :: proc(g: ^Game, b: ^Actor_Body, grow: f32 = 0) -> [2]smath.Vec3 {
-	feet := physics.character_render_position(&b.char, g.tick.alpha)
-	r := b.capsule.radius + grow
-	return {feet - {r, r, grow}, feet + {r, r, 2 * (b.capsule.half_h + b.capsule.radius) + grow}}
+// Actor_View is an actor as the snapshot shows it to main.
+Actor_View :: struct {
+	form:    Form_ID,
+	feet:    Segment,
+	capsule: Capsule,
+	dead:    bool,
+	combat:  ai.Combat_State,
+	name:    Text_Span, // in Snapshot.text
 }
 
-// (hole actor-pick :tags threading :sev gap :needs (actor-view)) pick_actor reads g.actor_bodies and Jolt characters; it must pick against the actor view.
+// view_actors fills the snapshot's actor views from the sim's capsules.
+view_actors :: proc(g: ^Game, s: ^Snapshot) {
+	clear(&s.actors)
+	for f, &b in g.actor_bodies {
+		from, to := physics.character_step(&b.char)
+		append(&s.actors, Actor_View {
+			form    = f,
+			feet    = {from, to},
+			capsule = b.capsule,
+			dead    = worldstate.is_dead(&g.ws, &g.db, f),
+			combat  = ai.combat_state(&g.agents, f),
+			name    = add_text(s, worldstate.display_name(&g.ws, &g.db, f)),
+		})
+	}
+}
+
+// actor_box is the wire box drawn and picked for an actor capsule, from its feet to its top.
+@(private = "file")
+actor_box :: proc(g: ^Game, v: Actor_View, grow: f32 = 0) -> [2]smath.Vec3 {
+	feet := blend(v.feet, g.tick.alpha)
+	r := v.capsule.radius + grow
+	return {feet - {r, r, grow}, feet + {r, r, 2 * (v.capsule.half_h + v.capsule.radius) + grow}}
+}
+
 // pick_actor is the nearest actor box along a ray.
 pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f32, ok: bool) {
 	dist = max(f32)
-	for f, &b in g.actor_bodies {
-		box := actor_box(g, &b)
+	for v in g.snap.actors {
+		box := actor_box(g, v)
 		if t, hit := world.ray_aabb(origin, dir, box[0], box[1]); hit && t < dist {
-			form, dist, ok = f, t, true
+			form, dist, ok = v.form, t, true
 		}
 	}
 	return
 }
 
-// (hole actor-view :tags (threading render ai) :sev gap) draw_actor_bodies and draw_actor_nametags walk g.actor_bodies, Jolt characters, worldstate (name, dead) and ai combat state on main. Wanted: an actor view in the snapshot (form, pose, capsule, name, dead, combat).
 // draw_actor_bodies draws each NPC capsule see-through in its own colour; the hovered one is near opaque.
 draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	render.release_mesh(&g.r, g.actor_mesh)
 	g.actor_mesh = {}
-	if len(g.actor_bodies) == 0 {return}
+	if len(g.snap.actors) == 0 {return}
 	Range :: struct {
 		form:        Form_ID,
 		first, count: u32,
@@ -254,11 +276,11 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	verts := make([dynamic]render.Mesh_Vertex, context.temp_allocator)
 	idx := make([dynamic]u16, context.temp_allocator)
 	ranges := make([dynamic]Range, context.temp_allocator)
-	for f, &b in g.actor_bodies {
+	for v in g.snap.actors {
 		if len(verts) > 60000 {break}
 		first := u32(len(idx))
-		emit_capsule(&verts, &idx, physics.character_render_position(&b.char, g.tick.alpha), b.capsule)
-		append(&ranges, Range{f, first, u32(len(idx)) - first, b.dead})
+		emit_capsule(&verts, &idx, blend(v.feet, g.tick.alpha), v.capsule)
+		append(&ranges, Range{v.form, first, u32(len(idx)) - first, v.dead})
 	}
 	g.actor_mesh = render.upload_mesh(&g.r, verts[:], idx[:])
 	for rg in ranges {
@@ -277,18 +299,18 @@ draw_actor_nametags :: proc(g: ^Game) {
 	w, h := ui_screen_size()
 	vp := camera_view_proj(g.cam, render.aspect(&g.r))
 	dl := imgui.GetBackgroundDrawList(imgui.GetMainViewport()) // no current window after a load screen closes the frame
-	for f, &b in g.actor_bodies {
-		feet := physics.character_render_position(&b.char, g.tick.alpha)
+	for v in g.snap.actors {
+		feet := blend(v.feet, g.tick.alpha)
 		if linalg.length(feet - g.cam.pos) > NAMETAG_RANGE {continue}
-		top := feet + {0, 0, 2 * (b.capsule.half_h + b.capsule.radius) + 12}
+		top := feet + {0, 0, 2 * (v.capsule.half_h + v.capsule.radius) + 12}
 		clip := vp * [4]f32{top.x, top.y, top.z, 1}
 		if clip.w <= 0 {continue}
-		name := fmt.ctprintf("%s (DEAD)" if b.dead else "%s", worldstate.display_name(&g.ws, &g.db, f))
+		name := fmt.ctprintf("%s (DEAD)" if v.dead else "%s", text(&g.snap, v.name))
 		size := imgui.CalcTextSize(name)
 		at := imgui.Vec2{(clip.x / clip.w * 0.5 + 0.5) * w - size.x / 2, (0.5 - clip.y / clip.w * 0.5) * h - size.y}
 		imgui.DrawList_AddRectFilled(dl, at - NAMETAG_PAD, at + size + NAMETAG_PAD, 0xC000_0000, 3)
-		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(f, b.dead)), name)
-		#partial switch ai.combat_state(&g.agents, f) {
+		imgui.DrawList_AddText(dl, at, ui_pack_color(actor_color(v.form, v.dead)), name)
+		#partial switch v.combat {
 		case .Combat: combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_20E0)
 		case .Flee:   combat_marker(dl, {at.x + size.x / 2, at.y - NAMETAG_PAD.y - 4}, 0xFF20_D0F0)
 		}

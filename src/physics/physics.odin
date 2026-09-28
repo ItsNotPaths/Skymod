@@ -841,8 +841,8 @@ character_destroy :: proc(c: ^Character) {
 // character_move advances the character one fixed tick: `horiz` = desired world XY velocity
 // (units/s), `jump` requests a hop when grounded; gravity is integrated internally. The
 // CharacterVirtual collides-and-slides against the world (incl. its own sweep, so no
-// tunneling). Call it once per TICK with the tick dt, not per rendered frame — the camera
-// reads character_render_position to fill the gap between ticks.
+// tunneling). Call it once per TICK with the tick dt, not per rendered frame — drawing blends
+// character_step to fill the gap between ticks.
 character_move :: proc(w: ^World, c: ^Character, horiz: [2]f32, jump: bool, dt: f32) {
 	c.prev = character_position(c)
 	grounded := jolt.CharacterBase_GetGroundState(cast(^jolt.CharacterBase)c.cv) == .OnGround
@@ -880,12 +880,10 @@ character_set_position :: proc(c: ^Character, feet: [3]f32) {
 	c.prev = feet // a teleport has nothing to blend from — land there outright
 }
 
-// character_render_position is where to draw the eye between fixed ticks: the last two move
-// results blended by `alpha` (1 = the live position). Rendering off character_position instead
-// makes the camera step in 60 Hz jerks on a faster display.
-character_render_position :: proc(c: ^Character, alpha: f32) -> [3]f32 {
-	cur := character_position(c)
-	return c.prev + (cur - c.prev) * clamp(alpha, 0, 1)
+// character_step is the segment the feet covered in the last move, for drawing between fixed
+// ticks: `from` equals `to` after a teleport, so a blend never slides across one.
+character_step :: proc(c: ^Character) -> (from, to: [3]f32) {
+	return c.prev, character_position(c)
 }
 
 // capsule_fits is whether an upright capsule standing on `feet` would overlap nothing (a little
