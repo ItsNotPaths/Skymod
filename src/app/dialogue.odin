@@ -194,27 +194,30 @@ line_done :: proc(g: ^Game) {
 	if len(t.choices) == 0 {list_topics(g)}
 }
 
-// (hole subtitles-snapshot :tags (threading ui dialogue) :sev gap) subtitles read ws.scenes, ws.barks and ws.attached on main; they must read published lines.
 // (hole scene-subtitles :tags (ui dialogue) :sev gap) scene lines show in an ImGui box for every speaker in an attached cell, however far away; Skyrim shows them near the player unless the line forces its subtitle, and the real screen is dialogue-screen.
-// frame_subtitles shows the lines scenes and barks are saying now.
-frame_subtitles :: proc(g: ^Game) {
-	lines := make([dynamic]cstring, context.temp_allocator)
-	subtitle :: proc(g: ^Game, lines: ^[dynamic]cstring, speaker, info: Form_ID, response: i32) {
+// view_subtitles fills the snapshot with the lines scenes and barks are saying now.
+view_subtitles :: proc(g: ^Game, s: ^Snapshot) {
+	clear(&s.subtitles)
+	subtitle :: proc(g: ^Game, s: ^Snapshot, speaker, info: Form_ID, response: i32) {
 		if info == 0 || worldstate.ref_grid_cell(&g.ws, &g.db, speaker) not_in g.ws.attached {return}
 		c := dialogue_call(g)
 		if line := dialogue.line_text(&c, info, int(response)); line != "" {
-			append(lines, fmt.ctprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, speaker), line))
+			append(&s.subtitles, add_text(s, fmt.tprintf("%s: %s", worldstate.display_name(&g.ws, &g.db, speaker), line)))
 		}
 	}
 	for _, run in g.ws.scenes {
-		for a in run.actions {subtitle(g, &lines, a.speaker, a.info, a.response)}
+		for a in run.actions {subtitle(g, s, a.speaker, a.info, a.response)}
 	}
-	for b in g.ws.barks {subtitle(g, &lines, b.speaker, b.info, b.response)}
-	if len(lines) == 0 {return}
+	for b in g.ws.barks {subtitle(g, s, b.speaker, b.info, b.response)}
+}
+
+// frame_subtitles shows the snapshot's subtitle lines.
+frame_subtitles :: proc(g: ^Game) {
+	if len(g.snap.subtitles) == 0 {return}
 	w, h := ui_screen_size()
 	imgui.SetNextWindowPos({w * 0.5, h - 40}, .Always, {0.5, 1})
 	if imgui.Begin("Subtitles (placeholder)", nil, {.NoTitleBar, .NoResize, .NoMove, .AlwaysAutoResize, .NoMouseInputs, .NoNavInputs, .NoFocusOnAppearing}) {
-		for l in lines {imgui.TextUnformatted(l)}
+		for l in g.snap.subtitles {imgui.TextUnformatted(fmt.ctprintf("%s", text(&g.snap, l)))}
 	}
 	imgui.End()
 }
