@@ -233,6 +233,7 @@ Game :: struct {
 	// nil when physics is off (free-fly).
 	cur_phys: ^physics.World,
 	published: Placement, // the player's cell and feet as player_publish last wrote them
+	input:     Sim_Input, // the controls the tick reads (sim.odin)
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
 	menu_pick:   [Pane]int, // the selected row of each list pane (menus.odin)

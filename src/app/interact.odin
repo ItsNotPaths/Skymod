@@ -70,7 +70,7 @@ Interact :: struct {
 	dist:     f32, // current reach (wheel-adjusted)
 }
 
-// (hole activate-command :tags (threading input player) :sev gap) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: it appends to ws.activations like a script's Activate, with the target the sim resolved.
+// (hole activate-input :tags (threading input player) :sev gap :needs (hud-target)) the Activate key calls activate() directly on main (VM send, worldstate, doors, menus). Wanted: Sim_Input holds the Activate button; on a press the sim appends its resolved target to ws.activations, like a script's Activate.
 // frame_interact resolves the crosshair target for this frame and drives the Activate action against
 // it. Runs after frame_traversal (auto doors) and frame_inspect, before frame_hud (which publishes
 // g.fr.act to the prompt and draws). A no-op'd target just leaves the reticle.
@@ -121,7 +121,7 @@ frame_interact :: proc(g: ^Game) {
 	}
 }
 
-// (hole cast-command :tags (threading input magic) :sev gap :needs (command-queue)) casting and the sneak toggle call set_sneaking and script.cast_hand on main; they must be commands.
+// (hole cast-input :tags (threading input magic) :sev gap) casting and the sneak toggle call set_sneaking and script.cast_hand on main. Wanted: Sim_Input holds the cast and sneak buttons, and the sim acts on their state.
 // frame_cast casts the spell in a hand when its button fires, at what the crosshair is on, and
 // the Sneak key puts the player in or out of sneak mode.
 frame_cast :: proc(g: ^Game) {
@@ -198,7 +198,7 @@ move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
 	worldstate.relocate(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), tp.pos, tp.rot)
 }
 
-// (hole command-queue :tags (threading input) :sev gap) ws.activations, ws.fires and ws.jail_orders are the only queues into the tick; everything else main does calls sim code directly. Wanted: one Sim_Command queue main fills and the tick drains first.
+// (hole command-queue :tags (threading input) :sev gap) ws.activations, ws.fires and ws.jail_orders are the only queues into the tick; menu actions, dev verbs and the console call sim code directly. Wanted: one Sim_Command queue main fills and the tick drains first. Player controls are Sim_Input state, not commands.
 // tick_activations runs the activations scripts requested since the last tick.
 tick_activations :: proc(g: ^Game) {
 	for a in g.ws.activations {activate(g, a.target, a.by, a.default_only)}
@@ -214,7 +214,7 @@ grab_begin :: proc(g: ^Game) {
 	log.infof("grab: holding 0x%08X — mouse to aim, wheel for reach, release to drop", u32(g.interact.press_form))
 }
 
-// (hole grab-command :tags (threading input physics) :sev gap :needs (command-queue)) telekinesis kicks a Jolt body from main every frame; the sim must hold the grab target and servo it each tick.
+// (hole grab-input :tags (threading input physics) :sev gap) telekinesis kicks a Jolt body from main every frame. Wanted: Sim_Input holds the grab button and reach; the sim holds the grab target and servos it each tick.
 // grab_update servos the held body toward the aim point (down the crosshair ray at the wheel-set
 // reach) each frame. Velocity-driven (not teleported) so it collides on the way and the clutter
 // clamps keep it stable; the body stays awake because we set its velocity every frame.
