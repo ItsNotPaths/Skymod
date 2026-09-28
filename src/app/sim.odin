@@ -15,13 +15,19 @@ Sim_Input :: struct {
 	move:   [3]f32, // x forward, y right, z up (jump); zero while the UI has the keyboard
 	sprint: bool,
 	yaw:    f32, // the camera's: main owns the look
+	fly:    smath.Vec3, // the feet main's free camera flew to, for noclip
 }
 
 // latch_input is this frame's Sim_Input.
 latch_input :: proc(g: ^Game) -> Sim_Input {
-	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw}
+	si := Sim_Input{g.p.input.move, g.p.input.fast, g.cam.yaw, g.cam.pos - {0, 0, EYE_HEIGHT}}
 	if g.fr.kb_cap {si.move = {}}
 	return si
+}
+
+// player_feet is where the sim has the player: the capsule when walking, else where main flew.
+player_feet :: proc(g: ^Game) -> smath.Vec3 {
+	return physics.character_position(&g.character) if g.char_ok && !g.noclip else g.input.fly
 }
 
 // Queue is a list one side appends to and the other drains whole.
@@ -114,8 +120,9 @@ take :: proc(l: ^Latest($T), cur: ^T) -> bool {
 // Snapshot is what the sim shows main after a tick. A pose is the segment it moved along in that
 // tick, so main blends inside the newest snapshot and a teleport (from == to) never slides.
 Snapshot :: struct {
-	tick:   u64,
-	player: Segment, // the player's feet
+	tick:    u64,
+	walking: bool, // the player walks the capsule; else main flies the camera
+	player:  Segment, // the player's feet
 	bodies: physics.Poses, // every dynamic body in the active world
 	actors: [dynamic]Actor_View,
 	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
@@ -156,6 +163,7 @@ blend :: proc(s: Segment, alpha: f32) -> smath.Vec3 {
 publish_snapshot :: proc(g: ^Game) {
 	s := &g.snap_back
 	s.tick = g.tick.total
+	s.walking = g.char_ok && !g.noclip
 	clear(&s.text)
 	if g.char_ok {s.player.from, s.player.to = physics.character_step(&g.character)}
 	if g.cur_phys != nil {

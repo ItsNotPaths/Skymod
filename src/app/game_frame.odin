@@ -150,7 +150,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event dialogue-commands sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sight-view-input activate-input cast-input grab-input console-command force-greet-event dialogue-commands sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-events-back stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
@@ -381,11 +381,12 @@ frame_scene_select :: proc(g: ^Game) {
 	// or the experimental portal interior, which has none) → no capsule → free-fly.
 	want_phys := g.fr.active_scene.phys
 	if want_phys != g.cur_phys {
+		feet := player_feet(g)
 		if g.char_ok {physics.character_destroy(&g.character);g.char_ok = false}
 		actor_bodies_clear(g)
 		if want_phys != nil {
 			player_capsule := actor_capsule(g, formid.PLAYER)
-			g.character, g.char_ok = physics.character_create(want_phys, g.cam.pos - {0, 0, EYE_HEIGHT}, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
+			g.character, g.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(formid.PLAYER))
 			if !g.char_ok {g.noclip = true}
 		}
 		g.cur_phys = want_phys
@@ -406,7 +407,9 @@ frame_look :: proc(g: ^Game) {
 // frame_camera instead — no solver, so it has nothing to keep deterministic.
 @(private = "file")
 tick_locomotion :: proc(g: ^Game) {
-	if !g.char_ok || g.noclip {
+	if !g.char_ok {return}
+	if g.noclip {
+		physics.character_set_position(&g.character, g.input.fly) // keep the body under the free camera
 		return
 	}
 	move := g.input.move
@@ -425,14 +428,13 @@ tick_locomotion :: proc(g: ^Game) {
 // camera flown at render rate.
 @(private = "file")
 frame_camera :: proc(g: ^Game) {
-	if g.char_ok && !g.noclip {
+	if g.snap.walking {
 		g.cam.pos = blend(g.snap.player, g.tick.alpha) + {0, 0, EYE_HEIGHT}
 		return
 	}
 	move := g.p.input.move
 	if g.fr.kb_cap {move = {}}
 	camera_fly(&g.cam, move, g.p.input.fast, g.p.dt)
-	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)} // keep the body under the free camera
 }
 
 // frame_debug_verbs handles the physics-verification keys: G drop-test ball, K hitbox
@@ -551,13 +553,13 @@ Placement :: struct {
 // (interior, or exterior grid cell), the position, and the heading. player_follow compares against it.
 player_publish :: proc(g: ^Game) {
 	cell := g.trav.cur_int_cell
-	feet := g.cam.pos - {0, 0, EYE_HEIGHT}
+	feet := player_feet(g)
 	if g.trav.mode != .Interior {
 		// (hole worldspace-owner :tags (threading world) :sev gap :needs (sim-struct)) player_publish and traversal read the worldspace from the streamer (st.world_fid); the sim must own the active worldspace and tell the streamer.
 		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
 		cell = gamedb.cell_under(&g.db, world_fid, feet)
 	}
-	heading := math.PI / 2 - g.cam.yaw
+	heading := math.PI / 2 - g.input.yaw
 	worldstate.set_moved(&g.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	g.published = {cell, feet}
 }
@@ -644,23 +646,24 @@ frame_traversal :: proc(g: ^Game) {
 	if g.interiors_on {
 		return
 	}
-	traversal_arrival_update(&g.trav, g.cam.pos) // re-arm auto-fire once clear of the last landing
+	eye := player_feet(g) + {0, 0, EYE_HEIGHT}
+	traversal_arrival_update(&g.trav, eye) // re-arm auto-fire once clear of the last landing
 	// Auto-load only: the nearest door scan exists to catch the invisible markers the crosshair can't
 	// hit. A manual door found here is ignored — Activate crosses it via the crosshair (frame_interact).
-	hit := traversal_nearest_door(&g.trav, g.cam.pos)
+	hit := traversal_nearest_door(&g.trav, eye)
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
 		push(&g.events, Evt_Door{hit})
 	}
 }
 
-// (hole camera-from-sim :tags (threading player) :sev gap) the tick reads g.cam.pos (capsule creation in frame_scene_select, frame_traversal, player_publish) and player_teleport writes g.cam. Wanted: the sim owns the player's feet; main's camera is the published eye plus main's own look.
-// player_teleport moves the player's feet outright — camera AND capsule. Both must move:
-// frame_camera reads the eye position back off the capsule, so setting only the camera snaps
-// straight back next frame. A crossing that also swaps physics world leaves the capsule to frame_scene_select
-// (which re-creates it in the new world at this camera position); setting it here first is
-// harmless there and is what carries the same-world case, a city gate.
+// player_teleport moves the player's feet outright — camera AND capsule. Main runs it with the sim
+// parked. Both must move: frame_camera reads the eye back off the published capsule, so setting
+// only the camera snaps straight back next frame. A crossing that also swaps physics world leaves
+// the capsule to frame_scene_select (which re-creates it in the new world at player_feet);
+// setting it here first is harmless there and is what carries the same-world case, a city gate.
 player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	g.cam.pos, g.cam.yaw, g.cam.pitch = feet + {0, 0, EYE_HEIGHT}, yaw, pitch
+	g.input.fly, g.input.yaw = feet, yaw // the rest of this frame's ticks see the move
 	if g.char_ok {physics.character_set_position(&g.character, feet)}
 	publish_snapshot(g)
 }
