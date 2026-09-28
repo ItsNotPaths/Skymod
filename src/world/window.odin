@@ -16,8 +16,7 @@ WINDOW_BUDGET :: 2
 Window :: struct {
 	world_fid:  Form_ID, // the worldspace of the live grid cells; 0 = none
 	radius:     int, // half-size in cells
-	center:     [2]i32,
-	has_center: bool,
+	center:     Maybe([2]i32), // nil until the first update
 	pending:    [dynamic]Form_ID, // cells to make live, nearest last
 }
 
@@ -27,8 +26,9 @@ set_world :: proc(sp: ^Space, db: ^gamedb.DB, world_fid: Form_ID, radius: int) {
 	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
 	for cell in sp.cells {append(&cells, cell)}
 	for cell in cells {drop_cell(sp, cell)}
-	clear(&sp.window.pending)
-	sp.window = {world_fid = world_fid, radius = radius, pending = sp.window.pending}
+	pending := sp.window.pending
+	clear(&pending)
+	sp.window = {world_fid = world_fid, radius = radius, pending = pending}
 	n := index_persistent(sp, db, world_fid)
 	log.infof("window: indexed %d persistent refs across %d grid cells", n, len(sp.persistent))
 }
@@ -37,9 +37,9 @@ set_world :: proc(sp: ^Space, db: ^gamedb.DB, world_fid: Form_ID, radius: int) {
 window_update :: proc(sp: ^Space, db: ^gamedb.DB, feet: smath.Vec3, budget := WINDOW_BUDGET) {
 	w := &sp.window
 	if w.world_fid == 0 {return}
-	if at := grid_of(feet); !w.has_center || at != w.center {
-		w.center, w.has_center = at, true
-		replan(sp, db)
+	if at := grid_of(feet); w.center != at {
+		w.center = at
+		replan(sp, db, at)
 	}
 	for n := 0; n < budget && len(w.pending) > 0; n += 1 {
 		cell := pop(&w.pending)
@@ -58,12 +58,12 @@ grid_of :: proc(pos: smath.Vec3) -> [2]i32 {
 
 // replan drops the live grid cells outside the window and queues the missing ones, nearest last.
 @(private = "file")
-replan :: proc(sp: ^Space, db: ^gamedb.DB) {
+replan :: proc(sp: ^Space, db: ^gamedb.DB, center: [2]i32) {
 	w := &sp.window
 	r := i32(w.radius)
 	gone := make([dynamic]Form_ID, 0, 16, context.temp_allocator)
 	for cell, c in sp.cells {
-		if c.has_grid && max(abs(c.gx - w.center.x), abs(c.gy - w.center.y)) > r {append(&gone, cell)}
+		if c.has_grid && max(abs(c.gx - center.x), abs(c.gy - center.y)) > r {append(&gone, cell)}
 	}
 	for cell in gone {drop_cell(sp, cell)}
 
@@ -74,7 +74,7 @@ replan :: proc(sp: ^Space, db: ^gamedb.DB) {
 	want := make([dynamic]Want, 0, (2 * r + 1) * (2 * r + 1), context.temp_allocator)
 	for dy in -r ..= r {
 		for dx in -r ..= r {
-			cell, ok := gamedb.cell_at(db, w.world_fid, w.center.x + dx, w.center.y + dy)
+			cell, ok := gamedb.cell_at(db, w.world_fid, center.x + dx, center.y + dy)
 			if ok && cell not_in sp.cells {append(&want, Want{cell, max(abs(dx), abs(dy))})}
 		}
 	}

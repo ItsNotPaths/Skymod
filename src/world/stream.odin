@@ -167,7 +167,6 @@ stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 	if len(st.workers) == 0 {return}
 	#partial switch v in e {
 	case Cell_Added:
-		drop_chunk(st, v.cell)
 		chunk := chunk_meta(st.db, v.cell) // grid/bounds only: no terrain mesh, no near instances
 		populate(&chunk, v.refs)
 		expand_scene_bounds(st.scene, chunk)

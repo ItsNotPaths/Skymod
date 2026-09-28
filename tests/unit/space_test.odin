@@ -149,5 +149,13 @@ test_window_follows_the_player :: proc(t: ^testing.T) {
 	world.window_update(&sp, &db, at(3), budget = max(int))
 	testing.expect_value(t, live_set(&sp), bit_set[0 ..< 5]{2, 3, 4})
 	testing.expect(t, world.window_ready(&sp, &db, at(4)), "a live cell is ready")
+
+	// A new worldspace retires every live cell, and main hears of each.
 	for e in sp.changes {world.ref_event_destroy(e)}
+	clear(&sp.changes)
+	world.set_world(&sp, &db, WINDOW_WORLD + 1, 1)
+	testing.expect_value(t, len(sp.cells), 0)
+	testing.expect_value(t, len(sp.changes), 3)
+	world.window_update(&sp, &db, at(3))
+	testing.expect_value(t, len(sp.cells), 0) // the new worldspace has no grid cells here
 }
