@@ -608,7 +608,11 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// every registered native is a live command; it reads/writes the worldstate overlay
 	// (`ws`) over the gamedb baseline (`db`). `&g.sim.noclip` lets the tcl/noclip command
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
-	if settings.get_bool(g.cfg, "native_plugins") {plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR))}
+	trust: plugin.Trust
+	trust_path, _ := filepath.join({base, plugin.TRUST_FILE}, context.temp_allocator)
+	plugin.trust_load(&trust, trust_path)
+	plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR), &trust)
+	plugin.trust_destroy(&trust)
 	g.sim.detection = detection.BUILTIN
 	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
 	g.sim.combat = combat.BUILTIN

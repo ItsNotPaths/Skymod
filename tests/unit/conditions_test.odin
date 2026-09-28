@@ -969,7 +969,7 @@ test_conditions_package_data :: proc(t: ^testing.T) {
 test_conditions_plugin :: proc(t: ^testing.T) {
 	p: plugin.Plugins
 	defer plugin.destroy(&p)
-	plugin.load(&p, {TEST_PLUGINS})
+	load_test_plugins(&p)
 	was := conditions.table
 	defer conditions.table = was
 	plugin.apply(&p, condfn.SEAM, condfn.VERSION, &conditions.table)

@@ -68,7 +68,7 @@ test_combat_brain :: proc(t: ^testing.T) {
 test_combat_plugin :: proc(t: ^testing.T) {
 	p: plugin.Plugins
 	defer plugin.destroy(&p)
-	plugin.load(&p, {TEST_PLUGINS})
+	load_test_plugins(&p)
 	table := combat.BUILTIN
 	plugin.apply(&p, combat.SEAM, combat.VERSION, &table)
 	h := Fake_Combat{confidence = 2}

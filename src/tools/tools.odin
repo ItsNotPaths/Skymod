@@ -481,6 +481,8 @@ Mod_Entry_View :: struct {
 	enabled:   bool,
 	locked:    bool, // base game: checked, non-interactive, can't move
 	separator: bool, // organizational divider (no checkbox/plugins)
+	native:    bool, // ships native plugins (native/)
+	trusted:   bool, // the user allowed its native code, as it is now
 }
 
 // Plugin_Row_View is one row of the derived plugin load order (right panel). source = the providing
@@ -511,6 +513,7 @@ Mod_Manager_Result :: struct {
 	switch_profile: int, // profile-picker row to switch to, or -1
 	create_profile: bool,
 	auto_disable_missing: bool, // "Auto-disable dependents" clicked (resolve missing masters)
+	trust_toggled:  int, // mod row whose "allow native code" was clicked, or -1
 }
 
 // MOD_DND_PAYLOAD is the drag-drop payload type tag for reordering mod-list stripes.
@@ -549,7 +552,7 @@ mod_manager_screen :: proc(
 	plugins_view: []Plugin_Row_View,
 	missing: []Missing_Master_View,
 ) -> (r: Mod_Manager_Result) {
-	r = {action = .None, toggled = -1, move_from = -1, move_to = -1, switch_profile = -1}
+	r = {action = .None, toggled = -1, move_from = -1, move_to = -1, switch_profile = -1, trust_toggled = -1}
 
 	vp := imgui.GetMainViewport()
 	imgui.SetNextWindowPos(vp.WorkPos, .Always)
@@ -619,6 +622,16 @@ mod_manager_screen :: proc(
 				imgui.SameLine()
 				imgui.Selectable(fmt.ctprintf("%s##row%d", e.name, i), false) // the draggable stripe
 				mod_row_dnd(&r, idx)
+				if e.native {
+					imgui.Indent()
+					t := e.trusted
+					if imgui.Checkbox(fmt.ctprintf("allow native code##n%d", i), &t) {r.trust_toggled = i}
+					if !e.trusted {
+						imgui.SameLine()
+						imgui.TextColored({0.95, 0.70, 0.30, 1}, "full access to this computer: only for mods you trust")
+					}
+					imgui.Unindent()
+				}
 			}
 			imgui.Spacing()
 			imgui.Separator()

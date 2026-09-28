@@ -79,7 +79,7 @@ test_detection_tick :: proc(t: ^testing.T) {
 test_detection_plugin_judge :: proc(t: ^testing.T) {
 	p: plugin.Plugins
 	defer plugin.destroy(&p)
-	plugin.load(&p, {TEST_PLUGINS})
+	load_test_plugins(&p)
 	table := detection.BUILTIN
 	plugin.apply(&p, detection.SEAM, detection.VERSION, &table)
 	sets := detect(t, &table, {}, 1)

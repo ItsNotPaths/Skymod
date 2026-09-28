@@ -51,26 +51,37 @@ Plugins :: struct {
 	owners: map[string]string, // seam -> the path of the plugin that last changed it
 }
 
-// (hole plugin-trust-prompt :tags (plugins ui) :sev gap) native code has full trust, but the only gate is the native_plugins setting: nothing asks the user once for each plugin.
-// load opens every plugin in `dirs`, lowest priority first; in one dir, by name.
-load :: proc(p: ^Plugins, dirs: []string) {
+// load opens every trusted plugin in `dirs`, lowest priority first; in one dir, by name.
+load :: proc(p: ^Plugins, dirs: []string, trust: ^Trust) {
 	for dir in dirs {
-		infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
-		if err != nil {continue}
-		slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
-		for fi in infos {
-			if !strings.has_suffix(strings.to_lower(fi.name, context.temp_allocator), EXT) {continue}
-			path, _ := filepath.join({dir, fi.name})
+		for path in native_files(dir) {
+			if !trusted(trust, path) {
+				log.infof("plugin: %s is not trusted; allow its mod's native code in the mod manager", path)
+				continue
+			}
 			lib, ok := dynlib.load_library(path)
 			if !ok {
 				log.errorf("plugin: cannot load %s: %s", path, dynlib.last_error())
-				delete(path)
 				continue
 			}
-			append(&p.list, Plugin{path, lib})
+			append(&p.list, Plugin{strings.clone(path), lib})
 			log.infof("plugin: loaded %s", path)
 		}
 	}
+}
+
+// native_files is the plugin files in `dir`, by name. Temp-allocated.
+native_files :: proc(dir: string) -> []string {
+	infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
+	if err != nil {return {}}
+	slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
+	out := make([dynamic]string, 0, len(infos), context.temp_allocator)
+	for fi in infos {
+		if !strings.has_suffix(strings.to_lower(fi.name, context.temp_allocator), EXT) {continue}
+		path, _ := filepath.join({dir, fi.name}, context.temp_allocator)
+		append(&out, path)
+	}
+	return out[:]
 }
 
 // apply lets each plugin that exports `name` change `table`, in mod order. A plugin that refuses

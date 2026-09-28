@@ -14,6 +14,7 @@ import "core:path/filepath"
 import "core:strings"
 import "../gamedb"
 import "../mods"
+import "../plugin"
 import "../platform"
 import "../render"
 import "../settings"
@@ -32,6 +33,12 @@ run_mod_manager :: proc(
 	dirty := true // recompute the derived plugin order whenever the mod list changes
 	derived: []Derived_Plugin
 	missing: []gamedb.Missing_Master
+	trust: plugin.Trust
+	defer plugin.trust_destroy(&trust)
+	trust_path, _ := filepath.join({base, plugin.TRUST_FILE}, context.temp_allocator)
+	plugin.trust_load(&trust, trust_path)
+	natives: [dynamic]Native_Mod // by mod row, rebuilt with the derived order
+	defer delete(natives)
 
 	for platform.pump(p) {
 		render.ui_new_frame(r)
@@ -47,6 +54,7 @@ run_mod_manager :: proc(
 			free_derived(derived)
 			free_missing(missing)
 			derived, missing = derive_plugin_order(src, base, profile)
+			native_mods(&natives, &trust, base, profile)
 			dirty = false
 		}
 
@@ -58,6 +66,8 @@ run_mod_manager :: proc(
 				enabled   = m.enabled,
 				locked    = m.locked,
 				separator = m.kind == .Separator,
+				native    = natives[i].native,
+				trusted   = natives[i].trusted,
 			}
 		}
 		plugins_view := make([]tools.Plugin_Row_View, len(derived), context.temp_allocator)
@@ -83,6 +93,12 @@ run_mod_manager :: proc(
 		}
 
 		if res.toggled >= 0 {mods.profile_toggle(profile, res.toggled);dirty = true}
+		if res.trust_toggled >= 0 {
+			on := !natives[res.trust_toggled].trusted
+			for path in plugin.native_files(native_dir(base, profile.mods[res.trust_toggled].name)) {plugin.set_trust(&trust, path, on)}
+			if !plugin.trust_save(&trust) {log.errorf("mods: could not write %s", trust_path)}
+			dirty = true
+		}
 		if res.move_from >= 0 && res.move_to >= 0 {
 			mods.profile_move_to(profile, res.move_from, res.move_to)
 			dirty = true
@@ -160,6 +176,29 @@ run_mod_manager :: proc(
 	free_derived(derived)
 	free_missing(missing)
 	return false // window closed
+}
+
+// Native_Mod is whether a mod ships native plugins, and whether the user allowed all of them.
+Native_Mod :: struct {
+	native, trusted: bool,
+}
+
+// native_mods fills one Native_Mod per mod row. It hashes the plugin files, so it runs only when
+// the list or the trust changes.
+native_mods :: proc(out: ^[dynamic]Native_Mod, trust: ^plugin.Trust, base: string, profile: ^mods.Profile) {
+	clear(out)
+	for m in profile.mods {
+		files := plugin.native_files(native_dir(base, m.name))
+		n := Native_Mod{native = len(files) > 0, trusted = len(files) > 0}
+		for f in files {n.trusted &&= plugin.trusted(trust, f)}
+		append(out, n)
+	}
+}
+
+// native_dir is a user mod's plugin folder. Temp-allocated.
+native_dir :: proc(base, mod: string) -> string {
+	d, _ := filepath.join({mods_root(base), mod, plugin.DIR}, context.temp_allocator)
+	return d
 }
 
 // switch_profile reloads `profile` in place from <base>/modprofiles/<name>/modlist.txt, reconciled

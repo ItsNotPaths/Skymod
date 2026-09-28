@@ -53,7 +53,7 @@ test_sight_model :: proc(t: ^testing.T) {
 test_sight_plugin :: proc(t: ^testing.T) {
 	p: plugin.Plugins
 	defer plugin.destroy(&p)
-	plugin.load(&p, {TEST_PLUGINS})
+	load_test_plugins(&p)
 	tb := sight.BUILTIN
 	plugin.apply(&p, sight.SEAM, sight.VERSION, &tb)
 	f := Fake_Sight{hits = {{owner = 0xB1}}}
