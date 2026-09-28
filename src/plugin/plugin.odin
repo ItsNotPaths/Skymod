@@ -27,6 +27,7 @@ items :: proc "contextless" (s: Span($T)) -> []T {return s.data[:s.len]}
 
 Form_ID :: formid.Form_ID
 
+// (hole world-api :tags (plugins mods) :sev gap) each seam's Host holds only what its built-in reads, so a plugin can ask nothing more, and shared queries (actor_value, setting) are declared per seam. Wanted: one broad read-only world API here, every Host embedding it: refs, actor values, factions, keywords, records, awareness, quest stages, GMSTs. Measure first what the built-ins and the script natives read from worldstate and gamedb.
 // Actor is one loaded actor in the snapshot that every seam reads, built once a tick.
 Actor :: struct {
 	id:       Form_ID,

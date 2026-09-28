@@ -1,5 +1,6 @@
 package main
 
+// (hole seam-adapters :tags plugins :sev struct :needs (world-api)) the seams' host procs live in four places (here, ai/combat.odin, sighthost, conditions/seam.odin), and each writes its own copy of the shared queries. Wanted: the world-api answered once; each place keeps only its seam's own queries.
 // The host side of the plugin seams (ws.md Workstream H): the actor snapshot every seam reads, and
 // each seam's host procs over worldstate.
 
