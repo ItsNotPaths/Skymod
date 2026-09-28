@@ -560,23 +560,23 @@ content_mod_dirs :: proc(base: string, alloc := context.temp_allocator) -> []str
 	return out[:]
 }
 
-// script_dirs lists every mod's scripts/ folder, lowest priority first: the content mods (the
+// mod_dirs lists every mod's `sub` folder, lowest priority first: the content mods (the
 // converted base game's content/basescripts among them) by name, then each enabled user mod in
-// profile order. The script loader layers a script's files in this order. Temp-allocated.
-script_dirs :: proc(base: string, profile: ^mods.Profile) -> []string {
+// profile order. Scripts and native plugins layer in this order. Temp-allocated.
+mod_dirs :: proc(base: string, profile: ^mods.Profile, sub: string) -> []string {
 	out := make([dynamic]string, 0, 16, context.temp_allocator)
 	content, _ := filepath.join({base, installer.CONTENT_DIR}, context.temp_allocator)
 	if infos, err := os.read_all_directory_by_path(content, context.temp_allocator); err == nil {
 		slice.sort_by(infos, proc(a, b: os.File_Info) -> bool {return a.name < b.name})
 		for fi in infos {
-			d, _ := filepath.join({content, fi.name, installer.SCRIPTS_DIR}, context.temp_allocator)
+			d, _ := filepath.join({content, fi.name, sub}, context.temp_allocator)
 			append(&out, d)
 		}
 	}
 	root := mods_root(base)
 	for mod in mods.profile_enabled_mods(profile, context.temp_allocator) {
 		if mod == mods.BASE_MOD {continue}
-		d, _ := filepath.join({root, mod, installer.SCRIPTS_DIR}, context.temp_allocator)
+		d, _ := filepath.join({root, mod, sub}, context.temp_allocator)
 		append(&out, d)
 	}
 	return out[:]

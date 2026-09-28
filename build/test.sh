@@ -55,6 +55,12 @@ if [ -n "$bad" ]; then
 fi
 echo "  clean"
 
+echo "==> test plugins (tests/plugins -> build/out/test-plugins)"
+mkdir -p build/out/test-plugins
+for dir in tests/plugins/*/; do
+    odin build "$dir" -build-mode:shared -out:"build/out/test-plugins/$(basename "$dir").so"
+done
+
 echo "==> odin test (tests/unit)"
 # Unlike `odin check`, `odin test` LINKS a real binary, and the tests' import graph
 # reaches render -> vendor:sdl3 (via assetdb/world), which emits -lSDL3. Resolve it against

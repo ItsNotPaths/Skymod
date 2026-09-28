@@ -34,10 +34,12 @@ import "../formid"
 import "../gamedb"
 import "../handoff"
 import "../input"
+import "../installer"
 import smath "../math"
 import "../mods"
 import "../physics"
 import "../platform"
+import "../plugin"
 import "../render"
 import slog "../log"
 import "../script"
@@ -140,9 +142,9 @@ PROF_REPORT_TICKS :: 3 * TICK_HZ
 SLOW_TICK_MS :: f32(2000) / TICK_HZ
 
 // Tick_Profile is the sim's time: running totals in ms, and the last ticks one by one.
+// (hole plugin-timing :tags plugins :sev polish) the profile times tick parts, not seam entries: nothing says which plugin costs how many ms.
 Tick_Profile :: struct {
 	ticks:  int,
-// (hole plugin-timing :tags plugins :sev polish) the profile times tick parts, not seam entries: nothing says which plugin costs how many ms.
 	ms:     [Tick_Part]f64,
 	events: [slua.Event_Step]f64, // Script_Events by step
 	recent: [TICK_HISTORY]Tick_Sample, // a ring; tick n is at n % TICK_HISTORY
@@ -205,6 +207,7 @@ Game :: struct {
 
 	// mod profile + save paths
 	mprofile:       mods.Profile,
+	plugins:        plugin.Plugins, // the mods' native plugins, lowest priority first
 	saves_dir:      string,
 	quicksave_path: string,
 
@@ -598,6 +601,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// every registered native is a live command; it reads/writes the worldstate overlay
 	// (`ws`) over the gamedb baseline (`db`). `&g.sim.noclip` lets the tcl/noclip command
 	// toggle the frame loop's own free-fly flag (stable address — a Game field).
+	if settings.get_bool(g.cfg, "native_plugins") {plugin.load(&g.plugins, mod_dirs(base, &g.mprofile, plugin.DIR))}
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)
@@ -607,7 +611,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		g.sim.agents.furniture = {g, actor_furniture_markers}
 		slua.repl_register_cmd(&g.sim.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
 		slua.repl_register_cmd(&g.sim.repl, "possess", "possess [ref] — control an actor; no ref and no selection = the start character", console_cmd_possess, g)
-		slua.set_script_dirs(&g.sim.repl.vm, script_dirs(base, &g.mprofile))
+		slua.set_script_dirs(&g.sim.repl.vm, mod_dirs(base, &g.mprofile, installer.SCRIPTS_DIR))
 		slua.set_profile(&g.sim.repl.vm, slice.contains(os.args, "--profile")) // prof.scripts: each handler's time
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
 		slua.repl_load_rc(&g.sim.repl, rc_path)
@@ -676,6 +680,7 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.sim.actor_bodies)
 	ai.destroy(&g.sim.agents)
 	detection.destroy(&g.sim.detection)
+	plugin.destroy(&g.plugins)
 	render.release_mesh(&g.r, g.actor_mesh)
 	delete(g.sim.drops)
 	delete(g.sim.talk.choices)

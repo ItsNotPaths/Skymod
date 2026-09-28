@@ -39,6 +39,9 @@ DEFAULTS := [?]Default {
 	// Pretty mode: hide the white, untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name-based filter. Also set with --pretty.
 	{"pretty", "true"},
+	// Load the native plugins (.so, .dll) in each enabled mod's native/ folder. A plugin is native
+	// code with full access to your computer: turn this on only for mods you trust.
+	{"native_plugins", "false"},
 	// Exterior render distance as the streaming window half-size in cells: the
 	// loaded square is (2·render_distance + 1)² cells around the player. Higher =
 	// see farther, more to stream/draw. LOD distance settings will join this when
