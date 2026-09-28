@@ -28,7 +28,6 @@ Music :: struct {
 	played:  bool, // a track of this type has started
 }
 
-// (hole audio-triggers-on-sim :tags (threading audio) :sev gap :needs (audio-commands)) music_update and ambient_update run on main and read worldstate and ai.player_in_combat. Wanted: they run in the sim tick and send audio commands.
 music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State, in_combat: bool, dt: f32) {
 	if a.device == 0 {return}
 	if want := wanted_music(a, db, ws, in_combat); want != m.current {
@@ -54,7 +53,7 @@ music_update :: proc(m: ^Music, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^wor
 	for hops := 0; track.kind == .Palette && len(track.children) > 0 && hops < 4; hops += 1 {
 		track = db.music_tracks[rand.choice(track.children)]
 	}
-	if !allowed(db, ws, track.conditions, formid.PLAYER) {return} // the next frame picks again
+	if !allowed(db, ws, track.conditions, formid.PLAYER) {return} // the next tick picks again
 	switch track.kind {
 	case .Silent:
 		m.wait = track.duration
@@ -89,11 +88,11 @@ Ambient :: struct {
 	space:   formid.Form_ID, // the acoustic space whose loop plays
 	loop:    Handle,
 	box:     formid.Form_ID, // the placed acoustic space holding the player, from the last scan
-	frame:   int,
+	tick:    int,
 }
 
-// MARKER_SCAN_FRAMES is how often ambient_update walks the attached cells for sound markers.
-MARKER_SCAN_FRAMES :: 10
+// MARKER_SCAN_TICKS is how often ambient_update walks the attached cells for sound markers.
+MARKER_SCAN_TICKS :: 10
 
 ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	if a.device == 0 {return}
@@ -102,8 +101,8 @@ ambient_update :: proc(am: ^Ambient, a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws:
 		stop(a, am.loop)
 		am.space, am.loop = space, play_descriptor(a, v, db, db.acoustic_loops[space])
 	}
-	am.frame += 1
-	if am.frame % MARKER_SCAN_FRAMES != 0 {return}
+	am.tick += 1
+	if am.tick % MARKER_SCAN_TICKS != 0 {return}
 	want := make(map[formid.Form_ID]bool, context.temp_allocator)
 	feet := worldstate.ref_pos(ws, db, formid.PLAYER)
 	am.box = 0

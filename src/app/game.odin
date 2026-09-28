@@ -121,6 +121,7 @@ Tick_Part :: enum {
 	Projectiles,
 	Physics,
 	Traversal,
+	Audio,
 }
 
 // Tick_Profile is the sim's time over the diag window, in accumulated ms. The script phases are
