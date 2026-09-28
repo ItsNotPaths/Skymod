@@ -148,7 +148,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock traversal-stream-control worldspace-owner active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
@@ -178,7 +178,7 @@ game_tick :: proc(g: ^Game) {
 	t = time.tick_now()
 	tick_projectiles(g)
 	lap(g, .Projectiles, &t)
-	if g.trav.mode == .Exterior {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
+	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
 	frame_physics(g)
 	lap(g, .Physics, &t)
 	frame_traversal(g)
@@ -357,10 +357,8 @@ frame_overlay :: proc(g: ^Game) {
 	}
 }
 
-// (hole active-scene-pointer :tags (threading world) :sev gap) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
-// frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
-// interior (the streamer is paused there). Pure — no side effects — so the frame can call it
-// even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
+// frame_active_scene resolves which scene main draws the player in and whether it's a full-screen
+// interior: the place main was last shown (show_place).
 frame_active_scene :: proc(g: ^Game) {
 	// The experimental open-interiors path keeps its own debug walk-in (`entered`); the base
 	// path is driven by the Traversal door navigator.
@@ -368,8 +366,8 @@ frame_active_scene :: proc(g: ^Game) {
 		g.fr.in_interior = g.entered
 		g.fr.active_scene = &g.interiors.interior_scene if g.entered else &g.scene
 	} else {
-		g.fr.in_interior = g.trav.mode == .Interior
-		g.fr.active_scene = traversal_scene(&g.trav)
+		g.fr.in_interior = g.shown.interior != 0
+		g.fr.active_scene = &g.interior if g.fr.in_interior else &g.scene
 	}
 }
 
@@ -378,7 +376,6 @@ frame_active_scene :: proc(g: ^Game) {
 // capsule re-homes into the active world before it's moved.
 @(private = "file")
 frame_scene_select :: proc(g: ^Game) {
-	frame_active_scene(g)
 
 	// Deferred scene-apply (decision #3): drain the overlay changes script natives wrote this
 	// frame (e.g. a console `sel:Disable()`) into the active space's live cells — the fixed point
@@ -468,7 +465,7 @@ frame_debug_verbs :: proc(g: ^Game) {
 // drop_ball spawns a falling ball (physics verification). Exterior only: the markers read
 // positions from `phys`, so a ball dropped inside an interior (a different world) wouldn't track.
 drop_ball :: proc(g: ^Game, at: smath.Vec3) {
-	if !g.phys_ok || g.fr.in_interior {return}
+	if !g.phys_ok || inside(&g.sim.trav) {return}
 	b := physics.add_sphere(&g.phys, 24, at, is_dynamic = true)
 	if b != 0 {append(&g.sim.drops, b)}
 	log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.sim.drops), at.x, at.y, at.z)
@@ -534,7 +531,7 @@ quickload :: proc(g: ^Game) {
 	world.rebuild_resident_overlay(&g.sim.ext, &g.db)
 	// Back to the saved cell and position, then the load screen builds + solidifies that bubble.
 	// Saved in the interior we stand in: rebuild it so the loaded overlay applies.
-	if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.trav)}
+	if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.sim.trav)}
 	load_screen_stream(g, "Loading save…", 0, 1)
 }
 
@@ -565,13 +562,9 @@ Placement :: struct {
 // player_publish writes the player's feet into its ref's Moved delta: the cell under the player
 // (interior, or exterior grid cell), the position, and the heading. player_follow compares against it.
 player_publish :: proc(g: ^Game) {
-	cell := g.trav.cur_int_cell
+	place := g.sim.trav.place
 	feet := player_feet(g)
-	if g.trav.mode != .Interior {
-		// (hole worldspace-owner :tags (threading world) :sev gap) player_publish and traversal read the worldspace from the streamer (st.world_fid); the sim must own the active worldspace and tell the streamer.
-		world_fid := g.trav.st.world_fid if g.trav.st != nil else 0
-		cell = gamedb.cell_under(&g.db, world_fid, feet)
-	}
+	cell := place.interior if place.interior != 0 else gamedb.cell_under(&g.db, place.world, feet)
 	heading := math.PI / 2 - g.sim.input.yaw
 	worldstate.set_moved(&g.sim.ws, formid.PLAYER, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
 	g.sim.published = {cell, feet}
@@ -593,7 +586,7 @@ player_follow :: proc(g: ^Game) {
 // cross_door takes the player through a load door. Main runs it with the sim parked: the load
 // builds scenes with the renderer and draws its own frames.
 cross_door :: proc(g: ^Game, hit: Door_Hit) {
-	if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
+	if np, nyaw, kind := go_through(&g.sim.trav, hit); kind != .None {
 		player_teleport(g, np, nyaw, 0)
 		traversal_finish_load(g, kind)
 	}
@@ -604,7 +597,7 @@ cross_door :: proc(g: ^Game, hit: Door_Hit) {
 player_restore :: proc(g: ^Game) -> Traversal_Kind {
 	d, ok := worldstate.get(&g.sim.ws, formid.PLAYER)
 	if !ok || .Moved not_in d.live || g.interiors_on {return .None}
-	kind := traversal_go_to(&g.trav, d.cell, d.pos)
+	kind := traversal_go_to(&g.sim.trav, d.cell, d.pos)
 	if kind == .None {return .None}
 	player_teleport(g, d.pos, math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0]), 0)
 	g.sim.published = {d.cell, d.pos}
@@ -614,8 +607,8 @@ player_restore :: proc(g: ^Game) -> Traversal_Kind {
 // frame_physics (Phase 2e): build collision bodies for newly-resolved instances of the ACTIVE
 // world (streamed exterior, or the interior cell) then advance THAT world's sim by one fixed
 // TICK_DT — never a real dt, so the solver converges the same on every machine. Interiors
-// prebuild their bodies on entry (enter_interior), so sync_physics here is a no-op for them;
-// the exterior keeps building as cells stream in.
+// build their bodies behind the load screen (settle_interior), so sync_physics here is a no-op for
+// them; the exterior keeps building as cells stream in.
 @(private = "file")
 frame_physics :: proc(g: ^Game) {
 	if g.sim.cur_phys != nil {
@@ -661,11 +654,11 @@ frame_traversal :: proc(g: ^Game) {
 		return
 	}
 	eye := player_feet(g) + {0, 0, EYE_HEIGHT}
-	traversal_arrival_update(&g.trav, eye) // re-arm auto-fire once clear of the last landing
+	traversal_arrival_update(&g.sim.trav, eye) // re-arm auto-fire once clear of the last landing
 	// Auto-load only: the nearest door scan exists to catch the invisible markers the crosshair can't
 	// hit. A manual door found here is ignored — Activate crosses it via the crosshair (tick_interact).
-	hit := traversal_nearest_door(&g.trav, eye)
-	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
+	hit := traversal_nearest_door(&g.sim.trav, eye)
+	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.sim.trav.has_arrival {
 		push(&g.events, Evt_Door{hit})
 	}
 }
@@ -682,19 +675,49 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	publish_snapshot(g)
 }
 
-// traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
-// already showed its load screen inside go_through (the synchronous decode reported through t.progress);
-// a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here
-// (like Skyrim's city load). An exterior return is instant (kept-warm window) — nothing to do.
+// traversal_finish_load shows main what a transition did, with the load screen it needs. Main runs it
+// with the sim parked. A city gate or a far jump fills the exterior bubble (like Skyrim's city load);
+// an interior loads its models behind its own load screen, then the sim builds its bodies; an exterior
+// return is instant (the live cells stayed).
 traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	switch kind {
 	case .City, .Jump:
-		load_screen_stream(g, "Loading…", 0, 1) // streamer-driven; clears the load screen at its end
+		load_screen_stream(g, "Loading…", 0, 1) // clears the load screen at its end
 	case .Interior:
-		loadui_hide(g) // the interior load ran inside go_through — clear its last frame's quads
-	case .Stay, .Exit, .None:
-	// instant / no transition — no load screen ran
+		catch_up(g)
+		settle_interior(&g.sim.trav)
+		loadui_hide(g)
+	case .Exit:
+		catch_up(g)
+	case .Stay, .None:
 	}
+}
+
+// catch_up has main draw what the parked sim changed: the player's place, then its live cells.
+catch_up :: proc(g: ^Game) {
+	push(&g.events, Evt_Place{g.sim.trav.place})
+	forward_ref_events(g)
+	handle_events(g)
+}
+
+// show_place makes main draw a place: the interior's scene, and the exterior's worldspace.
+show_place :: proc(g: ^Game, p: Place) {
+	if p == g.shown {return}
+	if g.shown.interior != 0 {
+		world.scene_destroy(&g.interior)
+		g.interior = {}
+	}
+	if p.world != g.shown.world {
+		world.stream_retarget(&g.streamer, p.world)
+		world.release_terrain_field(&g.scene)
+		world.build_terrain_field(&g.scene, &g.db, p.world)
+	}
+	if p.interior != 0 {
+		g.interior = world.scene_init(&g.r, &g.v, &g.collisions)
+		g.interior.dynamic_clutter = true
+	}
+	g.shown = p
+	frame_active_scene(g) // the rest of this frame draws the new scene
 }
 
 // frame_inspect is inspect mode: hold Ctrl to highlight the model under the mouse cursor (a
@@ -809,7 +832,7 @@ frame_render :: proc(g: ^Game) {
 	interior_active := g.interiors_on && g.interiors.active
 
 	t_render := time.tick_now()
-	// (hole render-inputs-snapshot :tags (threading render) :sev gap :needs (active-scene-pointer weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
+	// (hole render-inputs-snapshot :tags (threading render) :sev gap :needs (weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
 	env := lighting_env(&g.lights.active, g.cam.pos)
 	shadows_on := g.shadow_dist > 0 && g.lights.active.shadow_strength > 0 && !in_interior
 	cascades: Cascades

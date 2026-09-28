@@ -268,7 +268,7 @@ Scene :: struct {
 	tfield:   Terrain_Field, // CDLOD whole-world height-texture terrain (terrain pivot)
 	tree_billboards: map[Form_ID]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
-	space:    ^Space, // the sim's side of these cells; nil = no sim here (the open-interiors portal view)
+	dynamic_clutter: bool, // the sim gives movable clutter dynamic bodies here (the K view draws them live)
 	collisions: ^assetdb.Collision_Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
 	poses:    ^Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
@@ -486,11 +486,18 @@ Cell_Load_Progress :: #type proc "odin" (user: rawptr, frac: f32)
 // bounded Whiterun load — NOT the streamer (which decodes off-thread). An optional `progress`
 // callback (throttled) reports the per-instance decode fraction so a load screen can show real
 // progress instead of a blocking freeze.
-load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Cell_Load_Progress = nil, user: rawptr = nil) -> int {
+load_cell :: proc(s: ^Scene, sp: ^Space, db: ^gamedb.DB, cell_form_id: Form_ID) -> int {
+	refs := placements(add_cell(sp, db, cell_form_id)) // the sim's cell (refs, actors, terrain body), drawn as placed
+	defer delete(refs)
+	return load_chunk(s, db, cell_form_id, refs)
+}
+
+// load_chunk builds a cell's render chunk from its placements, resolving every model now. Returns
+// the instance count.
+load_chunk :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, refs: []Ref_Placement, progress: Cell_Load_Progress = nil, user: rawptr = nil) -> int {
+	unload_chunk(s, cell_form_id)
 	chunk := chunk_meta(db, cell_form_id)
-	refs := placements(add_cell(s.space, db, cell_form_id)) // the sim's cell (refs, actors, terrain body), drawn as placed
 	populate(&chunk, refs)
-	delete(refs)
 	ninst := len(chunk.instances)
 	for &inst, i in chunk.instances {
 		if m, ok := assetdb.get_model(&s.cache, inst.model_path); ok {
@@ -506,10 +513,17 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	load_water(s, db, &chunk)
 	load_grass(s, db, &chunk)
 	acquire_chunk_assets(s, &chunk) // D1: pin instance + grass models (grass now built)
-	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
-	return n
+	return ninst
+}
+
+// unload_chunk frees a cell's render chunk, if it has one.
+unload_chunk :: proc(s: ^Scene, cell: Form_ID) {
+	chunk, ok := &s.chunks[cell]
+	if !ok {return}
+	release_chunk_assets(s, chunk)
+	delete_key(&s.chunks, cell)
 }
 
 @(private)

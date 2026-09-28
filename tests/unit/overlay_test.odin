@@ -78,7 +78,6 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 	sp: world.Space
 	world.space_init(&sp, nil, nil, &state, false)
 	defer world.space_destroy(&sp)
-	s.space = &sp
 	world.add_cell(&sp, &db, CELL)
 
 	// Rebuild from a fresh overlay → just the ESM baseline.
@@ -182,7 +181,6 @@ test_dirty_created_ref_spawns_live :: proc(t: ^testing.T) {
 	sp: world.Space
 	world.space_init(&sp, nil, nil, &state, false)
 	defer world.space_destroy(&sp)
-	s.space = &sp
 	world.add_cell(&sp, &db, CELL)
 
 	a := ws.create_ref(&state, BASE, CELL, {1, 2, 3}, {0, 0, 0}, 1)

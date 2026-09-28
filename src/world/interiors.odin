@@ -195,9 +195,8 @@ interiors_update :: proc(m: ^Interiors, cam_pos: smath.Vec3) -> bool {
 	unload_interior(m)
 	r, v := m.scene.cache.r, m.scene.cache.v
 	m.interior_scene = scene_init(r, v)
-	m.interior_scene.space = &m.space
 	m.interior_scene.pretty = m.scene.pretty // inherit --pretty from the exterior
-	load_cell(&m.interior_scene, m.db, p.int_cell)
+	load_cell(&m.interior_scene, &m.space, m.db, p.int_cell)
 	m.quad = build_portal_quad(r, v, p)
 	m.has_quad = true
 	m.active = true
@@ -369,6 +368,8 @@ unload_interior :: proc(m: ^Interiors) {
 	}
 	if m.active {
 		scene_destroy(&m.interior_scene)
+		space_clear(&m.space)
+		clear(&m.space.changes) // no one draws these but the scene just destroyed
 		m.active = false
 		m.active_portal = {}
 	}

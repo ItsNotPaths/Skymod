@@ -53,10 +53,9 @@ script_start :: proc(g: ^Game) {
 	worldstate.sim_enter() // the phase's setup is sim work that main still does
 	defer worldstate.sim_leave()
 
-	frame_active_scene(g) // a door crossed since the tick may have switched (or freed) the scene
 	player_publish(g)
 	clear(&st.loaded)
-	for sp in ([]^world.Space{&g.sim.ext, &g.trav.int_space}) {
+	for sp in ([]^world.Space{&g.sim.ext, &g.sim.trav.int_space}) {
 		append(&st.loaded, ..sp.loaded[:])
 		clear(&sp.loaded)
 	}

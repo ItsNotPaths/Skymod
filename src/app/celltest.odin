@@ -66,7 +66,6 @@ when DEVTOOLS {
 		defer world.space_destroy(&space)
 		scene := world.scene_init(r, v, &collisions)
 		defer world.scene_destroy(&scene) // LIFO: runs before space and phys destroy → removes bodies while world lives
-		scene.space = &space
 
 		wfid, wok := gamedb.find_world(&db, "Tamriel")
 		if !wok {
@@ -85,7 +84,7 @@ when DEVTOOLS {
 			for gx in -radius ..= radius {
 				cid, cok := gamedb.cell_at(&db, wfid, CELLTEST_GX + gx, CELLTEST_GY + gy)
 				if cok {
-					world.load_cell(&scene, &db, cid)
+					world.load_cell(&scene, &space, &db, cid)
 					cells += 1
 				}
 			}

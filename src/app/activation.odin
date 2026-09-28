@@ -130,7 +130,7 @@ resolve_activation :: proc(g: ^Game, form: Form_ID) -> Activation_Target {
 	if r.has_tp {
 		// A load door with a mesh (manual door / city gate). Its destination place name is the prompt
 		// subject ("Open Riverwood Trader"). Auto/cave markers have no mesh → never picked → no prompt.
-		t.dest = door_dest_label(&g.trav, gamedb.Form_ID(r.tp_door))
+		t.dest = door_dest_label(&g.db, gamedb.Form_ID(r.tp_door))
 	}
 	// Only surface a prompt for something worth naming: a door always (it has a destination), else
 	// an object with an actual FULL name. Unnamed clutter/activators show nothing (just the reticle).

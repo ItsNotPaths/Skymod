@@ -130,6 +130,7 @@ load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
 		for world.sync_physics(&g.sim.ext, budget = max(int)) > 0 {}
 		physics.optimize_broadphase(&g.phys)
 	}
+	if inside(&g.sim.trav) {settle_interior(&g.sim.trav)} // a quickload rebuilt it
 	loadui_hide(g) // load done → clear the screen so gameplay doesn't keep drawing it
 }
 
@@ -138,9 +139,8 @@ load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
 @(private = "file")
 fill_bubble :: proc(g: ^Game) {
 	sim_drain(g)
-	if g.trav.mode == .Exterior {world.window_update(&g.sim.ext, &g.db, player_feet(g), budget = max(int))}
-	forward_ref_events(g)
+	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g), budget = max(int))}
 	sim_resume(g)
-	handle_events(g)
+	catch_up(g)
 	world.stream_begin_load(&g.streamer)
 }

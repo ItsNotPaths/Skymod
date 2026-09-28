@@ -23,9 +23,7 @@ Window :: struct {
 // set_world points the space at a worldspace: every live cell goes, and the worldspace's persistent
 // refs are bucketed by grid cell.
 set_world :: proc(sp: ^Space, db: ^gamedb.DB, world_fid: Form_ID, radius: int) {
-	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
-	for cell in sp.cells {append(&cells, cell)}
-	for cell in cells {drop_cell(sp, cell)}
+	space_clear(sp)
 	pending := sp.window.pending
 	clear(&pending)
 	sp.window = {world_fid = world_fid, radius = radius, pending = pending}
@@ -42,8 +40,7 @@ window_update :: proc(sp: ^Space, db: ^gamedb.DB, feet: smath.Vec3, budget := WI
 		replan(sp, db, at)
 	}
 	for n := 0; n < budget && len(w.pending) > 0; n += 1 {
-		cell := pop(&w.pending)
-		append(&sp.changes, Cell_Added{cell, placements(add_cell(sp, db, cell))})
+		place_cell(sp, db, pop(&w.pending))
 	}
 }
 
@@ -81,11 +78,4 @@ replan :: proc(sp: ^Space, db: ^gamedb.DB, center: [2]i32) {
 	slice.sort_by(want[:], proc(a, b: Want) -> bool {return a.dist > b.dist})
 	clear(&w.pending)
 	for x in want {append(&w.pending, x.cell)}
-}
-
-// drop_cell retires a live cell and tells main.
-@(private = "file")
-drop_cell :: proc(sp: ^Space, cell: Form_ID) {
-	remove_cell(sp, cell)
-	append(&sp.changes, Cell_Removed{cell})
 }

@@ -266,10 +266,7 @@ take_requests :: proc(st: ^Streamer) {
 @(private)
 drop_chunk :: proc(st: ^Streamer, cell: Form_ID) {
 	if i, found := slice.linear_search(st.undecorated[:], cell); found {ordered_remove(&st.undecorated, i)}
-	chunk, ok := &st.scene.chunks[cell]
-	if !ok {return}
-	release_chunk_assets(st.scene, chunk)
-	delete_key(&st.scene.chunks, cell)
+	unload_chunk(st.scene, cell)
 }
 
 // (hole gamedb-for-streamer :tags (assets unclaimed) :sev wish) the streamer queries gamedb (cell_terrain, cell_base_textures, the LOD bakes); a streamer in Rust needs a C-ABI read view of gamedb or its own index.

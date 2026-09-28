@@ -246,7 +246,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 				continue
 			}
 			for sh in m.collision.shapes {
-				if (sh.movable && dynamic_clutter(s)) || !nif.layer_is_solid(sh.layer) {
+				if (sh.movable && s.dynamic_clutter) || !nif.layer_is_solid(sh.layer) {
 					continue
 				}
 				emit_shape_wire(&verts, &idx, inst.world * sh.transform, sh)
@@ -286,7 +286,7 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 			if m == nil {continue}
 			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {
-				if !(sh.movable && dynamic_clutter(s)) {continue}
+				if !(sh.movable && s.dynamic_clutter) {continue}
 				// ARTICULATED item: pose each shape by ITS OWN linked body (Phase B/C), so a hinged part
 				// draws where the constraint put it. Single-body items use the instance follow (iw).
 				wm := iw // a single-body ref follows its whole pose; an articulated one poses each part
@@ -726,9 +726,3 @@ mat_scale :: proc(m: smath.Mat4) -> f32 {
 	return smath.length3({m[0, 0], m[1, 0], m[2, 0]})
 }
 
-// dynamic_clutter is whether the scene's sim gives movable clutter dynamic bodies: the K view draws
-// those live and the rest in its static wireframe.
-@(private = "file")
-dynamic_clutter :: proc(s: ^Scene) -> bool {
-	return s.space != nil && s.space.dynamic_clutter
-}

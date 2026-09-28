@@ -117,11 +117,17 @@ space_destroy :: proc(sp: ^Space) {
 	sp^ = {}
 }
 
-// space_clear retires every live cell.
+// space_clear retires every live cell, and tells main.
 space_clear :: proc(sp: ^Space) {
 	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
 	for cell in sp.cells {append(&cells, cell)}
-	for cell in cells {remove_cell(sp, cell)}
+	for cell in cells {drop_cell(sp, cell)}
+}
+
+// drop_cell retires a live cell and tells main.
+drop_cell :: proc(sp: ^Space, cell: Form_ID) {
+	remove_cell(sp, cell)
+	append(&sp.changes, Cell_Removed{cell})
 }
 
 // add_cell makes a cell live in the sim: its refs and actors built from gamedb and the overlay, and
@@ -135,6 +141,11 @@ add_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> ^Sim_Cell {
 	index_refs(sp, live)
 	append(&sp.loaded, cell)
 	return live
+}
+
+// place_cell makes a cell live and tells main.
+place_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) {
+	append(&sp.changes, Cell_Added{cell, placements(add_cell(sp, db, cell))})
 }
 
 // placements is a live cell's refs as render draws them, owned by the caller.

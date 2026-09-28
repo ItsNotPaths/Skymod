@@ -46,11 +46,13 @@ Sim :: struct {
 	drops:        [dynamic]physics.Body, // the dev drop-test balls
 	snap_back:    Snapshot, // the snapshot the sim fills
 	ext:          world.Space, // the exterior's live cells and bodies (the interior's is the traversal's)
+	trav:         Traversal, // where the player is, the interior's live cells, the load doors
 }
 
 // active_space is the sim's side of the scene the player is in (nil when it has none).
 active_space :: proc(g: ^Game) -> ^world.Space {
-	return g.fr.active_scene.space if g.fr.active_scene != nil else nil
+	if g.interiors_on {return &g.interiors.space if g.entered else &g.sim.ext}
+	return traversal_space(&g.sim.trav)
 }
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
@@ -287,12 +289,14 @@ strings_queue_destroy :: proc(q: ^Queue(string), buf: ^[dynamic]string) {
 
 // Sim_Event is one thing the sim tells main. Main handles them after each tick, in order.
 Sim_Event :: union {
+	Evt_Place,
 	Evt_Open_Container,
 	Evt_Door,
 	Evt_Follow,
 	Evt_Ref,
 }
 
+Evt_Place :: struct {place: Place} // the player is somewhere else: main shows it (show_place)
 Evt_Open_Container :: struct {container: Form_ID}
 Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
 Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
@@ -309,7 +313,7 @@ forward_ref_events :: proc(g: ^Game) {
 		clear(&sp.changes)
 	}
 	forward(g, &g.sim.ext, true)
-	forward(g, &g.trav.int_space, false)
+	forward(g, &g.sim.trav.int_space, false)
 }
 
 // handle_events runs what the sim told main, oldest first. A handler may run it again (a door's load
@@ -319,6 +323,7 @@ handle_events :: proc(g: ^Game) {
 	for e in take_first(&g.events) {
 		defer event_destroy(e)
 		switch v in e {
+		case Evt_Place:            show_place(g, v.place)
 		case Evt_Ref:              interior_placed ||= apply_ref(g, v)
 		case Evt_Open_Container:   open_container(g, v.container)
 		case Evt_Door:
@@ -331,11 +336,12 @@ handle_events :: proc(g: ^Game) {
 			sim_resume(g)
 		}
 	}
-	if interior_placed && g.trav.mode == .Interior {world.resolve_created_models(&g.trav.interior)}
+	if interior_placed && g.shown.interior != 0 {world.resolve_created_models(&g.interior)}
 }
 
 // apply_ref draws a change to a live cell: the exterior's through the streamer, the interior's (when
-// the player is in it) in place. True when it placed refs in the interior, whose models load apart.
+// main shows one) in place, its models loaded now behind the load screen. True when it placed refs in
+// the interior, whose created refs' models load apart.
 @(private = "file")
 apply_ref :: proc(g: ^Game, v: Evt_Ref) -> bool {
 	if v.ext {
@@ -343,10 +349,18 @@ apply_ref :: proc(g: ^Game, v: Evt_Ref) -> bool {
 		world.stream_apply(&g.streamer, v.e)
 		return false
 	}
-	if g.trav.mode != .Interior {return false}
-	world.apply_ref_event(&g.trav.interior, v.e)
-	#partial switch _ in v.e {
-	case world.Ref_Placed, world.Cell_Rebuilt: return true
+	if g.shown.interior == 0 {return false}
+	switch e in v.e {
+	case world.Cell_Added:
+		world.load_chunk(&g.interior, &g.db, e.cell, e.refs, loadui_interior_progress, g)
+		loadui_interior_progress(g, 1)
+	case world.Cell_Removed:
+		world.unload_chunk(&g.interior, e.cell)
+	case world.Ref_Placed, world.Cell_Rebuilt:
+		world.apply_ref_event(&g.interior, v.e)
+		return true
+	case world.Ref_Removed:
+		world.apply_ref_event(&g.interior, v.e)
 	}
 	return false
 }

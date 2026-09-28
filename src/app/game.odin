@@ -204,7 +204,8 @@ Game :: struct {
 
 	// streaming + door traversal + experimental open-interiors
 	streamer:     world.Streamer,
-	trav:         Traversal, // base door traversal (exterior ↔ interior); independent of open-interiors
+	interior:     world.Scene, // the interior main draws, while shown.interior != 0
+	shown:        Place, // the place main draws: the last Evt_Place
 	interiors:    world.Interiors,
 	interiors_on: bool,
 
@@ -419,7 +420,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// double precision, far-from-origin dynamic bodies are safe (interiors already did this). Static
 	// world geometry is unaffected (only CLUTTER/PROPS-layer, mass>0 shapes go dynamic).
 	world.space_init(&g.sim.ext, &g.phys if g.phys_ok else nil, &g.collisions, &g.sim.ws, dynamic_clutter = g.phys_ok)
-	g.scene.space = &g.sim.ext
+	g.scene.dynamic_clutter = g.phys_ok
 	// pretty: hide the white untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
 	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
@@ -538,12 +539,11 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.up.formtable = true
 	g.save_bridge = form_bridge(&g.save_ft)
 
-	// Base door navigator: borrows the exterior scene + streamer (whatever their state) and
-	// indexes the worldspace's load doors. Safe even if no worldspace armed (no doors → inert).
-	traversal_init(&g.trav, &g.scene, &g.streamer, &g.db, &g.v, &g.r, &g.sim.ws)
+	// Base door navigator: indexes the worldspace's load doors. Safe even if no worldspace armed
+	// (no doors → inert).
+	traversal_init(&g.sim.trav, &g.sim.ext, &g.db, &g.sim.ws)
+	g.shown = g.sim.trav.place
 	g.up.traversal = true
-	// Show the load screen during synchronous interior loads (nil-safe if loadui failed to init).
-	traversal_set_progress(&g.trav, loadui_interior_progress, g)
 
 	// In-world HUD (crosshair reticle + activation prompt) — its own always-on substrate session.
 	// Non-fatal if it fails to init (frame_hud becomes a no-op); the game still plays.
@@ -664,7 +664,8 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.console {tools.console_destroy(&g.console)}
 	if g.up.traversal {
 		world.stream_destroy(&g.streamer) // worker stopped before the cache it feeds (scene) is freed
-		traversal_destroy(&g.trav) // frees any loaded interior + the door index
+		if g.shown.interior != 0 {world.scene_destroy(&g.interior)}
+		traversal_destroy(&g.sim.trav) // frees the interior's cells + the door index
 		if g.interiors_on {world.interiors_destroy(&g.interiors)} // before scene_destroy
 	}
 	if g.up.formtable {mods.formtable_destroy(&g.save_ft)}
