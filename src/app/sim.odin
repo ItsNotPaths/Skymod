@@ -187,3 +187,27 @@ handle_events :: proc(g: ^Game) {
 		}
 	}
 }
+
+// sim_drain brings the sim to rest and holds it there: the pending script phase finishes, queued
+// commands apply and a snapshot goes out. Until the matching sim_resume no tick runs and main
+// owns every piece of sim state. Holds nest.
+sim_drain :: proc(g: ^Game) {
+	if g.parks == 0 {
+		script_run_pending(g)
+		apply_commands(g)
+		publish_snapshot(g)
+	}
+	g.parks += 1
+}
+
+// sim_resume drops one hold. The last one publishes what main changed while the sim was parked.
+sim_resume :: proc(g: ^Game) {
+	g.parks -= 1
+	if g.parks == 0 {publish_snapshot(g)}
+}
+
+// ticks_stopped reports whether the tick loop must not run: the sim is parked, or an open menu
+// pauses the world.
+ticks_stopped :: proc(g: ^Game) -> bool {
+	return g.parks > 0 || world_paused(g)
+}

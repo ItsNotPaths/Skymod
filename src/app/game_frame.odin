@@ -86,9 +86,9 @@ game_frame :: proc(g: ^Game) {
 	// hand the loop a backlog it would spend the next several frames grinding through. A menu that
 	// pauses the world stops it, even one a tick of this frame opens; the rest runs once it closes.
 	// (hole sim-clock :tags threading :sev gap) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
-	g.tick.accum += 0 if world_paused(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
+	g.tick.accum += 0 if ticks_stopped(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
 	g.input = latch_input(g)
-	for g.tick.accum >= TICK_DT && !world_paused(g) {
+	for g.tick.accum >= TICK_DT && !ticks_stopped(g) {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1
 		g.tick.prof.ticks += 1
@@ -147,7 +147,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event menu-park dialogue-commands transition-request sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
@@ -477,9 +477,9 @@ frame_persistence :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "QuickLoad") {quickload(g)}
 }
 
-// (hole drain-saves :tags (threading save) :sev gap :needs (sim-drain)) quicksave and quickload call script_run_pending, then do sim work inline on main (player_follow, player_publish, load_from_file, reapply_overlay_resident, player_restore); they must park the sim for the whole save or load.
 quicksave :: proc(g: ^Game) {
-	script_run_pending(g) // a save lands between whole ticks
+	sim_drain(g) // a save lands between whole ticks
+	defer sim_resume(g)
 	_ = os.make_directory(g.saves_dir) // idempotent (errors harmlessly if it exists)
 	player_follow(g)
 	player_publish(g)
@@ -499,7 +499,8 @@ quicksave :: proc(g: ^Game) {
 }
 
 quickload :: proc(g: ^Game) {
-	script_run_pending(g)
+	sim_drain(g)
+	defer sim_resume(g)
 	m, ok := worldstate.load_from_file(&g.ws, g.quicksave_path, &g.save_bridge)
 	if !ok {
 		log.warnf("quickload: no valid save at %s", g.quicksave_path)
@@ -651,7 +652,7 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	publish_snapshot(g)
 }
 
-// (hole transition-request :tags (threading world) :sev gap :needs (sim-drain)) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. loadui_frame also wipes the tick's temp arena mid-tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
+// (hole transition-request :tags (threading world) :sev gap) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. loadui_frame also wipes the tick's temp arena mid-tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here

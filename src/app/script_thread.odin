@@ -78,7 +78,6 @@ script_join :: proc(g: ^Game) {
 	g.ws.script_phase = false
 }
 
-// (hole sim-drain :tags (threading save ui) :sev gap) only the script phase can drain. Wanted: sim_drain finishes the tick and applies queued commands, then the sim is parked with nothing in flight and main may touch its state; sim_resume starts it.
 // script_run_pending runs a pending script phase to the end: a tick's scripts finish before the
 // next tick's sim.
 script_run_pending :: proc(g: ^Game) {

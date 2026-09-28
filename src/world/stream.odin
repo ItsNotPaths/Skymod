@@ -436,7 +436,7 @@ snap_to :: proc(v, step: i32) -> i32 {
 	return i32(math.round(f32(v) / f32(step))) * step
 }
 
-// (hole cell-handoff :tags (threading world physics) :sev gap :needs (sim-cell sim-drain stream-requests)) rewindow and load_streamed_cell pick the live cells and add and remove Jolt bodies on main. Decided (user, 2026-09-27): the sim decides which cells are live and builds their bodies; the streamer only delivers the collision blobs it asked for, and a drain leaves no request half-applied.
+// (hole cell-handoff :tags (threading world physics) :sev gap :needs (sim-cell stream-requests)) rewindow and load_streamed_cell pick the live cells and add and remove Jolt bodies on main. Decided (user, 2026-09-27): the sim decides which cells are live and builds their bodies; the streamer only delivers the collision blobs it asked for, and a drain leaves no request half-applied.
 // rewindow (cheap, on cell crossing) computes the desired cell→LOD set around the player,
 // unloads chunks that left the window or changed LOD, and REPLANS the pending load queue.
 // The actual building happens in drain_loads under LOAD_BUDGET — so a crossing never
