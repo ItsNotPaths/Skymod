@@ -12,7 +12,7 @@ local effect_class = __effect_class
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
-local sethook, gethook = debug.sethook, debug.gethook
+local sethook = debug.sethook
 
 local rt = { None = None }
 
@@ -890,19 +890,22 @@ end
 
 -- Instructions one handler run may take. A Papyrus poll loop (`while !ready; Wait(1)`) spins
 -- forever while Wait returns at once; the budget stops that handler instead of freezing the game.
+-- One hook, set once, counts them in steps while a handler runs (`depth`); `spent` is the running
+-- handler's own count, so a handler it runs starts from zero and hands the count back.
 local BUDGET = 1000000
-local function over_budget() error("instruction budget exceeded", 2) end
-
--- rt.event runs a handler if the instance has one, isolated: an error or a runaway loop ends this
--- handler only, with a warning. Missing handlers are the norm, so they are silent.
-local function unhook(hook, mask, count, ...)
-  if hook then sethook(hook, mask, count) else sethook() end
-  return ...
-end
+local STEP = 10000
+local spent, depth = 0, 0
+sethook(function()
+  if depth == 0 then return end
+  spent = spent + STEP
+  if spent > BUDGET then error("instruction budget exceeded", 2) end
+end, "", STEP)
 
 -- Each handler's own time (less the handlers it ran inside it) per class and name, in ms, since
--- the last rt.prof_report.
-local prof, prof_inner = {}, 0
+-- the last rt.prof_report. Off unless the engine asks (rt.profile, --profile).
+local prof, prof_inner, profiling = {}, 0, false
+
+function rt.profile(on) profiling = on ~= 0 end
 
 local function prof_add(class, name, t0, outer, ...)
   local dt = now() - t0
@@ -922,16 +925,25 @@ local function prof_add(class, name, t0, outer, ...)
   return ...
 end
 
+local function finish(outer_spent, ...)
+  spent, depth = outer_spent, depth - 1
+  return ...
+end
+
+-- rt.event runs a handler if the instance has one, isolated: an error or a runaway loop ends this
+-- handler only, with a warning. Missing handlers are the norm, so they are silent.
 local function budgeted(class, name, f, ...)
-  local hook, mask, count = gethook()
-  sethook(over_budget, "", BUDGET)
+  local outer_spent = spent
+  spent, depth = 0, depth + 1
+  if not profiling then return finish(outer_spent, pcall(f, ...)) end
   local t0, outer = now(), prof_inner
   prof_inner = 0
-  return prof_add(class, name, t0, outer, unhook(hook, mask, count, pcall(f, ...)))
+  return prof_add(class, name, t0, outer, finish(outer_spent, pcall(f, ...)))
 end
 
 -- rt.prof_report logs the `top` costliest handlers over the last `ticks` ticks and starts over.
 function rt.prof_report(ticks, top)
+  if not profiling then return 0 end
   local all, total = {}, 0
   for class, by in pairs(prof) do
     for name, e in pairs(by) do

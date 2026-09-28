@@ -607,6 +607,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		g.sim.agents.furniture = {g, actor_furniture_markers}
 		slua.repl_register_cmd(&g.sim.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
 		slua.set_script_dirs(&g.sim.repl.vm, script_dirs(base, &g.mprofile))
+		slua.set_profile(&g.sim.repl.vm, slice.contains(os.args, "--profile")) // prof.scripts: each handler's time
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
 		slua.repl_load_rc(&g.sim.repl, rc_path)
 		tools.console_print(&g.console, "SkyMod console — Lua REPL on the gameplay VM. `cmd.help()` lists commands.")

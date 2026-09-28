@@ -437,6 +437,11 @@ tick_end :: proc(vm: ^VM, dt: f32) -> int {
 	return ran
 }
 
+// set_profile turns the per-handler timing of prof_report on or off.
+set_profile :: proc(vm: ^VM, on: bool) {
+	call_rt(vm, "profile", 1 if on else 0)
+}
+
 // prof_report logs the `top` costliest script handlers over the last `ticks` ticks, and starts over.
 prof_report :: proc(vm: ^VM, ticks, top: int) {
 	call_rt(vm, "prof_report", f64(ticks), f64(top))
