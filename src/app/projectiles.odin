@@ -119,11 +119,14 @@ live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
 	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.ws, &g.db, form)) && !worldstate.is_dead(&g.ws, &g.db, form)
 }
 
-// (hole dev-verb-commands) the dev shot calls worldstate.launch from the frame.
 // frame_dev_shot fires an iron arrow from the crosshair for DEV_SHOT_DAMAGE.
 frame_dev_shot :: proc(g: ^Game) {
 	if !input.fired(&g.imgr, "DevShoot") || g.fr.kb_cap {return}
 	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
+	push(&g.commands, Cmd_Shoot{ro + rd * 48, rd})
+}
+
+dev_shoot :: proc(g: ^Game, c: Cmd_Shoot) {
 	cell := worldstate.ref_cell(&g.ws, &g.db, formid.PLAYER)
-	worldstate.launch(&g.ws, &g.db, DEV_SHOT_PROJECTILE, cell, ro + rd * 48, rd, formid.PLAYER, 0, DEV_SHOT_DAMAGE)
+	worldstate.launch(&g.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, formid.PLAYER, 0, DEV_SHOT_DAMAGE)
 }

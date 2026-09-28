@@ -145,12 +145,14 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input command-queue activate-input cast-input grab-input console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts dev-verb-commands collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command sim-events force-greet-event sim-drain drain-saves menu-park dialogue-commands transition-request snapshot-buffer sim-clock body-pose-snapshot player-pose-snapshot pick-on-render actor-view actor-pick hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
 	script_run_pending(g) // timed as scripts, at the join
 	t := time.tick_now()
+	apply_commands(g)
+	lap(g, .Commands, &t)
 	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
 	lap(g, .Jail, &t)
 	player_follow(g)
@@ -323,7 +325,7 @@ frame_overlay :: proc(g: ^Game) {
 	// Dev console: evaluate the submitted line on the gameplay REPL and echo the
 	// captured output (results / print / errors). Falls back to a bare echo if the
 	// REPL failed to init.
-	// (hole console-command :tags threading :sev gap :needs (command-queue sim-events)) the console evaluates Lua on the gameplay VM from main, and repl_set_selection writes it. Wanted: a line is a command, its output comes back as an event.
+	// (hole console-command :tags threading :sev gap :needs (sim-events)) the console evaluates Lua on the gameplay VM from main, and repl_set_selection writes it. Wanted: a line is a command, its output comes back as an event.
 	if cmd := tools.console_panel(&g.console); cmd != "" {
 		tools.console_printf(&g.console, "> %s", cmd)
 		if g.repl_ok {
@@ -428,21 +430,13 @@ frame_camera :: proc(g: ^Game) {
 	if g.char_ok {physics.character_set_position(&g.character, g.cam.pos)} // keep the body under the free camera
 }
 
-// (hole dev-verb-commands :tags (threading input) :sev gap :needs (command-queue)) the drop, shove and noclip keys write Jolt and g.noclip from the frame; they must be commands.
 // frame_debug_verbs handles the physics-verification keys: G drop-test ball, K hitbox
 // wireframe toggle, H clutter shove.
 @(private = "file")
 frame_debug_verbs :: proc(g: ^Game) {
-	if input.fired(&g.imgr, "NoClip") {g.noclip = !g.noclip}
-
-	// Drop-test: G spawns a falling ball at the camera (physics verification). Exterior only —
-	// the markers read positions from `phys`, so a ball dropped inside an interior (a
-	// different world) wouldn't track; gate it to the exterior to avoid the confusion.
-	if g.phys_ok && input.fired(&g.imgr, "DevDrop") && !g.fr.in_interior {
-		b := physics.add_sphere(&g.phys, 24, g.cam.pos, is_dynamic = true)
-		if b != 0 {append(&g.drops, b)}
-		log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.drops), g.cam.pos.x, g.cam.pos.y, g.cam.pos.z)
-	}
+	if input.fired(&g.imgr, "NoClip") {push(&g.commands, Cmd_Noclip{})}
+	if input.fired(&g.imgr, "DevDrop") {push(&g.commands, Cmd_Drop{g.cam.pos})}
+	if input.fired(&g.imgr, "DevShove") {push(&g.commands, Cmd_Shove{g.cam.pos})}
 
 	// Collision-hitbox overlay toggle (K): show the green wireframe of what Jolt actually collides.
 	if input.fired(&g.imgr, "DevHitbox") {
@@ -451,15 +445,24 @@ frame_debug_verbs :: proc(g: ^Game) {
 		if g.interiors_on {world.clear_collision_debug(&g.interiors.interior_scene)}
 		log.infof("collision hitboxes: %v", g.show_hitboxes)
 	}
+}
 
-	// Shove-test (H): kick nearby movable clutter so it scatters and resettles — a visible check
-	// of the 3b dynamic-body path (interiors only, where clutter is dynamic).
-	if input.fired(&g.imgr, "DevShove") {
-		t_shove := time.tick_now()
-		n := world.shove_clutter(g.fr.active_scene, g.cam.pos, 400)
-		act := physics.num_active(g.fr.active_scene.phys) if g.fr.active_scene.phys != nil else 0
-		log.infof("shove: kicked %d clutter bodies in %.1fms (active now %d)", n, time.duration_milliseconds(time.tick_since(t_shove)), act)
-	}
+// drop_ball spawns a falling ball (physics verification). Exterior only: the markers read
+// positions from `phys`, so a ball dropped inside an interior (a different world) wouldn't track.
+drop_ball :: proc(g: ^Game, at: smath.Vec3) {
+	if !g.phys_ok || g.fr.in_interior {return}
+	b := physics.add_sphere(&g.phys, 24, at, is_dynamic = true)
+	if b != 0 {append(&g.drops, b)}
+	log.infof("drop-test: ball %d at (%.0f, %.0f, %.0f)", len(g.drops), at.x, at.y, at.z)
+}
+
+// shove kicks nearby movable clutter so it scatters and resettles — a visible check of the 3b
+// dynamic-body path (interiors only, where clutter is dynamic).
+shove :: proc(g: ^Game, at: smath.Vec3) {
+	t_shove := time.tick_now()
+	n := world.shove_clutter(g.fr.active_scene, at, 400)
+	act := physics.num_active(g.fr.active_scene.phys) if g.fr.active_scene.phys != nil else 0
+	log.infof("shove: kicked %d clutter bodies in %.1fms (active now %d)", n, time.duration_milliseconds(time.tick_since(t_shove)), act)
 }
 
 // frame_persistence handles quicksave (F5) / quickload (F9) — Phase 3d. Save writes the
@@ -662,7 +665,6 @@ traversal_finish_load :: proc(g: ^Game, kind: Traversal_Kind) {
 	}
 }
 
-// (hole dev-verb-commands) Ctrl+X disable_ref and Ctrl+B create_ref change worldstate, chunks and Jolt from the frame.
 // frame_inspect is inspect mode: hold Ctrl to highlight the model under the mouse cursor (a
 // ray through the cursor, not the screen centre); left-click selects the highlighted one for
 // the Inspector panel (and as the console's `sel`). Plus the Ctrl-hover mutation verbs:
@@ -710,12 +712,7 @@ frame_inspect :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "DevDisable") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
-			inst := &chunk.instances[active_scene.hover_inst]
-			if world.disable_ref(active_scene, inst.form_id, active_scene.hover_cell, true) {
-				log.infof("disable: ref 0x%08X (%s) hidden", inst.form_id, inst.model_path)
-			} else {
-				log.warnf("disable: scene has no overlay — ref 0x%08X not recorded", inst.form_id)
-			}
+			push(&g.commands, Cmd_Disable{chunk.instances[active_scene.hover_inst].form_id, active_scene.hover_cell})
 		}
 	}
 
@@ -725,14 +722,25 @@ frame_inspect :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "DevSpawn") && active_scene.has_hover {
 		if chunk, ok := &active_scene.chunks[active_scene.hover_cell];
 		   ok && active_scene.hover_inst >= 0 && active_scene.hover_inst < len(chunk.instances) {
-			base := chunk.instances[active_scene.hover_inst].base
-			id := world.create_ref(active_scene, &g.db, base, active_scene.hover_cell, g.cam.pos, {0, 0, 0}, 1)
-			if id != 0 {
-				log.infof("spawn: created ref 0x%08X (base 0x%08X) at camera", id, base)
-			} else {
-				log.warnf("spawn: no overlay / base 0x%08X has no model — nothing created", base)
-			}
+			push(&g.commands, Cmd_Spawn{chunk.instances[active_scene.hover_inst].base, active_scene.hover_cell, g.cam.pos})
 		}
+	}
+}
+
+dev_disable :: proc(g: ^Game, c: Cmd_Disable) {
+	if world.disable_ref(g.fr.active_scene, c.ref, c.cell, true) {
+		log.infof("disable: ref 0x%08X hidden", c.ref)
+	} else {
+		log.warnf("disable: scene has no overlay — ref 0x%08X not recorded", c.ref)
+	}
+}
+
+dev_spawn :: proc(g: ^Game, c: Cmd_Spawn) {
+	id := world.create_ref(g.fr.active_scene, &g.db, c.base, c.cell, c.at, {0, 0, 0}, 1)
+	if id != 0 {
+		log.infof("spawn: created ref 0x%08X (base 0x%08X) at camera", id, c.base)
+	} else {
+		log.warnf("spawn: no overlay / base 0x%08X has no model — nothing created", c.base)
 	}
 }
 
@@ -833,7 +841,7 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			// (hole dev-verb-commands) the drop balls have no form ID, so body-pose-snapshot will not carry them; publish them with the dev verb output.
+			// (hole body-pose-snapshot) the drop balls have no form ID, so body-pose-snapshot will not carry them; publish them with the dev verb output.
 			for b in g.drops {
 				render.draw_mesh(&g.r, g.drop_marker, vp, physics.body_transform(&g.phys, b), {})
 			}

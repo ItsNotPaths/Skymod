@@ -198,7 +198,6 @@ move_through_door :: proc(g: ^Game, actor: Form_ID, tp: esm.Teleport) {
 	worldstate.relocate(&g.ws, actor, worldstate.ref_cell(&g.ws, &g.db, tp.door), tp.pos, tp.rot)
 }
 
-// (hole command-queue :tags (threading input) :sev gap) ws.activations, ws.fires and ws.jail_orders are the only queues into the tick; menu actions, dev verbs and the console call sim code directly. Wanted: one Sim_Command queue main fills and the tick drains first. Player controls are Sim_Input state, not commands.
 // tick_activations runs the activations scripts requested since the last tick.
 tick_activations :: proc(g: ^Game) {
 	for a in g.ws.activations {activate(g, a.target, a.by, a.default_only)}

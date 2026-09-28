@@ -86,6 +86,11 @@ tick_actor_bodies :: proc(g: ^Game) {
 			touching := physics.character_touching(phys, &b.char)
 			vel := ai.tick_loaded(&g.agents, &g.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
 			b.dead = worldstate.is_dead(&g.ws, &g.db, form)
+			if form == g.carried.actor { // the dev carry pins it where main holds it
+				physics.character_set_position(&b.char, g.carried.at - {0, 0, b.capsule.half_h + b.capsule.radius})
+				actor_publish(g, form, &b, {})
+				continue
+			}
 			if seat, heading, ok := ai.seated(&g.agents, &g.ws, &g.db, form); ok { // pinned: no gravity or push-out
 				if seat != b.placed {
 					physics.character_set_position(&b.char, seat)
@@ -115,10 +120,9 @@ Actor_Grab :: struct {
 	dist:  f32,
 }
 
-// (hole dev-verb-commands) the actor carry sets a Jolt character, calls ai.interrupt and writes worldstate from the frame.
 frame_actor_grab :: proc(g: ^Game) {
 	if !input.held(&g.imgr, "DevGrabActor") || g.fr.kb_cap {
-		if g.actor_grab.actor != 0 {ai.interrupt(&g.agents, g.actor_grab.actor)}
+		if g.actor_grab.actor != 0 {push(&g.commands, Cmd_Release{g.actor_grab.actor})}
 		g.actor_grab = {}
 		return
 	}
@@ -130,13 +134,7 @@ frame_actor_grab :: proc(g: ^Game) {
 	}
 	grab := &g.actor_grab
 	grab.dist = clamp(grab.dist + g.p.input.scroll * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
-	b, ok := &g.actor_bodies[grab.actor]
-	if !ok {
-		g.actor_grab = {}
-		return
-	}
-	physics.character_set_position(&b.char, ro + rd * grab.dist - {0, 0, b.capsule.half_h + b.capsule.radius})
-	actor_publish(g, grab.actor, b, {})
+	push(&g.commands, Cmd_Carry{grab.actor, ro + rd * grab.dist})
 }
 
 // actor_publish writes a walking actor's feet and heading into its ref's Moved delta, in the cell

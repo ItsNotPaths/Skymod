@@ -109,6 +109,7 @@ Tick :: struct {
 
 // Tick_Part is a timed part of game_tick.
 Tick_Part :: enum {
+	Commands,
 	Jail,
 	Follow,
 	Activations,
@@ -233,7 +234,10 @@ Game :: struct {
 	// nil when physics is off (free-fly).
 	cur_phys: ^physics.World,
 	published: Placement, // the player's cell and feet as player_publish last wrote them
-	input:     Sim_Input, // the controls the tick reads (sim.odin)
+	input:       Sim_Input, // the controls the tick reads (sim.odin)
+	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
+	command_buf: [dynamic]Sim_Command, // the tick's drained copy
+	carried:     Cmd_Carry, // the dev carry, as the sim holds it
 	menu:        Menu,    // the open placeholder menu (menus.odin)
 	menu_target: Form_ID, // the container the container menu shows
 	menu_pick:   [Pane]int, // the selected row of each list pane (menus.odin)
@@ -646,6 +650,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 game_teardown :: proc(g: ^Game) {
 	script_thread_destroy(g)
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
+	queue_destroy(&g.commands)
+	delete(g.command_buf)
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)
 	slua.transitions_destroy(&g.trans)

@@ -125,7 +125,7 @@ close_dialogue :: proc(g: ^Game) {
 	if g.menu == .Dialogue {g.menu = .None}
 }
 
-// (hole dialogue-commands :tags (threading dialogue) :sev gap :needs (command-queue snapshot-buffer)) dialogue does not pause the world, but say (dialogue.said, set_talked_to_pc) and the topic list (conditions on the VM through dialogue_call) run on main. Wanted: a choice is a command, the topic list is published.
+// (hole dialogue-commands :tags (threading dialogue) :sev gap :needs (snapshot-buffer)) dialogue does not pause the world, but say (dialogue.said, set_talked_to_pc) and the topic list (conditions on the VM through dialogue_call) run on main. Wanted: a choice is a command, the topic list is published.
 @(private = "file")
 say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 	t := &g.talk
