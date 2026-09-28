@@ -24,9 +24,7 @@ import "../audio"
 import "../formats/esm"
 import "../gamedb"
 import smath "../math"
-import "../input"
 import "../physics"
-import "../render"
 import "../script"
 import slua "../script/lua"
 import "../worldstate"
@@ -174,7 +172,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != formid.PLAYER {break}
-		if worldstate.is_dead(&g.ws, &g.db, form) {push(&g.events, Evt_Open_Container{form})} else {push(&g.events, Evt_Open_Dialogue{form})}
+		if worldstate.is_dead(&g.ws, &g.db, form) {push(&g.events, Evt_Open_Container{form})} else {open_dialogue(g, form)}
 	case .None, .Activator:
 		if by == formid.PLAYER && by in g.ws.jailed && ai.is_bed(&g.agents, &g.ws, &g.db, form) {
 			worldstate.serve_time(&g.ws, by) // a jail bed: the player sleeps the sentence away

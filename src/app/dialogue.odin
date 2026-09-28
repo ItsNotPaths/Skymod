@@ -1,11 +1,13 @@
 package main
 
 // The dialogue placeholder: an ImGui window with the speaker's subtitle and the player's choices.
-// The rules live in the dialogue package; this file only runs one conversation through them. The
+// The rules live in the dialogue package; this file runs one conversation through them in the sim
+// (tick_dialogue, the Cmd_Talk_* commands) and draws it on main from the snapshot's Talk_View. The
 // world keeps running while it is open, as in Skyrim.
 
 import "core:fmt"
 import "core:log"
+import "core:slice"
 import imgui "../../vendor/odin-imgui"
 import "../audio"
 import "../dialogue"
@@ -50,7 +52,7 @@ tick_force_greet :: proc(g: ^Game) {
 	fg := g.ws.force_greet
 	if fg.speaker == 0 || g.input.in_menu || g.ws.talking != 0 {return}
 	g.ws.force_greet = {}
-	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {push(&g.events, Evt_Force_Greet{fg})}
+	if !worldstate.is_dead(&g.ws, &g.db, fg.speaker) {start_dialogue(g, fg.speaker, fg.topic, fg.subtype)}
 }
 
 // start_dialogue opens the conversation with the speaker's greeting, or its line for `topic`, or
@@ -67,38 +69,97 @@ start_dialogue :: proc(g: ^Game, speaker: Form_ID, topic: Form_ID = 0, subtype :
 		g.ws.talking = 0
 		return
 	}
-	g.menu = .Dialogue
 	clear(&g.talk.choices)
 	g.talk.speaker, g.talk.blocking, g.talk.walk_away = speaker, greet.blocking, 0
 	if greet.info != 0 {say(g, greet.info, greeting = true)} else {list_topics(g)}
 }
 
-// dialogue_menu draws the conversation: the subtitle while a line plays, else the choices.
-dialogue_menu :: proc(g: ^Game) {
+// tick_dialogue runs the conversation's time: the showing response's countdown, the topic list's
+// refresh, and the end when the speaker dies.
+tick_dialogue :: proc(g: ^Game) {
 	t := &g.talk
+	if t.speaker == 0 {return}
 	if worldstate.is_dead(&g.ws, &g.db, t.speaker) {
 		close_dialogue(g)
 		return
 	}
-	imgui.TextUnformatted(fmt.ctprintf("%s", worldstate.display_name(&g.ws, &g.db, t.speaker)))
-	imgui.Separator()
 	if t.info != 0 {
-		c := dialogue_call(g)
-		imgui.TextWrapped(fmt.ctprintf("%s", dialogue.line_text(&c, t.info, t.response)))
-		t.left_s -= g.p.dt
-		if imgui.Button("Next") {t.left_s = 0}
+		t.left_s -= TICK_DT
 		if t.left_s <= 0 {next_response(g)}
+	} else if t.top_level && g.tick.total - t.listed_at >= LIST_REFRESH_TICKS {
+		list_topics(g)
+	}
+}
+
+// talk_next skips the response the player saw, if it still shows.
+talk_next :: proc(g: ^Game, c: Cmd_Talk_Next) {
+	if g.talk.speaker != 0 && g.talk.info == c.info && g.talk.response == c.response {next_response(g)}
+}
+
+// talk_choose says the line for a choice the player picked, if it is still on offer.
+talk_choose :: proc(g: ^Game, ch: dialogue.Choice) {
+	t := &g.talk
+	if t.speaker == 0 || t.info != 0 || !slice.contains(t.choices[:], ch) {return}
+	c := dialogue_call(g)
+	info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
+	if info != 0 {say(g, info)}
+}
+
+// Talk_View is the conversation as main draws it.
+Talk_View :: struct {
+	speaker:  Form_ID, // 0 = no conversation
+	name:     Text_Span,
+	info:     Form_ID, // the line showing, 0 while the player chooses
+	response: int,
+	line:     Text_Span,
+	choices:  [dynamic]Talk_Choice,
+}
+
+Talk_Choice :: struct {
+	choice: dialogue.Choice,
+	prompt: Text_Span,
+}
+
+view_talk :: proc(g: ^Game, s: ^Snapshot) {
+	t, v := &g.talk, &s.talk
+	clear(&v.choices)
+	v.speaker, v.info, v.response = t.speaker, t.info, t.response
+	if t.speaker == 0 {return}
+	c := dialogue_call(g)
+	v.name = add_text(s, worldstate.display_name(&g.ws, &g.db, t.speaker))
+	if t.info != 0 {
+		v.line = add_text(s, dialogue.line_text(&c, t.info, t.response))
 		return
 	}
-	if t.top_level && g.tick.total - t.listed_at >= LIST_REFRESH_TICKS {list_topics(g)}
-	for ch, i in t.choices {
-		c := dialogue_call(g)
-		if !imgui.Button(fmt.ctprintf("%s##%d", dialogue.prompt(&c, ch.info), i)) {continue}
-		info := ch.info if dialogue.still_valid(&c, t.speaker, ch.info) else dialogue.pick(&c, t.speaker, ch.topic) // the line shown
-		if info != 0 {say(g, info)}
+	for ch in t.choices {append(&v.choices, Talk_Choice{ch, add_text(s, dialogue.prompt(&c, ch.info))})}
+}
+
+// dialogue_menu draws the conversation: the subtitle while a line plays, else the choices.
+dialogue_menu :: proc(g: ^Game) {
+	v := &g.snap.talk
+	imgui.TextUnformatted(fmt.ctprintf("%s", text(&g.snap, v.name)))
+	imgui.Separator()
+	if v.info != 0 {
+		imgui.TextWrapped(fmt.ctprintf("%s", text(&g.snap, v.line)))
+		if imgui.Button("Next") {push(&g.commands, Cmd_Talk_Next{v.info, v.response})}
 		return
 	}
-	if imgui.Button("(leave)") {back_out(g)}
+	for ch, i in v.choices {
+		if imgui.Button(fmt.ctprintf("%s##%d", text(&g.snap, ch.prompt), i)) {
+			push(&g.commands, Cmd_Talk_Choose{ch.choice})
+			return
+		}
+	}
+	if imgui.Button("(leave)") {push(&g.commands, Cmd_Talk_Leave{})}
+}
+
+// sync_dialogue_menu keeps the dialogue menu open exactly while the sim has a conversation.
+sync_dialogue_menu :: proc(g: ^Game) {
+	if g.snap.talk.speaker != 0 && g.menu == .None {
+		g.menu = .Dialogue
+	} else if g.snap.talk.speaker == 0 && g.menu == .Dialogue {
+		g.menu = .None
+	}
 }
 
 // back_out is the player leaving: the Walk Away line of the choices on screen plays as it ends.
@@ -119,12 +180,10 @@ close_dialogue :: proc(g: ^Game) {
 		c := dialogue_call(g)
 		dialogue.finished(&c, g.talk.speaker, g.talk.info)
 	}
-	g.talk.info = 0
+	g.talk.info, g.talk.speaker = 0, 0
 	g.ws.talking = 0
-	if g.menu == .Dialogue {g.menu = .None}
 }
 
-// (hole dialogue-commands :tags (threading dialogue) :sev gap) dialogue does not pause the world, but say (dialogue.said, set_talked_to_pc) and the topic list (conditions on the VM through dialogue_call) run on main. Wanted: a choice is a command, the topic list is published.
 @(private = "file")
 say :: proc(g: ^Game, info: Form_ID, greeting := false, last := false) {
 	t := &g.talk

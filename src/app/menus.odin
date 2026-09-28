@@ -95,7 +95,7 @@ frame_menus :: proc(g: ^Game) {
 	if input.fired(&g.imgr, "Pause") {
 		switch g.menu {
 		case .None:     g.menu = .Pause
-		case .Dialogue: back_out(g)
+		case .Dialogue: push(&g.commands, Cmd_Talk_Leave{})
 		case .Tween, .Inventory, .Magic, .Skills, .Map, .Container, .Pause: g.menu = .None // Esc closes any menu
 		}
 	}
@@ -121,7 +121,7 @@ frame_menus :: proc(g: ^Game) {
 	}
 	imgui.End()
 	if !open {
-		if g.menu == .Dialogue {back_out(g)} else {g.menu = .None}
+		if g.menu == .Dialogue {push(&g.commands, Cmd_Talk_Leave{})} else {g.menu = .None}
 	}
 }
 

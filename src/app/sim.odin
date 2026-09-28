@@ -6,6 +6,7 @@ package main
 import "core:sync"
 
 import "../ai"
+import "../dialogue"
 import "../input"
 import smath "../math"
 import "../physics"
@@ -88,6 +89,9 @@ Sim_Command :: union {
 	Cmd_Shoot,
 	Cmd_Carry,
 	Cmd_Release,
+	Cmd_Talk_Next,
+	Cmd_Talk_Choose,
+	Cmd_Talk_Leave,
 }
 
 Cmd_Noclip :: struct {} // toggle walking and free-fly
@@ -98,6 +102,9 @@ Cmd_Spawn :: struct {base, cell: Form_ID, at: smath.Vec3} // a created copy of a
 Cmd_Shoot :: struct {from, dir: smath.Vec3} // the dev shot
 Cmd_Carry :: struct {actor: Form_ID, at: smath.Vec3} // hold an actor's capsule centred on `at`
 Cmd_Release :: struct {actor: Form_ID}
+Cmd_Talk_Next :: struct {info: Form_ID, response: int} // skip the response showing when pressed
+Cmd_Talk_Choose :: struct {choice: dialogue.Choice}
+Cmd_Talk_Leave :: struct {}
 
 // apply_commands runs what main sent since the last tick.
 apply_commands :: proc(g: ^Game) {
@@ -114,6 +121,9 @@ apply_commands :: proc(g: ^Game) {
 		case Cmd_Release:
 			if g.carried.actor == v.actor {g.carried = {}}
 			ai.interrupt(&g.agents, v.actor)
+		case Cmd_Talk_Next:   talk_next(g, v)
+		case Cmd_Talk_Choose: talk_choose(g, v.choice)
+		case Cmd_Talk_Leave:  back_out(g)
 		}
 	}
 }
@@ -152,6 +162,7 @@ Snapshot :: struct {
 	actors: [dynamic]Actor_View,
 	act:    Act_View, // what the crosshair is on
 	subtitles: [dynamic]Text_Span, // the lines being said now
+	talk:   Talk_View, // the player's conversation
 	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
 }
 
@@ -159,6 +170,7 @@ snapshot_destroy :: proc(s: ^Snapshot) {
 	physics.poses_destroy(&s.bodies)
 	delete(s.actors)
 	delete(s.subtitles)
+	delete(s.talk.choices)
 	delete(s.text)
 }
 
@@ -203,23 +215,20 @@ publish_snapshot :: proc(g: ^Game) {
 	view_actors(g, s)
 	s.act = view_act(s, resolve_activation(g, g.input.aim))
 	view_subtitles(g, s)
+	view_talk(g, s)
 	publish(&g.snaps, s)
 }
 
 // Sim_Event is one thing the sim tells main. Main handles them after each tick, in order.
 Sim_Event :: union {
 	Evt_Open_Container,
-	Evt_Open_Dialogue,
 	Evt_Door,
 	Evt_Follow,
-	Evt_Force_Greet,
 }
 
 Evt_Open_Container :: struct {container: Form_ID}
-Evt_Open_Dialogue :: struct {speaker: Form_ID}
 Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
 Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
-Evt_Force_Greet :: struct {greet: worldstate.Force_Greet} // an NPC starts a conversation
 
 // handle_events runs what the sim told main since the last call.
 handle_events :: proc(g: ^Game) {
@@ -227,7 +236,6 @@ handle_events :: proc(g: ^Game) {
 	for e in g.event_buf {
 		switch v in e {
 		case Evt_Open_Container: open_container(g, v.container)
-		case Evt_Open_Dialogue:  open_dialogue(g, v.speaker)
 		case Evt_Door:
 			sim_drain(g)
 			cross_door(g, v.hit)
@@ -236,7 +244,6 @@ handle_events :: proc(g: ^Game) {
 			sim_drain(g)
 			player_follow(g)
 			sim_resume(g)
-		case Evt_Force_Greet: start_dialogue(g, v.greet.speaker, v.greet.topic, v.greet.subtype)
 		}
 	}
 }
