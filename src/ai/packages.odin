@@ -140,10 +140,12 @@ run_node :: proc(c: ^Proc_Context, tree: []gamedb.Package_Node, i: int) -> Statu
 			case .Failed:
 			}
 		}
-	case .Random:
+	case .Random: // one child whose conditions pass, like every other branch reads them
 		if st.child == 0 {
 			kids := make([dynamic]int, context.temp_allocator)
-			for k := i + 1; k < int(n.end); k = int(tree[k].end) {append(&kids, k)}
+			for k := i + 1; k < int(n.end); k = int(tree[k].end) {
+				if passes(c, tree[k]) {append(&kids, k)}
+			}
 			if len(kids) > 0 {st.child = i32(rand.choice(kids[:]))}
 		}
 		if st.child > 0 {status = run_node(c, tree, int(st.child))}
