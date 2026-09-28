@@ -4,7 +4,6 @@ import "core:log"
 import "core:strings"
 import lua "../../../vendor/lua"
 import script ".."
-// (hole script-ai-coupling :tags (plugins script ai) :sev struct) Lua procedures run on ai's own types (Goal, Status, Lua_Input, Lua_Hook), so script/lua imports ai. Investigate: those types in a small package both import, or ai owning the bridge.
 import "../../ai"
 import "../../worldstate"
 

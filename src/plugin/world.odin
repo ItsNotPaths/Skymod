@@ -4,7 +4,7 @@ package plugin
 // faction, quest or setting. The first cut covers what the built-ins and the script natives read
 // most; writes go through each seam's own commands. Each proc gets `data` back.
 
-// (hole world-api-records :tags (plugins mods records) :sev gap) World reads no record data: package trees, AI data, spells, effects, form lists' contents and leveled lists are gamedb shapes a plugin cannot see. Wanted: record reads in plain data, shaped per record type.
+// (hole world-api-records :tags (plugins mods records) :sev wish) World reads no record data: package trees, AI data, spells, effects, form lists' contents and leveled lists are gamedb shapes a plugin cannot see. Wanted when a plugin needs them (user 2026-09-28): record reads in plain data, shaped per record type.
 World :: struct {
 	data:          rawptr,
 	player:        Form_ID, // the actor the player controls
