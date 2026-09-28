@@ -86,12 +86,11 @@ next_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	return .Warn
 }
 
-// set_present is the loaded actors this tick; with the player they are whom combat and guards
+// set_present is the loaded actors this tick: whom combat and guards
 // look at. Every persistent actor has an agent, so the agents are no candidate list.
-set_present :: proc(w: ^World, loaded: map[Form_ID]bool, player: Form_ID) {
+set_present :: proc(w: ^World, loaded: map[Form_ID]bool) {
 	clear(&w.present)
 	for a in loaded {append(&w.present, a)}
-	if player not_in loaded {append(&w.present, player)}
 }
 
 // engage is Combat, or Flee for a Cowardly actor.

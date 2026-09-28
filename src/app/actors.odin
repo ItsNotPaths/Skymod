@@ -1,7 +1,7 @@
 package main
 
-// Actor bodies: every loaded actor ref gets a capsule, as the player does. The AI drives it instead
-// of input, and it is drawn.
+// Actor bodies: every loaded actor ref gets a capsule. The AI drives it, or input drives the one the
+// player controls.
 
 import "core:fmt"
 import "core:math"
@@ -77,14 +77,27 @@ tick_actor_bodies :: proc(g: ^Game) {
 	lap(g, .Actors, &t)
 	detection.tick(&g.sim.detection, &g.sim.ws, &g.db, seen, TICK_DT) // before combat reads it
 	lap(g, .Detection, &t)
-	ai.set_present(&g.sim.agents, seen, g.sim.ws.player)
+	ai.set_present(&g.sim.agents, seen)
 	worldstate.tick_crime(&g.sim.ws, &g.db, TICK_DT)
 	lap(g, .Actors, &t)
 	gone := make([dynamic]Form_ID, context.temp_allocator)
 	for form, &b in g.sim.actor_bodies {
 		if form in seen {
-			touching := physics.character_touching(phys, &b.char)
-			vel := ai.tick_loaded(&g.sim.agents, &g.sim.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
+			vel: [2]f32
+			jump := false
+			face: Maybe(f32)
+			if form == g.sim.ws.player { // the player's controller drives it, not an AI
+				if g.sim.noclip { // pinned under the free camera
+					physics.character_set_position(&b.char, player_feet(g))
+					actor_publish(g, form, &b, {}, player_heading(g))
+					continue
+				}
+				vel, jump = input_move(g)
+				face = player_heading(g)
+			} else {
+				touching := physics.character_touching(phys, &b.char)
+				vel = ai.tick_loaded(&g.sim.agents, &g.sim.ws, &g.db, form, physics.character_position(&b.char), touching != 0, TICK_DT)
+			}
 			if form == g.sim.carried.actor { // the dev carry pins it where main holds it
 				physics.character_set_position(&b.char, g.sim.carried.at - {0, 0, b.capsule.half_h + b.capsule.radius})
 				actor_publish(g, form, &b, {})
@@ -98,8 +111,8 @@ tick_actor_bodies :: proc(g: ^Game) {
 				continue
 			}
 			// (hole root-motion-velocity :tags (animation ai physics) :sev gap :needs (animation)) actor movement is only the AI velocity. Wanted: a set point where the clip's root motion replaces or scales vel before character_move.
-			physics.character_move(phys, &b.char, vel, false, TICK_DT)
-			if vel != {} {actor_publish(g, form, &b, vel)}
+			physics.character_move(phys, &b.char, vel, jump, TICK_DT)
+			if vel != {} || !physics.character_on_ground(&b.char) {actor_publish(g, form, &b, vel, face)}
 		} else {
 			physics.character_destroy(&b.char)
 			append(&gone, form)
@@ -108,7 +121,6 @@ tick_actor_bodies :: proc(g: ^Game) {
 	for form in gone {delete_key(&g.sim.actor_bodies, form)}
 	clear(&g.sim.ws.ai.loaded)
 	for form in g.sim.actor_bodies {g.sim.ws.ai.loaded[form] = true}
-	g.sim.ws.ai.loaded[g.sim.ws.player] = true // its capsule is g.sim.character (hole player-controller)
 	lap(g, .AI, &t)
 	ai.tick_social(&g.sim.agents, &g.sim.ws, &g.db, seen, TICK_DT)
 	lap(g, .Social, &t)
@@ -161,7 +173,7 @@ SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit u
 
 @(private = "file")
 actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, cell: ^world.Sim_Cell) {
-	if form == g.sim.ws.player || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
+	if form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := worldstate.ref_pos(&g.sim.ws, &g.db, form)
 	if form not_in g.sim.actor_bodies && !world.collision_ready_near(cell, pos, READY_RADIUS) {return} // loaded, waiting for the collision under it
@@ -212,7 +224,6 @@ actor_furniture_markers :: proc(user: rawptr, base: Form_ID) -> []nif.Furniture_
 	return assetdb.furniture_markers(&g.collisions, modl)
 }
 
-@(private = "file")
 is_actor_ref :: proc(g: ^Game, form: Form_ID) -> bool {
 	return gamedb.is_actor(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form))
 }
@@ -237,6 +248,7 @@ Actor_View :: struct {
 view_actors :: proc(g: ^Game, s: ^Snapshot) {
 	clear(&s.actors)
 	for f, &b in g.sim.actor_bodies {
+		if f == g.sim.ws.player {continue} // the camera is in it
 		from, to := physics.character_step(&b.char)
 		append(&s.actors, Actor_View {
 			form    = f,

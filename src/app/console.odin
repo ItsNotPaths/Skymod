@@ -10,10 +10,12 @@ package main
 
 import "base:runtime"
 import "core:c"
+import "core:fmt"
 import "core:strings"
 import lua "../../vendor/lua"
 import "../ai"
 import "../audio"
+import "../formid"
 import "../gamedb"
 import "../script"
 import slua "../script/lua"
@@ -50,6 +52,26 @@ console_cmd_noclip :: proc "c" (L: ^lua.State) -> c.int {
 	flag^ = !flag^
 	lua.getglobal(L, "print")
 	lua.pushstring(L, "noclip on" if flag^ else "noclip off")
+	lua.pcall(L, 1, 0, 0)
+	return 0
+}
+
+// console_cmd_possess gives the player control of an actor (upvalue 1 = ^Game): the argument, else
+// the selection, else the start character. Input drives it from the next tick; its AI rests.
+@(private = "package")
+console_cmd_possess :: proc "c" (L: ^lua.State) -> c.int {
+	context = runtime.default_context()
+	g := cast(^Game)lua.touserdata(L, lua.REGISTRYINDEX - 1)
+	if lua.gettop(L) == 0 || lua.isnil(L, 1) {lua.getglobal(L, "sel")}
+	form, ok := slua.ref_form(L, -1)
+	form = worldstate.resolve(&g.sim.ws, form) if ok && form != 0 else formid.START_CHARACTER
+	text := "possess: not an actor"
+	if is_actor_ref(g, form) {
+		g.sim.ws.player = form
+		text = fmt.tprintf("possess: %s", worldstate.display_name(&g.sim.ws, &g.db, form))
+	}
+	lua.getglobal(L, "print")
+	lua.pushstring(L, strings.clone_to_cstring(text, context.temp_allocator))
 	lua.pcall(L, 1, 0, 0)
 	return 0
 }

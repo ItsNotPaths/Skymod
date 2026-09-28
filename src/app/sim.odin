@@ -28,16 +28,13 @@ Sim :: struct {
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	agents:       ai.World, // every actor's running package
 	detection:    detection.State, // who has seen whom
-	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref but the player
-	// (hole player-controller :tags player :sev blocker) ws.player (the actor 0x14 means) has its own body path (this capsule, tick_locomotion, player_publish) apart from actor_bodies, and the AI skips it, so taking over an NPC moves only the id. Wanted: one Actor_Body path for every actor, fed by input or by its AI agent, and a console command to take over an actor.
-	// The player's capsule, and the physics world it lives in: the exterior `phys` until a load door
-	// swaps the active scene to an interior (its own world); on each swap the capsule is re-homed.
-	// nil when physics is off (free-fly). `noclip`'s address rides the console's tcl command.
-	character:    physics.Character,
-	char_ok:      bool,
+	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref, the one the player controls too
+	// The physics world the bodies live in: the exterior `phys` until a load door swaps the active
+	// scene to an interior (its own world); on each swap the bodies are rebuilt there. nil when
+	// physics is off (free-fly). `noclip`'s address rides the console's tcl command.
 	noclip:       bool,
 	cur_phys:     ^physics.World,
-	published:    Placement, // the player's cell and feet as player_publish last wrote them
+	published:    Placement, // the player's cell and feet as player_place last wrote them
 	input:        Sim_Input, // the controls the tick reads
 	input_was:    Sim_Input, // the last tick's: a press is down now and up then
 	carried:      Cmd_Carry, // the dev carry
@@ -126,9 +123,10 @@ latch_input :: proc(g: ^Game) -> Sim_Input {
 	return si
 }
 
-// player_feet is where the sim has the player: the capsule when walking, else where main flew.
+// player_feet is where the sim has the player: its body when walking, else where main flew.
 player_feet :: proc(g: ^Game) -> smath.Vec3 {
-	return physics.character_position(&g.sim.character) if g.sim.char_ok && !g.sim.noclip else g.sim.input.eye - {0, 0, EYE_HEIGHT}
+	if b, ok := &g.sim.actor_bodies[g.sim.ws.player]; ok && !g.sim.noclip {return physics.character_position(&b.char)}
+	return g.sim.input.eye - {0, 0, EYE_HEIGHT}
 }
 
 // (hole sim-primitives-package :tags threading :sev struct) sim.odin holds generic concurrency primitives (Queue, Latest) beside the sim boundary protocol; the primitives want a small package of their own, so this file reads as the protocol only.
@@ -296,9 +294,10 @@ publish_snapshot :: proc(g: ^Game) {
 	s.at = g.sim.clock.at
 	s.prof = g.tick.prof
 	s.phys = world.phys_stats(&g.sim.ext)
-	s.walking = g.sim.char_ok && !g.sim.noclip
+	body, has_body := &g.sim.actor_bodies[g.sim.ws.player]
+	s.walking = has_body && !g.sim.noclip
 	clear(&s.text)
-	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
+	if has_body {s.player.from, s.player.to = physics.character_step(&body.char)}
 	world.capture_poses(active_space(g), &s.bodies)
 	for b, i in g.sim.drops {world.add_pose(&s.bodies, &g.phys, {0, i32(i)}, b)}
 	s.drops = len(g.sim.drops)

@@ -33,7 +33,7 @@ tick_social :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, load
 	chatty := make([dynamic]Form_ID, context.temp_allocator)
 	for actor in loaded {
 		a, ok := &w.agents[actor]
-		if !ok || worldstate.is_dead(ws, db, actor) || busy(ws, db, actor, a) {continue}
+		if !ok || actor == ws.player || worldstate.is_dead(ws, db, actor) || busy(ws, db, actor, a) {continue} // input, not its AI, drives the player
 		flags := interrupt_flags(db, a.pack)
 		feet := worldstate.ref_pos(ws, db, actor)
 		to_player := apart(ws, db, actor, ws.player, feet, player)

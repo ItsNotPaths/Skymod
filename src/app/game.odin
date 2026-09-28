@@ -583,14 +583,10 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.drop_marker = make_marker_mesh(&g.r, 24)
 	g.up.marker = true
 
-	// Player character: walk the streamed exterior under gravity, colliding with terrain +
-	// objects. Spawns at the camera; V toggles no-clip free-fly (and inside interiors, which
-	// have no collision yet, locomotion falls back to free-fly automatically).
-	if g.phys_ok {
-		capsule := actor_capsule(g, g.sim.ws.player)
-		g.sim.character, g.sim.char_ok = physics.character_create(&g.phys, g.cam.pos, capsule.radius, capsule.half_h, u64(g.sim.ws.player))
-	}
-	g.sim.noclip = !g.sim.char_ok
+	// The player walks in its actor body once the tick builds it at the spawn camera; V toggles
+	// no-clip free-fly.
+	g.sim.input.eye, g.sim.input.yaw = g.cam.pos, g.cam.yaw
+	g.sim.noclip = !g.phys_ok
 	publish_snapshot(g)
 
 	// Gameplay script registry + the dev-console REPL on top of it (Phase 4). The REPL
@@ -606,6 +602,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		g.sim.agents.lua = {&g.sim.repl.vm, slua.run_procedure}
 		g.sim.agents.furniture = {g, actor_furniture_markers}
 		slua.repl_register_cmd(&g.sim.repl, "ai", "ai [ref] — an actor's package, tree nodes, mover and trip", console_cmd_ai, g)
+		slua.repl_register_cmd(&g.sim.repl, "possess", "possess [ref] — control an actor; no ref and no selection = the start character", console_cmd_possess, g)
 		slua.set_script_dirs(&g.sim.repl.vm, script_dirs(base, &g.mprofile))
 		slua.set_profile(&g.sim.repl.vm, slice.contains(os.args, "--profile")) // prof.scripts: each handler's time
 		rc_path, _ := filepath.join({base, "console.lua"}, context.temp_allocator)
@@ -671,8 +668,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.repl_ok {slua.repl_destroy(&g.sim.repl)}
 	slua.transitions_destroy(&g.sim.trans)
 	if g.up.sreg {script.destroy(&g.sreg)}
-	if g.sim.char_ok {physics.character_destroy(&g.sim.character)} // may be homed in an interior world — before traversal
-	actor_bodies_clear(g)
+	actor_bodies_clear(g) // may be homed in an interior world — before traversal
 	delete(g.sim.actor_bodies)
 	ai.destroy(&g.sim.agents)
 	detection.destroy(&g.sim.detection)

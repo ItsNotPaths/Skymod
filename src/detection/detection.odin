@@ -20,12 +20,11 @@ State :: struct {
 	last: map[Form_ID][3]f32, // actor -> where it stood last tick
 }
 
-// tick runs one group of viewers. `actors` are the loaded NPCs; the player is a target too.
+// tick runs one group of viewers. `actors` are the loaded actors, the player's too.
 tick :: proc(s: ^State, ws: ^worldstate.World_State, db: ^gamedb.DB, actors: map[Form_ID]bool, dt: f32) {
 	s.tick += 1
 	speeds := make(map[Form_ID]f32, context.temp_allocator)
 	for a in actors {speeds[a] = speed(s, ws, db, a, dt)}
-	speeds[ws.player] = speed(s, ws, db, ws.player, dt)
 	clear(&s.last)
 	for a in speeds {s.last[a] = worldstate.ref_pos(ws, db, a)}
 

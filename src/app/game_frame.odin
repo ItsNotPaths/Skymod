@@ -164,8 +164,6 @@ game_tick :: proc(g: ^Game) {
 	frame_scene_select(g)
 	sight.view = {g.sim.cur_phys, player_feet(g) + {0, 0, EYE_HEIGHT}, g.sim.input.view}
 	lap(g, .Scene, &t)
-	tick_locomotion(g)
-	lap(g, .Locomotion, &t)
 	tick_actor_bodies(g) // laps its own parts
 	t = time.tick_now()
 	tick_projectiles(g)
@@ -425,21 +423,14 @@ frame_scene_select :: proc(g: ^Game) {
 	// where hide/move/scale/remove land, before physics rebuilds collision.
 	if sp := active_space(g); sp != nil {world.apply_pending_scene_ops(sp, &g.db)}
 
-	// Re-home the player capsule into the active scene's physics world. On a door transition
-	// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old
-	// capsule and recreate it in the new world at the camera. A nil active world (physics off,
-	// or the experimental portal interior, which has none) → no capsule → free-fly.
+	// On a door transition the active physics world changes (exterior `phys` ↔ an interior's own
+	// world): drop every body; the actor tick rebuilds them in the new world at their refs. A nil
+	// active world (physics off, or the experimental portal interior, which has none) → no bodies
+	// → free-fly.
 	sp := active_space(g)
 	want_phys := sp.phys if sp != nil else nil
 	if want_phys != g.sim.cur_phys {
-		feet := player_feet(g)
-		if g.sim.char_ok {physics.character_destroy(&g.sim.character);g.sim.char_ok = false}
 		actor_bodies_clear(g)
-		if want_phys != nil {
-			player_capsule := actor_capsule(g, g.sim.ws.player)
-			g.sim.character, g.sim.char_ok = physics.character_create(want_phys, feet, player_capsule.radius, player_capsule.half_h, u64(g.sim.ws.player))
-			if !g.sim.char_ok {g.sim.noclip = true}
-		}
 		g.sim.cur_phys = want_phys
 	}
 }
@@ -453,25 +444,18 @@ frame_look :: proc(g: ^Game) {
 	if !g.fr.mouse_cap {camera_look(&g.cam, g.p.input.look)}
 }
 
-// tick_locomotion walks the player capsule one fixed tick: camera-relative WASD at the current
-// yaw, Shift sprint, Space jump, in whichever world the capsule is homed to. Free-fly moves in
-// frame_camera instead — no solver, so it has nothing to keep deterministic.
-@(private = "file")
-tick_locomotion :: proc(g: ^Game) {
-	if !g.sim.char_ok {return}
-	if g.sim.noclip {
-		physics.character_set_position(&g.sim.character, player_feet(g)) // keep the body under the free camera
-		return
-	}
+// input_move is the player's controller: camera-relative WASD at the current yaw, Shift sprint,
+// Space jump. Free-fly moves in frame_camera instead — no solver, so it has nothing to keep
+// deterministic.
+input_move :: proc(g: ^Game) -> (vel: [2]f32, jump: bool) {
 	move := g.sim.input.move
 	cy, sy := math.cos(g.sim.input.yaw), math.sin(g.sim.input.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
 	if g.sim.input.sprint {worldstate.set_sneaking(&g.sim.ws, g.sim.ws.player, false)} // sprinting stands up
 	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if worldstate.is_sneaking(&g.sim.ws, g.sim.ws.player) else RUN_SPEED
-	hv: [2]f32
-	if mag > 0.001 {hv = {dir.x / mag * speed, dir.y / mag * speed}}
-	physics.character_move(g.sim.cur_phys, &g.sim.character, hv, move.z > 0.5, TICK_DT)
+	if mag > 0.001 {vel = {dir.x / mag * speed, dir.y / mag * speed}}
+	return vel, move.z > 0.5
 }
 
 // frame_camera puts the eye where this frame should see it: the capsule's position blended
@@ -603,22 +587,31 @@ Placement :: struct {
 	pos:  smath.Vec3,
 }
 
-// player_publish writes the player's feet into its ref's Moved delta: the cell under the player
+// player_heading is the way the camera faces, as a ref's z rotation.
+player_heading :: proc(g: ^Game) -> f32 {return math.PI / 2 - g.sim.input.yaw}
+
+// player_place writes the player's feet into its ref's Moved delta: the cell under the player
 // (interior, or exterior grid cell), the position, and the heading. player_follow compares against it.
-player_publish :: proc(g: ^Game) {
+player_place :: proc(g: ^Game, feet: smath.Vec3) {
 	place := g.sim.trav.place
-	feet := player_feet(g)
 	cell := place.interior if place.interior != 0 else gamedb.cell_under(&g.db, place.world, feet)
-	heading := math.PI / 2 - g.sim.input.yaw
-	worldstate.set_moved(&g.sim.ws, g.sim.ws.player, cell, smath.trs(feet, {0, 0, heading}, 1), feet)
+	worldstate.set_moved(&g.sim.ws, g.sim.ws.player, cell, smath.trs(feet, {0, 0, player_heading(g)}, 1), feet)
 	g.sim.published = {cell, feet}
 }
 
+// player_publish places the player where main flew it while it has no body (physics off, or its
+// collision not ready yet); a body publishes itself in the actor tick.
+player_publish :: proc(g: ^Game) {
+	if g.sim.ws.player not_in g.sim.actor_bodies {player_place(g, player_feet(g))}
+}
+
 // player_moved reports whether a script moved the player's ref (MoveTo, SetPosition) since the
-// last player_publish.
+// sim last placed it.
 player_moved :: proc(g: ^Game) -> bool {
 	d, ok := worldstate.get(&g.sim.ws, g.sim.ws.player)
-	return ok && .Moved in d.live && Placement{d.cell, d.pos} != g.sim.published
+	if !ok || .Moved not_in d.live {return false}
+	if b, has := g.sim.actor_bodies[g.sim.ws.player]; has {return d.pos != b.placed}
+	return Placement{d.cell, d.pos} != g.sim.published
 }
 
 // player_follow places the player where a script moved its ref, running any load that needs.
@@ -644,7 +637,6 @@ player_restore :: proc(g: ^Game) -> Traversal_Kind {
 	kind := traversal_go_to(&g.sim.trav, d.cell, d.pos)
 	if kind == .None {return .None}
 	player_teleport(g, d.pos, math.PI / 2 - math.atan2(d.world[0, 1], d.world[0, 0]), 0)
-	g.sim.published = {d.cell, d.pos}
 	return kind
 }
 
@@ -715,7 +707,11 @@ frame_traversal :: proc(g: ^Game) {
 player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	g.cam.pos, g.cam.yaw, g.cam.pitch = feet + {0, 0, EYE_HEIGHT}, yaw, pitch
 	g.sim.input.eye, g.sim.input.yaw = feet + {0, 0, EYE_HEIGHT}, yaw // the rest of this frame's ticks see the move
-	if g.sim.char_ok {physics.character_set_position(&g.sim.character, feet)}
+	if b, ok := &g.sim.actor_bodies[g.sim.ws.player]; ok {
+		physics.character_set_position(&b.char, feet)
+		b.placed = feet
+	}
+	player_place(g, feet)
 	publish_snapshot(g)
 }
 
