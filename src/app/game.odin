@@ -512,6 +512,16 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	g.portal_push = 32
 	g.portal_yaw_off = 0
 
+	// World-state overlay (Phase 3c): the mutable delta layer between immutable gamedb and the
+	// transient scene. Moved clutter settles write here; cell loads patch from it (baseline ⊕
+	// overlay). Lives for the whole session — outlives every cell stream AND traversal (which
+	// borrows, never owns it). Before the spawn bubble builds, so its cells get the overlay and
+	// reach loaded_cells.
+	worldstate.init(&g.sim.ws)
+	g.up.ws = true
+	g.scene.ws = &g.sim.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
+	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
+
 	g.cam = Camera{yaw = 2.3, pitch = -0.3}
 	if wfid, found := gamedb.find_world(&g.db, "Tamriel"); found {
 		world.build_terrain_field(&g.scene, &g.db, wfid) // CDLOD whole-world height-texture terrain (backdrop tier)
@@ -528,14 +538,6 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	} else {
 		log.error("worldspace Tamriel not found")
 	}
-	// World-state overlay (Phase 3c): the mutable delta layer between immutable gamedb and the
-	// transient scene. Moved clutter settles write here; cell loads patch from it (baseline ⊕
-	// overlay). Lives for the whole session — outlives every cell stream AND traversal (which
-	// borrows, never owns it).
-	worldstate.init(&g.sim.ws)
-	g.up.ws = true
-	g.scene.ws = &g.sim.ws // overlay on the exterior scene too (interiors get it via traversal_init below)
-	g.scene.loaded_cells = &g.loaded_cells // interiors borrow it from the exterior scene (enter_interior)
 	// Now the DB + overlay exist: hand the load screen the real vanilla loading tips (LSCR DESC pool) +
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
 	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.sim.ws, &g.db))
