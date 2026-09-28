@@ -120,6 +120,10 @@ main :: proc() {
 		vmad_names(path)
 		return
 	}
+	if len(os.args) >= 3 && os.args[2] == "--vmad-props" {
+		vmad_props(path)
+		return
+	}
 	if len(os.args) >= 3 && os.args[2] == "--vmad" {
 		vmad_survey(path)
 		return

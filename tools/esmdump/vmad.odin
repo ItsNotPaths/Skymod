@@ -142,6 +142,45 @@ vmad_names_visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -
 	return true
 }
 
+// --vmad-props: every number property value, one "script<TAB>property<TAB>value" line per
+// attachment (form and alias scripts), names lower case.
+vmad_props :: proc(path: string) {
+	data, err := os.read_entire_file_from_path(path, context.allocator)
+	if err != nil {
+		fmt.eprintfln("could not read %s", path)
+		os.exit(1)
+	}
+	defer delete(data)
+	esm.walk(data, vmad_props_visit, nil)
+}
+
+@(private = "file")
+vmad_props_visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
+	fl, backing, fok := esm.fields(rec, context.temp_allocator)
+	if !fok {return true}
+	defer delete(backing, context.temp_allocator)
+	if _, has := esm.find_field(fl, "VMAD"); !has {return true}
+	fs, ok := esm.decode_vmad(rec.type, fl)
+	if !ok {return true}
+	defer esm.free_form_scripts(fs)
+
+	print :: proc(list: []esm.Script_Attach) {
+		for a in list {
+			for p in a.props {
+				name := strings.to_lower(a.name, context.temp_allocator)
+				prop := strings.to_lower(p.name, context.temp_allocator)
+				#partial switch v in p.value {
+				case i32: fmt.printfln("%s\t%s\t%v", name, prop, v)
+				case f32: fmt.printfln("%s\t%s\t%v", name, prop, v)
+				}
+			}
+		}
+	}
+	print(fs.scripts)
+	for al in fs.aliases {print(al.scripts)}
+	return true
+}
+
 @(private = "file")
 vmad_visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	s := (^Vmad_Survey)(user)
