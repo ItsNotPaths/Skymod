@@ -315,22 +315,12 @@ forward_ref_events :: proc(g: ^Game) {
 // handle_events runs what the sim told main, oldest first. A handler may run it again (a door's load
 // screen), and the inner run carries on in order.
 handle_events :: proc(g: ^Game) {
-	placed := false // the interior got placed refs
+	interior_placed := false
 	for e in take_first(&g.events) {
 		defer event_destroy(e)
 		switch v in e {
-		case Evt_Ref:
-			s := ref_scene(g, v.ext)
-			if s == nil {break}
-			world.apply_ref_event(s, v.e)
-			if v.ext {
-				world.stream_apply(&g.streamer, v.e)
-				break
-			}
-			#partial switch _ in v.e {
-			case world.Ref_Placed, world.Cell_Rebuilt: placed = true
-			}
-		case Evt_Open_Container: open_container(g, v.container)
+		case Evt_Ref:              interior_placed ||= apply_ref(g, v)
+		case Evt_Open_Container:   open_container(g, v.container)
 		case Evt_Door:
 			sim_drain(g)
 			cross_door(g, v.hit)
@@ -341,14 +331,24 @@ handle_events :: proc(g: ^Game) {
 			sim_resume(g)
 		}
 	}
-	if s := ref_scene(g, false); placed && s != nil {world.resolve_created_models(s)}
+	if interior_placed && g.trav.mode == .Interior {world.resolve_created_models(&g.trav.interior)}
 }
 
-// ref_scene is the render scene a space's ref events apply to; nil for the interior when the player
-// is outside.
-ref_scene :: proc(g: ^Game, ext: bool) -> ^world.Scene {
-	if ext {return &g.scene}
-	return &g.trav.interior if g.trav.mode == .Interior else nil
+// apply_ref draws a change to a live cell: the exterior's through the streamer, the interior's (when
+// the player is in it) in place. True when it placed refs in the interior, whose models load apart.
+@(private = "file")
+apply_ref :: proc(g: ^Game, v: Evt_Ref) -> bool {
+	if v.ext {
+		world.apply_ref_event(&g.scene, v.e)
+		world.stream_apply(&g.streamer, v.e)
+		return false
+	}
+	if g.trav.mode != .Interior {return false}
+	world.apply_ref_event(&g.trav.interior, v.e)
+	#partial switch _ in v.e {
+	case world.Ref_Placed, world.Cell_Rebuilt: return true
+	}
+	return false
 }
 
 // sim_drain brings the sim to rest and holds it there: the pending script phase finishes, queued

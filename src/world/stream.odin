@@ -134,9 +134,7 @@ stream_init :: proc(
 // stream_destroy stops the worker and frees the streamer's own state. Call BEFORE
 // scene_destroy (the worker must be stopped before the cache it feeds is freed).
 stream_destroy :: proc(st: ^Streamer) {
-	if len(st.workers) == 0 {
-		return // never stream_init'd (e.g. worldspace not found) — nothing to tear down
-	}
+	if !armed(st) {return}
 	sync.mutex_lock(&st.req_mu)
 	st.running = false
 	sync.mutex_unlock(&st.req_mu)
@@ -165,7 +163,7 @@ stream_destroy :: proc(st: ^Streamer) {
 // stream_apply builds or drops the render chunk for a cell the sim made live or retired, and requests
 // the models of refs placed in live cells. Placement itself is the scene's (apply_ref_event).
 stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
-	if len(st.workers) == 0 {return}
+	if !armed(st) {return}
 	switch v in e {
 	case Ref_Placed:
 		enqueue_model(st, v.ref.model_path)
@@ -190,6 +188,7 @@ stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 // stream_update takes the sim's requests, decorates a budgeted few new chunks and uploads decoded
 // models. Call every frame.
 stream_update :: proc(st: ^Streamer) {
+	if !armed(st) {return}
 	take_requests(st)
 	decorate(st, DECORATE_BUDGET)
 	drain_ready(st, UPLOAD_BUDGET)
@@ -199,9 +198,7 @@ stream_update :: proc(st: ^Streamer) {
 // cap, so every model the bubble needs is in flight. The decode pool then chews through it while the
 // load screen pumps uploads. Call once the sim's bubble cells have reached the scene.
 stream_begin_load :: proc(st: ^Streamer) {
-	if len(st.workers) == 0 {
-		return // streamer never armed (no worldspace) — stay in the zero-value Streaming mode
-	}
+	if !armed(st) {return}
 	st.mode = .Loading
 	decorate(st, max(int))
 	render.gpu_drain(st.scene.cache.r) // reclaim the last partial batch's staging
@@ -250,6 +247,12 @@ stream_stats :: proc(st: ^Streamer) -> Stats {
 }
 
 // --- internals ---
+
+// armed is whether stream_init ran: no worldspace, no streamer.
+@(private)
+armed :: proc(st: ^Streamer) -> bool {
+	return len(st.workers) > 0
+}
 
 // take_requests requests the models the sim read from the collision store before they were in.
 @(private)
