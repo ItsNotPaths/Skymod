@@ -44,7 +44,7 @@ open_dialogue :: proc(g: ^Game, speaker: Form_ID) {
 	start_dialogue(g, speaker)
 }
 
-// (hole force-greet-event :tags (threading dialogue) :sev gap :needs (sim-events)) main reads and clears ws.force_greet, a mailbox the AI writes in the tick; it must be a sim event.
+// (hole force-greet-event :tags (threading dialogue) :sev gap) main reads and clears ws.force_greet, a mailbox the AI writes in the tick; it must be a sim event.
 // frame_force_greet opens the conversation an NPC's ForceGreet asked for, once no menu is open.
 frame_force_greet :: proc(g: ^Game) {
 	fg := g.ws.force_greet

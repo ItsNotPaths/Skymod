@@ -177,12 +177,12 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 	case .Flora:
 		harvest(g, form, base, by)
 	case .Container:
-		if by == formid.PLAYER {open_container(g, form)}
+		if by == formid.PLAYER {push(&g.events, Evt_Open_Container{form})}
 	// (hole mount-attach :tags (threading animation player) :sev gap :needs (anim-state-snapshot)) a rider must draw on the horse's saddle bone. Wanted: 'attached to (form, bone)' in the actor view, so main draws the rider after the horse; the sim keeps the rider's capsule on the horse.
 	// (hole mounts :tags (animation player ai unclaimed) :sev gap :needs (actor-states)) activating a horse opens its dialogue: nobody rides, and IsOnMount, GetMount and Dismount have no state.
 	case .Actor, .Body:
 		if by != formid.PLAYER {break}
-		if worldstate.is_dead(&g.ws, &g.db, form) {open_container(g, form)} else {open_dialogue(g, form)}
+		if worldstate.is_dead(&g.ws, &g.db, form) {push(&g.events, Evt_Open_Container{form})} else {push(&g.events, Evt_Open_Dialogue{form})}
 	case .None, .Activator:
 		if by == formid.PLAYER && by in g.ws.jailed && ai.is_bed(&g.agents, &g.ws, &g.db, form) {
 			worldstate.serve_time(&g.ws, by) // a jail bed: the player sleeps the sentence away

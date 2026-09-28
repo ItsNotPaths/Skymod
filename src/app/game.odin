@@ -237,6 +237,8 @@ Game :: struct {
 	input:       Sim_Input, // the controls the tick reads (sim.odin)
 	commands:    Queue(Sim_Command), // what main asked of the sim since the last tick
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
+	events:      Queue(Sim_Event), // what the sim told main since main last looked
+	event_buf:   [dynamic]Sim_Event, // main's drained copy
 	carried:     Cmd_Carry, // the dev carry, as the sim holds it
 	snaps:       Latest(Snapshot), // the sim's newest snapshot, for main to take
 	snap_back:   Snapshot, // the one the sim fills
@@ -656,6 +658,8 @@ game_teardown :: proc(g: ^Game) {
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	queue_destroy(&g.commands)
 	delete(g.command_buf)
+	queue_destroy(&g.events)
+	delete(g.event_buf)
 	for s in ([]^Snapshot{&g.snaps.slot, &g.snap_back, &g.snap}) {snapshot_destroy(s)}
 	if g.repl_ok {slua.repl_destroy(&g.repl)}
 	delete(g.loaded_cells)

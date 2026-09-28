@@ -73,13 +73,12 @@ world_paused :: proc(g: ^Game) -> bool {
 	return MENUS[g.menu].pauses_world
 }
 
-// (hole sim-events :tags (threading ui) :sev gap) a tick's activate opens a menu or dialogue directly (open_container, open_dialogue write g.menu, g.talk, ws.talking). Wanted: a sim-to-main event queue (open menu, dialogue, message box, transition, console output) main drains each frame.
 // open_container shows a container's contents to the player (Activate on a container).
 open_container :: proc(g: ^Game, container: Form_ID) {
 	g.menu, g.menu_target = .Container, container
 }
 
-// (hole menu-park :tags (threading ui) :sev gap :needs (sim-drain sim-events)) a pausing menu only stops the accumulator, and its actions (equip, drink, drop, move_items, level_up, read_book) touch worldstate and the VM from ImGui code. Wanted: opening a pausing menu parks the sim, so the actions run with main as the owner.
+// (hole menu-park :tags (threading ui) :sev gap :needs (sim-drain)) a pausing menu only stops the accumulator, and its actions (equip, drink, drop, move_items, level_up, read_book) touch worldstate and the VM from ImGui code. Wanted: opening a pausing menu parks the sim, so the actions run with main as the owner.
 // frame_menus toggles the menus from their actions and draws the open one. Runs after the script
 // phase has joined, so worldstate is the main thread's.
 frame_menus :: proc(g: ^Game) {

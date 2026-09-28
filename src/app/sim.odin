@@ -167,3 +167,23 @@ publish_snapshot :: proc(g: ^Game) {
 	view_actors(g, s)
 	publish(&g.snaps, s)
 }
+
+// Sim_Event is one thing the sim tells main. Main handles them after each tick, in order.
+Sim_Event :: union {
+	Evt_Open_Container,
+	Evt_Open_Dialogue,
+}
+
+Evt_Open_Container :: struct {container: Form_ID}
+Evt_Open_Dialogue :: struct {speaker: Form_ID}
+
+// handle_events runs what the sim told main since the last call.
+handle_events :: proc(g: ^Game) {
+	drain(&g.events, &g.event_buf)
+	for e in g.event_buf {
+		switch v in e {
+		case Evt_Open_Container: open_container(g, v.container)
+		case Evt_Open_Dialogue:  open_dialogue(g, v.speaker)
+		}
+	}
+}

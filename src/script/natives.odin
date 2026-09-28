@@ -10,7 +10,7 @@ package script
 import "core:log"
 import "../gamedb"
 import smath "../math"
-// (hole vfx-events :tags (threading vfx) :sev gap :needs (sim-events)) no channel carries script and magic visuals to main (EffectShader, VisualEffect, PlayImpactEffect, image space modifiers, fades, camera shake, decals). Wanted: a sim-to-main effect queue stamped with tick time; natives must never call render (do not copy the c.audio pattern).
+// (hole vfx-events :tags (threading vfx) :sev gap) no channel carries script and magic visuals to main (EffectShader, VisualEffect, PlayImpactEffect, image space modifiers, fades, camera shake, decals). Wanted: a sim-to-main effect queue stamped with tick time; natives must never call render (do not copy the c.audio pattern).
 // (hole vfx-natives :tags (vfx unclaimed) :sev blocker :needs (particles)) EffectShader.Play (551), VisualEffect (551), ImageSpaceModifier (221) — no VFX.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker :needs (animation)) PlayAnimation (296) + PlayAnimationAndWait (309) — no animation system. An absent subsystem's completion predicate must answer DONE or rewrites poll forever.
 // (hole anim-natives :tags (animation unclaimed) :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
