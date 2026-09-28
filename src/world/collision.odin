@@ -285,7 +285,6 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 	}
 }
 
-// (hole collision-debug-snapshot :tags (threading physics) :sev gap) the K hitbox view reads Jolt shapes and body transforms from render. Wanted: the sim publishes the debug lines while the view is on.
 // draw_collision_debug draws the collision wireframe: cached per-chunk STATIC geometry, plus a
 // per-frame rebuild of the DYNAMIC bodies at their LIVE pose (so a shoved item's box follows it).
 // The dynamic mesh is the same geometry the physics build used, drawn at instance_world (= the body's
@@ -308,15 +307,15 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 		for &inst in chunk.instances {
 			m := inst.model
 			if m == nil {continue}
-			iw := instance_world(s, &inst) // single-body live pose (else inst.world)
+			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {
 				if !(sh.movable && s.dynamic_clutter) {continue}
 				// ARTICULATED item: pose each shape by ITS OWN linked body (Phase B/C), so a hinged part
 				// draws where the constraint put it. Single-body items use the instance follow (iw).
 				wm := iw
 				if inst.dyn_bodies != nil {
-					b := inst.dyn_bodies[sh.body]
-					wm = physics.body_transform(s.phys, b) * smath.translate(-inst.pos) * inst.world if b != 0 else inst.world
+					wm = inst.world
+					if bm, ok := posed(s, inst.dyn_bodies[sh.body]); ok {wm = bm * smath.translate(-inst.pos) * inst.world}
 				}
 				emit_shape_wire(&verts, &idx, wm * sh.transform, sh)
 				if len(verts) > 60000 {break}
