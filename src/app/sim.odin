@@ -206,8 +206,10 @@ sim_resume :: proc(g: ^Game) {
 	if g.parks == 0 {publish_snapshot(g)}
 }
 
-// ticks_stopped reports whether the tick loop must not run: the sim is parked, or an open menu
-// pauses the world.
-ticks_stopped :: proc(g: ^Game) -> bool {
-	return g.parks > 0 || world_paused(g)
+// park_for_menu holds the sim parked while an open menu pauses the world, so the menu's actions
+// run with main as the sim's owner. Call it after anything that may open or close a menu.
+park_for_menu :: proc(g: ^Game) {
+	if world_paused(g) == g.menu_parked {return}
+	g.menu_parked = !g.menu_parked
+	if g.menu_parked {sim_drain(g)} else {sim_resume(g)}
 }

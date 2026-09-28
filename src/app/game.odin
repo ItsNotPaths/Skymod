@@ -239,6 +239,7 @@ Game :: struct {
 	command_buf: [dynamic]Sim_Command, // the tick's drained copy
 	events:      Queue(Sim_Event), // what the sim told main since main last looked
 	parks:       int, // main's holds on the sim (sim_drain): while any, no tick runs
+	menu_parked: bool, // one of those holds is an open menu's (park_for_menu)
 	event_buf:   [dynamic]Sim_Event, // main's drained copy
 	carried:     Cmd_Carry, // the dev carry, as the sim holds it
 	snaps:       Latest(Snapshot), // the sim's newest snapshot, for main to take

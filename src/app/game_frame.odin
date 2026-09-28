@@ -80,20 +80,23 @@ game_frame :: proc(g: ^Game) {
 	frame_look(g)
 	frame_debug_verbs(g)
 	frame_menus(g)
+	park_for_menu(g)
 	frame_subtitles(g)
 
 	// The fixed-step sim. dt is clamped to the catch-up cap so a load screen or a hitch can't
-	// hand the loop a backlog it would spend the next several frames grinding through. A menu that
-	// pauses the world stops it, even one a tick of this frame opens; the rest runs once it closes.
+	// hand the loop a backlog it would spend the next several frames grinding through. A parked sim
+	// stops it: a save, a load, or a pausing menu, even one a tick of this frame opens. The rest
+	// runs once it resumes.
 	// (hole sim-clock :tags threading :sev gap) the fixed-step accumulator runs on main from the frame dt. Wanted: the sim runs its own clock with the catch-up cap, and main computes alpha from snapshot times.
-	g.tick.accum += 0 if ticks_stopped(g) else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
+	g.tick.accum += 0 if g.parks > 0 else min(g.p.dt, TICK_DT * MAX_TICKS_PER_FRAME)
 	g.input = latch_input(g)
-	for g.tick.accum >= TICK_DT && !ticks_stopped(g) {
+	for g.tick.accum >= TICK_DT && g.parks == 0 {
 		g.tick.accum -= TICK_DT
 		g.tick.total += 1
 		g.tick.prof.ticks += 1
 		game_tick(g)
-		handle_events(g) // a menu the tick opened stops the rest of the catch-up
+		handle_events(g)
+		park_for_menu(g) // a menu the tick opened stops the rest of the catch-up
 	}
 	g.tick.alpha = g.tick.accum / TICK_DT
 	take(&g.snaps, &g.snap)
@@ -147,7 +150,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event menu-park dialogue-commands transition-request sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event dialogue-commands transition-request sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)

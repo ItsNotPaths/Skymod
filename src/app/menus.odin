@@ -78,7 +78,6 @@ open_container :: proc(g: ^Game, container: Form_ID) {
 	g.menu, g.menu_target = .Container, container
 }
 
-// (hole menu-park :tags (threading ui) :sev gap) a pausing menu only stops the accumulator, and its actions (equip, drink, drop, move_items, level_up, read_book) touch worldstate and the VM from ImGui code. Wanted: opening a pausing menu parks the sim, so the actions run with main as the owner.
 // frame_menus toggles the menus from their actions and draws the open one. Runs after the script
 // phase has joined, so worldstate is the main thread's.
 frame_menus :: proc(g: ^Game) {
