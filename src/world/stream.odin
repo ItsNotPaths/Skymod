@@ -252,7 +252,7 @@ stream_destroy :: proc(st: ^Streamer) {
 	st^ = {}
 }
 
-// (hole stream-requests :tags (threading world assets) :sev gap :needs (sim-cell)) the streamer picks cells from main's camera and builds everything itself. Decided (user, 2026-09-27): the streamer loads every asset kind (meshes, textures, collision, skeletons, clips) for every consumer; the sim requests what the live cells need and owns placement; the streamer picks visual-only distant LOD (terrain, object LOD, grass) from the camera itself.
+// (hole stream-requests :tags (threading world assets) :sev gap) the streamer picks cells from main's camera and builds everything itself. Decided (user, 2026-09-27): the streamer loads every asset kind (meshes, textures, collision, skeletons, clips) for every consumer; the sim requests what the live cells need and owns placement; the streamer picks visual-only distant LOD (terrain, object LOD, grass) from the camera itself.
 // stream_update is called every frame with the player's world position. It re-windows
 // only when the player changes cell (cheap early-out otherwise), then drains decoded
 // models into the GPU under the per-frame budget.
@@ -436,7 +436,7 @@ snap_to :: proc(v, step: i32) -> i32 {
 	return i32(math.round(f32(v) / f32(step))) * step
 }
 
-// (hole cell-handoff :tags (threading world physics) :sev gap :needs (sim-cell stream-requests)) rewindow and load_streamed_cell pick the live cells and add and remove Jolt bodies on main. Decided (user, 2026-09-27): the sim decides which cells are live and builds their bodies; the streamer only delivers the collision blobs it asked for, and a drain leaves no request half-applied.
+// (hole cell-handoff :tags (threading world physics) :sev gap :needs (stream-requests)) rewindow and load_streamed_cell pick the live cells and add and remove Jolt bodies on main. Decided (user, 2026-09-27): the sim decides which cells are live and builds their bodies; the streamer only delivers the collision blobs it asked for, and a drain leaves no request half-applied.
 // rewindow (cheap, on cell crossing) computes the desired cell→LOD set around the player,
 // unloads chunks that left the window or changed LOD, and REPLANS the pending load queue.
 // The actual building happens in drain_loads under LOAD_BUDGET — so a crossing never
@@ -517,7 +517,6 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	if lod == 0 {
 		load_terrain(st.scene, st.db, &chunk) // near textured terrain (CDLOD covers beyond)
 		load_grass(st.scene, st.db, &chunk)
-		build_chunk_physics(st.scene, st.db, &chunk) // static collision (full-detail bubble only)
 	}
 	// lod ≥ 1 carries no per-cell objects now — distant objects are baked per-quad once at load
 	// (bake_object_lod), drawn via draw_object_lod. Far cells stay lean (water + bounds only).
@@ -532,8 +531,9 @@ load_streamed_cell :: proc(st: ^Streamer, cid: Form_ID, lod: int, dist: int) {
 	// the heavy BSA+NIF+DDS decode runs on the worker → no stutter, models pop in lazily).
 	resident := &st.scene.chunks[cid]
 	index_instances(st.scene, resident)
-	apply_overlay(st.scene, resident) // baseline ⊕ overlay (disabled/moved/scaled) before collision builds
+	apply_overlay(st.scene, resident) // baseline ⊕ overlay (disabled/moved/scaled) before the sim copies it
 	if lod == 0 {
+		if st.scene.space != nil {add_cell(st.scene.space, st.db, resident)} // the sim's side: refs, actors, terrain body (full-detail bubble only)
 		acquire_chunk_assets(st.scene, resident) // D1: pin this chunk's instance + grass models
 		note_loaded(st.scene, cid)
 		for inst in resident.instances {

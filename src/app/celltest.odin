@@ -62,9 +62,12 @@ when DEVTOOLS {
 		collisions: assetdb.Collision_Store
 		assetdb.collision_store_init(&collisions, v)
 		defer assetdb.collision_store_destroy(&collisions)
+		space: world.Space
+		world.space_init(&space, &phys, &collisions, nil, dynamic_clutter = false)
+		defer world.space_destroy(&space)
 		scene := world.scene_init(r, v, &collisions)
-		defer world.scene_destroy(&scene) // LIFO: runs before phys destroy → removes bodies while world lives
-		scene.phys = &phys
+		defer world.scene_destroy(&scene) // LIFO: runs before space and phys destroy → removes bodies while world lives
+		scene.space = &space
 
 		wfid, wok := gamedb.find_world(&db, "Tamriel")
 		if !wok {
@@ -90,7 +93,7 @@ when DEVTOOLS {
 		}
 		built := 0 // terrain collision is built by load_cell; objects below via sync_physics
 		for {
-			n := world.sync_physics(&scene)
+			n := world.sync_physics(&space)
 			built += n
 			if n == 0 {
 				break

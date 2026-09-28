@@ -50,22 +50,22 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 }
 
 // (hole animation) Decided (user, 2026-09-27): the sim owns the animation clock. It advances each actor's (clip, t) per tick, fires the annotations, applies root motion and samples the bones combat hitboxes need; main samples the full skeleton for drawing from the same clips.
-// (hole actor-cell-lifecycle :tags (threading ai physics) :sev gap :needs (sim-cell)) actor capsules come from chunk.actors, nav.rebuild takes the chunk list and collision_ready_near reads phys_built, all from main's chunks; they must read sim cells.
 // tick_actor_bodies gives each actor in the active scene's loaded cells a capsule, moves it one
 // tick, and drops the capsules of actors that left or were disabled.
 tick_actor_bodies :: proc(g: ^Game) {
-	phys := g.fr.active_scene.phys
-	if phys == nil {return}
+	sp := active_space(g)
+	if sp == nil || sp.phys == nil {return}
+	phys := sp.phys
 	t := time.tick_now()
 	defer lap(g, .Actors, &t)
-	cells := make([dynamic]Form_ID, 0, len(g.fr.active_scene.chunks), context.temp_allocator)
-	for cell in g.fr.active_scene.chunks {append(&cells, cell)}
+	cells := make([dynamic]Form_ID, 0, len(sp.cells), context.temp_allocator)
+	for cell in sp.cells {append(&cells, cell)}
 	nav.rebuild(&g.sim.agents.mesh, &g.db, cells[:]) // before new capsules are placed on it
 	lap(g, .Nav, &t)
 	ai.track_cells(&g.sim.agents, &g.sim.ws, &g.db, cells[:]) // pulls in actors whose package sends them to a cell that just loaded
 	ai.skip_time(&g.sim.agents, &g.sim.ws, &g.db)
 	seen := make(map[Form_ID]bool, context.temp_allocator)
-	for cell, &chunk in g.fr.active_scene.chunks {
+	for cell, &chunk in sp.cells {
 		for form in chunk.actors {
 			if d, ok := worldstate.get(&g.sim.ws, form); !ok || .Moved not_in d.live || d.cell == cell {actor_body_keep(g, phys, form, &seen, &chunk)}
 		}
@@ -155,7 +155,7 @@ READY_RADIUS :: f32(1024) // collision this near must exist before a capsule app
 SPAWN_LIFT :: f32(32) // a placement or a walk between navmesh corners can sit under the ground; the capsule settles
 
 @(private = "file")
-actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, chunk: ^world.Chunk) {
+actor_body_keep :: proc(g: ^Game, phys: ^physics.World, form: Form_ID, seen: ^map[Form_ID]bool, chunk: ^world.Sim_Cell) {
 	if form == formid.PLAYER || form in seen || !is_actor_ref(g, form) || !worldstate.ref_enabled(&g.sim.ws, &g.db, form) {return}
 	seen[form] = true
 	pos := worldstate.ref_pos(&g.sim.ws, &g.db, form)

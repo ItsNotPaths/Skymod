@@ -819,6 +819,7 @@ Traversal :: struct {
 	ws:          ^worldstate.World_State, // world-state overlay (borrowed); applied to interiors (Phase 3c)
 	interior:    world.Scene, // valid only while mode == .Interior
 	int_phys:    physics.World, // the active interior's collision world (reused across interiors)
+	int_space:   world.Space, // the active interior's live cells and bodies, in int_phys (reused too)
 	int_phys_ok: bool, // false if Jolt failed to make the interior world (interiors then have no collision)
 	ext_doors:   [dynamic]Door_Ref, // current exterior worldspace's load doors (rebuilt on retarget)
 	int_doors:   [dynamic]Door_Ref, // current interior cell's load doors (rebuilt on entry)
@@ -868,6 +869,7 @@ traversal_init :: proc(
 	// removed (scene_destroy) on exit, so we don't leak a Jolt filter-table set per door (see
 	// physics.world_destroy). nil-safe — a creation failure just leaves interiors collision-free.
 	t.int_phys, t.int_phys_ok = physics.world_create()
+	if t.int_phys_ok {world.space_init(&t.int_space, &t.int_phys, ext_scene.collisions, ws, dynamic_clutter = true)}
 	if !t.int_phys_ok {
 		log.warn("traversal: interior physics world creation failed — interiors will have no collision")
 	}
@@ -885,6 +887,7 @@ traversal_destroy :: proc(t: ^Traversal) {
 	if t.mode == .Interior {
 		world.scene_destroy(&t.interior) // removes the interior's bodies from int_phys first
 	}
+	world.space_destroy(&t.int_space)
 	if t.int_phys_ok {
 		physics.world_destroy(&t.int_phys)
 	}
@@ -1076,10 +1079,7 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	}
 	t.interior = world.scene_init(t.r, t.v, t.ext_scene.collisions)
 	t.interior.pretty = t.ext_scene.pretty // inherit --pretty from the exterior we branched from
-	if t.int_phys_ok {
-		t.interior.phys = &t.int_phys // the interior's bhk* collision builds into the reusable world
-		t.interior.dynamic_clutter = true // movable clutter → dynamic bodies (Phase 3b); interiors only
-	}
+	if t.int_phys_ok {t.interior.space = &t.int_space} // the interior's bhk* collision builds into the reusable world
 	t.interior.ws = t.ws // baseline ⊕ overlay: moved clutter reappears where it settled (Phase 3c)
 	t.interior.loaded_cells = t.ext_scene.loaded_cells // outlives this scene: an undrained cell is not lost
 	world.load_cell(&t.interior, t.db, cell_id, t.progress, t.progress_user) // reports decode progress to the load screen
@@ -1087,11 +1087,11 @@ enter_interior :: proc(t: ^Traversal, cell_id: Form_ID) {
 	// synchronously, so sync_physics can cook them immediately): the player lands on a solid
 	// floor on arrival instead of falling through for the first few budgeted frames.
 	if t.int_phys_ok {
-		for world.sync_physics(&t.interior) > 0 {}
+		for world.sync_physics(&t.int_space) > 0 {}
 		physics.optimize_broadphase(&t.int_phys)
 		nbodies := 0
-		for _, &chunk in t.interior.chunks {
-			nbodies += len(chunk.bodies)
+		for _, &c in t.int_space.cells {
+			nbodies += len(c.bodies)
 		}
 		log.infof("traversal: interior 0x%08X collision built — %d static bodies", cell_id, nbodies)
 	}

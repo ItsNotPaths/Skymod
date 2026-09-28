@@ -115,7 +115,7 @@ load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
 	for world.stream_loading(&g.streamer) {
 		done, total, _ := world.stream_pump_load(&g.streamer)
 		if g.phys_ok {
-			world.sync_physics(&g.scene, budget = 128)
+			world.sync_physics(&g.sim.ext, budget = 128)
 		}
 		f := base_frac
 		if total > 0 {
@@ -126,7 +126,7 @@ load_screen_stream :: proc(g: ^Game, phase: string, base_frac, span: f32) {
 		}
 	}
 	if g.phys_ok {
-		for world.sync_physics(&g.scene, budget = max(int)) > 0 {}
+		for world.sync_physics(&g.sim.ext, budget = max(int)) > 0 {}
 		physics.optimize_broadphase(&g.phys)
 	}
 	loadui_hide(g) // load done → clear the screen so gameplay doesn't keep drawing it

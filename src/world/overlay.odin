@@ -111,41 +111,22 @@ apply_overlay :: proc(s: ^Scene, chunk: ^Chunk) {
 // disable_ref is the Layer-1 mutation verb for Disabled (docs/live-state.md §7.1): it records a
 // Disabled delta in the overlay (so it persists + reapplies via apply_overlay on the next cell load)
 // AND, when the ref is currently resident, applies it live — the instance stops rendering AND loses
-// its collision immediately (remove_instance_bodies frees its slice of chunk.bodies). Returns false
-// if the scene has no overlay (nothing recorded). Re-enable (disabled=false) restores rendering, but
-// collision is rebuilt only on the next cell reload (sync_physics rebuilds when !inst.disabled).
+// its collision immediately (set_ref_disabled drops its bodies). Returns false if the scene has no
+// overlay (nothing recorded). Re-enable (disabled=false) restores rendering and rebuilds collision.
 disable_ref :: proc(s: ^Scene, form_id, cell: Form_ID, disabled: bool) -> bool {
 	if s.ws == nil {
 		return false
 	}
 	worldstate.set_disabled(s.ws, form_id, cell, disabled)
-	if inst, chunk, ok := find_resident(s, form_id); ok {
+	if inst, _, ok := find_resident(s, form_id); ok {
 		inst.disabled = disabled
 		inst.vis = .Hidden if disabled else .Show
-		if disabled {
-			remove_instance_bodies(s.phys, chunk, inst)
-		} else {
-			inst.phys_built = false // re-enable: let sync_physics rebuild its bodies
-			chunk.phys_done = false
-		}
 	}
+	if s.space != nil {set_ref_disabled(s.space, form_id, disabled)}
 	return true
 }
 
-// rebuild_instance_collision drops a resident instance's current bodies and flags it (+ its chunk)
-// for a fresh build by sync_physics — used after a live transform change (move/scale) so collision
-// follows the new placement. No-op without a physics world.
-@(private)
-rebuild_instance_collision :: proc(s: ^Scene, chunk: ^Chunk, inst: ^Instance) {
-	if s.phys == nil {
-		return
-	}
-	remove_instance_bodies(s.phys, chunk, inst)
-	inst.phys_built = false
-	chunk.phys_done = false
-}
-
-// (hole instance-events :tags (threading world render) :sev gap :needs (sim-cell render-chunk scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
+// (hole instance-events :tags (threading world render) :sev gap :needs (render-chunk scene-ops-gpu)) scene ops change the shared chunks in the tick. Wanted: the sim applies them to its cells and publishes instance events (moved, disabled, spawned, removed) main applies to render chunks.
 // apply_pending_scene_ops drains the worldstate deferred-apply queue and live-applies each change to
 // THIS scene (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write
 // the overlay synchronously (read-your-writes) but don't touch the live scene; this is what makes the
@@ -216,12 +197,11 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 	if !ok {
 		return
 	}
-	// Deleted: remove the resident instance + its collision entirely (delete_ref's live half).
+	// Deleted: remove the resident instance + its collision entirely.
 	if .Deleted in d.live {
 		if _, chunk, res := find_resident(s, form_id); res {
 			for i in 0 ..< len(chunk.instances) {
 				if chunk.instances[i].form_id == form_id {
-					remove_instance_bodies(s.phys, chunk, &chunk.instances[i])
 					assetdb.model_release(&s.cache, chunk.instances[i].model_path) // D1: drop this ref's model ref
 					unordered_remove(&chunk.instances, i)
 					break
@@ -230,37 +210,34 @@ apply_overlay_ref :: proc(s: ^Scene, form_id: Form_ID) {
 			delete_key(&s.resident, form_id)
 			index_instances(s, chunk)
 		}
+		if s.space != nil {remove_ref(s.space, form_id)}
 		return
 	}
-	inst, chunk, res := find_resident(s, form_id)
+	inst, _, res := find_resident(s, form_id)
 	if !res {
 		return
 	}
 	// Disabled wins over transform (a hidden ref ignores Moved/Scaled, as in apply_overlay).
 	if .Disabled in d.live && d.disabled {
-		if !inst.disabled {
-			inst.disabled = true
-			inst.vis = .Hidden
-			remove_instance_bodies(s.phys, chunk, inst)
-		}
+		inst.disabled = true
+		inst.vis = .Hidden
+		if s.space != nil {set_ref_disabled(s.space, form_id, true)}
 		return
 	}
-	// Re-enable a previously-hidden ref (flag collision for rebuild).
+	// Re-enable a previously-hidden ref (its collision rebuilds).
 	if .Disabled in d.live && !d.disabled && inst.disabled {
 		inst.disabled = false
 		inst.vis = .Show
-		inst.phys_built = false
-		chunk.phys_done = false
+		if s.space != nil {set_ref_disabled(s.space, form_id, false)}
 	}
 	if .Moved in d.live {
 		inst.world = d.world
 		inst.pos = d.pos
-		rebuild_instance_collision(s, chunk, inst)
 	} else if .Scaled in d.live {
 		inst.scale = d.scale
 		inst.world = smath.trs(inst.pos, inst.rot, d.scale)
-		rebuild_instance_collision(s, chunk, inst)
 	}
+	if s.space != nil && (.Moved in d.live || .Scaled in d.live) {place_ref(s.space, form_id, inst.world, inst.pos, inst.scale)}
 }
 
 // --- created refs (the ADDITIVE half of baseline ⊕ overlay; docs/live-state.md §6 created-ref store) ---
@@ -281,12 +258,11 @@ build_created_instance :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form
 			scale = c.scale,
 			world = smath.trs(c.pos, c.rot, c.scale),
 			veg = veg_classify(modl),
-			in_flight = worldstate.in_flight(ws, form_id),
 		},
 		true
 }
 
-// (hole overlay-off-streamer :tags (threading world) :sev gap :needs (sim-cell instance-events)) build_overlaid_chunk, apply_overlay, ref_built and spawn_created read worldstate on main. Wanted: the sim applies the overlay to its cells and render gets the result as placements and instance events.
+// (hole overlay-off-streamer :tags (threading world) :sev gap :needs (instance-events)) build_overlaid_chunk, apply_overlay, ref_built and spawn_created read worldstate on main. Wanted: the sim applies the overlay to its cells and render gets the result as placements and instance events.
 // build_overlaid_chunk assembles a cell's instance layer as baseline ⊕ overlay in ONE step: the ESM
 // baseline (build_chunk) plus the runtime-created refs (spawn_created). Every cell-build path goes
 // through this — interior load_cell, the exterior streamer, the persistent cell, and the F9 rebuild —
@@ -367,11 +343,10 @@ rebuild_resident_overlay :: proc(s: ^Scene, db: ^gamedb.DB) {
 // (hole release-from-tick :tags (threading assets) :sev gap :needs (instance-events)) model_release (and so trim and evict_model, which free GPU buffers) runs in the tick through scene ops. Wanted: all cache refcounting on main, driven by instance events.
 // rebuild_chunk_overlay rebuilds one resident chunk's instances as baseline ⊕ created refs ⊕ deltas.
 rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^Chunk) {
-	// Drop old object bodies (the terrain body stays in chunk.bodies) + old instances + their index.
+	// Drop old instances + their index (the sim cell rebuilds its bodies below; its terrain body stays).
 	// This swaps chunk.instances WITHOUT release_chunk_assets, so it rebalances the model refs itself:
 	// release over the OLD instances, acquire over the FRESH ones, or eviction can never reclaim them.
 	for &inst in chunk.instances {
-		remove_instance_bodies(s.phys, chunk, &inst)
 		assetdb.model_release(&s.cache, inst.model_path)
 	}
 	deindex_instances(s, chunk)
@@ -385,7 +360,7 @@ rebuild_chunk_overlay :: proc(s: ^Scene, db: ^gamedb.DB, cell: Form_ID, chunk: ^
 	}
 	index_instances(s, chunk)
 	apply_overlay(s, chunk)
-	chunk.phys_done = false // object collision rebuilds via sync_physics; terrain body untouched
+	if s.space != nil {rebuild_cell(s.space, chunk)} // object collision rebuilds via sync_physics; terrain body untouched
 }
 
 // (hole scene-ops-gpu :tags (threading world assets) :sev gap) apply_pending_scene_ops runs in the tick and this decodes and uploads a model synchronously; the model resolve must move to main.
@@ -437,8 +412,8 @@ spawn_live :: proc(s: ^Scene, db: ^gamedb.DB, id: Form_ID) -> bool {
 	if !built {return false}
 	assetdb.model_acquire(&s.cache, inst.model_path) // D1: pin — released when the chunk unloads
 	append(&chunk.instances, inst) // may realloc the array — re-index below; no ^Instance held
-	chunk.phys_done = false         // let sync_physics build the new ref's collision
 	index_instances(s, chunk)
+	if s.space != nil {add_ref(s.space, inst, c.cell)} // sync_physics builds its collision
 	return true
 }
 
@@ -447,29 +422,29 @@ spawn_live :: proc(s: ^Scene, db: ^gamedb.DB, id: Form_ID) -> bool {
 // per frame — mirroring why vanilla separates HAVOK_MOVE from MOVE. Bodies that barely moved from
 // where they were built are skipped (MOVE_EPS), so a cell-load's settling clutter doesn't fill the
 // overlay with no-op deltas. Call once per frame after physics.step. No-op without an overlay.
-capture_settles :: proc(s: ^Scene) {
-	if s.ws == nil || s.phys == nil {
+capture_settles :: proc(sp: ^Space) {
+	if sp.ws == nil || sp.phys == nil {
 		return
 	}
-	for _, &chunk in s.chunks {
-		for &inst in chunk.instances {
-			if inst.dyn_body == 0 {
+	for _, &c in sp.cells {
+		for &r in c.refs {
+			if r.dyn_body == 0 {
 				continue
 			}
-			act := physics.body_active(s.phys, inst.dyn_body)
-			if inst.dyn_active && !act {
+			act := physics.body_active(sp.phys, r.dyn_body)
+			if r.dyn_active && !act {
 				// Just settled — snapshot the resting placement as a Moved delta.
-				m := physics.body_transform(s.phys, inst.dyn_body) * smath.translate(-inst.pos) * inst.world
+				m := physics.body_transform(sp.phys, r.dyn_body) * smath.translate(-r.pos) * r.world
 				p := smath.Vec3{m[0, 3], m[1, 3], m[2, 3]}
-				if smath.length3(p - inst.pos) > MOVE_EPS {
-					worldstate.set_moved(s.ws, inst.form_id, chunk.cell_form_id, m, p)
+				if smath.length3(p - r.pos) > MOVE_EPS {
+					worldstate.set_moved(sp.ws, r.form_id, c.cell, m, p)
 					log.infof(
 						"overlay: ref 0x%08X settled at (%.0f, %.0f, %.0f) — %d delta(s)",
-						inst.form_id, p.x, p.y, p.z, worldstate.count(s.ws),
+						r.form_id, p.x, p.y, p.z, worldstate.count(sp.ws),
 					)
 				}
 			}
-			inst.dyn_active = act
+			r.dyn_active = act
 		}
 	}
 }

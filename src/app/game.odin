@@ -418,11 +418,11 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	assetdb.collision_store_init(&g.collisions, &g.v)
 	g.scene = world.scene_init(&g.r, &g.v, &g.collisions)
 	g.up.scene = true
-	if g.phys_ok {g.scene.phys = &g.phys}
 	// Movable clutter (cups/plates/etc.) as DYNAMIC bodies in the exterior too — now that Jolt runs
 	// double precision, far-from-origin dynamic bodies are safe (interiors already did this). Static
 	// world geometry is unaffected (only CLUTTER/PROPS-layer, mass>0 shapes go dynamic).
-	g.scene.dynamic_clutter = g.phys_ok
+	world.space_init(&g.sim.ext, &g.phys if g.phys_ok else nil, &g.collisions, &g.sim.ws, dynamic_clutter = g.phys_ok)
+	g.scene.space = &g.sim.ext
 	// pretty: hide the white untextured editor-marker placeholders (effect placements,
 	// bird/patrol routes, X markers) that slip past the name filter. Initial state from
 	// ./skymod --pretty (or pretty=true in settings); live-toggleable in the Stats panel and
@@ -605,7 +605,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 		log.error("console: REPL init failed; falling back to echo")
 	}
 	// Seed the capsule's home world to the exterior so frame 1 doesn't re-home.
-	g.sim.cur_phys = g.scene.phys
+	g.sim.cur_phys = g.sim.ext.phys
 
 	// POST-WORLD: apply the Continue save now that the overlay + scene + streamer + character exist
 	// (New Game = nothing to do; the overlay starts empty). The choice was made before world init,
@@ -682,6 +682,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.ws {worldstate.destroy(&g.sim.ws)} // outlives traversal (trav borrows the overlay)
 	if g.up.lights {lighting_state_destroy(&g.lights)}
 	if g.up.scene {world.scene_destroy(&g.scene)} // removes chunk bodies while the phys world lives
+	world.space_destroy(&g.sim.ext)
 	assetdb.collision_store_destroy(&g.collisions) // after every scene that reads it
 	if g.phys_ok {
 		physics.world_destroy(&g.phys)

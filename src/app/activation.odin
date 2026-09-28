@@ -120,7 +120,7 @@ resolve_activation :: proc(g: ^Game, form: Form_ID) -> Activation_Target {
 		kind := Activate_Kind.Body if worldstate.is_dead(&g.sim.ws, &g.db, form) else .Actor
 		return {kind = kind, name = name, form = form, present = name != ""}
 	}
-	inst, _, ok := world.find_resident(g.fr.active_scene, form)
+	inst, _, ok := world.find_ref(active_space(g), form)
 	if !ok || inst.disabled {return {}}
 	t := Activation_Target {
 		kind     = .Door if inst.has_tp else classify_base(&g.db, gamedb.Form_ID(inst.base)),

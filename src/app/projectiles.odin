@@ -20,7 +20,7 @@ DEV_SHOT_DAMAGE :: f32(50)
 
 // tick_projectiles launches the Weapon.Fire calls scripts made, then moves each flight one tick.
 tick_projectiles :: proc(g: ^Game) {
-	if g.fr.active_scene.phys == nil {return}
+	if sp := active_space(g); sp == nil || sp.phys == nil {return}
 	for f in g.sim.ws.fires {fire(g, f)}
 	clear(&g.sim.ws.fires)
 	c := script.Call{ws = &g.sim.ws, db = &g.db}
@@ -54,43 +54,44 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 // first tick it exists. Past its range it falls, and it is lost at twice the range.
 @(private = "file")
 fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
-	s := g.fr.active_scene
+	sp := active_space(g)
 	if worldstate.is_deleted(&g.sim.ws, f.ref) {return false}
-	if worldstate.ref_cell(&g.sim.ws, &g.db, f.ref) not_in s.chunks {return true} // unloaded: it waits
-	inst, _, ok := world.find_resident(s, f.ref)
+	if worldstate.ref_cell(&g.sim.ws, &g.db, f.ref) not_in sp.cells {return true} // unloaded: it waits
+	r, _, ok := world.find_ref(sp, f.ref)
 	if !ok {return true}
-	if inst.dyn_body == 0 {return !inst.phys_built} // body not built yet, or it never will be
-	b := inst.dyn_body
-	p, _ := gamedb.projectile_of(&g.db, inst.base)
+	if r.dyn_body == 0 {return !r.phys_built} // body not built yet, or it never will be
+	b := r.dyn_body
+	p, _ := gamedb.projectile_of(&g.db, r.base)
 	if !f.launched {
-		physics.launch(s.phys, b, f.pos, f.vel, p.gravity)
+		physics.launch(sp.phys, b, f.pos, f.vel, p.gravity)
 		f.launched = true
 	}
-	f.pos, f.vel = physics.body_origin(s.phys, b), physics.body_velocity(s.phys, b)
+	f.pos, f.vel = physics.body_origin(sp.phys, b), physics.body_velocity(sp.phys, b)
 	if linalg.length(f.vel) < 1 {return true}
 	dir := linalg.normalize(f.vel)
-	aim := smath.normalize3((inst.world * [4]f32{0, 1, 0, 0}).xyz) // the body turns the placed ref
-	physics.set_rotation(s.phys, b, linalg.quaternion_between_two_vector3(aim, dir))
+	aim := smath.normalize3((r.world * [4]f32{0, 1, 0, 0}).xyz) // the body turns the placed ref
+	physics.set_rotation(sp.phys, b, linalg.quaternion_between_two_vector3(aim, dir))
 
 	// From the body to its tip one step on: an arrow's origin is its tip, a dart's is mid-shaft.
-	tip := inst.model.hi.y * inst.scale if inst.model != nil else 0
-	from := physics.body_position(s.phys, b)
+	mc, _ := assetdb.collision_of(sp.collisions, r.model_path)
+	tip := mc.hi.y * r.scale if mc != nil else 0
+	from := physics.body_position(sp.phys, b)
 	to := f.pos + dir * tip + f.vel * TICK_DT
-	for h in physics.ray_hits(s.phys, from, to) {
+	for h in physics.ray_hits(sp.phys, from, to) {
 		target := Form_ID(h.owner)
 		if target == f.ref || target == f.shooter || is_projectile(g, target) {continue}
-		audio.impact_sound(&g.db, inst.base, target, from + (to - from) * h.fraction)
+		audio.impact_sound(&g.db, r.base, target, from + (to - from) * h.fraction)
 		if live_actor(g, target) {
 			script.projectile_hit(c, f^, target)
 			worldstate.set_deleted(&g.sim.ws, f.ref, worldstate.ref_cell(&g.sim.ws, &g.db, f.ref))
 			worldstate.mark_scene_dirty(&g.sim.ws, f.ref)
 			return false
 		}
-		embed(g, inst, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
+		embed(g, sp, r, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
 		return false
 	}
 	f.travelled += linalg.length(f.vel) * TICK_DT
-	if f.travelled > p.range {physics.set_gravity_factor(s.phys, b, 1)}
+	if f.travelled > p.range {physics.set_gravity_factor(sp.phys, b, 1)}
 	return f.travelled <= 2 * p.range
 }
 
@@ -102,10 +103,10 @@ EMBED_DEPTH :: f32(4)
 // (hole spent-projectile-cleanup :tags (world save) :sev polish) embedded darts and arrows stay as created refs forever; nothing removes them after a while.
 // embed stops a projectile with its origin at `pos`, pointing along dir: a still ref with no body.
 @(private = "file")
-embed :: proc(g: ^Game, inst: ^world.Instance, pos, dir: [3]f32) {
-	inst.in_flight = false // its body goes when the move below rebuilds its collision
-	physics.launch(g.fr.active_scene.phys, inst.dyn_body, pos, {}, 0)
-	worldstate.relocate(&g.sim.ws, inst.form_id, worldstate.ref_cell(&g.sim.ws, &g.db, inst.form_id), pos, worldstate.heading_rot(dir))
+embed :: proc(g: ^Game, sp: ^world.Space, r: ^world.Sim_Ref, pos, dir: [3]f32) {
+	r.in_flight = false // its body goes when the move below rebuilds its collision
+	physics.launch(sp.phys, r.dyn_body, pos, {}, 0)
+	worldstate.relocate(&g.sim.ws, r.form_id, worldstate.ref_cell(&g.sim.ws, &g.db, r.form_id), pos, worldstate.heading_rot(dir))
 }
 
 @(private = "file")

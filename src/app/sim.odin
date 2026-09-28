@@ -45,6 +45,12 @@ Sim :: struct {
 	ambient:      audio.Ambient,
 	drops:        [dynamic]physics.Body, // the dev drop-test balls
 	snap_back:    Snapshot, // the snapshot the sim fills
+	ext:          world.Space, // the exterior's live cells and bodies (the interior's is the traversal's)
+}
+
+// active_space is the sim's side of the scene the player is in (nil when it has none).
+active_space :: proc(g: ^Game) -> ^world.Space {
+	return g.fr.active_scene.space if g.fr.active_scene != nil else nil
 }
 
 // Sim_Input is what the player's controls hold, latched by main once per frame. The tick reads
@@ -244,7 +250,7 @@ publish_snapshot :: proc(g: ^Game) {
 	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
 	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
-	world.capture_poses(g.fr.active_scene, &s.bodies)
+	world.capture_poses(active_space(g), &s.bodies)
 	for b, i in g.sim.drops {world.add_pose(&s.bodies, &g.phys, {0, i32(i)}, b)}
 	s.drops = len(g.sim.drops)
 	view_actors(g, s)

@@ -149,8 +149,8 @@ pretty_hidden :: proc(s: ^Scene, inst: ^Instance) -> bool {
 // to (p, R) we want R·(world·v − pos) + p, which as a matrix is body_transform·translate(−pos)·world
 // (translate(−pos) re-bases the rotation on the REFR origin the hull verts were centred relative to).
 instance_world :: proc(s: ^Scene, inst: ^Instance) -> smath.Mat4 {
-	if inst.dyn_body == 0 {return inst.world}
-	m, ok := drawn_pose(s, {inst.form_id, 0})
+	if !inst.posed {return inst.world}
+	m, ok := drawn_pose(s, {inst.form_id, WHOLE})
 	if !ok {return inst.world}
 	return m * smath.translate(-inst.pos) * inst.world
 }
@@ -170,7 +170,7 @@ drawn_pose :: proc(s: ^Scene, key: Pose_Key) -> (smath.Mat4, bool) {
 // back to `iworld * sh_local` (the whole-instance pose), so this is a no-op for the common case.
 instance_shape_world :: proc(s: ^Scene, inst: ^Instance, iworld, sh_local: smath.Mat4, si: int) -> smath.Mat4 {
 	m := inst.model
-	if inst.dyn_bodies != nil && m.shape_body != nil && si < len(m.shape_body) && m.shape_body[si] >= 0 {
+	if inst.posed && m.shape_body != nil && si < len(m.shape_body) && m.shape_body[si] >= 0 {
 		if bm, ok := drawn_pose(s, {inst.form_id, i32(m.shape_body[si])}); ok {
 			return bm * smath.translate(-inst.pos) * inst.world * sh_local
 		}
@@ -198,7 +198,6 @@ Instance_Vis :: enum u8 {
 // Form_ID is the global form handle (= gamedb.Form_ID = u64): (slot<<32)|local.
 Form_ID :: gamedb.Form_ID
 
-// (hole sim-cell :tags (threading world physics) :sev gap) Instance and Chunk mix render data, placement and Jolt bodies. Wanted: a sim cell (placements, bodies, actors, overlay, resident index) keyed by form ID and owned by the sim.
 // Instance is one placed reference: its model (shared, nil until uploaded) referenced
 // by path, the raw REFR placement, and a door teleport if this is a load door.
 Instance :: struct {
@@ -216,23 +215,8 @@ Instance :: struct {
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
 	world:      smath.Mat4, // cached trs(pos,rot,scale) — placement is static, so computed once at build
 	veg:        Veg_Kind, // cached vegetation class (path match done once, not per frame)
-	phys_built: bool, // collision bodies created for this instance (sync_physics, Phase 2e)
-	dyn_body:   physics.Body, // movable-clutter dynamic body (0 = none/static); render follows it (Phase 3b)
-	dyn_active: bool, // last frame's body-active state — settle (active→asleep) edge → overlay delta (Phase 3c)
-	disabled:   bool, // overlay Disabled/Deleted: hidden + no collision (set by apply_overlay / disable_ref)
-	in_flight:  bool, // a projectile still flying: one non-colliding capsule its render follows, no NIF collision
-	// This instance's collision bodies occupy chunk.bodies[body_first : body_first+body_count] and its
-	// hinge constraints chunk.constraints[con_first : con_first+con_count] — contiguous slices recorded
-	// at build. Lets disable_ref remove just this ref's bodies/constraints live without a per-instance
-	// allocation. (Constraints must be removed before the bodies they link — Jolt asserts otherwise.)
-	body_first: int,
-	body_count: int,
-	con_first:  int,
-	con_count:  int,
-	// dyn_bodies maps a Collision_Body index → its Jolt body, for ARTICULATED instances (>1 movable body
-	// linked by hinges — Phase B). nil for the common single-body item (which uses dyn_body). Owned;
-	// freed on unload. The debug/collision view reads it to draw each linked body at its live pose.
-	dyn_bodies: []physics.Body,
+	disabled:   bool, // overlay Disabled: hidden (set by apply_overlay / disable_ref)
+	posed:      bool, // the sim moves it: draw from the snapshot's poses (mark_posed)
 }
 
 // Chunk is one loaded cell's instances + a culling AABB. Exterior cells carry their
@@ -243,15 +227,12 @@ Chunk :: struct {
 	has_grid:     bool,
 	lod:          int,
 	instances:    [dynamic]Instance,
-	actors:       [dynamic]Form_ID, // the actor refs placed here, disabled ones included (app/actors.odin gives them bodies)
+	actors:       [dynamic]Form_ID, // the actor refs a build found; add_cell hands them to the sim cell
 	terrain:      [dynamic]Terrain_Patch, // exterior LAND heightmap patches (one per quadrant)
 	grass:        [dynamic]Grass_Batch, // scattered grass (one batch per grass type)
 	objects:      [dynamic]Obj_Batch, // distant instanced statics (lod ≥ 1; one batch per model)
 	water:        render.Mesh, // flat per-cell water plane (zero mesh = none); see water.odin
 	has_water:    bool,
-	bodies:       [dynamic]physics.Body, // static collision bodies for this chunk's instances (Phase 2e)
-	constraints:  [dynamic]physics.Constraint, // hinge joints linking this chunk's articulated bodies (Phase B)
-	phys_done:    bool, // every instance's collision bodies are built (skip in sync_physics)
 	debug_mesh:   render.Mesh, // collision-hitbox wireframe geometry (world-space); built on demand
 	has_debug:    bool,
 	lo, hi:       smath.Vec3, // world-space culling bounds (incl. terrain footprint)
@@ -298,13 +279,12 @@ Scene :: struct {
 	tfield:   Terrain_Field, // CDLOD whole-world height-texture terrain (terrain pivot)
 	tree_billboards: map[Form_ID]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
-	phys:     ^physics.World, // borrowed static-collision world (Phase 2e); nil = physics off for this scene
+	space:    ^Space, // the sim's side of these cells; nil = no sim here (the open-interiors portal view)
 	collisions: ^assetdb.Collision_Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
 	poses:    ^Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
 	has_dyn_debug: bool,
-	dynamic_clutter: bool, // build movable clutter (CLUTTER/PROPS layer + mass>0) as DYNAMIC bodies (Phase 3b/A). Now ON for exteriors too: double precision (RVec3 == f64) makes far-from-origin dynamic bodies safe, and add_dynamic_body keeps each body's shapes LOCAL with the world placement in the f64 body position. Architecture/rocks (static layers) stay static regardless.
 	ws:       ^worldstate.World_State, // borrowed world-state overlay (Phase 3c); nil = no persistence layer for this scene
 	// resident maps a ref's formID -> where its live Instance currently sits, so a runtime mutation
 	// (a Layer-1 verb) can find a loaded ref without scanning every chunk. It's a SELF-HEALING CACHE:
@@ -338,7 +318,7 @@ scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^assetdb.Collis
 	}
 }
 
-// (hole render-chunk :tags (threading render) :sev gap :needs (sim-cell)) cull_begin keeps ^Chunk pointers the tick can invalidate, and the draw passes write inst.model, hover, sel and dyn_debug into shared structs. Wanted: render chunks main owns.
+// (hole render-chunk :tags (threading render) :sev gap) cull_begin keeps ^Chunk pointers the tick can invalidate, and the draw passes write inst.model, hover, sel and dyn_debug into shared structs. Wanted: render chunks main owns.
 // cull_begin rebuilds the per-frame flat chunk list (s.frame_chunks) from the chunk map — one
 // map walk that every subsequent draw/shadow pass reuses instead of walking the map itself. Call
 // ONCE per frame for a scene, AFTER all streaming/loading mutations and BEFORE its first draw
@@ -444,7 +424,7 @@ release_chunk_assets :: proc(s: ^Scene, chunk: ^Chunk, deindex := true) {
 	release_terrain(s, chunk)
 	release_grass(s, chunk)
 	release_objects(s, chunk)
-	release_chunk_physics(s, chunk)
+	if s.space != nil {remove_cell(s.space, chunk.cell_form_id)}
 	release_water(s, chunk)
 	if chunk.has_debug {
 		render.release_mesh(s.cache.r, chunk.debug_mesh)
@@ -486,7 +466,7 @@ chunk_meta :: proc(db: ^gamedb.DB, cell_form_id: Form_ID) -> Chunk {
 	return chunk
 }
 
-// (hole render-cell-populate :tags (threading world render) :sev gap :needs (sim-cell model-id-intern)) render chunks are built beside the sim data in one struct. Wanted: when a cell goes live the sim sends render its visible placements (form, model ID, transform), and instance events after that.
+// (hole render-cell-populate :tags (threading world render) :sev gap :needs (model-id-intern)) render chunks are built beside the sim data in one struct. Wanted: when a cell goes live the sim sends render its visible placements (form, model ID, transform), and instance events after that.
 // build_chunk gathers a cell's placeable refs into a chunk (instances + culling
 // bounds), WITHOUT resolving/uploading models (model stays nil). Cheap, main-thread:
 // no IO, no GPU. Shared by the sync loaders and the streamer.
@@ -606,10 +586,10 @@ load_cell :: proc(s: ^Scene, db: ^gamedb.DB, cell_form_id: Form_ID, progress: Ce
 	load_water(s, db, &chunk)
 	load_grass(s, db, &chunk)
 	acquire_chunk_assets(s, &chunk) // D1: pin instance + grass models (grass now built)
-	build_chunk_physics(s, db, &chunk) // static collision (terrain; objects via sync_physics)
 	n := len(chunk.instances)
 	s.chunks[cell_form_id] = chunk
 	index_instances(s, &s.chunks[cell_form_id]) // resident index for runtime mutation lookup
+	if s.space != nil {add_cell(s.space, db, &s.chunks[cell_form_id])} // the sim's side: refs, actors, terrain body
 	note_loaded(s, cell_form_id)
 	return n
 }
@@ -685,12 +665,12 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 			cw := iworld * [4]f32{inst.model.center.x, inst.model.center.y, inst.model.center.z, 1}
 			ccenter := [3]f32{cw.x, cw.y, cw.z}
 			crad := inst.model.radius * inst.scale
-			// Articulated item (dyn_body=0): its parts move with their own bodies, so the baked centre is
-			// stale (a rolling cart drove off it, vanishing). Track a live body + widen the sphere to
-			// cover the swing/roll.
-			if inst.dyn_bodies != nil {
-				for _, i in inst.dyn_bodies {
-					if bm, ok := drawn_pose(s, {inst.form_id, i32(i)}); ok {ccenter = {bm[0, 3], bm[1, 3], bm[2, 3]};break}
+			// Articulated item: its parts move with their own bodies, so the baked centre is stale (a
+			// rolling cart drove off it, vanishing). Track a part's pose + widen the sphere to cover
+			// the swing/roll.
+			if inst.posed && inst.model.shape_body != nil {
+				for bi in inst.model.shape_body {
+					if bm, ok := drawn_pose(s, {inst.form_id, i32(bi)}); bi >= 0 && ok {ccenter = {bm[0, 3], bm[1, 3], bm[2, 3]};break}
 				}
 				crad *= 2
 			}

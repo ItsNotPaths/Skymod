@@ -31,43 +31,43 @@ PHYS_BUDGET :: 8
 // built — the caller optimizes the broadphase when this is > 0 (Jolt's quad-tree degrades on
 // incremental body adds that aren't followed by an OptimizeBroadPhase). Pass a large budget to
 // drain the whole bubble at once (the load screen / interior entry).
-sync_physics :: proc(s: ^Scene, budget := PHYS_BUDGET) -> int {
-	if s.phys == nil {
+sync_physics :: proc(sp: ^Space, budget := PHYS_BUDGET) -> int {
+	if sp.phys == nil {
 		return 0
 	}
 	made := 0
-	for _, &chunk in s.chunks {
-		if chunk.phys_done {
+	for _, &c in sp.cells {
+		if c.phys_done {
 			continue
 		}
 		all_built := true
-		for &inst in chunk.instances {
-			if inst.phys_built {
+		for &r in c.refs {
+			if r.phys_built {
 				continue
 			}
-			if inst.disabled {
-				inst.phys_built = true // overlay-disabled: no collision; mark done so it isn't rescanned
+			if r.disabled {
+				r.phys_built = true // overlay-disabled: no collision; mark done so it isn't rescanned
 				continue
 			}
-			m, known := assetdb.collision_of(s.collisions, inst.model_path)
+			m, known := assetdb.collision_of(sp.collisions, r.model_path)
 			if !known {
 				all_built = false // model not decoded yet — revisit next tick
 				continue
 			}
 			if m == nil {
-				inst.phys_built = true // a model that decoded to nothing has no collision; waiting on it would hold the chunk forever
+				r.phys_built = true // a model that decoded to nothing has no collision; waiting on it would hold the cell forever
 				continue
 			}
-			build_instance_bodies(s.phys, &chunk, &inst, m, s.dynamic_clutter)
-			inst.phys_built = true
+			build_instance_bodies(sp.phys, &c, &r, m, sp.dynamic_clutter)
+			r.phys_built = true
 			made += 1
 			if made >= budget {
 				return made
 			}
 		}
-		// A chunk whose instances are all built needs no further scanning.
+		// A cell whose refs are all built needs no further scanning.
 		if all_built {
-			chunk.phys_done = true
+			c.phys_done = true
 		}
 	}
 	return made
@@ -75,10 +75,10 @@ sync_physics :: proc(s: ^Scene, budget := PHYS_BUDGET) -> int {
 
 // collision_ready_near is whether every instance of the chunk within `radius` of p has its collision
 // built (an actor placed before the ground under it falls through).
-collision_ready_near :: proc(chunk: ^Chunk, p: smath.Vec3, radius: f32) -> bool {
-	if chunk.phys_done {return true}
-	for &inst in chunk.instances {
-		if !inst.phys_built && linalg.distance(inst.pos, p) < radius {return false}
+collision_ready_near :: proc(c: ^Sim_Cell, p: smath.Vec3, radius: f32) -> bool {
+	if c.phys_done {return true}
+	for &r in c.refs {
+		if !r.phys_built && linalg.distance(r.pos, p) < radius {return false}
 	}
 	return true
 }
@@ -87,56 +87,45 @@ collision_ready_near :: proc(chunk: ^Chunk, p: smath.Vec3, radius: f32) -> bool 
 // `instances` climb without bound while the player stays put, a release path is missing
 // (chunks not freeing bodies, or instances re-accumulating). chunks/built track coverage.
 Phys_Stats :: struct {
-	chunks:    int, // resident chunks
-	instances: int, // total placed instances across chunks
-	built:     int, // instances whose collision bodies are built (phys_built)
-	bodies:    int, // total Jolt body handles held across chunks (static + dynamic)
-	dyn:       int, // of those, dynamic-clutter bodies (interiors)
+	chunks:    int, // live cells
+	instances: int, // total placed refs across cells
+	built:     int, // refs whose collision bodies are built (phys_built)
+	bodies:    int, // total Jolt body handles held across cells (static + dynamic)
+	dyn:       int, // of those, dynamic-clutter bodies
 }
 
 // phys_stats totals the scene's physics-side counts (cheap; main thread). Feed the leak
 // diagnostic: a steady climb with a stationary player = a body/instance release path missing.
-phys_stats :: proc(s: ^Scene) -> (st: Phys_Stats) {
-	for _, &chunk in s.chunks {
+phys_stats :: proc(sp: ^Space) -> (st: Phys_Stats) {
+	for _, &c in sp.cells {
 		st.chunks += 1
-		st.instances += len(chunk.instances)
-		for b in chunk.bodies {
+		st.instances += len(c.refs)
+		for b in c.bodies {
 			if b != 0 {st.bodies += 1} // exclude tombstones (live-disabled refs' freed bodies)
 		}
-		for &inst in chunk.instances {
-			if inst.phys_built {st.built += 1}
-			if inst.dyn_body != 0 {st.dyn += 1}
+		for &r in c.refs {
+			if r.phys_built {st.built += 1}
+			if r.dyn_body != 0 {st.dyn += 1}
 		}
 	}
 	return
 }
 
-// build_chunk_physics builds a chunk's static collision at load time — terrain now; per-
-// instance object bodies are built lazily by sync_physics as their (async) models resolve.
-// The symmetric counterpart to release_chunk_physics; call from EVERY chunk-load path
-// (load_cell + the streamer). No-op without a physics world.
-build_chunk_physics :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
-	if s.phys == nil {
-		return
-	}
-	build_chunk_terrain_body(s, db, chunk)
-}
 
-// (hole terrain-body-from-cell :tags (threading physics) :sev gap :needs (cell-handoff)) the terrain trimesh is built on main at stream load; it is pure gamedb, so the sim builds it from the cell ID when the cell goes live.
-// build_chunk_terrain_body adds a static trimesh collision body for a cell's LAND terrain,
+// build_terrain_body adds a static trimesh collision body for a cell's LAND terrain,
 // built from the SAME Z-up heightmap geometry the renderer uses (build_terrain_verts) — so
 // collision matches the visual ground exactly. A trimesh (not Jolt's Y-up HeightFieldShape)
 // keeps our Z-up convention with no axis juggling. Call at cell load (needs db); appends to
-// the chunk for unload. No-op without a grid / heights / physics world.
-build_chunk_terrain_body :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
-	if s.phys == nil || !chunk.has_grid {
+// the cell for unload. No-op without a grid / heights / physics world.
+build_terrain_body :: proc(sp: ^Space, db: ^gamedb.DB, c: ^Sim_Cell) {
+	if sp.phys == nil || !c.has_grid {
 		return
 	}
-	heights, ok := gamedb.cell_terrain(db, chunk.cell_form_id)
+	heights, ok := gamedb.cell_terrain(db, c.cell)
 	if !ok {
 		return
 	}
-	verts, _, _ := build_terrain_verts(heights, chunk.gx, chunk.gy, context.temp_allocator)
+	verts, _, _ := build_terrain_verts(heights, c.gx, c.gy, context.temp_allocator)
 	pts := make([][3]f32, len(verts), context.temp_allocator)
 	for v, i in verts {
 		pts[i] = v.pos
@@ -154,9 +143,9 @@ build_chunk_terrain_body :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 			append(&idx, a, b, c, b, d, c)
 		}
 	}
-	body := physics.add_static_mesh(s.phys, pts, idx[:])
+	body := physics.add_static_mesh(sp.phys, pts, idx[:])
 	if body != 0 {
-		append(&chunk.bodies, body)
+		append(&c.bodies, body)
 	}
 }
 
@@ -164,61 +153,56 @@ build_chunk_terrain_body :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 // `pos` with an outward + upward velocity — the debug "scatter" that makes interior clutter visibly
 // come alive and then resettle (a quick eyeball test of the dynamic-body + settle path). Returns
 // how many it kicked. No-op without a physics world.
-shove_clutter :: proc(s: ^Scene, pos: smath.Vec3, radius: f32) -> int {
-	if s.phys == nil {
+shove_clutter :: proc(sp: ^Space, pos: smath.Vec3, radius: f32) -> int {
+	if sp.phys == nil {
 		return 0
 	}
-	kick_body :: proc(s: ^Scene, b: physics.Body, pos: smath.Vec3, radius: f32, n: ^int) {
+	kick_body :: proc(sp: ^Space, b: physics.Body, pos: smath.Vec3, radius: f32, n: ^int) {
 		if b == 0 {return}
-		bp := physics.body_position(s.phys, b) // live position (clutter may have moved)
+		bp := physics.body_position(sp.phys, b) // live position (clutter may have moved)
 		d := smath.Vec3(bp) - pos
 		if smath.length3(d) > radius {return}
 		dir := smath.Vec3{d.x, d.y, 0}
 		if smath.length3(dir) > 1 {dir = smath.normalize3(dir)}
-		physics.kick(s.phys, b, smath.scale3(dir, 300) + {0, 0, 350})
+		physics.kick(sp.phys, b, smath.scale3(dir, 300) + {0, 0, 350})
 		n^ += 1
 	}
 	n := 0
-	for _, &chunk in s.chunks {
-		for &inst in chunk.instances {
-			// Articulated items keep dyn_body=0; their movable bodies live in dyn_bodies (Phase B). Kick
+	for _, &c in sp.cells {
+		for &r in c.refs {
+			// Articulated refs keep dyn_body=0; their movable bodies live in dyn_bodies (Phase B). Kick
 			// EACH so a hinged sign/animal actually swings when shoved. Single-body clutter uses dyn_body.
-			if inst.dyn_bodies != nil {
-				for b in inst.dyn_bodies {kick_body(s, b, pos, radius, &n)}
+			if r.dyn_bodies != nil {
+				for b in r.dyn_bodies {kick_body(sp, b, pos, radius, &n)}
 			} else {
-				kick_body(s, inst.dyn_body, pos, radius, &n)
+				kick_body(sp, r.dyn_body, pos, radius, &n)
 			}
 		}
 	}
 	return n
 }
 
-// release_chunk_physics removes a chunk's collision bodies from the physics world and frees
-// the list (+ the debug mesh). Called from every unload path + scene_destroy.
-release_chunk_physics :: proc(s: ^Scene, chunk: ^Chunk) {
-	if s.phys != nil {
+// release_cell_physics removes a cell's collision bodies from the physics world and frees
+// the list. Called from remove_cell.
+release_cell_physics :: proc(sp: ^Space, c: ^Sim_Cell) {
+	if sp.phys != nil {
 		// Constraints FIRST — Jolt asserts if a body is removed while a live constraint still links it.
-		for c in chunk.constraints {
-			if c != nil {physics.remove_constraint(s.phys, c)}
+		for k in c.constraints {
+			if k != nil {physics.remove_constraint(sp.phys, k)}
 		}
-		for b in chunk.bodies {
-			if b != 0 { // skip tombstones left by remove_instance_bodies (already freed)
-				physics.remove_body(s.phys, b)
+		for b in c.bodies {
+			if b != 0 { // skip tombstones left by remove_ref_bodies (already freed)
+				physics.remove_body(sp.phys, b)
 			}
 		}
 	}
-	for &inst in chunk.instances {
-		if inst.dyn_bodies != nil {delete(inst.dyn_bodies);inst.dyn_bodies = nil}
+	for &r in c.refs {
+		if r.dyn_bodies != nil {delete(r.dyn_bodies);r.dyn_bodies = nil}
 	}
-	delete(chunk.constraints)
-	chunk.constraints = nil
-	delete(chunk.bodies)
-	chunk.bodies = nil
-	if chunk.has_debug {
-		render.release_mesh(s.cache.r, chunk.debug_mesh)
-		chunk.debug_mesh = {}
-		chunk.has_debug = false
-	}
+	delete(c.constraints)
+	c.constraints = nil
+	delete(c.bodies)
+	c.bodies = nil
 }
 
 // --- collision-hitbox debug overlay (--celltest) ---
@@ -235,7 +219,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 		verts := make([dynamic]render.Mesh_Vertex, 0, 4096, context.temp_allocator)
 		idx := make([dynamic]u16, 0, 8192, context.temp_allocator)
 
-		// Terrain trimesh (same geometry as build_chunk_terrain_body).
+		// Terrain trimesh (same geometry as build_terrain_body).
 		if chunk.has_grid {
 			if heights, ok := gamedb.cell_terrain(db, chunk.cell_form_id); ok {
 				tv, _, _ := build_terrain_verts(heights, chunk.gx, chunk.gy, context.temp_allocator)
@@ -262,7 +246,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 				continue
 			}
 			for sh in m.collision.shapes {
-				if (sh.movable && s.dynamic_clutter) || !nif.layer_is_solid(sh.layer) {
+				if (sh.movable && dynamic_clutter(s)) || !nif.layer_is_solid(sh.layer) {
 					continue
 				}
 				emit_shape_wire(&verts, &idx, inst.world * sh.transform, sh)
@@ -302,14 +286,11 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 			if m == nil {continue}
 			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {
-				if !(sh.movable && s.dynamic_clutter) {continue}
+				if !(sh.movable && dynamic_clutter(s)) {continue}
 				// ARTICULATED item: pose each shape by ITS OWN linked body (Phase B/C), so a hinged part
 				// draws where the constraint put it. Single-body items use the instance follow (iw).
-				wm := iw
-				if inst.dyn_bodies != nil {
-					wm = inst.world
-					if bm, ok := drawn_pose(s, {inst.form_id, i32(sh.body)}); ok {wm = bm * smath.translate(-inst.pos) * inst.world}
-				}
+				wm := iw // a single-body ref follows its whole pose; an articulated one poses each part
+				if bm, ok := drawn_pose(s, {inst.form_id, i32(sh.body)}); ok {wm = bm * smath.translate(-inst.pos) * inst.world}
 				emit_shape_wire(&verts, &idx, wm * sh.transform, sh)
 				if len(verts) > 60000 {break}
 			}
@@ -473,8 +454,8 @@ dbg_vert :: proc(p: [3]f32) -> render.Mesh_Vertex {
 // gives Jolt an analytic narrow phase — the coplanar flat-box-on-flat-mesh EPA-storm fix. The
 // constraints that link the bodies (signs swing, wheels roll) are Phase B.
 @(private = "file")
-build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance, m: ^assetdb.Model_Collision, allow_dynamic: bool) {
-	inst.body_first = len(chunk.bodies) // record this instance's contiguous slice of chunk.bodies
+build_instance_bodies :: proc(w: ^physics.World, c: ^Sim_Cell, inst: ^Sim_Ref, m: ^assetdb.Model_Collision, allow_dynamic: bool) {
+	inst.body_first = len(c.bodies) // record this instance's contiguous slice of c.bodies
 	shapes := m.collision.shapes
 	nmov := 0 // dynamic bodies built (a single one drives render-follow; multi is Phase B/C)
 
@@ -485,7 +466,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 	body_ids := make([]physics.Body, len(m.collision.bodies), context.temp_allocator)
 	if inst.in_flight {
 		if b := physics.add_dynamic_body(w, {projectile_capsule(inst, m)}, inst.pos, projectile = true); b != 0 {
-			append(&chunk.bodies, b)
+			append(&c.bodies, b)
 			inst.dyn_body = b
 			nmov = 1
 		}
@@ -502,7 +483,7 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 			if len(subs) > 0 {
 				// Body frame at inst.pos so the render-follow math (instance_world) lines up exactly.
 				if b := physics.add_dynamic_body(w, subs[:], inst.pos); b != 0 {
-					append(&chunk.bodies, b)
+					append(&c.bodies, b)
 					body_ids[bi] = b
 					inst.dyn_body = b
 					nmov += 1
@@ -534,29 +515,29 @@ build_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance,
 				b = physics.add_static_capsule(w, mat_point(wm, sh.point_a), mat_point(wm, sh.point_b), sh.radius * s)
 			}
 			if b != 0 {
-				append(&chunk.bodies, b)
+				append(&c.bodies, b)
 				if body_ids[bi] == 0 {body_ids[bi] = b} // representative for constraint anchoring
 			}
 		}
 	}
-	inst.body_count = len(chunk.bodies) - inst.body_first
-	for b in chunk.bodies[inst.body_first:] {physics.set_owner(w, b, u64(inst.form_id))}
+	inst.body_count = len(c.bodies) - inst.body_first
+	for b in c.bodies[inst.body_first:] {physics.set_owner(w, b, u64(inst.form_id))}
 
 	// Hinges (Phase B): link the built bodies. Pivot/axis/perp are in NIF-root space → apply inst.world.
-	inst.con_first = len(chunk.constraints)
-	for c in m.collision.constraints {
-		a := body_ids[c.body_a]
-		b := body_ids[c.body_b]
+	inst.con_first = len(c.constraints)
+	for k in m.collision.constraints {
+		a := body_ids[k.body_a]
+		b := body_ids[k.body_b]
 		if a == 0 || b == 0 {continue} // an entity wasn't built (e.g. non-solid static) → skip the joint
-		wp := mat_point(inst.world, c.pivot)
-		wa := smath.normalize3(mat_dir(inst.world, c.axis))
-		wperp := smath.normalize3(mat_dir(inst.world, c.perp))
-		if h := physics.add_hinge(w, a, b, wp, wa, wperp, c.min_angle, c.max_angle, c.max_friction, c.limited);
+		wp := mat_point(inst.world, k.pivot)
+		wa := smath.normalize3(mat_dir(inst.world, k.axis))
+		wperp := smath.normalize3(mat_dir(inst.world, k.perp))
+		if h := physics.add_hinge(w, a, b, wp, wa, wperp, k.min_angle, k.max_angle, k.max_friction, k.limited);
 		   h != nil {
-			append(&chunk.constraints, h)
+			append(&c.constraints, h)
 		}
 	}
-	inst.con_count = len(chunk.constraints) - inst.con_first
+	inst.con_count = len(c.constraints) - inst.con_first
 
 	// Render-follow: a single dynamic body drives the whole instance visual (the common case; keeps
 	// inst.dyn_body). An ARTICULATED item (linked bodies) keeps its per-body handles so the collision
@@ -625,7 +606,7 @@ dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, wm0: smath.Mat4, origin: [3]f
 // projectile_capsule is a projectile's body: a capsule along the model's +Y, the way darts and arrows
 // point, fitted to its bounds.
 @(private = "file")
-projectile_capsule :: proc(inst: ^Instance, m: ^assetdb.Model_Collision) -> physics.Dyn_Shape {
+projectile_capsule :: proc(inst: ^Sim_Ref, m: ^assetdb.Model_Collision) -> physics.Dyn_Shape {
 	s := mat_scale(inst.world)
 	e := (m.hi - m.lo) * s * 0.5
 	radius := max(min(e.x, e.z), 0.5)
@@ -670,26 +651,26 @@ mat_rotation :: proc(m: smath.Mat4) -> quaternion128 {
 	return linalg.quaternion_from_matrix3_f32(r)
 }
 
-// remove_instance_bodies destroys one instance's collision bodies (its contiguous slice of
-// chunk.bodies, recorded at build) and tombstones the slots to 0 so release_chunk_physics won't
+// remove_ref_bodies destroys one ref's collision bodies (its contiguous slice of
+// cell.bodies, recorded at build) and tombstones the slots to 0 so release_cell_physics won't
 // double-free them. The live counterpart to sync_physics's build — used by disable_ref so a
 // disabled ref loses its collision immediately, not just on the next chunk reload.
-remove_instance_bodies :: proc(w: ^physics.World, chunk: ^Chunk, inst: ^Instance) {
+remove_ref_bodies :: proc(w: ^physics.World, c: ^Sim_Cell, inst: ^Sim_Ref) {
 	if w == nil {
 		return
 	}
 	// Constraints first (Jolt asserts on removing a body a live constraint still links), tombstoned.
 	for k in inst.con_first ..< inst.con_first + inst.con_count {
-		if k >= 0 && k < len(chunk.constraints) && chunk.constraints[k] != nil {
-			physics.remove_constraint(w, chunk.constraints[k])
-			chunk.constraints[k] = nil
+		if k >= 0 && k < len(c.constraints) && c.constraints[k] != nil {
+			physics.remove_constraint(w, c.constraints[k])
+			c.constraints[k] = nil
 		}
 	}
 	inst.con_count = 0
 	for k in inst.body_first ..< inst.body_first + inst.body_count {
-		if k >= 0 && k < len(chunk.bodies) && chunk.bodies[k] != 0 {
-			physics.remove_body(w, chunk.bodies[k])
-			chunk.bodies[k] = 0 // tombstone (release_chunk_physics skips 0)
+		if k >= 0 && k < len(c.bodies) && c.bodies[k] != 0 {
+			physics.remove_body(w, c.bodies[k])
+			c.bodies[k] = 0 // tombstone (release_cell_physics skips 0)
 		}
 	}
 	inst.body_count = 0
@@ -743,4 +724,11 @@ box_corners :: proc(m: smath.Mat4, h: [3]f32) -> [][3]f32 {
 @(private = "file")
 mat_scale :: proc(m: smath.Mat4) -> f32 {
 	return smath.length3({m[0, 0], m[1, 0], m[2, 0]})
+}
+
+// dynamic_clutter is whether the scene's sim gives movable clutter dynamic bodies: the K view draws
+// those live and the rest in its static wireframe.
+@(private = "file")
+dynamic_clutter :: proc(s: ^Scene) -> bool {
+	return s.space != nil && s.space.dynamic_clutter
 }

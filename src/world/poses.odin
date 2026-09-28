@@ -7,11 +7,13 @@ import smath "../math"
 import "../physics"
 
 // Pose_Key names a dynamic body by its ref: `part` is the collision-body index of an articulated
-// ref's body, else 0. The dev drop-test balls use ref 0 and their own index.
+// ref's body, or WHOLE for a ref one body carries. The dev drop-test balls use ref 0 and their index.
 Pose_Key :: struct {
 	form: Form_ID,
 	part: i32,
 }
+
+WHOLE :: i32(-1)
 
 Body_Step :: struct {
 	from, to: physics.Pose,
@@ -21,17 +23,25 @@ Poses :: struct {
 	at: map[Pose_Key]Body_Step,
 }
 
-// capture_poses fills `p` with the last step of every dynamic body in the scene's live refs.
-capture_poses :: proc(s: ^Scene, p: ^Poses) {
+// capture_poses fills `p` with the last step of every dynamic body of the space's live refs.
+capture_poses :: proc(sp: ^Space, p: ^Poses) {
 	clear(&p.at)
-	if s == nil || s.phys == nil {return}
-	for _, &chunk in s.chunks {
-		for &inst in chunk.instances {
-			if inst.dyn_body != 0 {add_pose(p, s.phys, {inst.form_id, 0}, inst.dyn_body)}
-			for b, i in inst.dyn_bodies {
-				if b != 0 {add_pose(p, s.phys, {inst.form_id, i32(i)}, b)}
+	if sp == nil || sp.phys == nil {return}
+	for _, &c in sp.cells {
+		for &r in c.refs {
+			if r.dyn_body != 0 {add_pose(p, sp.phys, {r.form_id, WHOLE}, r.dyn_body)}
+			for b, i in r.dyn_bodies {
+				if b != 0 {add_pose(p, sp.phys, {r.form_id, i32(i)}, b)}
 			}
 		}
+	}
+}
+
+// mark_posed flags the scene's instances that `p` has a pose for, so drawing looks theirs up. A
+// flag outlives its body harmlessly: the lookup misses and the instance draws where it was placed.
+mark_posed :: proc(s: ^Scene, p: ^Poses) {
+	for key in p.at {
+		if inst, _, ok := find_resident(s, key.form); ok {inst.posed = true}
 	}
 }
 

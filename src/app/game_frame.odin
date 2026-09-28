@@ -104,7 +104,8 @@ game_frame :: proc(g: ^Game) {
 	take(&g.snaps, &g.snap)
 	sync_dialogue_menu(g)
 	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
-	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha = &g.snap.bodies, g.tick.alpha}
+	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha, s.pretty = &g.snap.bodies, g.tick.alpha, g.pretty}
+	world.mark_posed(g.fr.active_scene, &g.snap.bodies) // the poses are the active space's
 
 	frame_camera(g)
 	frame_persistence(g)
@@ -148,7 +149,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate model-id-intern release-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
@@ -212,7 +213,7 @@ frame_diag :: proc(g: ^Game) {
 	st := g.fr.st
 	mc, tc, mb, tb, cold, coldb, tcold, tcoldb := world.cache_counts(&g.scene)
 	lob, lor := world.lod_object_stats(&g.scene)
-	ps := world.phys_stats(&g.scene) // the exterior — where the streaming-churn leak would be
+	ps := world.phys_stats(&g.sim.ext) // the exterior — where the streaming-churn leak would be
 	log.infof(
 		"diag: cell (%d,%d) chunks=%d cache models=%d (%dMB) tex=%d (%dMB) cold=%d (%dMB) texcold=%d (%dMB) lodobj=%d/%d rss=%dMB",
 		st.gx, st.gy, st.chunks, mc, mb / (1024 * 1024), tc, tb / (1024 * 1024), cold, coldb / (1024 * 1024),
@@ -353,7 +354,7 @@ frame_overlay :: proc(g: ^Game) {
 	}
 }
 
-// (hole active-scene-pointer :tags (threading world) :sev gap :needs (sim-cell)) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
+// (hole active-scene-pointer :tags (threading world) :sev gap) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
 // frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
 // interior (the streamer is paused there). Pure — no side effects — so the frame can call it
 // even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
@@ -375,10 +376,6 @@ frame_active_scene :: proc(g: ^Game) {
 @(private = "file")
 frame_scene_select :: proc(g: ^Game) {
 	frame_active_scene(g)
-	// Live pretty toggle: apply to the exterior + whichever scene we draw this frame (draw
-	// reads scene.pretty each frame, so this takes effect immediately).
-	g.scene.pretty = g.pretty
-	g.fr.active_scene.pretty = g.pretty
 
 	// Deferred scene-apply (decision #3): drain the overlay changes script natives wrote this
 	// frame (e.g. a console `sel:Disable()`) and apply them live to the active scene — the fixed
@@ -389,7 +386,8 @@ frame_scene_select :: proc(g: ^Game) {
 	// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old
 	// capsule and recreate it in the new world at the camera. A nil active world (physics off,
 	// or the experimental portal interior, which has none) → no capsule → free-fly.
-	want_phys := g.fr.active_scene.phys
+	sp := active_space(g)
+	want_phys := sp.phys if sp != nil else nil
 	if want_phys != g.sim.cur_phys {
 		feet := player_feet(g)
 		if g.sim.char_ok {physics.character_destroy(&g.sim.character);g.sim.char_ok = false}
@@ -477,8 +475,10 @@ drop_ball :: proc(g: ^Game, at: smath.Vec3) {
 // dynamic-body path (interiors only, where clutter is dynamic).
 shove :: proc(g: ^Game, at: smath.Vec3) {
 	t_shove := time.tick_now()
-	n := world.shove_clutter(g.fr.active_scene, at, 400)
-	act := physics.num_active(g.fr.active_scene.phys) if g.fr.active_scene.phys != nil else 0
+	sp := active_space(g)
+	if sp == nil {return}
+	n := world.shove_clutter(sp, at, 400)
+	act := physics.num_active(sp.phys) if sp.phys != nil else 0
 	log.infof("shove: kicked %d clutter bodies in %.1fms (active now %d)", n, time.duration_milliseconds(time.tick_since(t_shove)), act)
 }
 
@@ -622,7 +622,8 @@ frame_physics :: proc(g: ^Game) {
 		// build + optimize on entry, so sync_physics is a no-op there and this never fires.
 		// Sub-timers (diagnostic): split the phys phase so a hitch names the culprit op.
 		ts := time.tick_now()
-		built_n := world.sync_physics(g.fr.active_scene)
+		sp := active_space(g)
+		built_n := world.sync_physics(sp)
 		ms_sync := time.duration_milliseconds(time.tick_since(ts))
 		ms_opt: f64
 		if built_n > 0 {
@@ -634,7 +635,7 @@ frame_physics :: proc(g: ^Game) {
 		physics.step(g.sim.cur_phys, TICK_DT)
 		ms_step := time.duration_milliseconds(time.tick_since(ts))
 		ts = time.tick_now()
-		world.capture_settles(g.fr.active_scene) // overlay: snapshot clutter that just came to rest (3c)
+		world.capture_settles(sp) // overlay: snapshot clutter that just came to rest (3c)
 		ms_settle := time.duration_milliseconds(time.tick_since(ts))
 		if ms_sync + ms_opt + ms_step + ms_settle > SLOW_FRAME_MS {
 			log.warnf(

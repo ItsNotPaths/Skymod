@@ -76,7 +76,7 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 
 	// 1) Already grabbing: steer the body while Activate stays down; release = drop.
 	if g.sim.interact.grabbing {
-		if act_down && g.fr.active_scene != nil && g.fr.active_scene.phys != nil {
+		if sp := active_space(g); act_down && sp != nil && sp.phys != nil {
 			grab_update(g)
 		} else {
 			g.sim.interact.grabbing = false
@@ -211,12 +211,13 @@ grab_update :: proc(g: ^Game) {
 	turned := g.sim.input.wheel - g.sim.input_was.wheel
 	g.sim.interact.dist = clamp(g.sim.interact.dist + turned * GRAB_SCROLL, GRAB_MIN_DIST, GRAB_MAX_DIST)
 	target := g.sim.input.eye + g.sim.input.aim_dir * g.sim.interact.dist
-	cur := physics.body_position(g.fr.active_scene.phys, g.sim.interact.body)
+	phys := active_space(g).phys
+	cur := physics.body_position(phys, g.sim.interact.body)
 	vel := (target - cur) * GRAB_GAIN
 	if sp := smath.length3(vel); sp > GRAB_MAX_VEL {
 		vel = vel * (GRAB_MAX_VEL / sp)
 	}
-	physics.kick(g.fr.active_scene.phys, g.sim.interact.body, vel) // wakes + sets velocity
+	physics.kick(phys, g.sim.interact.body, vel) // wakes + sets velocity
 }
 
 // take_item puts a world item in an actor's pack: its whole stack goes in (OnItemAdded, and
