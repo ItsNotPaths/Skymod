@@ -3,7 +3,7 @@ package main
 import "core:log"
 import "core:math/linalg"
 import "../audio"
-import "../assetdb"
+import "../collisions"
 import "../formid"
 import "../gamedb"
 import "../handoff"
@@ -45,7 +45,7 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 	weapon, _ := gamedb.equip_slot_of(&g.db, f.weapon)
 	m := smath.trs(worldstate.ref_pos(&g.sim.ws, &g.db, f.source), worldstate.ref_rot(&g.sim.ws, &g.db, f.source), worldstate.ref_scale(&g.sim.ws, &g.db, f.source))
 	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, f.source)); ok {
-		if node, nok := assetdb.projectile_node(&g.collisions, models.intern(modl)); nok {m = m * node}
+		if node, nok := collisions.projectile_node(&g.collisions, models.intern(modl)); nok {m = m * node}
 	}
 	pos, dir := (m * [4]f32{0, 0, 0, 1}).xyz, (m * [4]f32{0, 1, 0, 0}).xyz
 	cell := worldstate.ref_cell(&g.sim.ws, &g.db, f.source)
@@ -75,7 +75,7 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 	physics.set_rotation(sp.phys, b, linalg.quaternion_between_two_vector3(aim, dir))
 
 	// From the body to its tip one step on: an arrow's origin is its tip, a dart's is mid-shaft.
-	mc, _ := assetdb.collision_of(sp.collisions, r.model_id)
+	mc, _ := collisions.of(sp.collisions, r.model_id)
 	tip := mc.hi.y * r.scale if mc != nil else 0
 	from := physics.body_position(sp.phys, b)
 	to := f.pos + dir * tip + f.vel * TICK_DT

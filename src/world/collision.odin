@@ -15,6 +15,7 @@ import "core:math/linalg"
 import "core:slice"
 
 import "../assetdb"
+import "../collisions"
 import "../formats/nif"
 import "../gamedb"
 import smath "../math"
@@ -49,7 +50,7 @@ sync_physics :: proc(sp: ^Space, budget := PHYS_BUDGET) -> int {
 				r.phys_built = true // overlay-disabled: no collision; mark done so it isn't rescanned
 				continue
 			}
-			m, known := assetdb.collision_of(sp.collisions, r.model_id)
+			m, known := collisions.of(sp.collisions, r.model_id)
 			if !known {
 				all_built = false // model not decoded yet — revisit next tick
 				continue
@@ -241,7 +242,7 @@ build_collision_debug :: proc(s: ^Scene, db: ^gamedb.DB) {
 		// dynamic scene are drawn LIVE each frame (draw_collision_debug) at their body pose, so skip
 		// them here; skip gameplay-only layers too (those aren't bodies).
 		for &inst in chunk.instances {
-			m, _ := assetdb.collision_of(s.collisions, inst.model_id)
+			m, _ := collisions.of(s.collisions, inst.model_id)
 			if m == nil {
 				continue
 			}
@@ -282,7 +283,7 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 	idx := make([dynamic]u16, 0, 4096, context.temp_allocator)
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {
-			m, _ := assetdb.collision_of(s.collisions, inst.model_id)
+			m, _ := collisions.of(s.collisions, inst.model_id)
 			if m == nil {continue}
 			iw := instance_world(s, &inst) // single-body drawn pose (else inst.world)
 			for sh in m.collision.shapes {
@@ -454,7 +455,7 @@ dbg_vert :: proc(p: [3]f32) -> render.Mesh_Vertex {
 // gives Jolt an analytic narrow phase — the coplanar flat-box-on-flat-mesh EPA-storm fix. The
 // constraints that link the bodies (signs swing, wheels roll) are Phase B.
 @(private = "file")
-build_instance_bodies :: proc(w: ^physics.World, c: ^Sim_Cell, inst: ^Sim_Ref, m: ^assetdb.Model_Collision, allow_dynamic: bool) {
+build_instance_bodies :: proc(w: ^physics.World, c: ^Sim_Cell, inst: ^Sim_Ref, m: ^collisions.Model, allow_dynamic: bool) {
 	inst.body_first = len(c.bodies) // record this instance's contiguous slice of c.bodies
 	shapes := m.collision.shapes
 	nmov := 0 // dynamic bodies built (a single one drives render-follow; multi is Phase B/C)
@@ -611,7 +612,7 @@ dyn_sub :: proc(subs: ^[dynamic]physics.Dyn_Shape, wm0: smath.Mat4, origin: [3]f
 // projectile_capsule is a projectile's body: a capsule along the model's +Y, the way darts and arrows
 // point, fitted to its bounds.
 @(private = "file")
-projectile_capsule :: proc(inst: ^Sim_Ref, m: ^assetdb.Model_Collision) -> physics.Dyn_Shape {
+projectile_capsule :: proc(inst: ^Sim_Ref, m: ^collisions.Model) -> physics.Dyn_Shape {
 	s := mat_scale(inst.world)
 	e := (m.hi - m.lo) * s * 0.5
 	radius := max(min(e.x, e.z), 0.5)

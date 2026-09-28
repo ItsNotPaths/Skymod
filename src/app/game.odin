@@ -28,6 +28,7 @@ import "core:thread"
 import "../audio"
 import "../ai"
 import "../assetdb"
+import "../collisions"
 import "../detection"
 import "../formid"
 import "../gamedb"
@@ -214,7 +215,7 @@ Game :: struct {
 	phys:       physics.World,
 	phys_ok:    bool,
 	scene:      world.Scene,
-	collisions: assetdb.Collision_Store, // every scene's model collision, for the sim (assetdb)
+	collisions: collisions.Store, // every scene's model collision, for the sim (assetdb)
 
 	// scene lighting (configurator panel state included)
 	lights:          Lighting_State,
@@ -691,7 +692,7 @@ game_teardown :: proc(g: ^Game) {
 	if g.up.lights {lighting_state_destroy(&g.lights)}
 	if g.up.scene {world.scene_destroy(&g.scene)} // removes chunk bodies while the phys world lives
 	world.space_destroy(&g.sim.ext)
-	assetdb.collision_store_destroy(&g.collisions) // after every scene that reads it
+	collisions.destroy(&g.collisions) // after every scene that reads it
 	if g.phys_ok {
 		physics.world_destroy(&g.phys)
 		physics.shutdown()

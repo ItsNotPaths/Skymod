@@ -23,6 +23,7 @@ import "core:thread"
 import "core:time"
 
 import "../assetdb"
+import "../collisions"
 import "../gamedb"
 import "../models"
 import "../render"
@@ -258,7 +259,7 @@ armed :: proc(st: ^Streamer) -> bool {
 @(private)
 take_requests :: proc(st: ^Streamer) {
 	if st.scene.collisions == nil {return}
-	assetdb.take_wanted(st.scene.collisions, &st.wanted)
+	collisions.take_wanted(st.scene.collisions, &st.wanted)
 	for model in st.wanted {enqueue_model(st, model)}
 }
 
@@ -309,7 +310,7 @@ enqueue_model :: proc(st: ^Streamer, model: models.ID, extras := true) {
 		return
 	}
 	st.inflight[model] = true
-	if extras && st.scene.collisions != nil {assetdb.note_asked(st.scene.collisions, model)}
+	if extras && st.scene.collisions != nil {collisions.note_asked(st.scene.collisions, model)}
 	enqueue(st, Req{model = model, lod = 0, extras = extras})
 }
 

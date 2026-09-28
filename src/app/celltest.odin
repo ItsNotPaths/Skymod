@@ -10,7 +10,7 @@ package main
 import "core:log"
 import "core:math"
 
-import "../assetdb"
+import "../collisions"
 import "../gamedb"
 import smath "../math"
 import "../physics"
@@ -59,8 +59,8 @@ when DEVTOOLS {
 			physics.shutdown()
 		}
 
-		collisions: assetdb.Collision_Store
-		defer assetdb.collision_store_destroy(&collisions)
+		collisions: collisions.Store
+		defer collisions.destroy(&collisions)
 		space: world.Space
 		world.space_init(&space, &phys, &collisions, nil, dynamic_clutter = false)
 		defer world.space_destroy(&space)

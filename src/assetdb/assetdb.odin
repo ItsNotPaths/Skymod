@@ -21,6 +21,7 @@ import "core:slice"
 import "core:strings"
 
 import "../formats/dds"
+import "../collisions"
 import "../formats/nif"
 import smath "../math"
 import "../models"
@@ -144,7 +145,7 @@ capped_mips :: proc(mips: []render.Tex_Mip) -> []render.Tex_Mip {
 // budget is shared across every Cache, but each Cache trims only its own cold list.
 MODEL_CACHE_BYTES := 0
 
-// (hole cache-eviction :tags (assets unclaimed) :sev gap) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk. The collision store (collision_store.odin) never evicts; it is small CPU data.
+// (hole cache-eviction :tags (assets unclaimed) :sev gap) both eviction budgets DEFAULT TO 0 (off), so a stock run keeps every model and texture it ever decoded — RSS grows without bound on a long walk. The collision store (src/collisions) never evicts; it is small CPU data.
 // TEXTURE_CACHE_BYTES is the texture eviction budget (bytes) — the same cold-LRU scheme as
 // MODEL_CACHE_BYTES but for the texture cache (D1 slice 2: textures are ~83% of a region's footprint).
 // 0 (default) = eviction OFF. Set from settings `texture_cache_mb`. Terrain-ground textures are PINNED
@@ -170,7 +171,7 @@ Cache :: struct {
 	loaded:   map[models.ID]^Model,
 	textures: map[string]Tex_Entry, // tex_key(path,srgb) -> entry (key owned); see Tex_Entry
 	failed:   map[models.ID]bool, // models that decoded to nothing (missing / no shapes) — don't retry
-	store:    ^Collision_Store, // gets each landing model's collision for the sim (nil: none)
+	store:    ^collisions.Store, // gets each landing model's collision for the sim (nil: none)
 	// D1 eviction (models). refs = live holders per model (a resident chunk's
 	// instances/grass, a baked LOD draw); set BY the world layer via model_acquire/model_release,
 	// independent of residency (a ref can precede the upload). A model with refs>0 is pinned. When
@@ -192,7 +193,7 @@ Cache :: struct {
 	tex_bytes:   int,
 }
 
-cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, store: ^Collision_Store = nil) -> Cache {
+cache_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, store: ^collisions.Store = nil) -> Cache {
 	return Cache {
 		r        = r,
 		v        = v,
@@ -458,7 +459,7 @@ is_failed :: proc(c: ^Cache, model: models.ID) -> bool {
 // mark_failed records a model as undecodable so it's never retried.
 mark_failed :: proc(c: ^Cache, model: models.ID) {
 	c.failed[model] = true
-	if c.store != nil {store_failed(c.store, model)}
+	if c.store != nil {collisions.put(c.store, model, nil)}
 }
 
 // model_ptr returns the cached model, or nil if not yet uploaded.

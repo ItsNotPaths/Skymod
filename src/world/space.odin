@@ -5,7 +5,7 @@ package world
 // draws from its own chunks (Scene) and the snapshot. Sim refs and render instances pair by form ID,
 // each side with its own resident index.
 
-import "../assetdb"
+import "../collisions"
 import "../gamedb"
 import smath "../math"
 import "../models"
@@ -14,7 +14,7 @@ import "../worldstate"
 
 Space :: struct {
 	phys:            ^physics.World, // nil = no physics here: no bodies are built
-	collisions:      ^assetdb.Collision_Store,
+	collisions:      ^collisions.Store,
 	ws:              ^worldstate.World_State,
 	dynamic_clutter: bool, // movable clutter gets dynamic bodies (else everything is static)
 	cells:           map[Form_ID]Sim_Cell,
@@ -101,7 +101,7 @@ Sim_Ref :: struct {
 	dyn_bodies: []physics.Body, // an articulated ref's body per collision body (owned); nil otherwise
 }
 
-space_init :: proc(sp: ^Space, phys: ^physics.World, collisions: ^assetdb.Collision_Store, ws: ^worldstate.World_State, dynamic_clutter: bool) {
+space_init :: proc(sp: ^Space, phys: ^physics.World, collisions: ^collisions.Store, ws: ^worldstate.World_State, dynamic_clutter: bool) {
 	sp^ = {phys = phys, collisions = collisions, ws = ws, dynamic_clutter = dynamic_clutter}
 }
 

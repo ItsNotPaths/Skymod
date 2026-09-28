@@ -5,6 +5,7 @@ package unit_tests
 
 import "core:testing"
 import "../../src/assetdb"
+import "../../src/collisions"
 import "../../src/gamedb"
 import "../../src/models"
 import "../../src/world"
@@ -87,8 +88,8 @@ test_space_refs :: proc(t: ^testing.T) {
 
 @(test)
 test_collision_store_answers :: proc(t: ^testing.T) {
-	store: assetdb.Collision_Store
-	defer assetdb.collision_store_destroy(&store)
+	store: collisions.Store
+	defer collisions.destroy(&store)
 	cache := assetdb.cache_init(nil, nil, &store)
 	defer assetdb.cache_destroy(&cache)
 
@@ -96,26 +97,26 @@ test_collision_store_answers :: proc(t: ^testing.T) {
 	testing.expect_value(t, models.intern("A.NIF"), a)
 	testing.expect_value(t, models.path(a), "a.nif")
 
-	_, known := assetdb.collision_of(&store, a)
+	_, known := collisions.of(&store, a)
 	testing.expect(t, !known, "a model not decoded yet is unknown")
 	assetdb.mark_failed(&cache, a)
-	m, failed := assetdb.collision_of(&store, a)
+	m, failed := collisions.of(&store, a)
 	testing.expect(t, failed && m == nil, "a model that decoded to nothing is known, with no collision")
-	m, known = assetdb.collision_of(nil, models.intern("b.nif"))
+	m, known = collisions.of(nil, models.intern("b.nif"))
 	testing.expect(t, known && m == nil, "without a store every model is known to have none")
 
 	// A read before the decode lands is a request, made once; a model a loader has in hand is not.
 	wanted: [dynamic]models.ID
 	defer delete(wanted)
-	assetdb.take_wanted(&store, &wanted)
+	collisions.take_wanted(&store, &wanted)
 	testing.expect(t, len(wanted) == 1 && wanted[0] == a, "the first read asked for a.nif")
-	assetdb.note_asked(&store, c)
-	assetdb.collision_of(&store, d)
-	assetdb.collision_of(&store, d)
-	assetdb.collision_of(&store, c)
-	assetdb.take_wanted(&store, &wanted)
+	collisions.note_asked(&store, c)
+	collisions.of(&store, d)
+	collisions.of(&store, d)
+	collisions.of(&store, c)
+	collisions.take_wanted(&store, &wanted)
 	testing.expect(t, len(wanted) == 1 && wanted[0] == d, "one request, for the model nobody asked for")
-	assetdb.take_wanted(&store, &wanted)
+	collisions.take_wanted(&store, &wanted)
 	testing.expect_value(t, len(wanted), 0)
 }
 

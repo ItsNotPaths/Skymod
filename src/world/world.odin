@@ -20,6 +20,7 @@ import "core:strings"
 
 
 import "../assetdb"
+import "../collisions"
 import "../gamedb"
 import smath "../math"
 import "../models"
@@ -269,7 +270,7 @@ Scene :: struct {
 	tree_billboards: map[Form_ID]string, // tree base formID -> resolved _lod_flat.nif path ("" = none); scene-owned
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
 	dynamic_clutter: bool, // the sim gives movable clutter dynamic bodies here (the K view draws them live)
-	collisions: ^assetdb.Collision_Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
+	collisions: ^collisions.Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
 	poses:    ^Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
@@ -289,7 +290,7 @@ Resident_Ref :: struct {
 	idx:  int,
 }
 
-scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^assetdb.Collision_Store = nil) -> Scene {
+scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^collisions.Store = nil) -> Scene {
 	return Scene {
 		cache = assetdb.cache_init(r, v, collisions),
 		collisions = collisions,
