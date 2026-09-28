@@ -151,9 +151,12 @@ game_tick :: proc(g: ^Game) {
 	apply_commands(g)
 	run_console(g)
 	lap(g, .Commands, &t)
-	tick_jail(g) // before the follow check, which carries a jailed player's move out after this tick
+	tick_jail(g) // before the follow check, which carries a jailed player's move out
 	lap(g, .Jail, &t)
-	if player_moved(g) {send_parked(g, Evt_Follow{})}
+	if player_moved(g) { // main carries the move out before anything here writes the player again
+		send_parked(g, Evt_Follow{})
+		return
+	}
 	lap(g, .Follow, &t)
 	tgt := resolve_activation(g, g.sim.input.aim)
 	tick_interact(g, tgt)
