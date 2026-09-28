@@ -16,6 +16,7 @@ import "../physics"
 import "../render"
 import "../script"
 import slua "../script/lua"
+import "../world"
 import "../worldstate"
 
 // Sim is the sim's own state. Only the tick, a script phase, or main while it holds the sim
@@ -194,8 +195,8 @@ Snapshot :: struct {
 	tick:    u64,
 	walking: bool, // the player walks the capsule; else main flies the camera
 	player:  Segment, // the player's feet
-	bodies: physics.Poses, // every dynamic body in the active world
-	drops:  [dynamic]physics.Body, // the dev drop-test balls, posed in `bodies`
+	bodies: world.Poses, // every dynamic body of the active scene's refs
+	drops:  int, // the dev drop-test balls, posed in `bodies` as ref 0
 	actors: [dynamic]Actor_View,
 	act:    Act_View, // what the crosshair is on
 	subtitles: [dynamic]Text_Span, // the lines being said now
@@ -204,8 +205,7 @@ Snapshot :: struct {
 }
 
 snapshot_destroy :: proc(s: ^Snapshot) {
-	physics.poses_destroy(&s.bodies)
-	delete(s.drops)
+	world.poses_destroy(&s.bodies)
 	delete(s.actors)
 	delete(s.subtitles)
 	delete(s.talk.choices)
@@ -244,14 +244,9 @@ publish_snapshot :: proc(g: ^Game) {
 	s.walking = g.sim.char_ok && !g.sim.noclip
 	clear(&s.text)
 	if g.sim.char_ok {s.player.from, s.player.to = physics.character_step(&g.sim.character)}
-	if g.sim.cur_phys != nil {
-		physics.capture_poses(g.sim.cur_phys, &s.bodies)
-	} else {
-		clear(&s.bodies.list)
-		clear(&s.bodies.at)
-	}
-	clear(&s.drops)
-	append(&s.drops, ..g.sim.drops[:])
+	world.capture_poses(g.fr.active_scene, &s.bodies)
+	for b, i in g.sim.drops {world.add_pose(&s.bodies, &g.phys, {0, i32(i)}, b)}
+	s.drops = len(g.sim.drops)
 	view_actors(g, s)
 	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
 	view_subtitles(g, s)

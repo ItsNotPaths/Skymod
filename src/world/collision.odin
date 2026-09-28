@@ -308,7 +308,7 @@ draw_collision_debug :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 				wm := iw
 				if inst.dyn_bodies != nil {
 					wm = inst.world
-					if bm, ok := posed(s, inst.dyn_bodies[sh.body]); ok {wm = bm * smath.translate(-inst.pos) * inst.world}
+					if bm, ok := drawn_pose(s, {inst.form_id, i32(sh.body)}); ok {wm = bm * smath.translate(-inst.pos) * inst.world}
 				}
 				emit_shape_wire(&verts, &idx, wm * sh.transform, sh)
 				if len(verts) > 60000 {break}

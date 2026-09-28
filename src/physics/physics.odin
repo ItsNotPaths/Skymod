@@ -114,11 +114,9 @@ World :: struct {
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
 
 	// Drawing between fixed ticks (docs/shipped.md §E): `prev` is the pre-step pose of every body
-	// awake over the last step, and capture_poses hands main each dynamic body's step as a
-	// segment, so render blends without touching the world.
+	// awake over the last step; body_step hands it out with the live pose as the step's segment.
 	prev:      map[Body]Pose,
 	awake:     [dynamic]Body, // scratch for the active-body query
-	movers:    map[Body]struct {}, // every dynamic body
 }
 
 // Pose is a body's position + orientation.
@@ -208,7 +206,6 @@ world_create :: proc(max_bodies: u32 = 65536) -> (w: World, ok: bool) {
 world_destroy :: proc(w: ^World) {
 	delete(w.prev)
 	delete(w.awake)
-	delete(w.movers)
 	if w.system != nil {jolt.PhysicsSystem_Destroy(w.system)}
 	if w.jobs != nil {jolt.JobSystem_Destroy(w.jobs)}
 	// The layer-filter tables are owned by Jolt's interface registry for the process's
@@ -600,7 +597,6 @@ make_body :: proc(w: ^World, shape: ^jolt.Shape, pos: [3]f32, rot: jolt.Quat, is
 	// polluted the overlay — nor costs anything per frame; kick()/interaction wakes it on demand.
 	act := jolt.Activation.Activate if (is_dynamic && activate) else jolt.Activation.DontActivate
 	id := jolt.BodyInterface_CreateAndAddBody(w.bodies, bcs, act)
-	if is_dynamic && id != 0 {w.movers[id] = {}}
 	jolt.BodyCreationSettings_Destroy(bcs)
 	jolt.Shape_Destroy(shape) // release our creation ref; the body keeps the shape alive
 	return id
@@ -641,7 +637,6 @@ ray_hits :: proc(w: ^World, from, to: [3]f32, allocator := context.temp_allocato
 
 remove_body :: proc(w: ^World, b: Body) {
 	delete_key(&w.prev, b) // Jolt recycles BodyIDs; a stale blend endpoint would pose the next body wrong
-	delete_key(&w.movers, b)
 	jolt.BodyInterface_RemoveAndDestroyBody(w.bodies, b)
 }
 
@@ -722,44 +717,17 @@ body_pose :: proc(w: ^World, b: Body) -> Pose {
 	return {from_rvec(p), q}
 }
 
-// Body_Pose is a dynamic body's last step: `from` is its pose before the step, the same as `to`
-// for a body that slept through it or was placed outright.
-Body_Pose :: struct {
-	body:     Body,
-	from, to: Pose,
+// body_step is where a body moved over the last step: its pose before the step, and now. The same
+// pose twice for a body that slept through it or was placed outright.
+body_step :: proc(w: ^World, b: Body) -> (from, to: Pose) {
+	to = body_pose(w, b)
+	return w.prev[b] or_else to, to
 }
 
-// Poses is every dynamic body's last step, for drawing between steps without the world.
-Poses :: struct {
-	list: [dynamic]Body_Pose,
-	at:   map[Body]int, // index into list
-}
-
-// capture_poses fills `p` with every dynamic body's last step.
-capture_poses :: proc(w: ^World, p: ^Poses) {
-	clear(&p.list)
-	clear(&p.at)
-	for b in w.movers {
-		to := body_pose(w, b)
-		from, moved := w.prev[b]
-		p.at[b] = len(p.list)
-		append(&p.list, Body_Pose{b, from if moved else to, to})
-	}
-}
-
-// posed is a body's transform `alpha` (0..1) of the way through its last step, read from `p`
-// alone; false when `p` has no such body.
-posed :: proc(p: ^Poses, b: Body, alpha: f32) -> (matrix[4, 4]f32, bool) {
-	i, ok := p.at[b]
-	if !ok {return {}, false}
-	bp := p.list[i]
+// pose_blend is the transform `alpha` (0..1) of the way from one pose to another.
+pose_blend :: proc(from, to: Pose, alpha: f32) -> matrix[4, 4]f32 {
 	a := clamp(alpha, 0, 1)
-	return pose_matrix(bp.from.pos + (bp.to.pos - bp.from.pos) * a, linalg.quaternion_slerp(bp.from.rot, bp.to.rot, a)), true
-}
-
-poses_destroy :: proc(p: ^Poses) {
-	delete(p.list)
-	delete(p.at)
+	return pose_matrix(from.pos + (to.pos - from.pos) * a, linalg.quaternion_slerp(from.rot, to.rot, a))
 }
 
 // pose_matrix builds the 4×4 from a position + unit quaternion.

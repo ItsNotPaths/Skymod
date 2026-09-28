@@ -151,16 +151,17 @@ pretty_hidden :: proc(s: ^Scene, inst: ^Instance) -> bool {
 // (translate(−pos) re-bases the rotation on the REFR origin the hull verts were centred relative to).
 instance_world :: proc(s: ^Scene, inst: ^Instance) -> smath.Mat4 {
 	if inst.dyn_body == 0 {return inst.world}
-	m, ok := posed(s, inst.dyn_body)
+	m, ok := drawn_pose(s, {inst.form_id, 0})
 	if !ok {return inst.world}
 	return m * smath.translate(-inst.pos) * inst.world
 }
 
-// posed is a body's drawn pose, from the poses main last took; false before the body has one.
+// drawn_pose is a ref's body as this frame draws it, from the poses main last took; false before
+// the body has one.
 @(private)
-posed :: proc(s: ^Scene, b: physics.Body) -> (smath.Mat4, bool) {
+drawn_pose :: proc(s: ^Scene, key: Pose_Key) -> (smath.Mat4, bool) {
 	if s.poses == nil {return {}, false}
-	return physics.posed(s.poses, b, s.alpha)
+	return posed(s.poses, key, s.alpha)
 }
 
 // instance_shape_world returns the render transform for ONE shape (index `si`) of an instance. For an
@@ -171,8 +172,8 @@ posed :: proc(s: ^Scene, b: physics.Body) -> (smath.Mat4, bool) {
 instance_shape_world :: proc(s: ^Scene, inst: ^Instance, iworld, sh_local: smath.Mat4, si: int) -> smath.Mat4 {
 	m := inst.model
 	if inst.dyn_bodies != nil && m.shape_body != nil && si < len(m.shape_body) && m.shape_body[si] >= 0 {
-		if b := inst.dyn_bodies[m.shape_body[si]]; b != 0 {
-			if bm, ok := posed(s, b); ok {return bm * smath.translate(-inst.pos) * inst.world * sh_local}
+		if bm, ok := drawn_pose(s, {inst.form_id, i32(m.shape_body[si])}); ok {
+			return bm * smath.translate(-inst.pos) * inst.world * sh_local
 		}
 	}
 	return iworld * sh_local
@@ -300,7 +301,7 @@ Scene :: struct {
 	pretty:   bool, // --pretty: hide untextured white placeholders (effect/bird-route/X markers) in the color + caster passes
 	phys:     ^physics.World, // borrowed static-collision world (Phase 2e); nil = physics off for this scene
 	collisions: ^assetdb.Collision_Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
-	poses:    ^physics.Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
+	poses:    ^Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
 	has_dyn_debug: bool,
@@ -701,8 +702,8 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 			// stale (a rolling cart drove off it, vanishing). Track a live body + widen the sphere to
 			// cover the swing/roll.
 			if inst.dyn_bodies != nil {
-				for b in inst.dyn_bodies {
-					if bm, ok := posed(s, b); ok {ccenter = {bm[0, 3], bm[1, 3], bm[2, 3]};break}
+				for _, i in inst.dyn_bodies {
+					if bm, ok := drawn_pose(s, {inst.form_id, i32(i)}); ok {ccenter = {bm[0, 3], bm[1, 3], bm[2, 3]};break}
 				}
 				crad *= 2
 			}

@@ -2,7 +2,7 @@ package unit_tests
 
 // Fixed-tick render interpolation (docs/short-term-plan.md §E). The sim runs at a constant
 // TICK_DT and the frame draws between two ticks, so physics hands back each dynamic body's last
-// step as poses to blend at the frame's alpha — and the exact simulated value when asked for it.
+// step (body_step) to blend at the frame's alpha — and the exact simulated value when asked for it.
 // These pin the endpoints (alpha 0 = where the step started, 1 = where it ended) and the
 // midpoint, for a rigid body and for the player capsule. Hermetic: a bare Jolt world, no assets.
 
@@ -19,7 +19,7 @@ close :: proc(a, b: f32) -> bool {return math.abs(a - b) < 0.01}
 // threads each holding a live world race and crash the runner.
 @(test)
 test_fixed_tick_interpolation :: proc(t: ^testing.T) {
-	poses_interpolate(t)
+	body_step_blends(t)
 	character_step_spans_the_move(t)
 	ray_hits_nearest_first(t)
 }
@@ -50,12 +50,10 @@ ray_hits_nearest_first :: proc(t: ^testing.T) {
 }
 
 @(private = "file")
-poses_interpolate :: proc(t: ^testing.T) {
+body_step_blends :: proc(t: ^testing.T) {
 	w, ok := physics.world_create()
 	testing.expect(t, ok, "world_create")
 	defer physics.world_destroy(&w)
-	p: physics.Poses
-	defer physics.poses_destroy(&p)
 
 	floor := physics.add_box(&w, {1000, 1000, 10}, {0, 0, -10})
 	ball := physics.add_sphere(&w, 10, {0, 0, 500}, is_dynamic = true)
@@ -67,27 +65,19 @@ poses_interpolate :: proc(t: ^testing.T) {
 	to := physics.body_position(&w, ball)
 	testing.expect(t, to.z < from.z, "the ball should have fallen over one tick")
 	placed := physics.add_sphere(&w, 10, {100, 0, 500}, is_dynamic = true) // after the step: nothing to blend from
-	physics.capture_poses(&w, &p)
 
-	z :: proc(p: ^physics.Poses, b: physics.Body, alpha: f32) -> f32 {
-		m, _ := physics.posed(p, b, alpha)
-		return m[2, 3]
+	z :: proc(w: ^physics.World, b: physics.Body, alpha: f32) -> f32 {
+		f, t := physics.body_step(w, b)
+		return physics.pose_blend(f, t, alpha)[2, 3]
 	}
-	testing.expectf(t, close(z(&p, ball, 0), from.z), "alpha 0 should be where the step started (%v), got %v", from.z, z(&p, ball, 0))
-	testing.expect(t, close(z(&p, ball, 1), to.z), "alpha 1 should be where it ended")
-	testing.expect(t, close(z(&p, ball, 0.5), (from.z + to.z) * 0.5), "alpha 0.5 is the midpoint")
-	testing.expect(t, close(z(&p, placed, 0), 500) && close(z(&p, placed, 1), 500), "a body placed after the step does not slide")
-	_, has_floor := physics.posed(&p, floor, 0)
-	testing.expect(t, !has_floor, "a static body has no pose")
+	testing.expectf(t, close(z(&w, ball, 0), from.z), "alpha 0 should be where the step started (%v), got %v", from.z, z(&w, ball, 0))
+	testing.expect(t, close(z(&w, ball, 1), to.z), "alpha 1 should be where it ended")
+	testing.expect(t, close(z(&w, ball, 0.5), (from.z + to.z) * 0.5), "alpha 0.5 is the midpoint")
+	testing.expect(t, close(z(&w, placed, 0), 500) && close(z(&w, placed, 1), 500), "a body placed after the step does not slide")
 
 	// body_transform and body_position are the simulated values, whatever is drawn.
 	testing.expect(t, close(physics.body_transform(&w, ball)[2, 3], to.z), "body_transform is live")
 	testing.expect(t, close(physics.body_position(&w, ball).z, to.z), "body_position stays exact")
-
-	physics.remove_body(&w, ball)
-	physics.capture_poses(&w, &p)
-	_, has_ball := physics.posed(&p, ball, 0)
-	testing.expect(t, !has_ball, "a removed body leaves the poses")
 }
 
 @(private = "file")

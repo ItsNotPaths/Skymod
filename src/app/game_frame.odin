@@ -870,8 +870,8 @@ frame_render :: proc(g: ^Game) {
 			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
 			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
 			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			for b in g.snap.drops {
-				if m, ok := physics.posed(&g.snap.bodies, b, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
+			for i in 0 ..< g.snap.drops {
+				if m, ok := world.posed(&g.snap.bodies, {0, i32(i)}, g.tick.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
 			}
 			t_objdraw := time.tick_now()
 			world.draw_object_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.wind, g.elapsed) // baked per-quad distant objects
