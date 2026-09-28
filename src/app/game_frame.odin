@@ -31,7 +31,6 @@ import "../input"
 import "../platform"
 import "../render"
 import slog "../log"
-import "../script"
 import slua "../script/lua"
 import "../settings"
 import "../sight"
@@ -149,7 +148,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner model-id-intern release-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (sim-clock pick-on-render stream-requests traversal-stream-control worldspace-owner model-id-intern cell-handoff loaded-cells-handoff active-scene-pointer)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner's warning for main outside the sim becomes an assert, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	worldstate.sim_enter()
 	defer worldstate.sim_leave()
@@ -188,6 +187,7 @@ game_tick :: proc(g: ^Game) {
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	publish_snapshot(g)
+	forward_ref_events(g)
 	g.sim.input_was = g.sim.input
 	g.scripts.pending = true
 }
@@ -378,9 +378,9 @@ frame_scene_select :: proc(g: ^Game) {
 	frame_active_scene(g)
 
 	// Deferred scene-apply (decision #3): drain the overlay changes script natives wrote this
-	// frame (e.g. a console `sel:Disable()`) and apply them live to the active scene — the fixed
-	// frame point where instance hide/move/scale/remove land, before physics rebuilds collision.
-	world.apply_pending_scene_ops(g.fr.active_scene, &g.db)
+	// frame (e.g. a console `sel:Disable()`) into the active space's live cells — the fixed point
+	// where hide/move/scale/remove land, before physics rebuilds collision.
+	if sp := active_space(g); sp != nil {world.apply_pending_scene_ops(sp, &g.db)}
 
 	// Re-home the player capsule into the active scene's physics world. On a door transition
 	// the active world changes (exterior `phys` ↔ an interior's own world); destroy the old
@@ -528,7 +528,7 @@ quickload :: proc(g: ^Game) {
 	// reconciliation (created add/remove, disabled/moved/scaled reset to the saved state).
 	// The rebuild flags object collision for re-cook; run it behind the dedicated load
 	// screen (reused from boot) so the world is solid before gameplay resumes.
-	world.reapply_overlay_resident(&g.scene, &g.db)
+	world.rebuild_resident_overlay(&g.sim.ext, &g.db)
 	// Back to the saved cell and position, then the load screen builds + solidifies that bubble.
 	// Saved in the interior we stand in: rebuild it so the loaded overlay applies.
 	if kind := player_restore(g); kind == .Stay || kind == .None {traversal_reload(&g.trav)}
@@ -757,7 +757,7 @@ frame_inspect :: proc(g: ^Game) {
 }
 
 dev_disable :: proc(g: ^Game, c: Cmd_Disable) {
-	if world.disable_ref(g.fr.active_scene, c.ref, c.cell, true) {
+	if sp := active_space(g); sp != nil && world.disable_ref(sp, c.ref, c.cell, true) {
 		log.infof("disable: ref 0x%08X hidden", c.ref)
 	} else {
 		log.warnf("disable: scene has no overlay — ref 0x%08X not recorded", c.ref)
@@ -765,7 +765,8 @@ dev_disable :: proc(g: ^Game, c: Cmd_Disable) {
 }
 
 dev_spawn :: proc(g: ^Game, c: Cmd_Spawn) {
-	id := world.create_ref(g.fr.active_scene, &g.db, c.base, c.cell, c.at, {0, 0, 0}, 1)
+	sp := active_space(g)
+	id := world.create_ref(sp, &g.db, c.base, c.cell, c.at, {0, 0, 0}, 1) if sp != nil else 0
 	if id != 0 {
 		log.infof("spawn: created ref 0x%08X (base 0x%08X) at camera", id, c.base)
 	} else {

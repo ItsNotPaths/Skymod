@@ -615,7 +615,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 			g.save_no = m.save_number
 			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
 			// grid cells stream in afterward and pick it up on build.
-			world.reapply_overlay_resident(&g.scene, &g.db)
+			world.rebuild_resident_overlay(&g.sim.ext, &g.db)
 			// Return to where they saved; this re-arms the spawn bubble (armed at the default spawn)
 			// so the full-load screen below builds the right cells.
 			player_restore(g)
@@ -653,6 +653,7 @@ game_teardown :: proc(g: ^Game) {
 	runtime.default_temp_allocator_destroy(&g.tick.temp)
 	queue_destroy(&g.commands)
 	delete(g.command_buf)
+	for e in g.events.items {event_destroy(e)}
 	queue_destroy(&g.events)
 	delete(g.event_buf)
 	strings_queue_destroy(&g.console_in, &g.console_in_buf)

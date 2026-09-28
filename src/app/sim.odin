@@ -281,17 +281,40 @@ Sim_Event :: union {
 	Evt_Open_Container,
 	Evt_Door,
 	Evt_Follow,
+	Evt_Ref,
 }
 
 Evt_Open_Container :: struct {container: Form_ID}
 Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
 Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
+Evt_Ref :: struct {ext: bool, e: world.Ref_Event} // a change to a live cell, of the exterior's space or the interior's
+
+event_destroy :: proc(e: Sim_Event) {
+	if v, ok := e.(Evt_Ref); ok {world.ref_event_destroy(v.e)}
+}
+
+// forward_ref_events sends main what the sim changed in live cells since it last did.
+forward_ref_events :: proc(g: ^Game) {
+	forward :: proc(g: ^Game, sp: ^world.Space, ext: bool) {
+		for e in sp.changes {push(&g.events, Evt_Ref{ext, e})}
+		clear(&sp.changes)
+	}
+	forward(g, &g.sim.ext, true)
+	forward(g, &g.trav.int_space, false)
+}
 
 // handle_events runs what the sim told main since the last call.
 handle_events :: proc(g: ^Game) {
 	drain(&g.events, &g.event_buf)
+	placed: bit_set[0 ..< 2] // the scenes ref events changed: 1 the exterior, 0 the interior
 	for e in g.event_buf {
+		defer event_destroy(e)
 		switch v in e {
+		case Evt_Ref:
+			if s := ref_scene(g, v.ext); s != nil {
+				world.apply_ref_event(s, v.e)
+				placed += {int(v.ext)}
+			}
 		case Evt_Open_Container: open_container(g, v.container)
 		case Evt_Door:
 			sim_drain(g)
@@ -303,6 +326,14 @@ handle_events :: proc(g: ^Game) {
 			sim_resume(g)
 		}
 	}
+	for i in placed {world.resolve_created_models(ref_scene(g, i == 1))}
+}
+
+// ref_scene is the render scene a space's ref events apply to; nil for the interior when the player
+// is outside.
+ref_scene :: proc(g: ^Game, ext: bool) -> ^world.Scene {
+	if ext {return &g.scene}
+	return &g.trav.interior if g.trav.mode == .Interior else nil
 }
 
 // sim_drain brings the sim to rest and holds it there: the pending script phase finishes, queued
@@ -321,7 +352,10 @@ sim_drain :: proc(g: ^Game) {
 // sim_resume drops one hold. The last one publishes what main changed while the sim was parked.
 sim_resume :: proc(g: ^Game) {
 	g.parks -= 1
-	if g.parks == 0 {publish_snapshot(g)}
+	if g.parks == 0 {
+		publish_snapshot(g)
+		forward_ref_events(g)
+	}
 	worldstate.sim_leave()
 }
 

@@ -461,7 +461,7 @@ populate :: proc(chunk: ^Chunk, c: ^Sim_Cell) {
 		hi = {min(f32), min(f32), min(f32)}
 	}
 	for r in c.refs {
-		append(&chunk.instances, instance_of(r))
+		append(&chunk.instances, instance_of(placement_of(r)))
 		lo = {min(lo.x, r.pos.x - m.x), min(lo.y, r.pos.y - m.y), min(lo.z, r.pos.z - m.z)}
 		hi = {max(hi.x, r.pos.x + m.x), max(hi.y, r.pos.y + m.y), max(hi.z, r.pos.z + m.z)}
 	}
@@ -469,7 +469,7 @@ populate :: proc(chunk: ^Chunk, c: ^Sim_Cell) {
 }
 
 // instance_of is a sim ref as render draws it.
-instance_of :: proc(r: Sim_Ref) -> Instance {
+instance_of :: proc(r: Ref_Placement) -> Instance {
 	return {
 		model_path = r.model_path,
 		base = r.base,

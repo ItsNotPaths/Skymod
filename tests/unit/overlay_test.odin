@@ -2,7 +2,7 @@ package unit_tests
 
 // Synthetic overlay-rebuild harness (the streamlined seat for mutation-layer bugfixing). It drives the
 // EXACT logic of an in-game overlay re-apply — the architecturally-correct "recompute baseline ⊕
-// overlay" path (world.rebuild_resident_overlay) — against a hand-built in-memory gamedb + Scene + Space
+// overlay" path (world.rebuild_resident_overlay, then its ref events drawn) — against a hand-built in-memory gamedb + Scene + Space
 // + World_State, with NO renderer/physics/ESM. rebuild is GPU-free (the sim builds from gamedb; models
 // resolve elsewhere; physics ops are nil-guarded), so the whole F9 sequence runs headless.
 //
@@ -83,7 +83,7 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 	world.add_cell(&sp, &db, CELL)
 
 	// Rebuild from a fresh overlay → just the ESM baseline.
-	world.rebuild_resident_overlay(&s, &db)
+	rebuild(&s, &sp, &db)
 	_, has_base := find(&s, CELL, BASELINE)
 	testing.expect(t, has_base, "baseline ESM ref not built")
 	testing.expect_value(t, cell_count(&s, CELL), 1)
@@ -91,7 +91,7 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 	// Spawn A + disable the baseline, rebuild → baseline(hidden) + A.
 	a := ws.create_ref(&state, BASE, CELL, {1, 2, 3}, {0, 0, 0}, 1)
 	ws.set_disabled(&state, BASELINE, CELL, true)
-	world.rebuild_resident_overlay(&s, &db)
+	rebuild(&s, &sp, &db)
 	if inst, ok := find(&s, CELL, BASELINE); testing.expect(t, ok, "baseline lost") {
 		testing.expect(t, inst.disabled, "baseline not disabled by overlay")
 	}
@@ -105,14 +105,14 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 
 	// Spawn B live after the save, rebuild → baseline(hidden) + A + B.
 	b := ws.create_ref(&state, BASE, CELL, {4, 5, 6}, {0, 0, 0}, 1)
-	world.rebuild_resident_overlay(&s, &db)
+	rebuild(&s, &sp, &db)
 	testing.expect(t, func_has(&s, b), "B not spawned")
 	testing.expect_value(t, cell_count(&s, CELL), 3)
 
 	// F9: load the save (A + disable, no B), rebuild. Stale B is GONE; A kept; baseline still disabled.
 	_, ok := ws.load_from_file(&state, path)
 	testing.expect(t, ok, "load failed")
-	world.rebuild_resident_overlay(&s, &db)
+	rebuild(&s, &sp, &db)
 	testing.expect(t, func_has(&s, a), "A lost after F9 rebuild")
 	testing.expect(t, !func_has(&s, b), "stale B not removed after F9 rebuild")
 	if inst, hb := find(&s, CELL, BASELINE); testing.expect(t, hb, "baseline lost after F9") {
@@ -123,10 +123,33 @@ test_overlay_rebuild_f9 :: proc(t: ^testing.T) {
 	// Clear the disable in the overlay + rebuild → baseline RESETS to visible (the case incremental
 	// patching couldn't do; rebuild gets it for free by starting from a clean baseline).
 	ws.set_disabled(&state, BASELINE, CELL, false)
-	world.rebuild_resident_overlay(&s, &db)
+	rebuild(&s, &sp, &db)
 	if inst, hb := find(&s, CELL, BASELINE); testing.expect(t, hb, "baseline lost") {
 		testing.expect(t, !inst.disabled, "baseline disable not reset")
 	}
+}
+
+// rebuild runs the overlay re-apply on the sim's side and draws its ref events, as main would.
+@(private = "file")
+rebuild :: proc(s: ^world.Scene, sp: ^world.Space, db: ^gamedb.DB) {
+	world.rebuild_resident_overlay(sp, db)
+	draw_changes(s, sp)
+}
+
+@(private = "file")
+spawn :: proc(s: ^world.Scene, sp: ^world.Space, db: ^gamedb.DB, id: gamedb.Form_ID) -> bool {
+	_, _, ok := world.spawn_ref(sp, db, id)
+	draw_changes(s, sp)
+	return ok
+}
+
+@(private = "file")
+draw_changes :: proc(s: ^world.Scene, sp: ^world.Space) {
+	for e in sp.changes {
+		world.apply_ref_event(s, e)
+		world.ref_event_destroy(e)
+	}
+	clear(&sp.changes)
 }
 
 @(private = "file")
@@ -165,8 +188,8 @@ test_dirty_created_ref_spawns_live :: proc(t: ^testing.T) {
 	world.add_cell(&sp, &db, CELL)
 
 	a := ws.create_ref(&state, BASE, CELL, {1, 2, 3}, {0, 0, 0}, 1)
-	testing.expect(t, world.spawn_live(&s, &db, a), "dropped ref not spawned")
+	testing.expect(t, spawn(&s, &sp, &db, a), "dropped ref not spawned")
 	testing.expect(t, func_has(&s, a), "dropped ref not in its chunk")
-	testing.expect(t, !world.spawn_live(&s, &db, a), "spawned twice")
+	testing.expect(t, !spawn(&s, &sp, &db, a), "spawned twice")
 	testing.expect_value(t, cell_count(&s, CELL), 1)
 }

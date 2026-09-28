@@ -19,6 +19,39 @@ Space :: struct {
 	cells:           map[Form_ID]Sim_Cell,
 	resident:        map[Form_ID]Resident_Ref, // ref -> where it sits in `cells`; a self-healing cache
 	persistent:      map[[2]i32][dynamic]gamedb.Ref, // the worldspace's persistent refs by grid cell (index_persistent)
+	changes:         [dynamic]Ref_Event, // what the sim changed in live cells, for main to draw
+}
+
+// Ref_Event is a change the sim made to a live cell, for main to apply to its render chunk.
+Ref_Event :: union {
+	Ref_Placed,
+	Ref_Removed,
+	Cell_Rebuilt,
+}
+
+Ref_Placed :: struct {cell: Form_ID, ref: Ref_Placement} // moved, scaled, disabled, re-enabled or spawned
+Ref_Removed :: struct {form: Form_ID}
+Cell_Rebuilt :: struct {cell: Form_ID, refs: []Ref_Placement} // owned by the event
+
+// Ref_Placement is a ref as render needs it: where it stands and whether it shows.
+Ref_Placement :: struct {
+	form_id:    Form_ID,
+	base:       Form_ID,
+	model_path: string,
+	pos, rot:   smath.Vec3,
+	scale:      f32,
+	world:      smath.Mat4,
+	has_tp:     bool,
+	tp_door:    Form_ID,
+	disabled:   bool,
+}
+
+placement_of :: proc(r: Sim_Ref) -> Ref_Placement {
+	return {r.form_id, r.base, r.model_path, r.pos, r.rot, r.scale, r.world, r.has_tp, r.tp_door, r.disabled}
+}
+
+ref_event_destroy :: proc(e: Ref_Event) {
+	if v, ok := e.(Cell_Rebuilt); ok {delete(v.refs)}
 }
 
 // Sim_Cell is one live cell: its refs, its actors and the bodies built for them (the terrain body too).
@@ -70,6 +103,8 @@ space_destroy :: proc(sp: ^Space) {
 	delete(sp.resident)
 	free_persistent(sp)
 	delete(sp.persistent)
+	for e in sp.changes {ref_event_destroy(e)}
+	delete(sp.changes)
 	sp^ = {}
 }
 
@@ -111,6 +146,9 @@ rebuild_cell :: proc(sp: ^Space, db: ^gamedb.DB, cell: Form_ID) -> (^Sim_Cell, b
 	c.refs, c.actors = fresh.refs, fresh.actors
 	index_refs(sp, c)
 	c.phys_done = false
+	refs := make([]Ref_Placement, len(c.refs))
+	for r, i in c.refs {refs[i] = placement_of(r)}
+	append(&sp.changes, Cell_Rebuilt{cell, refs})
 	return c, true
 }
 
@@ -124,6 +162,7 @@ spawn_ref :: proc(sp: ^Space, db: ^gamedb.DB, fid: Form_ID) -> (ref: Sim_Ref, ce
 	append(&c.refs, ref)
 	c.phys_done = false
 	index_refs(sp, c)
+	append(&sp.changes, Ref_Placed{cr.cell, placement_of(ref)})
 	return ref, cr.cell, true
 }
 
@@ -140,6 +179,7 @@ remove_ref :: proc(sp: ^Space, form: Form_ID) {
 	}
 	delete_key(&sp.resident, form)
 	index_refs(sp, c)
+	append(&sp.changes, Ref_Removed{form})
 }
 
 // find_ref is the live sim ref for a form, and its cell; none in a nil space. The resident index is
@@ -186,6 +226,7 @@ set_ref_disabled :: proc(sp: ^Space, form: Form_ID, disabled: bool) {
 	} else {
 		r.phys_built, c.phys_done = false, false
 	}
+	append(&sp.changes, Ref_Placed{c.cell, placement_of(r^)})
 }
 
 // place_ref moves a live ref (a Moved or Scaled delta); its bodies rebuild at the new placement.
@@ -195,4 +236,5 @@ place_ref :: proc(sp: ^Space, form: Form_ID, world: smath.Mat4, pos: smath.Vec3,
 	r.world, r.pos, r.scale = world, pos, scale
 	remove_ref_bodies(sp.phys, c, r)
 	r.phys_built, c.phys_done = false, false
+	append(&sp.changes, Ref_Placed{c.cell, placement_of(r^)})
 }
