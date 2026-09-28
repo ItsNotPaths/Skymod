@@ -159,11 +159,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		}
 		// Open-interiors mode has its own walk-in, so doors are left to it there.
 		if g.interiors_on {break}
-		hit := Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}
-		if np, nyaw, tk := go_through(&g.trav, hit); tk != .None {
-			player_teleport(g, np, nyaw, 0)
-			traversal_finish_load(g, tk)
-		}
+		push(&g.events, Evt_Door{Door_Hit{tp_door = ref.teleport.door, tp_pos = ref.teleport.pos, tp_rot = ref.teleport.rot, ok = true}})
 	case .Item:
 		take_item(g, form, base, by)
 	case .Book:

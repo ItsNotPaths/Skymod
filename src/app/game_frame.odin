@@ -150,7 +150,7 @@ game_frame :: proc(g: ^Game) {
 // moves, physics steps the world it moved in, traversal reads the position it ended at. This
 // tick's script phase is left pending (script_thread.odin).
 @(private = "file")
-// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event dialogue-commands transition-request sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it.
+// (hole tick-thread :tags (threading world physics) :sev gap :needs (camera-from-sim sight-view-input activate-input cast-input grab-input console-command force-greet-event dialogue-commands sim-clock pick-on-render hud-target subtitles-snapshot audio-triggers-on-sim audio-commands audio-emitter-follow audio-events-back render-inputs-snapshot vfx-events effect-state-snapshot camera-mode-state anim-state-snapshot stream-requests traversal-stream-control worldspace-owner overlay-off-streamer render-cell-populate terrain-body-from-cell model-id-intern release-from-tick cache-mutation-from-tick cell-handoff loaded-cells-handoff instance-events active-scene-pointer actor-cell-lifecycle sim-struct owner-asserts collision-debug-snapshot)) the sim tick runs on the main thread (only its script phase has its own), so a slow tick stalls frames and a frame that falls behind runs up to 5 ticks. Decided (user, 2026-09-27): a decoupled sim thread with its own clock; main never waits on it except to park it. The flip: run game_tick's loop on the sim thread with the script phase inline (script_thread.odin goes), assert_owner becomes sim-only in every worldstate proc, the sim gets its own temp allocator and a logger main cannot free under it. An event that needs main (a load door, a script move of the player, a pausing menu) parks the sim when it is emitted; inline, main handles it before the next tick.
 game_tick :: proc(g: ^Game) {
 	context.temp_allocator = runtime.default_temp_allocator(&g.tick.temp)
 	defer free_all(context.temp_allocator)
@@ -158,9 +158,9 @@ game_tick :: proc(g: ^Game) {
 	t := time.tick_now()
 	apply_commands(g)
 	lap(g, .Commands, &t)
-	tick_jail(g) // before player_follow, which carries a jailed player's move out this tick
+	tick_jail(g) // before the follow check, which carries a jailed player's move out after this tick
 	lap(g, .Jail, &t)
-	player_follow(g)
+	if player_moved(g) {push(&g.events, Evt_Follow{})}
 	lap(g, .Follow, &t)
 	tick_activations(g)
 	lap(g, .Activations, &t)
@@ -343,7 +343,7 @@ frame_overlay :: proc(g: ^Game) {
 	}
 }
 
-// (hole active-scene-pointer :tags (threading world) :sev gap :needs (sim-cell transition-request)) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
+// (hole active-scene-pointer :tags (threading world) :sev gap :needs (sim-cell)) main and the tick both set g.fr.active_scene, a pointer into trav.interior that traversal frees and re-inits. Wanted: the sim publishes the active space as an ID; each side holds its own scene.
 // frame_active_scene resolves which scene the player inhabits and whether it's a full-screen
 // interior (the streamer is paused there). Pure — no side effects — so the frame can call it
 // even on a frame that runs no tick, and still have g.fr populated for picking and drawing.
@@ -562,13 +562,26 @@ player_publish :: proc(g: ^Game) {
 	g.published = {cell, feet}
 }
 
-// (hole transition-request) a script's MoveTo on the player reaches traversal_go_to and a load screen from the tick.
-// player_follow places the player where a script moved its ref (MoveTo, SetPosition) since the
+// player_moved reports whether a script moved the player's ref (MoveTo, SetPosition) since the
 // last player_publish.
-player_follow :: proc(g: ^Game) {
+player_moved :: proc(g: ^Game) -> bool {
 	d, ok := worldstate.get(&g.ws, formid.PLAYER)
-	if !ok || .Moved not_in d.live || (Placement{d.cell, d.pos} == g.published) {return}
-	traversal_finish_load(g, player_restore(g))
+	return ok && .Moved in d.live && Placement{d.cell, d.pos} != g.published
+}
+
+// player_follow places the player where a script moved its ref, running any load that needs.
+// Main runs it with the sim parked.
+player_follow :: proc(g: ^Game) {
+	if player_moved(g) {traversal_finish_load(g, player_restore(g))}
+}
+
+// cross_door takes the player through a load door. Main runs it with the sim parked: the load
+// builds scenes with the renderer and draws its own frames.
+cross_door :: proc(g: ^Game, hit: Door_Hit) {
+	if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
+		player_teleport(g, np, nyaw, 0)
+		traversal_finish_load(g, kind)
+	}
 }
 
 // player_restore places the player where its ref's delta says, in any cell, and returns what the
@@ -636,10 +649,7 @@ frame_traversal :: proc(g: ^Game) {
 	// hit. A manual door found here is ignored — Activate crosses it via the crosshair (frame_interact).
 	hit := traversal_nearest_door(&g.trav, g.cam.pos)
 	if hit.ok && hit.auto && hit.dist <= AUTO_DOOR_RANGE && !g.trav.has_arrival {
-		if np, nyaw, kind := go_through(&g.trav, hit); kind != .None {
-			player_teleport(g, np, nyaw, 0)
-			traversal_finish_load(g, kind)
-		}
+		push(&g.events, Evt_Door{hit})
 	}
 }
 
@@ -655,7 +665,6 @@ player_teleport :: proc(g: ^Game, feet: smath.Vec3, yaw, pitch: f32) {
 	publish_snapshot(g)
 }
 
-// (hole transition-request :tags (threading world) :sev gap) a door, a script MoveTo on the player or jail runs the whole load (enter_interior, load_screen_stream: platform.pump and frames drawn) inside game_tick. loadui_frame also wipes the tick's temp arena mid-tick. Wanted: the tick emits a transition, the sim parks, main runs the load and resumes it.
 // traversal_finish_load runs the load screen a transition still needs AFTER go_through. An interior
 // already showed its load screen inside go_through (the synchronous decode reported through t.progress);
 // a city gate armed a full-bore stream in retarget_exterior, so we drive the streamer load screen here

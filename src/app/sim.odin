@@ -172,10 +172,14 @@ publish_snapshot :: proc(g: ^Game) {
 Sim_Event :: union {
 	Evt_Open_Container,
 	Evt_Open_Dialogue,
+	Evt_Door,
+	Evt_Follow,
 }
 
 Evt_Open_Container :: struct {container: Form_ID}
 Evt_Open_Dialogue :: struct {speaker: Form_ID}
+Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
+Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
 
 // handle_events runs what the sim told main since the last call.
 handle_events :: proc(g: ^Game) {
@@ -184,6 +188,14 @@ handle_events :: proc(g: ^Game) {
 		switch v in e {
 		case Evt_Open_Container: open_container(g, v.container)
 		case Evt_Open_Dialogue:  open_dialogue(g, v.speaker)
+		case Evt_Door:
+			sim_drain(g)
+			cross_door(g, v.hit)
+			sim_resume(g)
+		case Evt_Follow:
+			sim_drain(g)
+			player_follow(g)
+			sim_resume(g)
 		}
 	}
 }
