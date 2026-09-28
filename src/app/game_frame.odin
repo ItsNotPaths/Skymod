@@ -83,10 +83,11 @@ game_frame :: proc(g: ^Game) {
 	park_for_menu(g)
 	frame_subtitles(g)
 
-	// The fixed-step sim runs the ticks its clock has due. A parked sim stops it: a save, a load, or a
-	// pausing menu, even one a tick of this frame opens. The rest runs once it resumes.
+	// The fixed-step sim runs the ticks its clock has due, at most MAX_CATCH_UP_TICKS a frame: a tick
+	// slower than TICK_TIME always leaves one due. A parked sim stops it: a save, a load, or a pausing
+	// menu, even one a tick of this frame opens. The rest runs once it resumes.
 	g.sim.input = latch_input(g)
-	for g.parks == 0 && clock_due(&g.sim.clock) {
+	for n := 0; n < MAX_CATCH_UP_TICKS && g.parks == 0 && clock_due(&g.sim.clock); n += 1 {
 		g.tick.prof.ticks += 1
 		game_tick(g)
 		handle_events(g)
