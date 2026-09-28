@@ -216,8 +216,7 @@ add_instance :: proc(s: ^Scene, chunk: ^Chunk, inst: Instance) {
 }
 
 // resolve_created_models synchronously resolves the model for every resident CREATED ref whose model
-// isn't loaded yet (created refs aren't enqueued by the streamer, so they'd never draw otherwise).
-// Main runs it after applying ref events.
+// isn't loaded yet: an interior scene has no streamer. Main runs it after applying ref events.
 resolve_created_models :: proc(s: ^Scene) {
 	for _, &chunk in s.chunks {
 		for &inst in chunk.instances {

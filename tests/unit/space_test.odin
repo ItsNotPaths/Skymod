@@ -87,7 +87,6 @@ test_space_refs :: proc(t: ^testing.T) {
 @(test)
 test_collision_store_answers :: proc(t: ^testing.T) {
 	store: assetdb.Collision_Store
-	assetdb.collision_store_init(&store, nil)
 	defer assetdb.collision_store_destroy(&store)
 	cache := assetdb.cache_init(nil, nil, &store)
 	defer assetdb.cache_destroy(&cache)
@@ -99,6 +98,20 @@ test_collision_store_answers :: proc(t: ^testing.T) {
 	testing.expect(t, failed && m == nil, "a model that decoded to nothing is known, with no collision")
 	m, known = assetdb.collision_of(nil, "b.nif")
 	testing.expect(t, known && m == nil, "without a store every model is known to have none")
+
+	// A read before the decode lands is a request, made once; a model a loader has in hand is not.
+	wanted: [dynamic]string
+	defer delete(wanted)
+	assetdb.take_wanted(&store, &wanted)
+	testing.expect(t, len(wanted) == 1 && wanted[0] == "a.nif", "the first read asked for a.nif")
+	assetdb.note_asked(&store, "c.nif")
+	assetdb.collision_of(&store, "D.nif")
+	assetdb.collision_of(&store, "d.nif")
+	assetdb.collision_of(&store, "c.nif")
+	assetdb.take_wanted(&store, &wanted)
+	testing.expect(t, len(wanted) == 1 && wanted[0] == "d.nif", "one request, for the model nobody asked for")
+	assetdb.take_wanted(&store, &wanted)
+	testing.expect_value(t, len(wanted), 0)
 }
 
 @(private = "file")

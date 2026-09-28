@@ -413,7 +413,6 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// bodies as cells load. Torn down AFTER scene_destroy — see game_teardown.
 	g.phys, g.phys_ok = physics.world_create()
 
-	assetdb.collision_store_init(&g.collisions, &g.v)
 	g.scene = world.scene_init(&g.r, &g.v, &g.collisions)
 	g.up.scene = true
 	// Movable clutter (cups/plates/etc.) as DYNAMIC bodies in the exterior too — now that Jolt runs

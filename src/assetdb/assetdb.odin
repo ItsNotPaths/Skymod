@@ -922,6 +922,8 @@ Cpu_Model :: struct {
 	proxy_indices: []u16, // owned
 	has_proxy:     bool,
 	collision:     nif.Collision, // bhk* collision shapes (owned in `alloc`; physics, Phase 2e)
+	furniture:     []nif.Furniture_Marker, // owned in `alloc`
+	projectile:    Maybe(matrix[4, 4]f32), // where it launches projectiles, in model space
 	extras:        bool, // decode carried pick/collision/proxy (want_extras) — upload builds them only then
 }
 
@@ -1038,6 +1040,8 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 	pi: []u16
 	phas: bool
 	col: nif.Collision
+	furn: []nif.Furniture_Marker
+	pnode: Maybe(matrix[4, 4]f32)
 	if want_extras {
 		canopy := make([dynamic][3]f32, 0, 256, context.temp_allocator)
 		for ps in placed {
@@ -1055,6 +1059,8 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		// scratch in temp) — the body geometry the streamer feeds to Jolt. Cheap vs the render
 		// decode; piggybacks the NIF load we already did.
 		col = nif.parse_collision(data, &h, alloc)
+		furn = nif.furniture_markers(data, &h, alloc)
+		if m, found := nif.node_world_by_name(data, &h, "ProjectileNode"); found {pnode = m}
 	}
 
 	return Cpu_Model {
@@ -1067,6 +1073,8 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 		proxy_indices = pi,
 		has_proxy     = phas,
 		collision     = col,
+		furniture     = furn,
+		projectile    = pnode,
 		extras        = want_extras,
 	}
 }
@@ -1106,6 +1114,7 @@ free_cpu_model :: proc(cpu: Cpu_Model, alloc := context.allocator) {
 		delete(s.indices, alloc)
 	}
 	delete(cpu.collision.shapes, alloc)
+	delete(cpu.furniture, alloc)
 }
 
 // --- internals ---

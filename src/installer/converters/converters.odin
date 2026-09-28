@@ -1,6 +1,6 @@
 package converters
 
-// (hole anim-clip-store :tags (threading animation assets) :sev gap :needs (hkx-porter stream-requests)) clips and skeletons are needed by the sim (clock, annotations, root motion, hitbox bones) and by main (full sampling). Wanted: the streamer loads them once into a read-only store both threads read; the porter keeps annotations and the root-motion track apart from the bone tracks.
+// (hole anim-clip-store :tags (threading animation assets) :sev gap :needs (hkx-porter)) clips and skeletons are needed by the sim (clock, annotations, root motion, hitbox bones) and by main (full sampling). Wanted: the streamer loads them once into a read-only store both threads read, where a read of a clip not in yet is the request (as the collision store does); the porter keeps annotations and the root-motion track apart from the bone tracks.
 // Converters (ROADMAP Phase 1d): one file per converter, registered into the
 // installer registry so adding a converter is additive. Stub registrations for the
 // hard ones (HKX->glTF, material-translation, .tri->blendshapes). PEX->Lua is built:

@@ -77,6 +77,7 @@ Streamer :: struct {
 	load_target:  int, // models in flight when the load began — the progress-bar denominator
 	inflight:     map[string]bool, // model paths currently requested/decoding (main only)
 	undecorated:  [dynamic]Form_ID, // new chunks still without terrain, water and grass, nearest first
+	wanted:       [dynamic]string, // the collision store's requests, taken each frame
 
 	// worker pool + queues. decode_model is thread-safe (positional pread VFS, no GPU/cache
 	// touch — see the file header), so N workers drain the shared `reqs` queue concurrently;
@@ -157,15 +158,20 @@ stream_destroy :: proc(st: ^Streamer) {
 	delete(st.ready)
 	delete(st.inflight)
 	delete(st.undecorated)
+	delete(st.wanted)
 	st^ = {}
 }
 
-// (hole stream-requests :tags (threading world assets) :sev gap) the only request the streamer takes is a live cell (Cell_Added), for its models. Decided (user, 2026-09-27): the streamer loads every asset kind for every consumer. Wanted: a request for any asset kind with a reply when it is in, so skeletons, clips, the collision store's own NIF reads (furniture markers, ProjectileNode) and the interior load go through it too.
-// stream_apply builds or drops the render chunk for a cell the sim made live or retired. Placement
-// events are the scene's (apply_ref_event).
+// stream_apply builds or drops the render chunk for a cell the sim made live or retired, and requests
+// the models of refs placed in live cells. Placement itself is the scene's (apply_ref_event).
 stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 	if len(st.workers) == 0 {return}
-	#partial switch v in e {
+	switch v in e {
+	case Ref_Placed:
+		enqueue_model(st, v.ref.model_path)
+	case Cell_Rebuilt:
+		for r in v.refs {enqueue_model(st, r.model_path)}
+	case Ref_Removed:
 	case Cell_Added:
 		chunk := chunk_meta(st.db, v.cell) // grid/bounds only: no terrain mesh, no near instances
 		populate(&chunk, v.refs)
@@ -181,8 +187,10 @@ stream_apply :: proc(st: ^Streamer, e: Ref_Event) {
 	}
 }
 
-// stream_update decorates a budgeted few new chunks and uploads decoded models. Call every frame.
+// stream_update takes the sim's requests, decorates a budgeted few new chunks and uploads decoded
+// models. Call every frame.
 stream_update :: proc(st: ^Streamer) {
+	take_requests(st)
 	decorate(st, DECORATE_BUDGET)
 	drain_ready(st, UPLOAD_BUDGET)
 }
@@ -207,6 +215,7 @@ stream_begin_load :: proc(st: ^Streamer) {
 // denominator is the snapshot taken in stream_begin_load; failed decodes still clear inflight
 // (drain_ready marks them failed), so this always converges.
 stream_pump_load :: proc(st: ^Streamer) -> (done, total: int, complete: bool) {
+	take_requests(st)
 	drain_ready(st, LOAD_SCREEN_UPLOAD)
 	total = st.load_target
 	done = total - len(st.inflight)
@@ -241,6 +250,14 @@ stream_stats :: proc(st: ^Streamer) -> Stats {
 }
 
 // --- internals ---
+
+// take_requests requests the models the sim read from the collision store before they were in.
+@(private)
+take_requests :: proc(st: ^Streamer) {
+	if st.scene.collisions == nil {return}
+	assetdb.take_wanted(st.scene.collisions, &st.wanted)
+	for path in st.wanted {enqueue_model(st, path)}
+}
 
 // drop_chunk frees a cell's render chunk, if it has one.
 @(private)
@@ -292,6 +309,7 @@ enqueue_model :: proc(st: ^Streamer, path: string, extras := true) {
 		return
 	}
 	st.inflight[path] = true
+	if extras && st.scene.collisions != nil {assetdb.note_asked(st.scene.collisions, path)}
 	enqueue(st, Req{path = path, lod = 0, extras = extras})
 }
 

@@ -811,7 +811,7 @@ Door_Hit :: struct {
 Traversal :: struct {
 	mode:        Traversal_Mode,
 	ext_scene:   ^world.Scene, // streamed exterior (borrowed; never destroyed here)
-	// (hole traversal-stream-control :tags (threading world) :sev gap :needs (stream-requests)) traversal holds the streamer and both scenes: it retargets the streamer, points the sim's space at a new worldspace and loads interiors on main with get_model. Wanted: the sim sends a stream request and gets a 'bubble ready' reply.
+	// (hole traversal-stream-control :tags (threading world) :sev gap) traversal holds the streamer and both scenes: it retargets the streamer, points the sim's space at a new worldspace and loads interiors on main with get_model. Wanted: the sim sends a stream request and gets a 'bubble ready' reply.
 	st:          ^world.Streamer, // exterior streamer (borrowed)
 	db:          ^gamedb.DB,
 	v:           ^vfs.VFS,

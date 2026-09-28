@@ -315,7 +315,7 @@ forward_ref_events :: proc(g: ^Game) {
 // handle_events runs what the sim told main, oldest first. A handler may run it again (a door's load
 // screen), and the inner run carries on in order.
 handle_events :: proc(g: ^Game) {
-	placed: bit_set[0 ..< 2] // the scenes that got placed refs: 1 the exterior, 0 the interior
+	placed := false // the interior got placed refs
 	for e in take_first(&g.events) {
 		defer event_destroy(e)
 		switch v in e {
@@ -323,9 +323,12 @@ handle_events :: proc(g: ^Game) {
 			s := ref_scene(g, v.ext)
 			if s == nil {break}
 			world.apply_ref_event(s, v.e)
-			if v.ext {world.stream_apply(&g.streamer, v.e)}
+			if v.ext {
+				world.stream_apply(&g.streamer, v.e)
+				break
+			}
 			#partial switch _ in v.e {
-			case world.Ref_Placed, world.Cell_Rebuilt: placed += {int(v.ext)}
+			case world.Ref_Placed, world.Cell_Rebuilt: placed = true
 			}
 		case Evt_Open_Container: open_container(g, v.container)
 		case Evt_Door:
@@ -338,9 +341,7 @@ handle_events :: proc(g: ^Game) {
 			sim_resume(g)
 		}
 	}
-	for i in placed {
-		if s := ref_scene(g, i == 1); s != nil {world.resolve_created_models(s)}
-	}
+	if s := ref_scene(g, false); placed && s != nil {world.resolve_created_models(s)}
 }
 
 // ref_scene is the render scene a space's ref events apply to; nil for the interior when the player

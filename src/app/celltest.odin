@@ -60,7 +60,6 @@ when DEVTOOLS {
 		}
 
 		collisions: assetdb.Collision_Store
-		assetdb.collision_store_init(&collisions, v)
 		defer assetdb.collision_store_destroy(&collisions)
 		space: world.Space
 		world.space_init(&space, &phys, &collisions, nil, dynamic_clutter = false)
