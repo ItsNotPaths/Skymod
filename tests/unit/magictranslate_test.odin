@@ -123,8 +123,8 @@ test_magic_translate_item :: proc(t: ^testing.T) {
 	src.edids[0x73F38] = "DamageHealthLinger05"
 	src.edids[0x3EB42] = "AlchDamageHealthDuration"
 	src.db.form_by_edid["alchdamagehealthduration"] = 0x3EB42
-	potion := gamedb.Potion{poison = true, effects = []gamedb.Magic_Effect_Ref{{effect = 0x3EB42, magnitude = 3, duration = 20}}}
-	testing.expect_value(t, magictranslate.item_lua(&src, 0x73F38, potion), `-- Skyrim.esm ALCH DamageHealthLinger05
+	effects := []gamedb.Magic_Effect_Ref{{effect = 0x3EB42, magnitude = 3, duration = 20}}
+	testing.expect_value(t, magictranslate.item_lua(&src, 0x73F38, "ALCH", effects, true), `-- Skyrim.esm ALCH DamageHealthLinger05
 local rt = require('skymod.rt')
 return rt.item {
   form = "Skyrim.esm:073F38",

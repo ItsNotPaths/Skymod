@@ -1,20 +1,21 @@
 package magictranslate
 
-// ALCH to rt.item: a potion, food or poison used from the inventory, with its effects' numbers.
+// ALCH and INGR to rt.item: a potion, food, poison or ingredient used from the inventory, with its
+// effects' numbers. An eaten ingredient applies only its first effect, in record order.
 
 import "core:fmt"
 import "core:strings"
 import "../gamedb"
 
-// item_lua writes a potion as an items/ file.
-item_lua :: proc(src: ^Source, form: Form_ID, potion: gamedb.Potion) -> string {
+// item_lua writes an item used from the inventory as an items/ file; `record` is ALCH or INGR.
+item_lua :: proc(src: ^Source, form: Form_ID, record: string, applies: []gamedb.Magic_Effect_Ref, poison: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "-- %s ALCH %s", src.files[u32(form >> 32)], src.edids[form])
+	fmt.sbprintfln(&b, "-- %s %s %s", src.files[u32(form >> 32)], record, src.edids[form])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
 	fmt.sbprintln(&b, "return rt.item {")
 	fmt.sbprintfln(&b, "  form = %q,", form_ref(src, form))
-	if potion.poison {fmt.sbprintln(&b, "  tags = { \"poison\" },")}
-	write_applies(&b, src, potion.effects)
+	if poison {fmt.sbprintln(&b, "  tags = { \"poison\" },")}
+	write_applies(&b, src, applies)
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b)
 }
