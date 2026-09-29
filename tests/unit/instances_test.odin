@@ -1805,6 +1805,43 @@ assert(a:GetActorValuePercent("Health") == 1, tostring(a:GetActorValuePercent("H
 `), "condition calls")
 }
 
+// A translated ability is one effect at the ability's form: AddSpell starts it at m = 1, lasting,
+// and RemoveSpell ends it, both by the spell's identity.
+@(test)
+test_ability_effect :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_ability_effect", {})
+	defer fixture_destroy(&f)
+	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
+	os.make_directory_all(effects)
+	p, _ := filepath.join({effects, "AbWerewolf.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(p, transmute([]u8)string(`local rt = require('skymod.rt')
+return rt.effect { form = "Skyrim.esm:000900", av = { Health = { capacity = "50 * m" } } }
+`)) == nil, "write effect")
+	ABILITY, ACTOR :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x700)
+	f.db.plugin_slots = make(map[string]u32, context.temp_allocator)
+	f.db.plugin_slots["skyrim.esm"] = 0
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[ABILITY] = {info = {type = .Ability}}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[ABILITY] = .Spell
+	worldstate.av_set_base(&f.ws, ACTOR, "Health", 100)
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load_effects")
+	testing.expect(t, f.db.form_kinds[ABILITY] == .Spell, "the ability stays a Spell")
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); assert(rt.call(ref(0x700), "AddSpell", ref(0x900)))`), "AddSpell")
+	running := script.spell_effects(&f.ws, ACTOR, ABILITY)
+	testing.expect_value(t, len(running), 1)
+	if len(running) == 1 {
+		e := f.ws.effects[running[0]]
+		testing.expect(t, e.effect == ABILITY && e.lasts && e.magnitude == 1, "one lasting effect at m = 1")
+	}
+	testing.expect_value(t, worldstate.av_max(&f.ws, &f.db, ACTOR, "Health"), 150)
+	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "RemoveSpell", ref(0x900)))`), "RemoveSpell")
+	testing.expect_value(t, len(script.spell_effects(&f.ws, ACTOR, ABILITY)), 0)
+}
+
 // An rt.spell file names every effect it applies; Spell.Cast reaches it by its Lua form. Each effect
 // gates itself in its land (here by the hour, through e.global), and a duration may be in ticks.
 @(test)

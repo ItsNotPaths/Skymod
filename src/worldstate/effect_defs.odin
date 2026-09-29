@@ -107,7 +107,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	d.scripts = clone_scripts(src.scripts)
 	set_tags(ws, form, src.tags)
-	db.form_kinds[form] = .MagicEffect // `as MagicEffect` and its natives
+	if db.form_kinds[form] == .Unknown {db.form_kinds[form] = .MagicEffect} // `as MagicEffect`; an ability stays a Spell
 
 	if old, ok := &ws.effect_defs[form]; ok {
 		free_effect_def(old)

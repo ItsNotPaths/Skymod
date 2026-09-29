@@ -72,6 +72,7 @@ condition_lua :: proc(src: ^Source, c: gamedb.Condition) -> (string, bool) {
 	}
 	for len(args) > 0 && args[len(args) - 1] == "0" {pop(&args)} // a left-out parameter is 0
 	call := fmt.tprintf("%s:%s(%s)", subject, info.name, strings.join(args[:], ", ", context.temp_allocator))
+	if info.name == "GetGlobalValue" {call = fmt.tprintf("e.global.%s", src.edids[Form_ID(c.param1)])} // the naming rule's read
 	value := fmt.tprintf("e.global.%s", src.edids[c.global]) if .Use_Global in c.flags else fmt.tprint(c.value)
 	if strings.has_prefix(info.name, "Is") || strings.has_prefix(info.name, "Has") {
 		if .Use_Global in c.flags {return "", false}

@@ -74,24 +74,25 @@ Term :: struct {
 	on_caster:   bool,
 }
 
-// effect_terms is what a numeric archetype moves. Held (Recover, or only lasting sources use it):
-// the magnitude sits on the capacity while the effect runs. Otherwise m a second over d, or m at
-// once when d is 0, then the taper, and the change stays (archetypevaluemodifier.lua).
-effect_terms :: proc(info: esm.Magic_Effect_Info, held: bool) -> []Term {
+// effect_terms is what a numeric archetype moves, k times its magnitude. Held (Recover, or only
+// lasting sources use it): the magnitude sits on the capacity while the effect runs. Otherwise m a
+// second over d, or m at once when d is 0, then the taper, and the change stays
+// (archetypevaluemodifier.lua).
+effect_terms :: proc(info: esm.Magic_Effect_Info, held: bool, k: f32 = 1) -> []Term {
 	out := make([dynamic]Term, context.temp_allocator)
 	primary, second := av_name(info.primary_av), av_name(info.second_av)
 	knob := "capacity" if held else "amount"
-	f := value_formula(info, held)
 	neg := info.flags & esm.MGEF_DETRIMENTAL != 0
+	f := value_formula(info, held, k)
 	switch {
-	case primary == "":
+	case primary == "" || k == 0:
 	case info.archetype == .Absorb:
 		if held {break} // an Absorb moves only amounts
 		append(&out, Term{primary, "amount", signed(f, neg), false}, Term{primary, "amount", signed(f, !neg), true})
 	case:
 		append(&out, Term{primary, knob, signed(f, neg), false})
 		if info.archetype == .Dual_Value_Modifier && second != "" {
-			append(&out, Term{second, knob, signed(scale(f, info.second_av_weight), neg), false})
+			append(&out, Term{second, knob, signed(value_formula(info, held, k * info.second_av_weight), neg), false})
 		}
 	}
 	return out[:]
@@ -111,14 +112,14 @@ write_terms :: proc(b: ^strings.Builder, terms: []Term) {
 	}
 }
 
-// value_formula is what a Value Modifier moves, before Detrimental's sign.
+// value_formula is what a Value Modifier moves, k times its magnitude, before Detrimental's sign.
 @(private)
-value_formula :: proc(info: esm.Magic_Effect_Info, held: bool) -> string {
-	if held {return "m"}
-	f := "select(d, m * min(t, d), m)"
+value_formula :: proc(info: esm.Magic_Effect_Info, held: bool, k: f32) -> string {
+	if held {return scale("m", k)}
+	f := scale("select(d, m * min(t, d), m)", k)
 	if td := info.taper_duration; td > 0 && info.taper_weight != 0 {
 		e := info.taper_curve + 1
-		f = fmt.tprintf("%s + %s * (1 - (1 - clamp(t - d, 0, %v) / %v) ^ %v)", f, scale("m", info.taper_weight * td / e), td, td, e)
+		f = fmt.tprintf("%s + %s * (1 - (1 - clamp(t - d, 0, %v) / %v) ^ %v)", f, scale("m", k * info.taper_weight * td / e), td, td, e)
 	}
 	return f
 }

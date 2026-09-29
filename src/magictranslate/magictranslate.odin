@@ -36,7 +36,7 @@ Uses :: bit_set[enum {Lasting, Timed}]
 // translate reads the winning version of each magic record over `plugins` (load order, in
 // `data_dir`) and writes the ones that a plugin in `only` defines or overrides (all when empty)
 // into `out_dir`.
-// (hole magic-translate :tags (magic records) :sev gap :needs (spell-shapes other-archetypes)) only MGEFs and potions are translated. Wanted: castable SPEL and ENCH as rt.spell, powers and SHOU as rt.power, SCRL as a hand rt.item and INGR as an inventory one, abilities as effects given with ApplyEffect (one effect per ability family, its stage or strength as m: vampirism, not AbVampire01..04), the vanilla scripts that AddSpell them patched to match (use from spell type and cast type; GetLevel tier copies dropped, shape from PROJ, EXPL and area in feet, `hits = "direct"` for area 0 entries), Power Affects Duration to `d = "m"`-style landing, spell-side CTDAs to a moment script that calls SetActive each second, the status and moment archetypes as their wrapper classes once they exist, HAZD and rune projectiles as zones.
+// (hole magic-translate :tags (magic records) :sev gap :needs (spell-shapes other-archetypes)) only MGEFs, potions, ingredients and abilities are translated. Wanted: castable SPEL and ENCH as rt.spell, powers and SHOU as rt.power, SCRL as a hand rt.item, the 27 abilities whose parts carry different conditions (magic2lua names them; hand-write or split), the four stage families (AbVampire, VampireSunDamage, VampireStrength, DLC1SeranaHMSBonusStage) hand-written as one effect with the stage as m and the scripts that AddSpell them patched to match, spells' use from spell type and cast type (GetLevel tier copies dropped, shape from PROJ, EXPL and area in feet, `hits = "direct"` for area 0 entries), Power Affects Duration to `d = "m"`-style landing, spell-side CTDAs to a moment script that calls SetActive each second, the status and moment archetypes as their wrapper classes once they exist, HAZD and rune projectiles as zones.
 // (hole magic-tags-derive :tags (magic records) :sev gap :needs (magic-translate)) the translator must write tags on purpose: kw.<editor id> for each keyword, an element tag from the resist AV too (80 of 88 fire effects agree; 48 poison effects have no keyword), school and tier from the MGEF skill and perk, a `status` tag on lasting harmful effects (burns, slows, drains), and role tags for the combat brain (hostile, restore, summon).
 // (hole perk-translate :tags (magic records player) :sev gap :needs (magic-translate)) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
 // (hole rider-rules :tags magic :sev gap :needs (magic-translate)) perk riders (93 MGEFs: Intense Flames, Deep Freeze, Disintegrate, Impact) are copied into spells unevenly: none on scrolls, staffs, weapon enchantments or runes, and 34 test the player ref. Wanted: each rider stays an entry of the items that carry it (a spell names all its effects), with its per-spell values (Impact 0.05/0.25/0.5), its perk gate in the rider effect's land; decide per item whether scrolls, staves and runes get the entries vanilla forgot.
@@ -64,8 +64,25 @@ write_all :: proc(src: ^Source, out_dir: string) -> (st: Stats, ok: bool) {
 	os.make_directory_all(items_dir)
 	for form, potion in src.db.potions {
 		if !src.wanted[form] {continue}
-		write_file(items_dir, src.edids[form], item_lua(src, form, potion)) or_return
+		write_file(items_dir, src.edids[form], item_lua(src, form, "ALCH", potion.effects, potion.poison)) or_return
 		st.items += 1
+	}
+	for form, effects in src.db.ingredients {
+		if !src.wanted[form] || len(effects) == 0 {continue}
+		write_file(items_dir, src.edids[form], item_lua(src, form, "INGR", effects[:1], false)) or_return
+		st.items += 1
+	}
+	for form, sp in src.db.spells {
+		if !src.wanted[form] || sp.info.type != .Ability {continue}
+		ab, done := ability_lua(src, form, sp)
+		if !done {
+			log.warnf("magic: ability %s keeps its record: its parts' conditions differ", src.edids[form])
+			st.skipped += 1
+			continue
+		}
+		write_file(effects_dir, src.edids[form], ab.effect) or_return
+		if ab.gate != "" {write_file(out_dir, ab.gate_class, ab.gate) or_return}
+		st.effects += 1
 	}
 	return st, true
 }

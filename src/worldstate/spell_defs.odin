@@ -133,6 +133,11 @@ spell_view :: proc(ws: ^World_State, db: ^gamedb.DB, spell: Form_ID) -> (v: Spel
 		return {self = d.shape == "self", entries = entries, defined = true}, true
 	}
 	sp := gamedb.spell_of(db, spell) or_return
+	if _, effect := ws.effect_defs[spell]; effect && sp.info.type == .Ability { // a translated ability is one effect
+		entries := make([]gamedb.Magic_Effect_Ref, 1, context.temp_allocator)
+		entries[0] = {effect = spell, magnitude = 1}
+		return {passive = true, self = true, entries = entries, defined = true}, true
+	}
 	passive := sp.info.type == .Ability || sp.info.cast_type == .Constant_Effect
 	return {castable = sp.info.type != .Ability, passive = passive, self = sp.info.delivery == .Self, cost = f32(sp.info.cost), entries = sp.effects}, true
 }
