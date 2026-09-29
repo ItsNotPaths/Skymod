@@ -3,7 +3,7 @@ package script
 // Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
-// (hole brew-enchant-perks :tags (magic player) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
+// (hole brew-enchant-perks :tags (magic player unclaimed) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
 // (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
 // (hole effect-sounds :tags (magic audio unclaimed) :sev gap :needs (cast-animation concentration)) an effect's charge, ready, cast-loop and draw/sheathe sounds do not play: casting is instant. Release and on-hit play (casting.odin).
 
@@ -14,7 +14,7 @@ import "../gamedb"
 import "../magic"
 import "../worldstate"
 
-// (hole soul-gems :tags magic :sev gap :needs (other-archetypes)) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
+// (hole soul-gems :tags (magic unclaimed) :sev gap :needs (other-archetypes)) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
 register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "AddSpell", n_add_spell)
 	register(reg, "Actor", "RemoveSpell", n_remove_spell)
@@ -54,7 +54,7 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "ActiveMagicEffect", "UnregisterForAnimationEvent", n_unregister_anim_event)
 }
 
-// (hole disease-effects :tags magic :sev gap) a caught disease does nothing: AddSpell and sync_constant_effects start abilities only, so a Disease spell sits in the list with GetDisease 1 and no penalty; no hit passes one on.
+// (hole disease-effects :tags (magic unclaimed) :sev gap) a caught disease does nothing: AddSpell and sync_constant_effects start abilities only, so a Disease spell sits in the list with GetDisease 1 and no penalty; no hit passes one on.
 // AddSpell: the actor learns the spell; an ability starts. False when it already knew it.
 n_add_spell :: proc(c: ^Call, args: []Value) -> Value {
 	spell := arg_form(c, args, 0)
@@ -258,7 +258,7 @@ start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
 	start_effects(c, spell, v.entries, v.passive, target, caster)
 }
 
-// (hole weapon-poison :tags (magic combat) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
+// (hole weapon-poison :tags (magic combat unclaimed) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
 // use_item uses up one of `actor`'s items used from the inventory (a potion, food, rt.item) and
 // starts its effects on it (EquipItem, the inventory menu): OnItemRemoved, then OnObjectEquipped.
 // False for a poison, which goes on a weapon, and for an item held to use.

@@ -5,7 +5,7 @@ package worldstate
 // Magic comes first for magic (spells, powers, shouts, scrolls, enchantments), then the effect's own
 // resist; they multiply. A Poison spell is resisted by PoisonResist instead. The player caps each
 // resistance at fPlayerMaxResistance; anyone else at 100, immune. A weakness (below 0) strengthens.
-// (hole disease-resistance :tags magic :sev gap) a Disease spell is not resisted: DiseaseResist is a chance to not catch it (UESP, unconfirmed), not a magnitude cut.
+// (hole disease-resistance :tags (magic unclaimed) :sev gap) a Disease spell is not resisted: DiseaseResist is a chance to not catch it (UESP, unconfirmed), not a magnitude cut.
 
 import "../formats/esm"
 import "../formid"

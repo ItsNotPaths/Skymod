@@ -43,8 +43,8 @@ Table :: struct {
 
 BUILTIN :: Table{on_hit_builtin, scale_builtin}
 
-// (hole spell-absorption :tags magic :sev gap) Spell Absorption (AbsorbChance, rolled first, once per spell; the spell is nullified and its cost restores the target's Magicka; not for self-delivered spells) is not rolled.
-// (hole wards :tags magic :sev gap) a ward blocks nothing: WardPower does not absorb a hostile spell, no ward breaks, and Mod_Ward_Magic_Absorption_Percent is unread.
+// (hole spell-absorption :tags (magic unclaimed) :sev gap) Spell Absorption (AbsorbChance, rolled first, once per spell; the spell is nullified and its cost restores the target's Magicka; not for self-delivered spells) is not rolled.
+// (hole wards :tags (magic unclaimed) :sev gap) a ward blocks nothing: WardPower does not absorb a hostile spell, no ward breaks, and Mod_Ward_Magic_Absorption_Percent is unread.
 @(private = "file")
 on_hit_builtin :: proc "c" (h: ^Host, hit: Hit) -> Verdict {
 	return .Lands
