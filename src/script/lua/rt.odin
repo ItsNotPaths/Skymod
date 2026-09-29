@@ -738,6 +738,7 @@ OBJECT_REF_CHAIN := []string{"ObjectReference", "Form"}
 // Actor when its base is an NPC_ (the player ref places NPC_ 0x7); other refs are ObjectReferences.
 @(private)
 engine_chain :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, form: script.Form_ID) -> []string {
+	form := worldstate.resolve(ws, form) if ws != nil else form // PlayerRef is the controlled actor
 	kind := gamedb.form_kind(db, form)
 	if kind != .Unknown {
 		return script.class_chain(kind)
