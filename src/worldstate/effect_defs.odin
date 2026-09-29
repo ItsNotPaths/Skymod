@@ -18,9 +18,18 @@ MAX_TUNABLES :: 8
 Effect_Def :: struct {
 	name:     string, // owned
 	resist:   string, // owned: the AV that resists it (GetResistance); "" none
+	stack:    Stack_Rule,
+	nostack:  string, // owned: its group, where only the strongest runs; "" none
 	terms:    [dynamic]Effect_Term,
 	tunables: [dynamic]Tunable, // Active_Effect.tunables in this order
 	scripts:  []esm.Script_Attach, // the moments; owned (esm.free_form_scripts shape)
+}
+
+// Stack_Rule is what a defined effect does when the same caster lands it again from the same source.
+Stack_Rule :: enum u8 {
+	Restart, // the running copy ends and the new one starts
+	Add,     // both run (lingering poisons, weakness)
+	Keep,    // the running copy stays and the new one does not land (No Recast)
 }
 
 // Tunable is a name the effect's formulas read bare: its default until land sets it.
@@ -33,6 +42,8 @@ Tunable :: struct {
 Effect_Def_Src :: struct {
 	name, form: string, // form: "File.esm:012FCD" or an editor id; "" makes a Lua form
 	resist:     string,
+	stack:      string, // "restart" (or ""), "add", "keep"
+	nostack:    string,
 	tags:       []string,
 	terms:      []Effect_Src,
 	defaults:   []Tunable, // the definition's numbers
@@ -70,7 +81,13 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	forget_effect_terms(ws)
 
-	d := Effect_Def{name = strings.clone(src.name), resist = strings.clone(src.resist)}
+	d := Effect_Def{name = strings.clone(src.name), resist = strings.clone(src.resist), nostack = strings.clone(src.nostack)}
+	switch src.stack {
+	case "restart", "": d.stack = .Restart
+	case "add":         d.stack = .Add
+	case "keep":        d.stack = .Keep
+	case:               log.warnf("rt.effect %s: stack %q is not restart, add or keep", src.name, src.stack)
+	}
 	for t in src.defaults {add_tunable(&d, t.name, t.default)}
 	bind := Def_Bind{ws, db, &d}
 	for s in src.terms {
@@ -181,6 +198,7 @@ clone_scripts :: proc(src: []esm.Script_Attach) -> []esm.Script_Attach {
 free_effect_def :: proc(d: ^Effect_Def) {
 	delete(d.name)
 	delete(d.resist)
+	delete(d.nostack)
 	for &t in d.terms {
 		delete(t.av)
 		formula.destroy(&t.f)

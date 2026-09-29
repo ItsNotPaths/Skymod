@@ -32,6 +32,7 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "DispelAllSpells", n_dispel_all_spells)
 	register(reg, "Actor", "ApplyEffect", n_apply_effect)
 	register(reg, "Actor", "DispelEffect", n_dispel_effect)
+	register(reg, "Actor", "DispelTagged", n_dispel_tagged)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
 	register(reg, "Scroll", "Cast", n_spell_cast)
@@ -93,6 +94,13 @@ n_dispel_effect :: proc(c: ^Call, args: []Value) -> Value {
 		}
 	}
 	return any
+}
+
+// DispelTagged(asPattern) is not Papyrus: vanilla's Dispel Effects with Keywords, from an effect's
+// land (Cure Disease: e.target:DispelTagged("disease")). Whole spells end, as in vanilla.
+n_dispel_tagged :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.dispel_tagged(c.ws, c.db, c.self, arg_str(args, 0))
+	return nil
 }
 
 // DispelSpell ends the spell's effects; the actor still knows it. True when it had any.

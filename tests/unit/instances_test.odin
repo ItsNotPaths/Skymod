@@ -1943,3 +1943,77 @@ test_resist_hook :: proc(t: ^testing.T) {
 	player := landed(t, &f, "Frostbite", formid.PLAYER)
 	testing.expect(t, abs(player - 6) < 1e-4, "the player's 100 counts as 85") // 40 * 0.15
 }
+
+// A defined effect landed again by the same caster from the same source restarts, adds or keeps
+// the running copy by its `stack`; other casters and sources add. In a nostack group only the
+// strongest runs, across AVs. A land may dispel by tag.
+@(test)
+test_rt_stacking :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_stacking", {})
+	defer fixture_destroy(&f)
+	RT :: `return require('skymod.rt').`
+	files := [][2]string {
+		{"effects/burn.lua", RT + `effect { av = { Health = { amount = "-m" } } }`},
+		{"effects/venom.lua", RT + `effect { stack = "add", av = { Health = { amount = "-m" } } }`},
+		{"effects/hex.lua", RT + `effect { stack = "keep", av = { Magicka = { amount = "-m" } } }`},
+		{"effects/rot.lua", RT + `effect { tags = { "disease.rattles" }, av = { Stamina = { capacity = "-m" } } }`},
+		{"effects/cure.lua", RT + `effect { land = function(e) e.target:DispelTagged("disease") end }`},
+		{"effects/blessingarkay.lua", RT + `effect { nostack = "Blessing", av = { Health = { capacity = "m" } } }`},
+		{"effects/blessingkyne.lua", RT + `effect { nostack = "Blessing", av = { Stamina = { capacity = "m" } } }`},
+		{"spells/flames.lua", RT + `spell { applies = { { "Burn", m = 1, d = "9s" } } }`},
+		{"spells/firebolt.lua", RT + `spell { applies = { { "Burn", m = 1, d = "9s" } } }`},
+		{"spells/sting.lua", RT + `spell { applies = { { "Venom", m = 1, d = "9s" } } }`},
+		{"spells/curse.lua", RT + `spell { applies = { { "Hex", m = 1, d = "9s" } } }`},
+		{"spells/rattles.lua", RT + `spell { applies = { { "Rot", m = 1, d = "90s" } } }`},
+		{"spells/curedisease.lua", RT + `spell { applies = { { "Cure" } } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load")
+	TARGET :: gamedb.Form_ID(0x700)
+	worldstate.av_set_base(&f.ws, TARGET, "Health", 1000)
+
+	cast_by :: proc(t: ^testing.T, f: ^Fixture, spell: string, caster: gamedb.Form_ID) {
+		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x%X), ref(0x700))", formid.lua_form("spell", spell), caster)
+		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+	}
+	running :: proc(f: ^Fixture, effect: string) -> (n: int) {
+		for h in worldstate.effects_on(&f.ws, TARGET) {
+			if e := f.ws.effects[h]; !e.ended && e.effect == formid.lua_form("effect", effect) {n += 1}
+		}
+		return
+	}
+	cast_by(t, &f, "Flames", 0x701)
+	cast_by(t, &f, "Flames", 0x701)
+	testing.expect_value(t, running(&f, "Burn"), 1) // the same caster and spell: restarted
+	cast_by(t, &f, "Flames", 0x702)
+	cast_by(t, &f, "Firebolt", 0x701)
+	testing.expect_value(t, running(&f, "Burn"), 3) // another caster, another spell: they add
+	cast_by(t, &f, "Sting", 0x701)
+	cast_by(t, &f, "Sting", 0x701)
+	testing.expect_value(t, running(&f, "Venom"), 2)
+	cast_by(t, &f, "Curse", 0x701)
+	first := worldstate.effects_on(&f.ws, TARGET)[len(worldstate.effects_on(&f.ws, TARGET)) - 1]
+	cast_by(t, &f, "Curse", 0x701)
+	testing.expect(t, running(&f, "Hex") == 1 && !f.ws.effects[first].ended, "keep: the running copy stays")
+
+	bless :: proc(t: ^testing.T, f: ^Fixture, effect: string, m: int) {
+		testing.expect(t, slua.do_string(&f.vm, fmt.tprintf(`rt.call(ref(0x700), "ApplyEffect", "%s", %d)`, effect, m)), "ApplyEffect")
+	}
+	bless(t, &f, "BlessingArkay", 10)
+	bless(t, &f, "BlessingKyne", 5)
+	testing.expect(t, running(&f, "BlessingArkay") == 1 && running(&f, "BlessingKyne") == 0, "a weaker blessing does not land")
+	bless(t, &f, "BlessingKyne", 20)
+	testing.expect(t, running(&f, "BlessingArkay") == 0 && running(&f, "BlessingKyne") == 1, "a stronger one replaces it, across AVs")
+
+	cast_by(t, &f, "Rattles", 0x701)
+	testing.expect_value(t, running(&f, "Rot"), 1)
+	cast_by(t, &f, "CureDisease", 0x700)
+	testing.expect_value(t, running(&f, "Rot"), 0)
+}

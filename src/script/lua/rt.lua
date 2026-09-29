@@ -1195,6 +1195,8 @@ end
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
 --   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
 --   resist = "FrostResist"                  -- the AV that resists it (GetResistance), when tagged hostile
+--   stack = "restart" | "add" | "keep"      -- the same caster landing it again from the same source
+--   nostack = "Blessing"                    -- a group, across effects: only the strongest runs
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
 --   land = function(e) ... end              -- once as it lands: return false and it does not start;
 --                                           -- set e.m, e.d and tunables (e.taken = ...). An effect

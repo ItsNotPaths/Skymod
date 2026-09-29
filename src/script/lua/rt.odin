@@ -490,7 +490,8 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		case key == "form": src.form = to_string(L, -1)
 		case key == "resist": src.resist = to_string(L, -1)
 		case key == "land": // Lua keeps it (rt.land)
-		case key == "meta": // (stacking-meta)
+		case key == "stack": src.stack = to_string(L, -1)
+		case key == "nostack": src.nostack = to_string(L, -1)
 		case key == "tags":
 			lua.pushnil(L)
 			for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
