@@ -214,6 +214,10 @@ DB :: struct {
 	sound_categories: map[Form_ID]Sound_Category, // SNCT formID -> its parent and volume
 	sound_outputs:    map[Form_ID]Sound_Output, // SOPM formID -> its distance curve and panning
 	acoustic_loops:   map[Form_ID]Form_ID, // ASPC formID -> its ambient loop (SNAM, SNDR)
+	imod_durations:   map[Form_ID]f32, // IMAD formID -> seconds an Apply plays; 0 = until removed (visuals.odin)
+	impact_durations: map[Form_ID]f32, // IPCT formID -> its effect duration
+	impact_sets:      map[Form_ID][]Form_ID, // IPDS formID -> its IPCTs, one per material (owned)
+	visual_effects:   map[Form_ID]Visual_Effect, // RFCT formID -> its art and shader
 	music_types:      map[Form_ID]Music_Type, // MUSC formID -> its priority and tracks
 	music_tracks:     map[Form_ID]Music_Track, // MUST formID -> its file, palette or silence
 	world_music:      map[Form_ID]Form_ID, // WRLD formID -> its music type (ZNAM)
@@ -823,6 +827,10 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		defaults         = make(map[[4]u8]Form_ID, 512, allocator),
 		sounds           = make(map[Form_ID]Sound_Descriptor, 4096, allocator),
 		sound_markers    = make(map[Form_ID]Form_ID, 2048, allocator),
+		imod_durations   = make(map[Form_ID]f32, 256, allocator),
+		impact_durations = make(map[Form_ID]f32, 1024, allocator),
+		impact_sets      = make(map[Form_ID][]Form_ID, 256, allocator),
+		visual_effects   = make(map[Form_ID]Visual_Effect, 256, allocator),
 		sound_by_edid    = make(map[string]Form_ID, 4096, allocator),
 		sound_categories = make(map[Form_ID]Sound_Category, 32, allocator),
 		sound_outputs    = make(map[Form_ID]Sound_Output, 128, allocator),
@@ -1158,6 +1166,7 @@ destroy :: proc(db: ^DB) {
 	free_nav_indexes(db)
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	free_sound_indexes(db) // descriptors, markers, categories, DOBJ defaults
+	free_visual_indexes(db) // IMAD, IPCT, IPDS, RFCT
 	free_music_indexes(db)
 	free_climate_indexes(db)
 	db^ = {}
@@ -1628,6 +1637,14 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_enchantment(db, rec, ctx.fm)
 	case s == "MGEF":
 		index_magic_effect(db, rec, ctx.fm)
+	case s == "IMAD":
+		index_imod(db, rec)
+	case s == "IPCT":
+		index_impact(db, rec)
+	case s == "IPDS":
+		index_impact_set(db, rec, ctx.fm)
+	case s == "RFCT":
+		index_visual_effect(db, rec, ctx.fm)
 	case s == "LCTN":
 		index_location(db, rec, ctx.fm)
 	case s == "ECZN":

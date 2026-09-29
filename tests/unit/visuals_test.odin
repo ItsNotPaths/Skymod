@@ -39,8 +39,8 @@ test_visuals :: proc(t: ^testing.T) {
 	for _, v in ws.visuals {testing.expect_value(t, v.kind, worldstate.Visual_Kind.Shader)}
 }
 
-// A magic effect shows its hit shader on its target while it runs, and its IMAD only on the player.
-// The shader stays while another running effect on the target shows it.
+// A magic effect shows its hit shader on its target while it runs, and its IMAD only on the player,
+// for the IMAD's duration. The shader stays while another running effect on the target shows it.
 @(test)
 test_effect_visuals :: proc(t: ^testing.T) {
 	FROST :: gamedb.Form_ID(0x30)
@@ -53,6 +53,8 @@ test_effect_visuals :: proc(t: ^testing.T) {
 	fx.art[.Hit_Shader] = FROST_SHADER
 	fx.art[.Imod] = FROST_IMOD
 	db.magic_effects[FROST] = fx
+	db.imod_durations = make(map[gamedb.Form_ID]f32, context.temp_allocator)
+	db.imod_durations[FROST_IMOD] = 3
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
@@ -72,4 +74,7 @@ test_effect_visuals :: proc(t: ^testing.T) {
 
 	worldstate.play_effect_visuals(&ws, &db, {effect = FROST, target = ws.player})
 	testing.expect_value(t, len(ws.visuals), 2)
+	ws.clock.played = 3
+	worldstate.expire_visuals(&ws)
+	testing.expect_value(t, len(ws.visuals), 1) // the IMAD played out; the shader lasts with the effect
 }

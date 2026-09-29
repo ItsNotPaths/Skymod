@@ -29,9 +29,20 @@ Visual :: struct {
 	until:    f64,     // 0 = until stopped, or until its record's own art ends
 }
 
-// IMPACT_KEEP is how long an impact stays in the store: long enough for a drawer to see it.
-// (hole visual-durations :tags (vfx records) :sev polish) an impact stays IMPACT_KEEP seconds, not its IPCT duration, and an Imod.Apply or a Play with no time stays until stopped: no EFSH, ARTO, IPCT or IMAD duration is decoded, so a load after the art ended can replay it.
-IMPACT_KEEP :: 5
+// IMPACT_MIN is the least time an impact stays in the store, so a slow frame still sees it; the
+// drawer plays it out from its record.
+IMPACT_MIN :: 1
+
+// imod_until is when an Apply of `imod` now ends: 0 for a hold modifier, on until removed.
+imod_until :: proc(ws: ^World_State, db: ^gamedb.DB, imod: Form_ID) -> f64 {
+	d := gamedb.imod_duration(db, imod)
+	return ws.clock.played + f64(d) if d > 0 else 0
+}
+
+// impact_until is when an impact of the IPDS `set` played now leaves the store.
+impact_until :: proc(ws: ^World_State, db: ^gamedb.DB, set: Form_ID) -> f64 {
+	return ws.clock.played + f64(max(gamedb.impact_duration(db, set), IMPACT_MIN))
+}
 
 // play_visual starts `v` now, over any visual with the same kind, form and ref.
 play_visual :: proc(ws: ^World_State, v: Visual) -> u32 {
@@ -115,6 +126,6 @@ effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> [3
 	return {
 		{kind = .Shader, form = me.art[.Hit_Shader], ref = e.target},
 		{kind = .Art, form = me.art[.Hit_Art], ref = e.target},
-		{kind = .Imod, form = me.art[.Imod] if e.target == ws.player else 0, strength = 1},
+		{kind = .Imod, form = me.art[.Imod] if e.target == ws.player else 0, strength = 1, until = imod_until(ws, db, me.art[.Imod])},
 	}
 }
