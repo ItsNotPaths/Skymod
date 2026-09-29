@@ -33,6 +33,7 @@ VM :: struct {
 	host_context: runtime.Context, // captured per run so the "c"-callconv bridge can log/alloc
 	none_warned:  map[string]bool, // per-method log-once guard for None absorption (decision #2)
 	scripts:      map[string][dynamic]Script_Layer, // lowercase script name -> its files (loader.odin)
+	effect_files: map[string][dynamic]Script_Layer, // lowercase effect name -> its rt.effect files
 	steps:        [Event_Step]f32, // the last tick_begin's ms per step
 }
 

@@ -4,7 +4,8 @@ package worldstate
 // perk's rank by its editor id, Level, or a mod's actor value),
 // global.X (a GLOB by editor id), and condition functions by name, `HasPerk(caster, X)`. A call's
 // first argument may name its subject (caster or target; target when left out); its form arguments
-// are editor ids or "File.esm:012FCD", and a trailing one left out is 0.
+// are editor ids or "File.esm:012FCD", a ref argument may be caster or target, and a trailing one
+// left out is 0. A defined effect's formulas read its tunables by bare name (effect_defs.odin).
 
 import "core:strconv"
 import "core:strings"
@@ -22,13 +23,20 @@ Read_Kind :: enum u64 {
 	Target, // target.X, or a call run on the target
 	Caster,
 	Global, // bound[1]: the GLOB
+	Tunable, // bound[1]: its index in Active_Effect.tunables
 }
+
+// A call's Ref argument naming the caster or the target (GetDistance(target, caster)).
+@(private)
+ARG_CASTER :: max(u64)
+@(private)
+ARG_TARGET :: max(u64) - 1
 
 // A call's bound: [0] its subject, [1] 1 + the function's index, [2] and [3] its parameters.
 @(private)
 effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	db := cast(^gamedb.DB)data
-	if r.object == "" && !r.call {return "unknown variable"} // an effect's tunables come with rt-effect
+	if r.object == "" && !r.call {return "unknown variable"} // a definition's tunables: def_bind
 	if r.object != "" {
 		switch r.object {
 		case "caster", "target":
@@ -69,6 +77,10 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 			if !ok {return "expected a number or an actor value name"}
 			r.bound[2 + i] = v
 		case .Form, .Ref:
+			if kind == .Ref && (args[i] == "caster" || args[i] == "target") {
+				r.bound[2 + i] = ARG_CASTER if args[i] == "caster" else ARG_TARGET
+				continue
+			}
 			f, ok := form_arg(db, args[i])
 			if !ok {return "unknown form"}
 			r.bound[2 + i] = u64(f)
@@ -105,6 +117,7 @@ Effect_Read :: struct {
 	ws:             ^World_State,
 	db:             ^gamedb.DB,
 	caster, target: Form_ID,
+	tunables:       []f32,
 }
 
 @(private)
@@ -115,10 +128,18 @@ effect_read :: proc(data: rawptr, r: formula.Read) -> f64 {
 	case .Target:
 	case .Caster: subject, other = x.caster, x.target
 	case .Global: return f64(global_value(x.ws, x.db, Form_ID(r.bound[1])))
+	case .Tunable: return f64(x.tunables[r.bound[1]]) if int(r.bound[1]) < len(x.tunables) else 0
 	}
 	if r.bound[1] > 0 {
 		if condition_call == nil {return 0}
-		c := gamedb.Condition{function = u16(r.bound[1] - 1), param1 = r.bound[2], param2 = r.bound[3], param3 = -1}
+		param :: proc(x: ^Effect_Read, p: u64) -> u64 {
+			switch p {
+			case ARG_CASTER: return u64(x.caster)
+			case ARG_TARGET: return u64(x.target)
+			}
+			return p
+		}
+		c := gamedb.Condition{function = u16(r.bound[1] - 1), param1 = param(x, r.bound[2]), param2 = param(x, r.bound[3]), param3 = -1}
 		return f64(condition_call(x.ws, x.db, c, subject, other))
 	}
 	if r.bound[2] != 0 {return f64(perk_rank(x.ws, x.db, subject, Form_ID(r.bound[2])))}

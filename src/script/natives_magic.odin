@@ -212,7 +212,8 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
-		if !conditions.all(&ctx, mgef.conditions) {continue}
+		_, defined := c.ws.effect_defs[e.effect] // its `when` stands in for the MGEF's conditions
+		if !defined && !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
 		magnitude, duration := e.magnitude, f32(e.duration)
 		// (hole spell-perk-sources :tags magic :sev gap :needs (effect-scales)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it).
@@ -226,6 +227,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		m, duration = effect_numbers(c, hit, e.effect, m, duration)
 		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)
+		if !worldstate.land_effect(c.ws, c.db, &eff) {continue}
 		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
 	}
 	for eff in starting {worldstate.start_effect(c.ws, eff)}

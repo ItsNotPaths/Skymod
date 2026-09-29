@@ -240,7 +240,7 @@ sync_refs :: proc(vm: ^VM) {
 @(private)
 attach_effect :: proc(vm: ^VM, h: script.Form_ID) -> int {
 	ws, db := vm.ctx.ws, vm.ctx.db
-	own := gamedb.form_scripts(db, ws.effects[h].effect)
+	own := worldstate.effect_scripts(ws, db, ws.effects[h].effect)
 	for s in own {load_class(vm, s.name)} // their claims decide the archetype's class
 	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
 	for name in worldstate.effect_classes(ws, db, ws.effects[h].effect) {

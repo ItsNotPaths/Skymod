@@ -8,7 +8,7 @@ local native, method, has_method, none_value = __native, __method, __has_method,
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local now, info = __now, __info
-local effect_class = __effect_class
+local effect_class, effect_files, effect_def = __effect_class, __effect_files, __effect_def
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -1152,7 +1152,10 @@ end
 -- rt.start_begin and rt.start_end bracket game start (new game or load). Between them rt.attach
 -- defers OnInit; rt.start_end sends OnGameLoaded to every form attached, then OnInit to the new ones.
 -- rt.actor_value works only inside OnGameLoaded.
-function rt.start_begin() starting = { forms = {}, fresh = {} } end
+function rt.start_begin()
+  rt.load_effects()
+  starting = { forms = {}, fresh = {} }
+end
 
 function rt.start_end()
   local s = starting
@@ -1173,10 +1176,42 @@ end
 
 -- (hole av-scales :tags (magic mods) :sev gap) an actor value cannot say what it does to magic. Wanted: rt.actor_value(name, { scale = "-min(v, target.ResistCap)", tags = { "magic.fire", "status" }, from = "target" | "caster", of = "m" | "d" | "radius" | "cost" | { "m", "d" } ... }), or `scales = { {...}, {...} }` for several on one AV; also on engine AVs (FireResist gets its scale here, not a new AV) and on perk names (v = the rank). A tag list matches when all its tags match (worldstate.has_tag); several matching scales multiply, so scaling m and d of a rate effect compounds (x1.2 each = x1.44 total; user 2026-09-28).
 
--- (hole rt-effect :tags (magic script) :sev gap) no rt.effect: an effect is data, AV formulas in t, m, d (`Health = { amount = "-m * min(t, d)" }`), tunables (a bare name in its formulas, `radius`, is a formula.Read with no object; fixed unless a scale names it), `when`, tags, `meta = { nostack = group }`, or `script = name` for a moment; it keeps a form ID so HasMagicEffect and akEffect == Prop work. Today effects are archetype classes with __effect (load_effect).
+-- rt.effect(def) is an effect, in an effects/<name>.lua file that returns it (the name is the file's):
+--   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
+--   tags = { "magic.fire", "kw.MagicDamageFire" }
+--   Health = { capacity = "formula", amount = "formula" }, caster = { Magicka = {...} }
+--   m = "formula", d = "m"                  -- numbers worked out once as it lands, from the spell's
+--   radius = 320, taken = "target.Health * 0.3"  -- tunables, also once as it lands (at most 8)
+--   when = "formula"                        -- checked once as it lands; 0 and it does not start
+--   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties
+-- AV formulas see t, m, d, the tunables and reads (caster.X, target.X, global.X, functions). A
+-- <name>.patch.lua returns a function that edits the definition from below it.
+-- (hole effect-live-conditions :tags magic :sev gap) a live on/off condition is a moment script (user, 2026-09-28), and no core one exists: wanted a script taking a formula that rechecks it each second and sets the effect inactive, for vanilla's spell-side conditions (84 abilities: time of day, sneaking, worn sets) and Apocalypse's global tier gates.
+-- (hole effect-action-scripts :tags magic :sev gap) no core moment scripts with parameters: about 50 of Apocalypse's 159 effect scripts only cast a spell at someone on an event, dispel, interrupt, kill below a threshold or push (build/out/wsM/apoc/scripts.md). Wanted: CastOn, DispelOn, KillBelow and the like, so such an effect is data.
 function rt.effect(def) return def end
 
--- (hole rt-spell :tags (magic script) :sev gap :needs (rt-effect)) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
+-- rt.load_effects defines every effect the effects/ folders hold, for the engine.
+function rt.load_effects()
+  for _, f in ipairs(effect_files()) do
+    local def
+    for _, layer in ipairs(f.layers) do
+      local chunk, err = loadfile(layer.path)
+      if not chunk then
+        warn(err)
+      elseif not layer.patch then
+        def = run(layer.path, chunk) or def
+      elseif def then
+        local edit = run(layer.path, chunk)
+        if edit then run(layer.path, edit, def) end
+      else
+        warn(layer.path .. ": patches effect '" .. f.name .. "', which nothing below it defines")
+      end
+    end
+    if type(def) == "table" then effect_def(f.name, def) end
+  end
+end
+
+-- (hole rt-spell :tags (magic script) :sev gap) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
 function rt.spell(def) return def end
 
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is

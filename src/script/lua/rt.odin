@@ -45,6 +45,8 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__formula", rt_formula},
 		{"__level_up_choice", rt_level_up_choice},
 		{"__effect_class", rt_effect_class},
+		{"__effect_files", rt_effect_files},
+		{"__effect_def", rt_effect_def},
 		{"__seed_spell", rt_seed_spell},
 		{"__faction", rt_faction},
 		{"__stolen_mark", rt_stolen_mark},
@@ -262,19 +264,89 @@ read_effect_table :: proc(L: ^lua.State, class: string, srcs: ^[dynamic]worldsta
 		case av == "caster" && !on_caster:
 			read_effect_table(L, class, srcs, true)
 		case:
-			lua.pushnil(L)
-			for lua.next(L, -2) != 0 {
-				name := to_string(L, -2)
-				if knob, ok := reflect.enum_from_name(worldstate.Knob, strings.to_pascal_case(name, context.temp_allocator)); ok {
-					append(srcs, worldstate.Effect_Src{av, knob, strings.clone(to_string(L, -1), context.temp_allocator), on_caster})
-				} else {
-					log.warnf("script: %s.__effect %s: no knob %q (capacity, amount)", class, av, name)
-				}
-				lua.pop(L, 1)
-			}
+			read_knobs(L, class, av, srcs, on_caster)
 		}
 		lua.pop(L, 1)
 	}
+}
+
+// read_knobs reads one AV's {capacity = "formula", amount = "formula"} on top of the stack.
+@(private)
+read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.Effect_Src, on_caster: bool) {
+	lua.pushnil(L)
+	for lua.next(L, -2) != 0 {
+		name := to_string(L, -2)
+		if knob, ok := reflect.enum_from_name(worldstate.Knob, strings.to_pascal_case(name, context.temp_allocator)); ok {
+			append(srcs, worldstate.Effect_Src{av, knob, to_string(L, -1), on_caster})
+		} else {
+			log.warnf("script: %s %s: no knob %q (capacity, amount)", owner, av, name)
+		}
+		lua.pop(L, 1)
+	}
+}
+
+// __effect_def(name, def) hands an rt.effect definition to the engine (worldstate.set_effect_def).
+@(private)
+rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	src := worldstate.Effect_Def_Src{name = to_string(L, 1)}
+	terms := make([dynamic]worldstate.Effect_Src, context.temp_allocator)
+	landing := make([dynamic][2]string, context.temp_allocator)
+	tags := make([dynamic]string, context.temp_allocator)
+	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
+	lua.pushnil(L)
+	for lua.next(L, 2) != 0 {
+		key := to_string(L, -2)
+		switch {
+		case key == "form": src.form = to_string(L, -1)
+		case key == "when": src.gate = to_string(L, -1)
+		case key == "meta": // (stacking-meta)
+		case key == "tags":
+			lua.pushnil(L)
+			for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
+		case key == "script": append(&scripts, read_moment(L))
+		case key == "caster" && lua.istable(L, -1): read_effect_table(L, src.name, &terms, true)
+		case lua.istable(L, -1): read_knobs(L, src.name, key, &terms, false)
+		case bool(lua.isstring(L, -1)): append(&landing, [2]string{key, to_string(L, -1)}) // numbers too
+		case: log.warnf("rt.effect %s: %s is not a formula or a table", src.name, key)
+		}
+		lua.pop(L, 1)
+	}
+	src.terms, src.landing, src.tags, src.scripts = terms[:], landing[:], tags[:], scripts[:]
+	worldstate.set_effect_def(vm.ctx.ws, vm.ctx.db, src)
+	return 0
+}
+
+// read_moment reads `script = "Name"` or `{ "Name", Prop = value }` on top of the stack. A ref value
+// is an object property; numbers, strings and booleans are the rest.
+@(private)
+read_moment :: proc(L: ^lua.State) -> esm.Script_Attach {
+	if !lua.istable(L, -1) {return {name = to_string(L, -1)}}
+	lua.geti(L, -1, 0)
+	s := esm.Script_Attach{name = to_string(L, -1)}
+	lua.pop(L, 1)
+	props := make([dynamic]esm.Script_Prop, context.temp_allocator)
+	lua.pushnil(L)
+	for lua.next(L, -2) != 0 {
+		defer lua.pop(L, 1)
+		if lua.type(L, -2) != .STRING {continue}
+		p := esm.Script_Prop{name = to_string(L, -2), status = 1}
+		if f, ok := ref_form(L, -1); ok {
+			p.kind, p.value = .Object, esm.Prop_Object{form = f, alias = -1}
+		} else {
+			#partial switch lua.type(L, -1) {
+			case .BOOLEAN: p.kind, p.value = .Bool, bool(lua.toboolean(L, -1))
+			case .STRING:  p.kind, p.value = .String, to_string(L, -1)
+			case .NUMBER:
+				if lua.isinteger(L, -1) {p.kind, p.value = .Int, i32(lua.tointeger(L, -1))} else {p.kind, p.value = .Float, f32(lua.tonumber(L, -1))}
+			case: continue
+			}
+		}
+		append(&props, p)
+	}
+	s.props = props[:]
+	return s
 }
 
 // preload compiles `src` and registers it as package.preload[name].

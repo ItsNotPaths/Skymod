@@ -25,7 +25,10 @@ Active_Effect :: struct {
 	ended:     bool, // OnEffectFinish is due or sent
 	finished:  bool, // OnEffectFinish sent
 	motion:    Effect_Motion `cbor:"-"`, // a cache of effect_motion; not saved, so a mod update reaches old saves
+	tunables:  [MAX_TUNABLES]f32, // its definition's tunables as it landed (Effect_Def.tunables order)
 }
+
+// (hole tunables-by-name :tags (magic save) :sev polish) a running effect saves its tunables by position: a mod update that adds or renames one shifts the values of effects running in an old save.
 
 // Effect_Motion is whether an effect's amount terms still change with time (effect_motion).
 Effect_Motion :: enum u8 {
@@ -124,7 +127,8 @@ effect_forms :: proc(ws: ^World_State, actor: Form_ID) -> []Form_ID {
 term_value :: proc(ws: ^World_State, db: ^gamedb.DB, term: Effect_Term, e: Active_Effect, t: f32) -> f64 {
 	t := t if e.lasts else min(t, e.duration + e.taper)
 	vars := term_vars(db, e, t)
-	reads := Effect_Read{ws, db, e.caster, e.target}
+	e := e
+	reads := Effect_Read{ws, db, e.caster, e.target, e.tunables[:]}
 	return formula.eval(term.f, vars[:], {&reads, effect_read})
 }
 
@@ -164,10 +168,14 @@ term_av :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect, term: Effect
 	return gamedb.AV_NAMES[index], true
 }
 
-// effect_classes is the script classes an effect runs (lower case): its MGEF's scripts, then its
-// archetype's class unless one of them claims the effect (defines __effect).
+// effect_classes is the script classes an effect runs (lower case): its definition's scripts, or its
+// MGEF's scripts, then its archetype's class unless one of them claims the effect (defines __effect).
 effect_classes :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> []string {
 	out := make([dynamic]string, context.temp_allocator)
+	if d, ok := ws.effect_defs[effect]; ok { // a definition has no archetype
+		for s in d.scripts {append(&out, strings.to_lower(s.name, context.temp_allocator))}
+		return out[:]
+	}
 	claimed := false
 	for s in gamedb.form_scripts(db, effect) {
 		name := strings.to_lower(s.name, context.temp_allocator)
@@ -192,10 +200,12 @@ archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	return ""
 }
 
-// effect_terms_of is the __effect terms of an effect's classes, once they loaded. The terms share
+// effect_terms_of is an effect's definition's terms, or the __effect terms of its classes, once
+// they loaded. The terms share
 // their classes' formulas.
 @(private)
 effect_terms_of :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> []Effect_Term {
+	if d, ok := ws.effect_defs[e.effect]; ok {return d.terms[:]}
 	if terms, ok := ws.effect_terms[e.effect]; ok {return terms}
 	out := make([dynamic]Effect_Term)
 	for name in effect_classes(ws, db, e.effect) {
@@ -246,7 +256,18 @@ has_effect :: proc(ws: ^World_State, target, effect: Form_ID) -> bool {
 // the keyword.
 has_effect_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, target, keyword: Form_ID) -> bool {
 	for h in effects_on(ws, target) {
-		if e := ws.effects[h]; !e.finished && gamedb.has_keyword(db, e.effect, keyword) {return true}
+		if e := ws.effects[h]; !e.finished && effect_has_keyword(ws, db, e.effect, keyword) {return true}
+	}
+	return false
+}
+
+// effect_has_keyword: a defined effect has the keywords its tags name (kw.<editor id>), a record
+// its KWDA.
+effect_has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, effect, keyword: Form_ID) -> bool {
+	if _, ok := ws.effect_defs[effect]; !ok {return gamedb.has_keyword(db, effect, keyword)}
+	edid := gamedb.keyword_editor_id(db, keyword)
+	for t in ws.tags[effect] {
+		if strings.has_prefix(t, "kw.") && strings.equal_fold(t[3:], edid) {return true}
 	}
 	return false
 }

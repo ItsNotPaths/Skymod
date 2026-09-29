@@ -1568,3 +1568,61 @@ test_script_factions :: proc(t: ^testing.T) {
 	testing.expect(t, loaded, "load")
 	check(t, &f.ws, &f.db, red, blue)
 }
+
+MOMENT_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Moment", nil)
+C.__vars = { ["::label_var"] = { type = "String", default = nil } }
+C.__autoprop["label"] = "::label_var"
+C.__fn["oneffectstart"] = function(self) __moment = self.vars["::label_var"] end
+return C
+`
+
+BURN_LUA :: `local rt = require('skymod.rt')
+return rt.effect {
+  tags = { "magic.fire" },
+  d = "m",
+  taken = "target.Health * 0.5",
+  Health = { amount = "-taken * min(t, d) / d" },
+  when = "target.Health > 0 and GetDistance(target, caster) >= 0",
+  script = { "Moment", label = "hi" },
+}
+`
+
+// An rt.effect file defines an effect by name: a Lua form, its landing numbers (d from m, a tunable
+// taken as it lands), its AV formula, its moment script with properties, and a `when` that keeps
+// another from starting. A patch edits a definition.
+@(test)
+test_rt_effect :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_rt_effect", {{"moment.lua", MOMENT_LUA}})
+	defer fixture_destroy(&f)
+	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
+	os.make_directory_all(effects)
+	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.when = "target.Health > 1000" end`}}) {
+		p, _ := filepath.join({effects, file[0]}, context.temp_allocator)
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write effect")
+	}
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load_effects")
+
+	SPELL, TARGET, CASTER :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	BURN, GATED := formid.lua_form("Burn"), formid.lua_form("gated")
+	testing.expect(t, worldstate.has_tag(&f.ws, &f.db, BURN, "magic"), "tags")
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = BURN, magnitude = 4, duration = 99}, {effect = GATED, magnitude = 4, duration = 99}}}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[SPELL] = .Spell
+	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x701), ref(0x700))`), "Cast")
+	testing.expect_value(t, len(f.ws.effects), 1)
+	h := script.spell_effects(&f.ws, TARGET, SPELL)[0]
+	e := f.ws.effects[h]
+	testing.expect(t, e.effect == BURN && e.duration == 4 && e.tunables[0] == 50, "d = m, taken once as it lands")
+	for _ in 0 ..< 4 {
+		slua.tick_effects(&f.vm, &f.ws, 1)
+		slua.tick_end(&f.vm, 1)
+	}
+	testing.expect(t, slua.do_string(&f.vm, `assert(__moment == "hi", tostring(__moment))`), "the moment script got its property")
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 50)
+}
