@@ -8,7 +8,8 @@ local native, method, has_method, none_value = __native, __method, __has_method,
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local now, info = __now, __info
-local effect_class, effect_files, effect_def, av_part = __effect_class, __effect_files, __effect_def, __av_part
+local effect_class, content_files, effect_def, spell_def = __effect_class, __content_files, __effect_def, __spell_def
+local av_part, global_value = __av_part, __global
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -1202,10 +1203,13 @@ function rt.effect(def) return def end
 
 local lands = {} -- lower effect name -> its land (rt.load_effects)
 
+-- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
+rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
+
 -- rt.land(lname, caster, target, spell, effect, m, d) runs an effect's land: its context, or false
 -- when it does not start (worldstate.Land_Hook).
 function rt.land(lname, caster, target, spell, effect, m, d)
-  local e = { caster = caster, target = target, spell = spell, effect = effect, m = m, d = d }
+  local e = { caster = caster, target = target, spell = spell, effect = effect, m = m, d = d, global = rt.global }
   local fn = lands[lname]
   if fn and fn(e) == false then return false end
   return e
@@ -1214,10 +1218,10 @@ end
 function rt.on_land(name, fn) end
 function rt.on_cost(name, fn) end
 
--- rt.load_effects defines every effect the effects/ folders hold, for the engine.
-function rt.load_effects()
-  lands = {}
-  for _, f in ipairs(effect_files()) do
+-- load_defs runs every definition file in a content folder, lowest priority first per name: a full
+-- file replaces what is below it, a <name>.patch.lua returns a function that edits it.
+local function load_defs(folder, define)
+  for _, f in ipairs(content_files(folder)) do
     local def
     for _, layer in ipairs(f.layers) do
       local chunk, err = loadfile(layer.path)
@@ -1229,23 +1233,38 @@ function rt.load_effects()
         local edit = run(layer.path, chunk)
         if edit then run(layer.path, edit, def) end
       else
-        warn(layer.path .. ": patches effect '" .. f.name .. "', which nothing below it defines")
+        warn(layer.path .. ": patches '" .. f.name .. "', which nothing below it defines")
       end
     end
-    if type(def) == "table" then
-      lands[f.name] = def.land
-      effect_def(f.name, def)
-    end
+    if type(def) == "table" then define(f.name, def) end
   end
 end
 
--- (hole rt-spell :tags (magic script) :sev gap) no rt.spell: the charged and held castables, and enchantments (a spell tagged `enchantment`; item_charge on weapons and staves, applied while worn on apparel). Wanted: `use` (charged or held), `shape`, `cost`, `name`, tags for spell-level numbers (cost, tier), `applies = { { "EffectName", m = 8, d = "3s", hits = "direct" } }` naming effects by name, durations "3s" or "20tk" (stored as seconds); no entry conditions or scripts: a gate lives in the effect, and a spell that needs a different one uses its own copy (user, 2026-09-28). A form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
+-- rt.load_effects defines every effect the effects/ folders hold, then every spell the spells/
+-- folders hold (spells name effects), for the engine.
+function rt.load_effects()
+  lands = {}
+  load_defs("effects", function(name, def)
+    lands[name] = def.land
+    effect_def(name, def)
+  end)
+  load_defs("spells", spell_def)
+end
+
+-- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):
+--   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
+--   name = "Firebolt"                        -- what menus show
+--   use = "charged" | "held", shape = "missile", cost = 41
+--   tags = { "tier.apprentice", "enchantment" }  -- for spell-level numbers (cost, tier)
+--   applies = { { "FireDamage", m = 25, d = "3s", area = 15, hits = "direct" }, ... }
+-- A spell is data: it names every effect it applies, and effects hold the logic. d is "3s", "20tk"
+-- (ticks) or seconds. A <name>.patch.lua returns a function that edits the definition from below.
 function rt.spell(def) return def end
 
--- (hole rt-power :tags (magic script) :sev gap :needs (rt-spell)) no rt.power: lesser powers, powers and shouts, one kind (user, 2026-09-28): a cooldown time instead of a Magicka cost (a lesser power's is 0, a power's a day, a shout's its recovery), with the same shape and applies as rt.spell; a shout's words pick its variant. Activation is ours to design, not vanilla's.
+-- (hole rt-power :tags (magic script) :sev gap) no rt.power: lesser powers, powers and shouts, one kind (user, 2026-09-28): a cooldown time instead of a Magicka cost (a lesser power's is 0, a power's a day, a shout's its recovery), with the same shape and applies as rt.spell; a shout's words pick its variant. Activation is ours to design, not vanilla's.
 function rt.power(def) return def end
 
--- (hole rt-consumable :tags (magic script) :sev gap :needs (rt-spell)) no rt.consumable: a potion, food, poison, ingredient or scroll is an item whose use applies effects (`applies` with m and d, as rt.spell) or casts a spell (a scroll aims like its spell). The item's weight, value and model stay with its record.
+-- (hole rt-consumable :tags (magic script) :sev gap) no rt.consumable: a potion, food, poison, ingredient or scroll is an item whose use applies effects (`applies` with m and d, as rt.spell) or casts a spell (a scroll aims like its spell). The item's weight, value and model stay with its record.
 function rt.consumable(def) return def end
 
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is

@@ -307,6 +307,7 @@ effect_lines :: proc(g: ^Game, effects: []gamedb.Magic_Effect_Ref) {
 
 MAGIC_TABS := [?]cstring{"All", "Alteration", "Conjuration", "Destruction", "Illusion", "Restoration", "Powers"}
 
+// (hole spell-menus :tags (ui magic) :sev gap) the magic menu reads spell records only: a defined spell (rt.spell) gets no tab, row, name or cost. Wanted: worldstate.spell_view and the definition's display name, the tab from its first effect's school.* tag.
 @(private = "file")
 magic_tab :: proc(g: ^Game, spell: Form_ID) -> int {
 	sp, ok := gamedb.spell_of(&g.db, spell)

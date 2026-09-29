@@ -45,7 +45,9 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__formula", rt_formula},
 		{"__level_up_choice", rt_level_up_choice},
 		{"__effect_class", rt_effect_class},
-		{"__effect_files", rt_effect_files},
+		{"__content_files", rt_content_files},
+		{"__spell_def", rt_spell_def},
+		{"__global", rt_global},
 		{"__effect_def", rt_effect_def},
 		{"__av_part", rt_av_part},
 		{"__seed_spell", rt_seed_spell},
@@ -323,6 +325,59 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 	number(L, "d", &e.duration)
 	for t, i in def.tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
 	return true
+}
+
+// __global(name) reads the GLOB with that editor id: global.<Name>. 0 for none.
+@(private)
+rt_global :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	g, ok := gamedb.global_by_editor_id(vm.ctx.db, to_string(L, 1))
+	lua.pushnumber(L, lua.Number(worldstate.global_value(vm.ctx.ws, vm.ctx.db, g) if ok else 0))
+	return 1
+}
+
+// __spell_def(name, def) hands an rt.spell definition to the engine (worldstate.set_spell_def).
+@(private)
+rt_spell_def :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	src := worldstate.Spell_Def_Src{name = to_string(L, 1)}
+	str :: proc(L: ^lua.State, t: c.int, key: cstring) -> string {
+		lua.getfield(L, t, key)
+		defer lua.pop(L, 1)
+		return to_string(L, -1) if lua.type(L, -1) != .NIL else ""
+	}
+	num :: proc(L: ^lua.State, t: c.int, key: cstring) -> f32 {
+		lua.getfield(L, t, key)
+		defer lua.pop(L, 1)
+		return f32(lua.tonumber(L, -1))
+	}
+	src.form, src.display, src.use, src.shape = str(L, 2, "form"), str(L, 2, "name"), str(L, 2, "use"), str(L, 2, "shape")
+	src.cost = num(L, 2, "cost")
+	tags := make([dynamic]string, context.temp_allocator)
+	if lua.getfield(L, 2, "tags") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
+	}
+	lua.pop(L, 1)
+	entries := make([dynamic]worldstate.Spell_Entry_Src, context.temp_allocator)
+	if lua.getfield(L, 2, "applies") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {
+			t := lua.gettop(L)
+			lua.geti(L, t, 0)
+			e := worldstate.Spell_Entry_Src{effect = to_string(L, -1)}
+			lua.pop(L, 1)
+			e.m, e.area, e.d, e.hits = num(L, t, "m"), num(L, t, "area"), str(L, t, "d"), str(L, t, "hits")
+			append(&entries, e)
+			lua.pop(L, 1)
+		}
+	}
+	lua.pop(L, 1)
+	src.tags, src.entries = tags[:], entries[:]
+	worldstate.set_spell_def(vm.ctx.ws, vm.ctx.db, src)
+	return 0
 }
 
 // __av_part(ref, name, part) reads ref.av.<name>.<part> (worldstate.av_part).

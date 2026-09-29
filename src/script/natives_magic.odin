@@ -189,9 +189,9 @@ n_effect_caster :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c
 // start_spell starts a spell's effects. An ability or a constant effect lasts until removed; any
 // other lasts its authored duration.
 start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
-	sp, ok := gamedb.spell_of(c.db, spell)
+	v, ok := worldstate.spell_view(c.ws, c.db, spell)
 	if !ok {return}
-	start_effects(c, spell, sp.effects, sp.info.type == .Ability || sp.info.cast_type == .Constant_Effect, target, caster)
+	start_effects(c, spell, v.entries, v.passive, target, caster)
 }
 
 // (hole weapon-poison :tags (magic combat) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
@@ -219,7 +219,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 	hit := magic.Hit{source, caster, target, true}
 	if !hit_lands(c, hit) {return}
 	ctx := condition_context(c, target, caster)
-	_, is_spell := gamedb.spell_of(c.db, source)
+	_, is_spell := worldstate.spell_view(c.ws, c.db, source)
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)

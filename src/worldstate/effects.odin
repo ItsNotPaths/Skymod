@@ -314,7 +314,8 @@ set_effect_class :: proc(ws: ^World_State, db: ^gamedb.DB, class: string, srcs: 
 	forget_effect_terms(ws)
 	c := Effect_Class{terms = make([dynamic]Effect_Term), claims = claims, pure = pure}
 	for s in srcs {
-		f, err := formula.compile(s.src, EFFECT_VARS, binder = {db, effect_bind})
+		bind := Def_Bind{ws, db, nil}
+		f, err := formula.compile(s.src, EFFECT_VARS, binder = {&bind, effect_bind})
 		if err != "" {
 			log.warnf("script: %s.__effect %s.%v = %q: %s (variables %v)", class, s.av, s.knob, s.src, err, EFFECT_VARS)
 			continue

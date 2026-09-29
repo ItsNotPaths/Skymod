@@ -55,7 +55,7 @@ AV_VARS := AV_VARS_ARRAY[:]
 set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) -> (Form_ID, bool) {
 	form := formid.lua_form("effect", src.name)
 	if src.form != "" {
-		f, ok := form_by_name(db, src.form)
+		f, ok := form_by_name(ws, db, src.form)
 		if !ok {
 			log.warnf("rt.effect %s: no form %q", src.name, src.form)
 			return 0, false
@@ -69,7 +69,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 
 	d := Effect_Def{name = strings.clone(src.name), land = src.land}
 	for t in src.defaults {add_tunable(&d, t.name, t.default)}
-	bind := Def_Bind{db, &d}
+	bind := Def_Bind{ws, db, &d}
 	for s in src.terms {
 		f, err := formula.compile(s.src, AV_VARS, binder = {&bind, def_bind})
 		if err != "" {
@@ -80,6 +80,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	d.scripts = clone_scripts(src.scripts)
 	set_tags(ws, form, src.tags)
+	db.form_kinds[form] = .MagicEffect // `as MagicEffect` and its natives
 
 	if old, ok := &ws.effect_defs[form]; ok {
 		free_effect_def(old)
@@ -102,10 +103,7 @@ land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool
 
 // effect_by_name is the effect a name means: a defined one, else a record's by editor id.
 effect_by_name :: proc(ws: ^World_State, db: ^gamedb.DB, name: string) -> (Form_ID, bool) {
-	if f := formid.lua_form("effect", name); f in ws.effect_defs {return f, true}
-	for f, d in ws.effect_defs {
-		if strings.equal_fold(d.name, name) {return f, true} // one that claims a record's form
-	}
+	if f, ok := defined_by_name(ws.effect_defs, "effect", name); ok {return f, true}
 	return gamedb.form_by_editor_id(db, name)
 }
 
@@ -125,10 +123,11 @@ effect_scripts :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> []e
 	return gamedb.form_scripts(db, effect)
 }
 
-// Def_Bind is what a definition's formulas may read besides effect_bind's: its tunables, any bare
-// name.
+// Def_Bind is what binding an effect's formulas sees; a definition's may also read its tunables,
+// any bare name (def nil: an archetype class's may not).
 @(private)
 Def_Bind :: struct {
+	ws:  ^World_State,
 	db:  ^gamedb.DB,
 	def: ^Effect_Def,
 }
@@ -142,7 +141,7 @@ def_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 		r.bound = {u64(Read_Kind.Tunable), u64(i), 0, 0}
 		return ""
 	}
-	return effect_bind(b.db, r)
+	return effect_bind(b, r)
 }
 
 @(private)

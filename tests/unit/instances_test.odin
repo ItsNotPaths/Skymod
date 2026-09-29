@@ -7,6 +7,7 @@ package unit_tests
 // OnUpdate registrations fire on time.
 // Hermetic: a temp scripts dir, no game files.
 
+import "core:fmt"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
@@ -1639,4 +1640,52 @@ test_rt_effect :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `assert(__read.hp == 100 and __read.perk == true, tostring(__read.hp))`), ".av read, and a perk named by editor id")
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 62.5) // off from the tick after the switch: 3 s of 4
 	testing.expect(t, f.ws.effects[h].inactive, "its script switched it off")
+}
+
+// An rt.spell file names every effect it applies; Spell.Cast reaches it by its Lua form. Each effect
+// gates itself in its land (here by the hour, through e.global), and a duration may be in ticks.
+@(test)
+test_rt_spell :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_rt_spell", {})
+	defer fixture_destroy(&f)
+	NIGHT :: `land = function(e) return e.global.GameHour >= 20 end`
+	files := [][2]string {
+		{"effects/scorch.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } }, tags = { "school.destruction" }, ` + NIGHT + ` }`},
+		{"effects/dread.lua", `return require('skymod.rt').effect { av = { Confidence = { capacity = "-m" } }, ` + NIGHT + ` }`},
+		{"spells/nightfire.lua", `return require('skymod.rt').spell { name = "Nightfire", use = "charged", shape = "missile", cost = 10, applies = { { "Scorch", m = 5 }, { "Dread", m = 2, d = "20tk" }, { "Nothing", m = 1 } } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.global_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	f.db.global_by_edid["gamehour"] = formid.GAME_HOUR
+	f.ws.globals[formid.GAME_HOUR] = 22
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load") // warns: no effect "Nothing"
+
+	TARGET, CASTER :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	SPELL := formid.lua_form("spell", "Nightfire")
+	testing.expect_value(t, len(f.ws.spell_defs[SPELL].entries), 2)
+	testing.expect_value(t, f.db.form_kinds[SPELL], gamedb.Form_Kind.Spell)
+	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
+	cast_it := fmt.tprintf("rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x700))", SPELL)
+	testing.expect(t, slua.do_string(&f.vm, strings.concatenate({"rt = require('skymod.rt'); ", cast_it}, context.temp_allocator)), "Cast at night")
+	testing.expect_value(t, len(f.ws.effects), 2)
+	for h in worldstate.effects_on(&f.ws, TARGET) {
+		if e := f.ws.effects[h]; e.effect == formid.lua_form("effect", "Dread") {testing.expect(t, abs(e.duration - 20.0 / 60) < 1e-6, "20 ticks")}
+	}
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 95)
+
+	f.ws.globals[formid.GAME_HOUR] = 12
+	before := len(f.ws.effects)
+	testing.expect(t, slua.do_string(&f.vm, cast_it), "Cast by day")
+	testing.expect_value(t, len(f.ws.effects), before) // both effects gate themselves out
+	s, ok := script.spell_school(&f.ws, &f.db, SPELL)
+	testing.expect(t, ok && s == "Destruction", "a defined spell trains its first effect's school")
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x701), "AddSpell", "Nightfire"); assert(rt.call(ref(0x701), "HasSpell", "nightfire") == true)`), "a spell named by its name, like an editor id")
 }

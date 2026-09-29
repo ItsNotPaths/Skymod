@@ -10,6 +10,7 @@ package worldstate
 import "core:strconv"
 import "core:strings"
 import "../formats/esm"
+import "../formid"
 import "../formula"
 import "../gamedb"
 
@@ -43,7 +44,8 @@ AV_Part :: enum u64 {
 // subject, [1] 1 + the function's index, [2] and [3] its parameters.
 @(private)
 effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
-	db := cast(^gamedb.DB)data
+	b := cast(^Def_Bind)data
+	db := b.db
 	switch r.object {
 	case "": return "unknown variable" // a definition's tunables: def_bind
 	case "global":
@@ -78,7 +80,7 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 		case .Form, .Ref:
 			switch {
 			case quoted:
-				f, ok := form_by_name(db, arg)
+				f, ok := form_by_name(b.ws, db, arg)
 				if !ok {return "unknown form"}
 				r.bound[2 + i] = u64(f)
 			case kind == .Ref && (arg == "caster" || arg == "target"):
@@ -123,13 +125,26 @@ param_number :: proc(text: string) -> (v: u64, ok: bool) {
 	return 0, false
 }
 
-// form_by_name is the form a string names: "File.esm:012FCD", or an editor id.
-form_by_name :: proc(db: ^gamedb.DB, text: string) -> (f: Form_ID, ok: bool) {
+// form_by_name is the form a string names: "File.esm:012FCD", or an editor id, where a defined
+// spell's or effect's name counts as one.
+form_by_name :: proc(ws: ^World_State, db: ^gamedb.DB, text: string) -> (f: Form_ID, ok: bool) {
 	if file, colon, local := strings.partition(text, ":"); colon != "" {
 		v := strconv.parse_u64(local, 16) or_return
 		return gamedb.form_from_file(db, u32(v), file)
 	}
+	if f, ok = defined_by_name(ws.spell_defs, "spell", text); ok {return}
+	if f, ok = defined_by_name(ws.effect_defs, "effect", text); ok {return}
 	return gamedb.form_by_editor_id(db, text)
+}
+
+// defined_by_name finds a definition by its name: at its Lua form, or at the record form it claims.
+@(private)
+defined_by_name :: proc(defs: map[Form_ID]$T, kind, name: string) -> (Form_ID, bool) {
+	if f := formid.lua_form(kind, name); f in defs {return f, true}
+	for f, d in defs {
+		if strings.equal_fold(d.name, name) {return f, true}
+	}
+	return 0, false
 }
 
 // Effect_Read is what an effect formula's reads see.

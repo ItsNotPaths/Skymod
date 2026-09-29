@@ -407,7 +407,7 @@ arg_form :: proc(c: ^Call, args: []Value, i: int) -> Form_ID {
 	#partial switch v in args[i] {
 	case Form_ID: return v
 	case string: // a form named by editor id or "File.esm:012FCD" (ws.md Workstream M, Naming)
-		f, _ := worldstate.form_by_name(c.db, v)
+		f, _ := worldstate.form_by_name(c.ws, c.db, v)
 		return f
 	}
 	return 0

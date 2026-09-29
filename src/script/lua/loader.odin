@@ -17,17 +17,27 @@ Script_Layer :: struct {
 	patch: bool,
 }
 
-// set_script_dirs indexes the scripts under `dirs`, given lowest priority first, and the effects
-// under each one's effects/ folder (rt.effect files). Calling it again replaces the index; classes
-// rt already loaded stay loaded.
+// Content is a folder of definition files beside a mod's scripts, loaded whole at game start.
+Content :: enum u8 {
+	Effects, // effects/: rt.effect
+	Spells,  // spells/: rt.spell
+}
+
+CONTENT_DIRS := [Content]string{.Effects = "effects", .Spells = "spells"}
+
+// set_script_dirs indexes the scripts under `dirs`, given lowest priority first, and the definition
+// files in each one's content folders. Calling it again replaces the index; classes rt already
+// loaded stay loaded.
 set_script_dirs :: proc(vm: ^VM, dirs: []string) {
 	free_script_index(vm)
 	vm.scripts = make(map[string][dynamic]Script_Layer)
-	vm.effect_files = make(map[string][dynamic]Script_Layer)
+	for &index in vm.content {index = make(map[string][dynamic]Script_Layer)}
 	for dir in dirs {
 		index_layers(&vm.scripts, dir)
-		effects, _ := filepath.join({dir, "effects"}, context.temp_allocator)
-		index_layers(&vm.effect_files, effects)
+		for sub, kind in CONTENT_DIRS {
+			d, _ := filepath.join({dir, sub}, context.temp_allocator)
+			index_layers(&vm.content[kind], d)
+		}
 	}
 }
 
@@ -58,7 +68,7 @@ index_layers :: proc(index: ^map[string][dynamic]Script_Layer, dir: string) {
 
 @(private)
 free_script_index :: proc(vm: ^VM) {
-	for index in ([]^map[string][dynamic]Script_Layer{&vm.scripts, &vm.effect_files}) {
+	for index in ([]^map[string][dynamic]Script_Layer{&vm.scripts, &vm.content[.Effects], &vm.content[.Spells]}) {
 		for name, layers in index {
 			for l in layers {delete(l.path)}
 			delete(layers)
@@ -78,20 +88,26 @@ rt_script_layers :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// __effect_files() -> { [0] = { name = ..., layers = {...} }, ... }: every effect file, in name order.
+// __content_files(folder) -> { [0] = { name = ..., layers = {...} }, ... }: every definition file
+// in that content folder ("effects", "spells"), in name order.
 @(private)
-rt_effect_files :: proc "c" (L: ^lua.State) -> c.int {
+rt_content_files :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
-	names := make([dynamic]string, 0, len(vm.effect_files), context.temp_allocator)
-	for name in vm.effect_files {append(&names, name)}
+	kind: Content
+	for sub, k in CONTENT_DIRS {
+		if sub == to_string(L, 1) {kind = k}
+	}
+	files := vm.content[kind]
+	names := make([dynamic]string, 0, len(files), context.temp_allocator)
+	for name in files {append(&names, name)}
 	slice.sort(names[:])
 	lua.createtable(L, c.int(len(names)), 0)
 	for name, i in names {
 		lua.createtable(L, 0, 2)
 		lua.pushstring(L, strings.clone_to_cstring(name, context.temp_allocator))
 		lua.setfield(L, -2, "name")
-		push_layers(L, vm.effect_files[name][:])
+		push_layers(L, files[name][:])
 		lua.setfield(L, -2, "layers")
 		lua.rawseti(L, -2, lua.Integer(i))
 	}

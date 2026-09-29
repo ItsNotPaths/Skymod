@@ -20,7 +20,7 @@ import "../gamedb"
 stack_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> bool {
 	mgef, _ := gamedb.magic_effect_of(db, e.effect)
 	timed := !e.lasts && e.duration > 0
-	_, from_spell := gamedb.spell_of(db, e.spell)
+	_, from_spell := spell_view(ws, db, e.spell)
 	_, from_potion := gamedb.potion_of(db, e.spell)
 	for h in effects_on(ws, e.target) {
 		old := ws.effects[h]
