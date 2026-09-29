@@ -518,7 +518,21 @@ perk_has :: proc(ws: ^World_State, db: ^gamedb.DB, actor, perk: Form_ID) -> bool
 	return slice.contains(gamedb.record_perks(db, record_of(ws, actor), actor_pick(ws, db, actor)), perk)
 }
 
-// (hole perk-avs :tags (magic player) :sev gap) a perk is only a list entry: formulas and scales cannot read it. Wanted: each perk an AV holding its rank (Perk.IntenseFlames = 1), so HasPerk is an AV read and a perk's magic entries become scales on AVs it writes.
+// perk_rank is how many ranks of `perk`'s chain `actor` holds, from `perk` on (a formula's
+// caster.Armsman00 reads 0 to 5).
+perk_rank :: proc(ws: ^World_State, db: ^gamedb.DB, actor, perk: Form_ID) -> int {
+	n := 0
+	cur := perk
+	for _ in 0 ..< 64 { // a plugin may link a chain into a cycle
+		p, ok := gamedb.perk_of(db, cur)
+		if !ok {break}
+		if perk_has(ws, db, actor, cur) {n += 1}
+		if p.next_rank == 0 || p.next_rank == cur {break}
+		cur = p.next_rank
+	}
+	return n
+}
+
 // perk_list is every perk `actor` has: its records' then the ones it was given.
 perk_list :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> []Form_ID {
 	delta, _ := ws.perks[actor]

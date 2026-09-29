@@ -1,6 +1,7 @@
 package worldstate
 
-// What an effect formula may read (formula.Read): caster.X and target.X (an actor value, or Level),
+// What an effect formula may read (formula.Read): caster.X and target.X (an engine actor value, a
+// perk's rank by its editor id, Level, or a mod's actor value),
 // global.X (a GLOB by editor id), and condition functions by name, `HasPerk(caster, X)`. A call's
 // first argument may name its subject (caster or target; target when left out); its form arguments
 // are editor ids or "File.esm:012FCD", and a trailing one left out is 0.
@@ -15,7 +16,7 @@ import "../gamedb"
 // since it sits above worldstate. Nil reads 0.
 condition_call: proc(ws: ^World_State, db: ^gamedb.DB, c: gamedb.Condition, subject, target: Form_ID) -> f32
 
-// Read_Kind is a bound read's bound[0].
+// Read_Kind is a bound read's bound[0]. A perk read's bound[2] is the perk.
 @(private)
 Read_Kind :: enum u64 {
 	Target, // target.X, or a call run on the target
@@ -29,8 +30,12 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	db := cast(^gamedb.DB)data
 	if r.object != "" {
 		switch r.object {
-		case "caster": r.bound[0] = u64(Read_Kind.Caster)
-		case "target": r.bound[0] = u64(Read_Kind.Target)
+		case "caster", "target":
+			r.bound[0] = u64(Read_Kind.Caster if r.object == "caster" else Read_Kind.Target)
+			if _, engine := gamedb.actor_value_name(r.name); engine {break}
+			if f, ok := gamedb.form_by_editor_id(db, r.name); ok {
+				if _, perk := gamedb.perk_of(db, f); perk {r.bound[2] = u64(f)}
+			}
 		case "global":
 			g, ok := gamedb.global_by_editor_id(db, r.name)
 			if !ok {return "unknown global"}
@@ -115,6 +120,7 @@ effect_read :: proc(data: rawptr, r: formula.Read) -> f64 {
 		c := gamedb.Condition{function = u16(r.bound[1] - 1), param1 = r.bound[2], param2 = r.bound[3], param3 = -1}
 		return f64(condition_call(x.ws, x.db, c, subject, other))
 	}
+	if r.bound[2] != 0 {return f64(perk_rank(x.ws, x.db, subject, Form_ID(r.bound[2])))}
 	if r.name == "Level" {return f64(actor_level(x.ws, x.db, subject))}
 	av, ok := av_name(x.ws, r.name) // a mod's AV may not exist in this game: 0
 	return f64(av_current(x.ws, x.db, subject, av)) if ok else 0
