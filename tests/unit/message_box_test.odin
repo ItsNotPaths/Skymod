@@ -5,6 +5,7 @@ package unit_tests
 
 import "core:testing"
 import lua "../../vendor/lua"
+import "../../src/gamedb"
 import "../../src/ui"
 import ws "../../src/worldstate"
 
@@ -83,8 +84,16 @@ test_message_asks :: proc(t: ^testing.T) {
 
 	ws.take_ask(&s, 1)
 	testing.expect_value(t, ws.answer(&s, MSG_A), 1)
-	testing.expect_value(t, s.asks[0], MSG_B)
+	testing.expect_value(t, s.asks[0].message, MSG_B)
 
 	ws.ask(&s, MSG_A)
 	testing.expect_value(t, ws.answer(&s, MSG_A), -1)
+}
+
+// A box's text takes Show's arguments in order: %.0f rounds, %d truncates, %% is a percent sign.
+@(test)
+test_format_message :: proc(t: ^testing.T) {
+	text := gamedb.format_message("Serve your time? (%.0f days) %d%% %.2f", {0 = 2.6, 1 = 50.9, 2 = 0.126})
+	testing.expect_value(t, text, "Serve your time? (3 days) 50% 0.13")
+	testing.expect_value(t, gamedb.format_message("No tokens.", {}), "No tokens.")
 }
