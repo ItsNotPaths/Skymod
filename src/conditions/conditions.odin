@@ -90,6 +90,18 @@ test :: proc(ctx: ^Context, c: gamedb.Condition) -> bool {
 	return esm.condition_holds(esm.Condition{op = c.op, value = value}, got)
 }
 
+// formula_call answers a condition function that an effect formula calls (worldstate.condition_call).
+formula_call :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, c: gamedb.Condition, subject, target: Form_ID) -> f32 {
+	ctx := Context{db = db, ws = ws, subject = worldstate.resolve(ws, subject), target = worldstate.resolve(ws, target)}
+	v, _ := ask(&ctx, c, ctx.subject)
+	return v
+}
+
+@(init, private)
+link_formula_calls :: proc "contextless" () {
+	worldstate.condition_call = formula_call
+}
+
 // run_on_form resolves which object the condition asks about; ok=false when the context cannot say
 // (no owning quest, no event), and the condition passes. An empty alias is a real answer: 0.
 @(private)

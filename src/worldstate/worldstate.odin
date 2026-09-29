@@ -182,6 +182,8 @@ Runtime :: struct {
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)
+	summing:         [dynamic]AV_Sum,          // the actor values av_live is summing, innermost last
+	loop_warned:     map[string]bool,          // actor values whose read loop was warned about (av_live)
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
 	// exterior kept behind an interior does not count), each with its scripted refs. The tick's
 	// transition step keeps it; Is3DLoaded reads it.
@@ -278,6 +280,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.effect_classes)
 	forget_effect_terms(ws)
 	delete(ws.effect_terms)
+	delete(ws.summing)
+	delete(ws.loop_warned)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}

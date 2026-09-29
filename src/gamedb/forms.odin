@@ -40,6 +40,7 @@ index_keyword :: proc(db: ^DB, rec: esm.Record) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
@@ -158,6 +159,7 @@ index_faction :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
@@ -333,6 +335,7 @@ index_spell :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map, scroll: bool) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
@@ -414,6 +417,7 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
@@ -683,6 +687,7 @@ index_location :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 

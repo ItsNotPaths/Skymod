@@ -1,6 +1,7 @@
 package worldstate
 
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "../formats/esm"
 import "../formid"
@@ -67,8 +68,8 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) ->
 			if term.knob != .Amount || e.inactive {continue}
 			av, ok := term_av(ws, db, e^, term)
 			if !ok {continue}
-			gain := term_value(db, term, e^, e.elapsed)
-			if e.applied {gain -= term_value(db, term, e^, t0)}
+			gain := term_value(ws, db, term, e^, e.elapsed)
+			if e.applied {gain -= term_value(ws, db, term, e^, t0)}
 			av_gain(ws, db, e.caster if term.on_caster else e.target, av, f32(gain))
 			hurt ||= !term.on_caster && av == "Health" && gain < 0
 		}
@@ -78,27 +79,53 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) ->
 	return
 }
 
-// av_live is what the running effects on `actor` hold on `av`'s capacity now.
-// (hole av-recursion-cap :tags magic :sev gap :needs (formula-reads)) once formulas read AVs, a capacity term that reads an AV it feeds (Fortify Health by 10% of Health, or two mods reading each other) recurses without end. Wanted: a stack of the AVs being summed and a setting (iEffectRecursionDepth, default 1); a read past it returns the AV without the terms still being summed, and warns once naming the effects.
+// av_live is what the running effects on `actor` hold on `av`'s capacity now. A term may read the
+// AV it feeds (Fortify Health by 10% of Health); past iEffectRecursionDepth such a read gets the AV
+// without the terms still being summed.
 av_live :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	key := AV_Sum{actor, av}
+	if slice.count(ws.summing[:], key) >= int(gamedb.setting_int(db, "iEffectRecursionDepth", 1)) {
+		if !ws.loop_warned[av] {
+			ws.loop_warned[av] = true
+			log.warnf("effect formula: %s reads itself through the effects %X; the read stops at iEffectRecursionDepth", av, effect_forms(ws, actor))
+		}
+		return 0
+	}
+	append(&ws.summing, key)
+	defer pop(&ws.summing)
 	sum: f64
 	for h in effects_on(ws, actor) {
 		e := ws.effects[h]
 		if e.ended || e.inactive {continue}
 		for term in effect_terms_of(ws, db, e) {
 			name, ok := term_av(ws, db, e, term)
-			if term.knob == .Capacity && !term.on_caster && ok && name == av {sum += term_value(db, term, e, e.elapsed)}
+			if term.knob == .Capacity && !term.on_caster && ok && name == av {sum += term_value(ws, db, term, e, e.elapsed)}
 		}
 	}
 	return f32(sum)
 }
 
+// AV_Sum is an actor value av_live is summing.
+AV_Sum :: struct {
+	actor: Form_ID,
+	av:    string,
+}
+
+// effect_forms lists the MGEFs running on `actor`, for a warning.
+@(private)
+effect_forms :: proc(ws: ^World_State, actor: Form_ID) -> []Form_ID {
+	out := make([dynamic]Form_ID, context.temp_allocator)
+	for h in effects_on(ws, actor) {append(&out, ws.effects[h].effect)}
+	return out[:]
+}
+
 // term_value is a term's formula at `t` seconds in (EFFECT_VARS); a timed effect's t stops at its end.
 @(private)
-term_value :: proc(db: ^gamedb.DB, term: Effect_Term, e: Active_Effect, t: f32) -> f64 {
+term_value :: proc(ws: ^World_State, db: ^gamedb.DB, term: Effect_Term, e: Active_Effect, t: f32) -> f64 {
 	t := t if e.lasts else min(t, e.duration + e.taper)
 	vars := term_vars(db, e, t)
-	return formula.eval(term.f, vars[:])
+	reads := Effect_Read{ws, db, e.caster, e.target}
+	return formula.eval(term.f, vars[:], {&reads, effect_read})
 }
 
 // effect_motion is .Moving when any amount term can change with t, given the effect's magnitude,
@@ -262,11 +289,11 @@ Effect_Src :: struct {
 
 // set_effect_class compiles a class's __effect table when the class loads. A bad formula warns and
 // drops only its term.
-set_effect_class :: proc(ws: ^World_State, class: string, srcs: []Effect_Src, claims, pure: bool) {
+set_effect_class :: proc(ws: ^World_State, db: ^gamedb.DB, class: string, srcs: []Effect_Src, claims, pure: bool) {
 	forget_effect_terms(ws)
 	c := Effect_Class{terms = make([dynamic]Effect_Term), claims = claims, pure = pure}
 	for s in srcs {
-		f, err := formula.compile(s.src, EFFECT_VARS)
+		f, err := formula.compile(s.src, EFFECT_VARS, binder = {db, effect_bind})
 		if err != "" {
 			log.warnf("script: %s.__effect %s.%v = %q: %s (variables %v)", class, s.av, s.knob, s.src, err, EFFECT_VARS)
 			continue

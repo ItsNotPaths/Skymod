@@ -246,7 +246,7 @@ rt_effect_class :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pushvalue(L, 2)
 	read_effect_table(L, class, &srcs, false)
 	lua.pop(L, 1)
-	worldstate.set_effect_class(vm.ctx.ws, class, srcs[:], bool(lua.toboolean(L, 3)), bool(lua.toboolean(L, 4)))
+	worldstate.set_effect_class(vm.ctx.ws, vm.ctx.db, class, srcs[:], bool(lua.toboolean(L, 3)), bool(lua.toboolean(L, 4)))
 	return 0
 }
 

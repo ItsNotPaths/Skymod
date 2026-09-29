@@ -243,7 +243,7 @@ DB :: struct {
 	books:         map[Form_ID]Book, // BOOK base formID -> what reading it teaches (absent = teaches nothing)
 	produce:       map[Form_ID]Form_ID, // FLOR / TREE base formID -> its PFIG harvest (an item or a leveled list)
 	cells:         map[Form_ID]Cell, // cell formID -> identity
-	form_by_edid:  map[string]Form_ID, // lowercased editor id -> quest, NPC_ or placed ref (key owned): the console's names
+	form_by_edid:  map[string]Form_ID, // lowercased editor id -> form (key owned): the console's and formulas' names
 	cell_by_edid:  map[string]Form_ID, // lowercased editor id -> cell formID (key owned)
 	cell_refs:     map[Form_ID][dynamic]Ref, // cell formID -> static placements (REFR)
 	actor_refs:    map[Form_ID][dynamic]Ref, // cell formID -> actor placements (ACHR; base = an NPC_)
@@ -1679,7 +1679,7 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	return true
 }
 
-// index_edid names a quest, an NPC_, a package or a placed ref for the console.
+// index_edid names a form for the console and for formulas.
 @(private)
 index_edid :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
 	edid := esm.editor_id(fl)
@@ -1689,10 +1689,15 @@ index_edid :: proc(db: ^DB, form: Form_ID, fl: []esm.Field) {
 	db.form_by_edid[key] = form
 }
 
+// form_by_editor_id is the form an editor id names, case-insensitive.
+form_by_editor_id :: proc(db: ^DB, edid: string) -> (Form_ID, bool) {
+	return db.form_by_edid[strings.to_lower(edid, context.temp_allocator)]
+}
+
 // find_form is the form an editor id names, case-insensitive. An NPC_ base names its placed actor
 // with the lowest form id, so the console can use the base's name, not the ref id.
 find_form :: proc(db: ^DB, edid: string) -> (Form_ID, bool) {
-	form, ok := db.form_by_edid[strings.to_lower(edid, context.temp_allocator)]
+	form, ok := form_by_editor_id(db, edid)
 	if !ok || !is_actor(db, form) {return form, ok}
 	placed := max(Form_ID)
 	for _, refs in db.actor_refs {
@@ -2365,6 +2370,7 @@ index_form_list :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
@@ -2863,6 +2869,7 @@ index_base :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if !ok {
 		return
 	}
+	index_edid(db, rec.form_id, fl)
 	defer delete(fl)
 	defer if backing != nil {delete(backing)}
 
