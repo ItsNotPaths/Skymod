@@ -12,6 +12,7 @@ import "../plugin"
 import "../render"
 import "../vfs"
 import "../world"
+import "../worldstate"
 
 @(private = "file")
 Host_Data :: struct {
@@ -27,6 +28,11 @@ draw_graphics :: proc(g: ^Game) {
 	cells := make([dynamic]graphics.Cell, 0, context.temp_allocator)
 	for _, &c in drawn_scene(g).chunks {
 		append(&cells, graphics.Cell{c.cell_form_id, c.gx, c.gy, !c.has_grid})
+	}
+	visuals := make([]graphics.Visual, len(g.snap.visuals), context.temp_allocator)
+	for v, i in g.snap.visuals {
+		visuals[i] = v.visual
+		visuals[i].node = cstring_temp(text(&g.snap, v.node))
 	}
 	f := graphics.Frame {
 		host = {&d, host_refs, host_model_path, host_read_file},
@@ -44,8 +50,46 @@ draw_graphics :: proc(g: ^Game) {
 		player = graphics_actor(g, g.snap.body),
 		actors = plugin.span(actors[:]),
 		cells = plugin.span(cells[:]),
+		visuals = plugin.span(visuals[:]),
 	}
 	g.graphics.draw(&f)
+}
+
+// Visual_View is a visual in the snapshot; its node name is in the snapshot's text.
+Visual_View :: struct {
+	visual: graphics.Visual, // node is nil
+	node:   Text_Span,
+}
+
+@(private = "file", rodata)
+visual_kinds := [worldstate.Visual_Kind]graphics.Visual_Kind {
+	.Shader = .Shader,
+	.Art    = .Art,
+	.Impact = .Impact,
+	.Imod   = .Imod,
+}
+
+// view_visuals copies the sim's visuals into the snapshot.
+view_visuals :: proc(g: ^Game, s: ^Snapshot) {
+	clear(&s.visuals)
+	now := g.sim.ws.clock.played
+	for h, v in g.sim.ws.visuals {
+		append(&s.visuals, Visual_View{
+			visual = {
+				handle = h,
+				kind = visual_kinds[v.kind],
+				form = v.form,
+				ref = v.ref,
+				facing = v.facing,
+				strength = v.strength,
+				cross = v.cross,
+				fade = v.fade,
+				age = f32(now - v.start),
+				left = f32(v.until - now) if v.until > 0 else 0,
+			},
+			node = add_text(s, v.node),
+		})
+	}
 }
 
 // drawn_scene is the scene the camera is in: the interior entered, else the exterior.

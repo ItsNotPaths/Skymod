@@ -4,7 +4,7 @@ package script
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
 // (hole brew-enchant-perks :tags (magic player) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
-// (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
+// (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles effect-visuals)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
 // (hole effect-sounds :tags (magic audio unclaimed) :sev gap :needs (cast-animation concentration)) an effect's charge, ready, cast-loop and draw/sheathe sounds do not play: casting is instant. Release and on-hit play (casting.odin).
 
 import "core:slice"

@@ -207,6 +207,7 @@ Snapshot :: struct {
 	act:    Act_View, // what the crosshair is on
 	subtitles: [dynamic]Text_Span, // the lines being said now
 	talk:   Talk_View, // the player's conversation
+	visuals: [dynamic]Visual_View, // the effects scripts and magic started (graphics_host.odin)
 	text:   [dynamic]u8, // the strings the views name, copied: the sim may free its own
 }
 
@@ -214,6 +215,7 @@ snapshot_destroy :: proc(s: ^Snapshot) {
 	world.poses_destroy(&s.bodies)
 	delete(s.actors)
 	delete(s.subtitles)
+	delete(s.visuals)
 	delete(s.talk.choices)
 	delete(s.text)
 }
@@ -265,6 +267,7 @@ publish_snapshot :: proc(g: ^Game) {
 	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
 	view_subtitles(g, s)
 	view_talk(g, s)
+	view_visuals(g, s)
 	handoff.publish(&g.snaps, s)
 }
 

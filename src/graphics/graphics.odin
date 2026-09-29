@@ -9,7 +9,7 @@ import "../plugin"
 Form_ID :: plugin.Form_ID
 
 SEAM :: "skymod_graphics"
-VERSION :: u32(1)
+VERSION :: u32(2)
 
 Camera :: struct {
 	pos:        [3]f32,
@@ -41,6 +41,30 @@ Cell :: struct {
 	interior: bool,
 }
 
+Visual_Kind :: enum u8 {
+	Shader, // EFSH on `ref`
+	Art,    // ARTO on `ref`, facing `facing`
+	Impact, // IPDS at `ref`'s `node`
+	Imod,   // IMAD on the screen
+}
+
+// Visual is one effect a script or magic started. Placed emitters are not visuals: they come with
+// their refs. Draw it while its handle is in the frame; a new handle is a new start, and a visual on
+// a ref that is not drawn is not drawn.
+Visual :: struct {
+	handle:   u32,
+	kind:     Visual_Kind,
+	form:     Form_ID, // the EFSH, ARTO, IPDS or IMAD record
+	ref:      Form_ID, // the ref or actor it plays on; 0 = the screen
+	facing:   Form_ID, // Art: the ref it faces (a beam's target)
+	node:     cstring, // Impact: the node it plays at; "" = the root
+	strength: f32,     // Imod
+	cross:    bool,    // Imod: the cross-fade modifier; at most one is not fading out
+	fade:     f32,     // Imod: seconds it ramps in after it starts and out before it ends
+	age:      f32,     // seconds since it started
+	left:     f32,     // seconds until it ends; 0 = until it is gone from the frame
+}
+
 // Host is what main answers; each proc gets `data` back.
 Host :: struct {
 	data:       rawptr,
@@ -65,6 +89,7 @@ Frame :: struct {
 	player:        Actor,
 	actors:        plugin.Span(Actor), // all but the player
 	cells:         plugin.Span(Cell),
+	visuals:       plugin.Span(Visual),
 }
 
 Table :: struct {

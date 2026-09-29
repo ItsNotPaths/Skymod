@@ -484,6 +484,7 @@ advance_clocks :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt:
 	}
 	before := ws.clock.hours
 	hours := worldstate.advance_clock(ws, dt, g(ws, db, formid.TIMESCALE))
+	worldstate.expire_visuals(ws)
 	if math.floor(before) != math.floor(ws.clock.hours) {script.restock_vendors(db, ws)}
 	return hours
 }

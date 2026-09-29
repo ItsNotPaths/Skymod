@@ -82,6 +82,7 @@ Overlay :: struct {
 	zones:           map[Form_ID]Zone,             // zone ref -> a volume made at runtime (zones.odin)
 	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
 	next_effect:     u32,                          // the last effect handle's counter
+	visuals:         map[u32]Visual,               // visual handle -> an effect the graphics seam draws (visuals.odin)
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	clock:           Game_Clock,               // game time (clock.odin)
 	weather:         Weather_State,            // the weather in force (weather.odin)
@@ -137,6 +138,7 @@ Overlay :: struct {
 
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
 Runtime :: struct {
+	next_visual:     u32, // the last visual handle; a load does not reset it, so a handle is never reused
 	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
 	// one fixed frame point and re-applies each to the resident scene. The world's own *_ref verbs
@@ -468,6 +470,8 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.cleared)
 	delete(o.books_read)
 	free_deltas(&o.words)
+	for _, v in o.visuals {delete(v.node)}
+	delete(o.visuals)
 	delete(o.vampires)
 	delete(o.werewolves)
 	delete(o.restocks)
