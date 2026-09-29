@@ -16,6 +16,7 @@ import "../worldstate"
 
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
+// (hole cast-facing :tags (magic ai unclaimed) :sev gap :needs (actor-states)) a cast lands whichever way the caster faces: nothing holds a cast until the caster turns to its target within an angle, so an NPC casts sideways or behind it. A cast state's rule, not a visual one.
 // (hole item-charge :tags (magic combat unclaimed) :sev gap :needs (spell-use)) a staff cannot cast (a WEAP, so spell_of misses), and no enchanted item has charge: ENCH charge_amount is unused, nothing drains it on use and RightItemCharge/LeftItemCharge read nothing.
 cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID) -> bool {
 	held := worldstate.in_slot(c.ws, c.db, caster, hand)
