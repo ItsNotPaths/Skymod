@@ -41,7 +41,7 @@ test_formula :: proc(t: ^testing.T) {
 	lockpick, _ := run("mult * level ^ curve + offset", {"level", "mult", "offset", "curve"}, {15, 0.25, 300, 1.95})
 	testing.expect(t, math.abs(lockpick - 349.1267420446517) < 1e-6, "UESP's Lockpicking 15 -> 16")
 
-	for bad in ([]string{"x + 1", "1 +", "(1", "pow(1, 2)", "1 # 2", "min(1)", "a.b", "f(1)", "1 = 2", "\"x\""}) {
+	for bad in ([]string{"x + 1", "1 +", "(1", "pow(1, 2)", "1 # 2", "min(1)", "a.b", "f(1)", "radius", "1 = 2", "\"x\""}) {
 		_, err := run(bad, vars, {0, 0, 0})
 		testing.expectf(t, err != "", "%q should not compile", bad)
 	}
@@ -69,7 +69,7 @@ test_formula_varies :: proc(t: ^testing.T) {
 	}
 }
 
-// A dotted name or an outside call is a read: the binder sees it once, the reader on each eval.
+// A bare name that is not a variable, a dotted name or an outside call is a read: the binder sees it once, the reader on each eval.
 @(test)
 test_formula_reads :: proc(t: ^testing.T) {
 	bind :: proc(data: rawptr, r: ^formula.Read) -> string {
@@ -79,12 +79,13 @@ test_formula_reads :: proc(t: ^testing.T) {
 	}
 	read :: proc(data: rawptr, r: formula.Read) -> f64 {
 		if r.object == "caster" && r.name == "SuperFear" {return 1}
+		if r.object == "" && !r.call && r.name == "radius" {return 1000}
 		if r.name == "HasPerk" && r.args[0] == "caster" && r.args[1] == "Skyrim.esm:0153CF" {return f64(r.bound[0])}
 		return 0
 	}
-	f, err := formula.compile(`320 + (caster.SuperFear >= 1) * 880 + HasPerk(caster, "Skyrim.esm:0153CF")`, {"m"}, context.temp_allocator, {bind = bind})
+	f, err := formula.compile(`320 + (caster.SuperFear >= 1) * 880 + HasPerk(caster, "Skyrim.esm:0153CF") + radius`, {"m"}, context.temp_allocator, {bind = bind})
 	testing.expect_value(t, err, "")
-	testing.expect_value(t, formula.eval(f, {0}, {read = read}), 1202)
+	testing.expect_value(t, formula.eval(f, {0}, {read = read}), 2202)
 	testing.expect_value(t, formula.eval(f, {0}), 320) // no reader: a read is 0
 	testing.expect(t, formula.varies(f, 0, {0}), "a read may change")
 

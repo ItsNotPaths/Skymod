@@ -28,6 +28,7 @@ Read_Kind :: enum u64 {
 @(private)
 effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	db := cast(^gamedb.DB)data
+	if r.object == "" && !r.call {return "unknown variable"} // an effect's tunables come with rt-effect
 	if r.object != "" {
 		switch r.object {
 		case "caster", "target":

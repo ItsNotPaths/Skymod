@@ -4,8 +4,9 @@ package formula
 // (progression math, zone levels, effects). Numbers, the formula's variables, + - * / ^ (^ binds
 // right and above unary -), comparisons < <= > >= == != and `and`, `or` (1 or 0), parentheses, and
 // min, max, clamp, floor, ceil, round, abs, sqrt, and select(x, a, b): a when x > 0, else b.
-// With a Binder, a dotted name (caster.Health) or a call to an unknown function (HasPerk(caster,
-// X)) is a Read: the binder checks it once, and the Reader answers it on each eval.
+// With a Binder, a name that is not a variable (radius), a dotted name (caster.Health) or a call to
+// an unknown function (HasPerk(caster, X)) is a Read: the binder checks it once, and the Reader
+// answers it on each eval.
 
 import "core:math"
 import "core:strconv"
@@ -25,8 +26,9 @@ Instr :: struct {
 
 // Read is a value the formula asks its caller for.
 Read :: struct {
-	object: string, // before the dot: `caster` in caster.Health; "" for a call
+	object: string, // before the dot: `caster` in caster.Health; "" for a bare name or a call
 	name:   string,
+	call:   bool,
 	args:   []string, // a call's arguments as written; a quoted one without its quotes
 	bound:  [4]u64, // the binder's own data
 }
@@ -89,7 +91,7 @@ compile :: proc(src: string, vars: []string, allocator := context.allocator, bin
 	copy(f.code, p.code[:])
 	f.reads = make([]Read, len(p.reads), allocator)
 	for r, i in p.reads {
-		f.reads[i] = {object = strings.clone(r.object, allocator), name = strings.clone(r.name, allocator), args = make([]string, len(r.args), allocator), bound = r.bound}
+		f.reads[i] = {object = strings.clone(r.object, allocator), name = strings.clone(r.name, allocator), call = r.call, args = make([]string, len(r.args), allocator), bound = r.bound}
 		for a, j in r.args {f.reads[i].args[j] = strings.clone(a, allocator)}
 	}
 	return f, ""
@@ -361,10 +363,10 @@ primary :: proc(p: ^Parser) {
 		for v, i in p.vars {
 			if v == t.text {append(&p.code, Instr{op = .Var, index = i}); return}
 		}
-		dot := strings.index_byte(t.text, '.')
-		// (hole formula-tunables :tags magic :sev gap) a bare name that is not a variable fails; an effect wants it as a tunable named after the behaviour (`radius`), fixed unless a scale names it.
-		if dot < 0 || p.binder.bind == nil {p.err = "unknown variable"; return}
-		read(p, Read{object = t.text[:dot], name = t.text[dot + 1:]})
+		if p.binder.bind == nil {p.err = "unknown variable"; return}
+		object, _, name := strings.partition(t.text, ".")
+		if name == "" {object, name = "", object}
+		read(p, Read{object = object, name = name})
 	case .String:
 		p.err = "a quoted name goes only in a call"
 	case .Op:
@@ -417,7 +419,7 @@ outside_call :: proc(p: ^Parser, name: string) {
 		next(p)
 	}
 	expect(p, ")")
-	read(p, Read{name = name, args = args[:]})
+	read(p, Read{name = name, call = true, args = args[:]})
 }
 
 @(private)
