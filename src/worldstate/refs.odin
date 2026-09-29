@@ -28,7 +28,7 @@ Ref_Field :: enum u8 {
 	Alpha,     // SetAlpha: how opaque an actor draws
 }
 
-// (hole combat-damage :tags combat :sev blocker) no hit command on the combat seam: the stand-in fights but no swing lands; only DamageActorValue kills at 0 Health, and essential actors never bleed out. Wanted: a Host command a brain calls to land a hit, with a built-in that applies the weapon's damage.
+// (hole combat-damage :tags combat :sev blocker) no hit command on the combat seam: the stand-in fights but no swing lands; only DamageActorValue kills at 0 Health, and essential actors never bleed out. Wanted: a Host command a brain calls to land a hit, with a built-in that applies the weapon's damage and makes a noise (worldstate.make_noise).
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as

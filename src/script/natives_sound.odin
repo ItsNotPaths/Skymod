@@ -1,7 +1,7 @@
 package script
 
 // Sound (a SOUN form), SoundCategory (SNCT) and MusicType (MUSC). Instance ids are audio handles. A wait on a sound
-// polls Sound.IsPlaying(id) (docs/script-api.md section 4).
+// polls Sound.IsPlaying(id) (docs/script-api.md section 4). CreateDetectionEvent is a noise for detection.
 
 import "../audio"
 import "../formid"
@@ -12,6 +12,10 @@ register_sound :: proc(reg: ^Registry) {
 	register(reg, "Sound", "IsPlaying", n_sound_is_playing)
 	register(reg, "Sound", "StopInstance", n_sound_stop_instance)
 	register(reg, "Sound", "SetInstanceVolume", n_sound_set_instance_volume)
+	register(reg, "ObjectReference", "CreateDetectionEvent", proc(c: ^Call, args: []Value) -> Value {
+		worldstate.make_noise(c.ws, c.db, arg_form(c, args, 0), c.self, f32(arg_i32(args, 1, 0)))
+		return nil
+	})
 	register(reg, "MusicType", "Add", proc(c: ^Call, args: []Value) -> Value {
 		if c.audio != nil {audio.music_add(c.audio, c.self)}
 		return nil

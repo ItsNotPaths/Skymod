@@ -14,6 +14,7 @@ import "../audio"
 import "../gamedb"
 import "../worldstate"
 
+// (hole noise-record-levels :tags (ai audio magic combat) :sev polish) every cast and hit makes a Normal noise: the MGEF Casting Sound Level and the WEAP Sound Level are not read.
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
 // (hole cast-facing :tags (magic ai unclaimed) :sev gap :needs (actor-states)) a cast lands whichever way the caster faces: nothing holds a cast until the caster turns to its target within an angle, so an NPC casts sideways or behind it. A cast state's rule, not a visual one.
@@ -37,6 +38,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	if sp, record := gamedb.spell_of(c.db, spell); record && !v.defined {cast_sounds(c, spell, sp, caster, hit)}
 	start_spell(c, spell, hit, caster)
 	append(&c.ws.casts, worldstate.Spell_Cast{caster, held})
+	worldstate.make_noise(c.ws, c.db, caster, caster, worldstate.sound_level(c.db, .Normal))
 	if used_up {
 		move_items(c, {base = held, from = caster, count = 1})
 		if worldstate.inv_count(c.ws, c.db, caster, held) == 0 {worldstate.unequip(c.ws, c.db, caster, held)}
@@ -55,6 +57,7 @@ use_power :: proc(c: ^Call, caster, power: Form_ID, words: int, target: Form_ID)
 	hit := caster if c.ws.power_defs[power].shape == "self" else target
 	start_effects(c, power, entries, false, hit, caster)
 	append(&c.ws.casts, worldstate.Spell_Cast{caster, power})
+	worldstate.make_noise(c.ws, c.db, caster, caster, worldstate.sound_level(c.db, .Normal))
 	return true
 }
 

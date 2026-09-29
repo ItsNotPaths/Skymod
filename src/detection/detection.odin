@@ -2,8 +2,8 @@ package detection
 
 // Detection: each loaded NPC looks at each loaded actor in its range ten times a second, and the
 // model (model.odin) turns what it senses into awareness. This is a seam (ws.md Workstream H): the
-// host hands in the actor snapshot and the awareness store, answers the sight queries, and applies
-// the awareness each `set` reports. A plugin replaces entries of Table.
+// host hands in the actor snapshot, the noises and the awareness store, answers the sight
+// queries, and applies the awareness each `set` reports. A plugin replaces entries of Table.
 
 import "core:math"
 import "../plugin"
@@ -11,7 +11,7 @@ import "../plugin"
 Form_ID :: plugin.Form_ID
 
 SEAM :: "skymod_detection"
-VERSION :: u32(1)
+VERSION :: u32(2)
 
 GROUPS :: 6 // viewers take turns: at 60 Hz each looks every 0.1 s
 FAR :: f32(1e9) // the distance to a target not in the viewer's space
@@ -22,6 +22,13 @@ Awareness :: plugin.Awareness
 Pair :: struct {
 	viewer, target: Form_ID,
 	awareness:      Awareness,
+}
+
+// Noise is a sound `owner` made at `pos` in `space`, on the iSoundLevel scale.
+Noise :: struct {
+	owner, space: Form_ID,
+	pos:          [3]f32,
+	loudness:     f32,
 }
 
 // Host is what the engine answers and takes; each proc gets `data` back.
@@ -41,6 +48,7 @@ Input :: struct {
 	dt:     f32,
 	actors: plugin.Span(plugin.Actor), // the loaded actors, the player's too
 	known:  plugin.Span(Pair), // the whole awareness store before this tick
+	noises: plugin.Span(Noise), // the sounds of the last GROUPS ticks, so each viewer hears each one
 }
 
 Table :: struct {
@@ -59,6 +67,7 @@ tick_builtin :: proc "c" (inp: ^Input) {
 		if my_turn(inp.tick, k.viewer) {h.set(h.data, {k.viewer, k.target, inp.table.judge(k.awareness, {distance = FAR}, step)})}
 	}
 	actors := plugin.items(inp.actors)
+	noises := plugin.items(inp.noises)
 	for viewer in actors {
 		if !my_turn(inp.tick, viewer.id) || viewer.dead {continue}
 		reach := h.range(h.data, viewer.id)
@@ -71,7 +80,7 @@ tick_builtin :: proc "c" (inp: ^Input) {
 				speed    = target.speed,
 				sneaking = target.sneaking,
 				light    = h.light(h.data, target.id),
-				noise    = heard(viewer.id, target.id),
+				noise    = heard(viewer, target.id, noises, reach),
 			}
 			h.set(h.data, {viewer.id, target.id, inp.table.judge(h.world.awareness(h.world.data, viewer.id, target.id), senses, step)})
 		}
@@ -87,13 +96,23 @@ my_turn :: proc "contextless" (tick: u64, viewer: Form_ID) -> bool {
 @(private = "file")
 looks_at :: proc "contextless" (viewer, target: plugin.Actor, reach: f32) -> (d: f32, ok: bool) {
 	if target.id == viewer.id || target.dead {return}
-	v := viewer.pos - target.pos
-	d = math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) if viewer.space != 0 && viewer.space == target.space else FAR
+	d = distance(viewer.pos, target.pos) if viewer.space != 0 && viewer.space == target.space else FAR
 	return d, d <= reach
 }
 
-// (hole noise-events :tags (ai audio unclaimed) :sev gap) nothing is heard: every target is silent to every viewer.
+// (hole sound-occlusion :tags (ai audio) :sev polish) a noise carries through walls: hearing is distance only, with no line of sound and no fSneakSoundLosMult.
+// heard is how loud the target's loudest noise is at the viewer: it fades to nothing at the reach.
 @(private = "file")
-heard :: proc "contextless" (viewer, target: Form_ID) -> f32 {
-	return 0
+heard :: proc "contextless" (viewer: plugin.Actor, target: Form_ID, noises: []Noise, reach: f32) -> (loud: f32) {
+	for n in noises {
+		if n.owner != target || n.space == 0 || n.space != viewer.space {continue}
+		loud = max(loud, n.loudness * (1 - distance(viewer.pos, n.pos) / reach))
+	}
+	return
+}
+
+@(private = "file")
+distance :: proc "contextless" (a, b: [3]f32) -> f32 {
+	v := a - b
+	return math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 }

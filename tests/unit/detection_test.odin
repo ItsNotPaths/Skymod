@@ -43,7 +43,7 @@ fake_host :: proc(h: ^Fake_Host) -> detection.Host {
 }
 
 // detect runs one tick in which viewer 0xA2 (its group's turn at tick 6) looks at the player.
-detect :: proc(t: ^testing.T, table: ^detection.Table, known: []detection.Pair, player_space: detection.Form_ID) -> []detection.Pair {
+detect :: proc(t: ^testing.T, table: ^detection.Table, known: []detection.Pair, player_space: detection.Form_ID, noises: []detection.Noise = nil) -> []detection.Pair {
 	h := Fake_Host{ctx = context, sets = make([dynamic]detection.Pair, context.temp_allocator)}
 	actors := []plugin.Actor{{id = 0xA2, space = 1}, {id = 0x14, space = player_space, pos = {100, 0, 0}}}
 	inp := detection.Input {
@@ -53,6 +53,7 @@ detect :: proc(t: ^testing.T, table: ^detection.Table, known: []detection.Pair, 
 		dt     = 1 / 60.0,
 		actors = plugin.span(actors),
 		known  = plugin.span(known),
+		noises = plugin.span(noises),
 	}
 	table.tick(&inp)
 	return h.sets[:]
@@ -87,6 +88,28 @@ test_detection_plugin_judge :: proc(t: ^testing.T) {
 	sets := detect(t, &table, {}, 1)
 	testing.expect_value(t, len(sets), 1)
 	testing.expect_value(t, sets[0].awareness, detection.Awareness{})
+}
+
+@(private = "file")
+last_noise: f32
+
+// The viewer hears the target's loudest noise in its space, faded by distance over its reach.
+@(test)
+test_detection_hears :: proc(t: ^testing.T) {
+	table := detection.BUILTIN
+	table.judge = proc "c" (was: detection.Awareness, s: detection.Senses, dt: f32) -> detection.Awareness {
+		last_noise = s.noise
+		return {}
+	}
+	hear := proc(t: ^testing.T, table: ^detection.Table, noises: ..detection.Noise) -> f32 {
+		last_noise = -1
+		detect(t, table, {}, 1, noises)
+		return last_noise
+	}
+	testing.expect_value(t, hear(t, &table), 0)
+	testing.expect_value(t, hear(t, &table, {0x14, 1, {500, 0, 0}, 50}, {0x14, 1, {100, 0, 0}, 10}), 25) // 1000 reach, 500 away
+	testing.expect_value(t, hear(t, &table, {0x14, 2, {0, 0, 0}, 50}), 0) // another space
+	testing.expect_value(t, hear(t, &table, {0x77, 1, {0, 0, 0}, 50}), 0) // someone else's
 }
 
 // Awareness is saved per viewer and target; a pair that knows nothing is not stored.

@@ -57,7 +57,6 @@ gait_speed :: proc(pace: [2]f32, g: Gait) -> f32 {
 	return 0
 }
 
-// (hole noise-events :tags (ai audio unclaimed) :sev gap) moving makes no noise: no footstep, combat or spell noise event with a loudness that detection can hear.
 // mover_step is the XY velocity that walks the feet one tick toward the goal. With no path on the
 // navmesh (none loaded, or off it) it walks straight.
 mover_step :: proc(m: ^Mover, mesh: ^nav.Path_Mesh, feet: [3]f32, touching: bool, dt: f32) -> [2]f32 {

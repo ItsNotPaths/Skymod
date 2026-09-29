@@ -23,6 +23,7 @@ projectile_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
 	}
 	queue_hit(c, f, target)
 	worldstate.strike(c.ws, target, f.shooter)
+	worldstate.make_noise(c.ws, c.db, f.shooter, target, worldstate.sound_level(c.db, .Normal))
 	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
 }
 

@@ -18,6 +18,12 @@ Actor_Snapshot :: struct {
 	actors: [dynamic]plugin.Actor,
 	last:   map[Form_ID][3]f32, // where each stood at the last snapshot
 	ticks:  u64, // snapshots built
+	noises: [dynamic]Made_Noise, // the last detection.GROUPS ticks of worldstate noises
+}
+
+Made_Noise :: struct {
+	noise: detection.Noise,
+	tick:  u64,
 }
 
 actor_snapshot :: proc(s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gamedb.DB, loaded: map[Form_ID]bool, dt: f32) {
@@ -44,6 +50,7 @@ actor_snapshot :: proc(s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gam
 actor_snapshot_destroy :: proc(s: ^Actor_Snapshot) {
 	delete(s.actors)
 	delete(s.last)
+	delete(s.noises)
 }
 
 Detection_Host :: struct {
@@ -57,6 +64,7 @@ Detection_Host :: struct {
 detection_tick :: proc(t: ^detection.Table, s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gamedb.DB, dt: f32) {
 	known := make([dynamic]detection.Pair, 0, len(ws.awareness), context.temp_allocator)
 	for k, a in ws.awareness {append(&known, detection.Pair{k[0], k[1], {a.level, a.detected}})}
+	noises := heard_noises(s, ws, db)
 	h := Detection_Host{context, ws, db, make([dynamic]detection.Pair, context.temp_allocator)}
 	wd := worldhost.Data{context, ws, db}
 	w := worldhost.world(&wd)
@@ -67,9 +75,33 @@ detection_tick :: proc(t: ^detection.Table, s: ^Actor_Snapshot, ws: ^worldstate.
 		dt     = dt,
 		actors = plugin.span(s.actors[:]),
 		known  = plugin.span(known[:]),
+		noises = plugin.span(noises[:]),
 	}
 	t.tick(&inp)
 	for p in h.sets {worldstate.set_awareness(ws, p.viewer, p.target, {p.awareness.level, p.awareness.detected})}
+}
+
+// heard_noises is what detection hears this tick: the window of made noises, and a footstep
+// from each actor that moves.
+@(private = "file")
+heard_noises :: proc(s: ^Actor_Snapshot, ws: ^worldstate.World_State, db: ^gamedb.DB) -> [dynamic]detection.Noise {
+	for n in ws.noises {append(&s.noises, Made_Noise{{n.owner, n.space, n.pos, n.loudness}, s.ticks})}
+	clear(&ws.noises)
+	kept := 0
+	for m in s.noises {
+		if s.ticks - m.tick >= detection.GROUPS {continue}
+		s.noises[kept] = m
+		kept += 1
+	}
+	resize(&s.noises, kept)
+	out := make([dynamic]detection.Noise, 0, len(s.noises) + len(s.actors), context.temp_allocator)
+	for m in s.noises {append(&out, m.noise)}
+	for a in s.actors {
+		if a.speed == 0 {continue}
+		step := worldstate.sound_level(db, .Silent if a.sneaking else .Normal)
+		append(&out, detection.Noise{a.id, a.space, a.pos, step})
+	}
+	return out
 }
 
 @(private = "file")
