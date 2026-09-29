@@ -4,7 +4,6 @@ package formid
 
 // PLAYER (PlayerRef) is not one actor: it means the actor the player controls, ws.player.
 // worldstate.resolve turns it into that actor's real ref where a record or script value enters the engine.
-// (hole playerref-lua-keys :tags (player script) :sev gap) Lua `==` resolves PlayerRef, but a Lua table keyed by ref holds ref(0x14) and the controlled actor's own ref as two keys. Wanted: a transpiler guard that keys refs by their resolved form.
 // (hole playerref-stored-by-natives :tags (player script) :sev gap) script.call resolves every form argument, so ForceRefTo(Game.GetPlayer()) and other storing natives keep the actor controlled at that moment, not PlayerRef. Wanted: storing natives keep 0x14 so the stored value follows a takeover.
 PLAYER :: Form_ID(0x14)
 PLAYER_BASE :: Form_ID(0x7) // the NPC_ a new game's character places

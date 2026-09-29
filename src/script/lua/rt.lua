@@ -337,11 +337,22 @@ local function form_of(v)
   if is_instance(v) then return v.form end
   return v
 end
--- Papyrus `==`: an instance is its form. Refs are cached one per form, so identity is enough.
-Instance.__eq = function(a, b) return rawequal(form_of(a), form_of(b)) end
+-- PlayerRef stands for the actor the player controls: rt.key(r) is that actor's ref for PlayerRef,
+-- else r. Refs are cached one per form, so a table keyed by rt.key(r) has one key per actor.
+local PLAYER = ref(0x14)
+local function key(r)
+  if rawequal(r, PLAYER) then return __resolve(r) end
+  return r
+end
+rt.key = key
 
-local instances = {} -- ref -> lowercase script name -> instance
-local ordered = {}   -- ref -> its instances in the order they were made (VMAD order)
+-- Papyrus `==`: an instance is its form.
+Instance.__eq = function(a, b) return rawequal(key(form_of(a)), key(form_of(b))) end
+
+-- Scripts attach under real refs; a lookup by PlayerRef finds the controlled actor's.
+local by_ref = { __index = function(t, r) if rawequal(r, PLAYER) then return rawget(t, key(r)) end end }
+local instances = setmetatable({}, by_ref) -- ref -> lowercase script name -> instance
+local ordered = setmetatable({}, by_ref)   -- ref -> its instances in the order they were made (VMAD order)
 
 -- The tick schedule. An instance whose class defines OnTick joins the group of its TickRate, which
 -- never changes, and takes a fixed slot in it: (its place in the group) mod (the group's period in

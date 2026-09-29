@@ -394,6 +394,22 @@ test_refs_start_at_game_start_or_cell_load :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `assert(__inits == 3, tostring(__inits))`), "OnInit ran once per ref")
 }
 
+// PlayerRef finds the scripts on the actor the player controls, equals their instance, and rt.key
+// makes it and that actor one table key.
+@(test)
+test_playerref_lookups :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_playerref", {{"lever.lua", LEVER_LUA}})
+	defer fixture_destroy(&f)
+
+	testing.expect_value(t, slua.attach(&f.vm, f.ws.player, []esm.Script_Attach{{name = "Lever"}}, false), 1)
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt')
+local inst = rt.cast(ref(0x14), "lever")
+assert(type(inst) == "table" and inst == ref(0x14), "cast by PlayerRef")`), "cast by PlayerRef")
+	src := fmt.tprintf("local n = {{}}; n[rt.key(ref(0x14))] = 1; local body = rt.key(ref(0x%X)); n[body] = n[body] + 1; assert(n[rt.key(ref(0x14))] == 2)", f.ws.player)
+	testing.expect(t, slua.do_string(&f.vm, src), "one table key")
+}
+
 // A sent event waits for the drain, reaches the handler with its args, and an event a handler sends
 // runs on the next drain. An event for a form with no scripts is dropped.
 @(test)

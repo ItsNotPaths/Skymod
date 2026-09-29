@@ -55,6 +55,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__seed_spell", rt_seed_spell},
 		{"__faction", rt_faction},
 		{"__stolen_mark", rt_stolen_mark},
+		{"__resolve", rt_resolve},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -666,6 +667,17 @@ rt_info :: proc "c" (L: ^lua.State) -> c.int {
 
 // __now() is a steady clock in seconds, for timing handlers. libc's clock_gettime: time.tick_now on
 // Linux is a raw syscall, ~0.3 us, and every handler reads the clock twice.
+// __resolve(ref) is the actor PlayerRef stands for; any other ref as it is.
+@(private)
+rt_resolve :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	form, _ := ref_form(L, 1)
+	if vm.ctx.ws != nil {form = worldstate.resolve(vm.ctx.ws, form)}
+	push_ref(L, form)
+	return 1
+}
+
 @(private)
 rt_now :: proc "c" (L: ^lua.State) -> c.int {
 	ts: posix.timespec
