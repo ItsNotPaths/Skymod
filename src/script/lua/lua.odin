@@ -76,7 +76,7 @@ init :: proc(vm: ^VM, reg: ^script.Registry, ctx: script.Call) -> bool {
 	vm.reg = reg
 	vm.ctx = ctx
 	vm.ctx.quest_vars = {vm, quest_var}
-	if ctx.ws != nil {ctx.ws.land_hook = {vm, run_land}}
+	if ctx.ws != nil {ctx.ws.hooks = {vm, run_land, run_cost}}
 	vm.none_warned = make(map[string]bool)
 
 	// native_call(class, fn, ...) -> ret  — the one dispatch bridge. ^VM rides as

@@ -16,9 +16,20 @@ set_tags :: proc(ws: ^World_State, form: Form_ID, tags: []string) {
 	ws.tags[form] = own
 }
 
-// has_tag reports whether a tag of `form` or of a ref's base matches `pattern`. A kw.<editor id>
-// pattern names one keyword.
+// has_tag reports whether a tag of `form`, of a ref's base, or of any effect of a spell matches
+// `pattern` (vanilla's SpellHasKeyword: Aspect of Terror reaches Fireball through its fear rider).
+// A kw.<editor id> pattern names one keyword.
 has_tag :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, pattern: string) -> bool {
+	if own_tag(ws, db, form, pattern) {return true}
+	v := spell_view(ws, db, form) or_return
+	for e in v.entries {
+		if own_tag(ws, db, e.effect, pattern) {return true}
+	}
+	return false
+}
+
+@(private = "file")
+own_tag :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, pattern: string) -> bool {
 	if strings.has_prefix(pattern, "kw.") {
 		kw, ok := gamedb.keyword_id(db, pattern[3:])
 		return ok && has_keyword(ws, db, form, kw)

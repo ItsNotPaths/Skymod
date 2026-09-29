@@ -19,7 +19,6 @@ Effect_Def :: struct {
 	name:     string, // owned
 	terms:    [dynamic]Effect_Term,
 	tunables: [dynamic]Tunable, // Active_Effect.tunables in this order
-	land:     bool, // it has a Lua land (Land_Hook)
 	scripts:  []esm.Script_Attach, // the moments; owned (esm.free_form_scripts shape)
 }
 
@@ -35,16 +34,17 @@ Effect_Def_Src :: struct {
 	tags:       []string,
 	terms:      []Effect_Src,
 	defaults:   []Tunable, // the definition's numbers
-	land:       bool,
 	scripts:    []esm.Script_Attach, // borrowed; cloned here
 }
 
-// Land_Hook runs an effect's Lua land as it lands (the VM sets it): false, and it does not start.
-// It may change m, d and the tunables. An effect never starts another: a spell names all its
-// effects (user, 2026-09-28).
-Land_Hook :: struct {
+// Hooks are the Lua a landing and a cast run (the VM sets them). land runs the landing hooks
+// (rt.hook), then the effect's own land when def has one: false, and it does not start. They may
+// change m, d and the tunables. An effect never starts another: a spell names all its effects
+// (user, 2026-09-28). cost runs the cost hooks: false, and the cast is refused.
+Hooks :: struct {
 	data: rawptr,
-	run:  proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
+	land: proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
+	cost: proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
 }
 
 // AV_VARS: what an effect's AV formulas see besides reads and tunables.
@@ -68,7 +68,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	forget_effect_terms(ws)
 
-	d := Effect_Def{name = strings.clone(src.name), land = src.land}
+	d := Effect_Def{name = strings.clone(src.name)}
 	for t in src.defaults {add_tunable(&d, t.name, t.default)}
 	bind := Def_Bind{ws, db, &d}
 	for s in src.terms {
@@ -92,16 +92,19 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	return form, true
 }
 
-// land_effect sets a defined effect's tunables to their defaults and runs its land. False, and the
-// effect does not start. An effect with no definition always lands.
+// land_effect sets a defined effect's tunables to their defaults, then runs the landing hooks and
+// its land. False, and the effect does not start.
 land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool {
-	d, ok := &ws.effect_defs[e.effect]
-	if !ok {return true}
-	for t, i in d.tunables {e.tunables[i] = t.default}
-	if !d.land || ws.land_hook.run == nil {return true}
-	ok = ws.land_hook.run(ws.land_hook.data, d, e)
+	d, defined := &ws.effect_defs[e.effect]
+	if defined {
+		for t, i in d.tunables {e.tunables[i] = t.default}
+	} else {
+		d = nil
+	}
+	if ws.hooks.land == nil {return true}
+	ok := ws.hooks.land(ws.hooks.data, d, e)
 	if math.is_nan(e.duration) || math.is_inf(e.duration) { // a timed effect must end: only its source makes one last
-		log.warnf("rt.effect %s: land set d to %v; it applies once", d.name, e.duration)
+		log.warnf("effect %X: landing set d to %v; it applies once", e.effect, e.duration)
 		e.duration = 0
 	}
 	return ok

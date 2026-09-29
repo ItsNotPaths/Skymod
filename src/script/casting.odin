@@ -7,7 +7,7 @@ package script
 // (hole spell-shapes :tags (magic combat) :sev gap) a spell hits `target` at once: no shape. Wanted: self, touch, ray, stream, missile, lobber, cone and sphere, an on_hit shape after a missile, line of sight for area, `hits = "direct"` entries that only the struck actor gets (62 of 227 area spells mix areas), and shape classes a mod defines.
 // (hole concentration :tags magic :sev gap :needs (spell-use spell-shapes)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags magic :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
-// (hole cast-cost :tags magic :sev gap :needs (spell-use landing-hooks)) the cost is the SPIT base: no 1 - (skill/400)^0.65 skill multiplier and no cost hooks (half-cost perks, Fortify School gear through rt.on_cost).
+// (hole cast-cost :tags magic :sev gap :needs (spell-use)) the cost is the SPIT base through the cost hooks: no 1 - (skill/400)^0.65 skill multiplier.
 
 import "core:strings"
 import "../audio"
@@ -28,7 +28,8 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	}
 	v, ok := worldstate.spell_view(c.ws, c.db, spell)
 	if !ok || !(v.castable || used_up) {return false}
-	cost := 0 if used_up else v.cost
+	cost: f32
+	if !used_up {cost = worldstate.cast_cost(c.ws, caster, spell, v.cost) or_return}
 	if worldstate.av_current(c.ws, c.db, caster, "Magicka") < cost {return false}
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
 	hit := caster if v.self else target

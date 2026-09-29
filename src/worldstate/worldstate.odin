@@ -183,7 +183,7 @@ Runtime :: struct {
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)
 	effect_defs:     map[Form_ID]Effect_Def,   // form -> the effect content defined (effect_defs.odin)
-	land_hook:       Land_Hook,                // runs an effect's Lua land; the VM sets it
+	hooks:           Hooks,                    // landing and cost hooks; the VM sets them
 	spell_defs:      map[Form_ID]Spell_Def,    // form -> the spell content defined (spell_defs.odin)
 	power_defs:      map[Form_ID]Power_Def,    // form -> the power or shout content defined (power_defs.odin)
 	item_defs:       map[Form_ID]Item_Def,     // item -> what content says using it does (item_defs.odin)

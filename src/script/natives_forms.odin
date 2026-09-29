@@ -9,6 +9,7 @@ import "../formid"
 
 register_forms :: proc(reg: ^Registry) {
 	register(reg, "Form", "HasKeyword", n_has_keyword)
+	register(reg, "Form", "HasTag", n_has_tag)
 	register(reg, "Actor", "GetRace", n_actor_get_race)
 	register(reg, "ActorBase", "GetRace", n_actor_base_get_race)
 
@@ -28,6 +29,11 @@ register_forms :: proc(reg: ^Registry) {
 
 n_has_keyword :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.has_keyword(c.ws, c.db, c.self, arg_form(c, args, 0))
+}
+
+// HasTag(asPattern) is not Papyrus: a tag of the form matches (worldstate.has_tag).
+n_has_tag :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.has_tag(c.ws, c.db, c.self, arg_str(args, 0))
 }
 
 n_actor_get_race :: proc(c: ^Call, args: []Value) -> Value {

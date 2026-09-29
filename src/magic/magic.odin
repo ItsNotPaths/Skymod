@@ -50,7 +50,7 @@ on_hit_builtin :: proc "c" (h: ^Host, hit: Hit) -> Verdict {
 	return .Lands
 }
 
-// The engine's landing hooks (rt.on_land) have already run when this is called.
+// The landing hooks (rt.hook) run after this.
 @(private = "file")
 scale_builtin :: proc "c" (h: ^Host, hit: Hit, effect: Form_ID, n: Numbers) -> Numbers {
 	return n

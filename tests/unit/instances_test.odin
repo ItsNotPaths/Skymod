@@ -1811,3 +1811,76 @@ test_apply_effect :: proc(t: ^testing.T) {
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 0) // d inf -> 0: ended
 }
+
+@(private = "file")
+HOOKS_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Hooks", nil)
+C.__fn["ongameloaded"] = function(self)
+  rt.hook("Double", { land = function(e) if e.spell:HasTag("magic.fire") then e.m = e.m * 2 end end })
+  rt.hook("Plus", { land = function(e) e.m = e.m + 10 end })
+  rt.hook("Broken", { land = function(e) error("broken hook") end })
+  rt.hook("Gone", { land = function(e) return false end })
+  rt.hook("Gone", nil)
+  rt.hook("Huge", { land = function(e) if e.m > 1000 then return false end end })
+  rt.hook("Cost", { cost = function(c)
+    if c.spell:HasTag("forbidden") then return false end
+    c.cost = c.cost / 2
+  end })
+end
+return C
+`
+
+// rt.hook adds landing and cost hooks at game load. Landing hooks run on every effect from any
+// source, defined or not, in the order they were added, and see a spell's tags through its effects;
+// a broken one is passed over, one may stop an effect, and a cost hook may refuse a cast.
+@(test)
+test_landing_hooks :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_hooks", {{"hooks.lua", HOOKS_LUA}})
+	defer fixture_destroy(&f)
+	files := [][2]string {
+		{"effects/scorch.lua", `return require('skymod.rt').effect { tags = { "magic.fire" }, av = { Health = { amount = "-m" } } }`},
+		{"spells/firebolt.lua", `return require('skymod.rt').spell { cost = 20, applies = { { "Scorch", m = 5 } } }`},
+		{"spells/doom.lua", `return require('skymod.rt').spell { tags = { "forbidden" }, cost = 20, applies = { { "Scorch", m = 2000 } } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	QUEST, TARGET, CASTER :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	PLAIN, BARE :: gamedb.Form_ID(0x910), gamedb.Form_ID(0x950) // a record spell, and an effect with no definition
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[PLAIN] = .Spell
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "Hooks"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[PLAIN] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = BARE, magnitude = 3, duration = 5}}}
+	slua.set_script_dirs(&f.vm, {f.dir})
+	slua.start_game(&f.vm, &f.db)
+
+	FIREBOLT, DOOM := formid.lua_form("spell", "Firebolt"), formid.lua_form("spell", "Doom")
+	testing.expect(t, worldstate.has_tag(&f.ws, &f.db, FIREBOLT, "magic"), "a spell has its effects' tags")
+	cast_at :: proc(t: ^testing.T, f: ^Fixture, spell: gamedb.Form_ID) {
+		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x700))", spell)
+		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+	}
+	cast_at(t, &f, FIREBOLT)
+	cast_at(t, &f, PLAIN)
+	cast_at(t, &f, DOOM) // 2000 * 2 + 10: Huge stops it
+	testing.expect_value(t, len(f.ws.effects), 2)
+	for h in worldstate.effects_on(&f.ws, TARGET) {
+		e := f.ws.effects[h]
+		switch e.effect {
+		case BARE: testing.expect_value(t, e.magnitude, 13) // not fire: Plus only
+		case:      testing.expect_value(t, e.magnitude, 20) // 5 * 2, then + 10
+		}
+	}
+
+	cost, ok := worldstate.cast_cost(&f.ws, CASTER, FIREBOLT, 20)
+	testing.expect(t, ok && cost == 10, "the cost hook halves it")
+	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
+	testing.expect(t, !ok, "the cost hook refuses it")
+}

@@ -106,6 +106,14 @@ parse_duration :: proc(s: string) -> (f32, bool) {
 	return strconv.parse_f32(s)
 }
 
+// cast_cost runs the cost hooks (rt.hook) on a spell's cost as `caster` casts it: false, and the
+// cast is refused.
+cast_cost :: proc(ws: ^World_State, caster, spell: Form_ID, cost: f32) -> (f32, bool) {
+	cost := cost
+	if ws.hooks.cost != nil && !ws.hooks.cost(ws.hooks.data, caster, spell, &cost) {return 0, false}
+	return max(cost, 0), true
+}
+
 // Spell_View is what casting reads of a spell, from its definition or its record.
 Spell_View :: struct {
 	castable: bool, // a hand can cast it: not an ability or a power

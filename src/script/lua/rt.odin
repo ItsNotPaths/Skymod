@@ -301,8 +301,8 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 	}
 }
 
-// run_land is worldstate.Land_Hook: rt.land runs the effect's Lua land, then its context gives back
-// m, d and the tunables.
+// run_land is worldstate.Hooks.land: rt.land runs the landing hooks and the effect's Lua land, then
+// its context gives back m, d and the tunables. def is nil for an effect with no definition.
 @(private)
 run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect) -> bool {
 	vm := cast(^VM)data
@@ -310,12 +310,18 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
 	if !push_rt_fn(L, "land") {return true}
-	lua.pushstring(L, strings.clone_to_cstring(strings.to_lower(def.name, context.temp_allocator), context.temp_allocator))
+	tunables := def.tunables[:] if def != nil else nil
+	lua.pushstring(L, strings.clone_to_cstring(strings.to_lower(def.name if def != nil else "", context.temp_allocator), context.temp_allocator))
 	for f in ([4]script.Form_ID{e.caster, e.target, e.spell, e.effect}) {push_value(L, f if f != 0 else nil)}
 	lua.pushnumber(L, lua.Number(e.magnitude))
 	lua.pushnumber(L, lua.Number(e.duration))
-	if lua.pcall(L, 7, 1, 0) != 0 {
-		log.errorf("lua: %s land: %s", def.name, to_string(L, -1))
+	lua.createtable(L, 0, i32(len(tunables)))
+	for t, i in tunables {
+		lua.pushnumber(L, lua.Number(e.tunables[i]))
+		lua.setfield(L, -2, strings.clone_to_cstring(t.name, context.temp_allocator))
+	}
+	if lua.pcall(L, 8, 1, 0) != 0 {
+		log.errorf("lua: landing %X: %s", e.effect, to_string(L, -1))
 		return true // a broken land does not keep the effect from starting
 	}
 	if !lua.istable(L, -1) {return false}
@@ -325,8 +331,27 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 	}
 	number(L, "m", &e.magnitude)
 	number(L, "d", &e.duration)
-	for t, i in def.tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
+	for t, i in tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
 	return true
+}
+
+// run_cost is worldstate.Hooks.cost: rt.cost runs the cost hooks on `cost`. False refuses the cast.
+@(private)
+run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) -> bool {
+	vm := cast(^VM)data
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "cost") {return true}
+	push_value(L, caster if caster != 0 else nil)
+	push_value(L, spell if spell != 0 else nil)
+	lua.pushnumber(L, lua.Number(cost^))
+	if lua.pcall(L, 3, 1, 0) != 0 {
+		log.errorf("lua: cost hooks: %s", to_string(L, -1))
+		return true
+	}
+	if lua.type(L, -1) == .NUMBER {cost^ = f32(lua.tonumber(L, -1))}
+	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
 }
 
 // __global(name) reads the GLOB with that editor id: global.<Name>. 0 for none.
@@ -463,7 +488,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		key := to_string(L, -2)
 		switch {
 		case key == "form": src.form = to_string(L, -1)
-		case key == "land": src.land = lua.isfunction(L, -1)
+		case key == "land": // Lua keeps it (rt.land)
 		case key == "meta": // (stacking-meta)
 		case key == "tags":
 			lua.pushnil(L)

@@ -1135,6 +1135,7 @@ end
 
 local starting        -- during game start: { forms = attached, fresh = those that run OnInit }
 local game_loading = false
+local hooks = {} -- rt.hook's, in order: { name =, land =, cost = }
 
 local function send_now(form, name)
   for _, inst in ipairs(ordered[form] or {}) do rt.event(inst, name) end
@@ -1163,6 +1164,7 @@ end
 -- defers OnInit; rt.start_end sends OnGameLoaded to every form attached, then OnInit to the new ones.
 -- rt.actor_value works only inside OnGameLoaded.
 function rt.start_begin()
+  hooks = {}
   rt.load_effects()
   starting = { forms = {}, fresh = {} }
 end
@@ -1185,8 +1187,6 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
--- (hole landing-hooks :tags (magic mods) :sev gap) no rt.on_land or rt.on_cost: a perk that reaches many effects is a Lua hook that changes m, d and the tunables as each effect lands (`if e.effect:HasTag("magic.fire") then e.m = e.m * (1 + 0.25 * e.caster.av.AugmentedFlames.value) end`), or a spell's cost as it is cast; hooks run in mod priority order, before the effect's own land (user, 2026-09-28: they replace the scale language of tags, from, of and phases).
-
 -- rt.effect(def) is an effect, in an effects/<name>.lua file that returns it (the name is the file's):
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
@@ -1208,17 +1208,59 @@ local lands = {} -- lower effect name -> its land (rt.load_effects)
 -- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
 
--- rt.land(lname, caster, target, spell, effect, m, d) runs an effect's land: its context, or false
--- when it does not start (worldstate.Land_Hook).
-function rt.land(lname, caster, target, spell, effect, m, d)
+-- rt.hook(name, { land = function(e) end, cost = function(c) end }) adds a hook, or replaces the one
+-- called `name` in its place; rt.hook(name, nil) removes it. land runs as any effect lands on
+-- anyone, from any source, before the effect's own land, with its context (e.caster, e.target,
+-- e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast (c.caster, c.spell,
+-- c.cost). Either returns false to stop that effect or refuse that cast. Hooks run in the order
+-- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
+-- new game or load.
+function rt.hook(name, def)
+  if not game_loading then error("rt.hook outside OnGameLoaded", 2) end
+  for i = 0, #hooks - 1 do
+    if hooks[i].name == name then
+      if def then
+        hooks[i] = { name = name, land = def.land, cost = def.cost }
+      else
+        for j = i, #hooks - 1 do hooks[j] = hooks[j + 1] end
+      end
+      return
+    end
+  end
+  if def then hooks[#hooks] = { name = name, land = def.land, cost = def.cost } end
+end
+
+-- run_hooks runs each hook's `kind` on ctx: false when one stops it. A broken hook warns once and
+-- is passed over.
+local function run_hooks(kind, ctx)
+  for i = 0, #hooks - 1 do
+    local fn = hooks[i][kind]
+    if fn then
+      local ok, res = pcall(fn, ctx)
+      if not ok then warn_once("hook " .. hooks[i].name, "hook " .. hooks[i].name .. ": " .. tostring(res)) end
+      if ok and res == false then return false end
+    end
+  end
+  return true
+end
+
+-- rt.land(lname, caster, target, spell, effect, m, d, tunables) runs the landing hooks, then the
+-- effect's land: its context, or false when it does not start (worldstate.Hooks).
+function rt.land(lname, caster, target, spell, effect, m, d, tunables)
   local e = { caster = caster, target = target, spell = spell, effect = effect, m = m, d = d, global = rt.global }
+  for k, v in pairs(tunables) do e[k] = v end
+  if not run_hooks("land", e) then return false end
   local fn = lands[lname]
   if fn and fn(e) == false then return false end
   return e
 end
 
-function rt.on_land(name, fn) end
-function rt.on_cost(name, fn) end
+-- rt.cost(caster, spell, cost) runs the cost hooks: the cost, or false when the cast is refused.
+function rt.cost(caster, spell, cost)
+  local c = { caster = caster, spell = spell, cost = cost, global = rt.global }
+  if not run_hooks("cost", c) then return false end
+  return c.cost
+end
 
 -- load_defs runs every definition file in a content folder, lowest priority first per name: a full
 -- file replaces what is below it, a <name>.patch.lua returns a function that edits it.

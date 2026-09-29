@@ -12,7 +12,7 @@ import "../formid"
 import "../gamedb"
 
 // resisted is magnitude `m` of `effect` from `source` after `target`'s resistances.
-// (hole resist-rules :tags magic :sev gap :needs (landing-hooks)) resistance is code, and it differs from vanilla (build/out/wsM/mechanics.md): it cuts only magnitude (Resist Magic should follow the power, so it shortens Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, and worn armour enchantments are resisted. Wanted: resistance as a core landing hook reading FireResist and the rest, and this proc gone.
+// (hole resist-rules :tags magic :sev gap) resistance is code, and it differs from vanilla (build/out/wsM/mechanics.md): it cuts only magnitude (Resist Magic should follow the power, so it shortens Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, and worn armour enchantments are resisted. Wanted: resistance as a core landing hook reading FireResist and the rest, and this proc gone.
 resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_ID, m: f32) -> f32 {
 	mgef, _ := gamedb.magic_effect_of(db, effect)
 	if mgef.info.flags & esm.MGEF_HOSTILE == 0 {return m}
