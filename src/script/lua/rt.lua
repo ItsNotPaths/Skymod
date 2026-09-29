@@ -1139,7 +1139,12 @@ function rt.tick(dt)
     end
     local list = g.slots[ticks % g.every]
     if list then
-      for j = 0, #list - 1 do rt.event(list[j], "OnTick") end
+      local j = 0
+      while j < #list do
+        local inst = list[j]
+        rt.event(inst, "OnTick")
+        if list[j] == inst then j = j + 1 end -- else its OnTick deleted its form and the rest moved down
+      end
     end
   end
   ticks = ticks + 1

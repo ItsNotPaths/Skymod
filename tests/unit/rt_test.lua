@@ -362,3 +362,20 @@ rt.reset()
 rt.advance(1 / 60, 0)
 rt.tick(1 / 60)
 assert(lever.calls == 4 and lever.sw > 2 and lever.sw < 2.02, "a reset drops ticking and clocked instances")
+
+-- an OnTick that deletes its own form leaves the schedule mid-tick; the instance after it still ticks
+files.fuse = [[
+  local rt = require('skymod.rt')
+  local C = rt.class("Fuse", "ObjectReference")
+  C.__vars = { calls = rt.int(0), burn = rt.bool(false) }
+  function C:OnTick()
+    self.calls = self.calls + 1
+    if self.burn then rt.detach(self.form) end
+  end
+  return C
+]]
+local fuse, next_fuse = rt.instance(ref(0x3000), "Fuse"), rt.instance(ref(0x3001), "Fuse")
+fuse.burn = true
+rt.tick(1 / 60)
+rt.tick(1 / 60)
+assert(fuse.calls == 1 and next_fuse.calls == 2, "a self-deleting OnTick does not skip or break the rest of its slot")
