@@ -13,8 +13,8 @@ import "../../worldstate"
 
 // tick_triggers sends OnTriggerEnter / OnTriggerLeave(actor) for each enabled trigger and zone in
 // the attached cells that an actor's height went into or out of since the last tick. A trigger that
-// detaches or is disabled, or an actor that unloads, is forgotten without an event. Zones age
-// wherever they are and cast in attached cells (tick_zone).
+// detaches or is disabled, or an actor that unloads, is forgotten without an event. Runtime zones
+// age wherever they are; they and the placed hazards (PHZD) run in attached cells (run_zone).
 tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: f32) {
 	actors := make([dynamic]script.Form_ID, context.temp_allocator)
 	for actor in ws.ai.loaded {append(&actors, actor)}
@@ -28,7 +28,23 @@ tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: 
 	zones := make([dynamic]script.Form_ID, 0, len(ws.zones), context.temp_allocator)
 	for id in ws.zones {append(&zones, id)}
 	slice.sort(zones[:])
-	for id in zones {tick_zone(vm, db, ws, id, actors[:], &live, dt)}
+	for id in zones {
+		z := &ws.zones[id]
+		if z.left > 0 {
+			z.left -= dt
+			if z.left <= 0 {
+				worldstate.set_deleted(ws, id, worldstate.ref_cell(ws, db, id))
+				continue
+			}
+		}
+		run_zone(vm, db, ws, id, z^, actors[:], &live, dt)
+	}
+	for id in db.placed_hazards {
+		if z, _, ok := worldstate.hazard_zone(db, worldstate.ref_base(ws, db, id), 0); ok {
+			z.left = 0
+			run_zone(vm, db, ws, id, z, actors[:], &live, dt)
+		}
+	}
 	gone := make([dynamic][2]script.Form_ID, context.temp_allocator)
 	for key in ws.in_triggers {
 		if key not_in live {append(&gone, key)}
@@ -61,31 +77,24 @@ cross :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, trig: script
 	}
 }
 
-// tick_zone ages a zone, which goes when its time is up. In an attached cell it is crossed like a
-// trigger, and its spell hits each actor inside that zone_hits allows: on entry, then every
-// `every` seconds. A once zone fires at the first such actor, on each within its burst, and goes.
+// run_zone crosses an enabled zone in an attached cell like a trigger, and its spell hits each
+// actor inside that zone_hits allows: on entry, then every `every` seconds. A once zone fires at
+// the first such actor, on each within its burst, and goes.
 @(private = "file")
-tick_zone :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, id: script.Form_ID, actors: []script.Form_ID, live: ^map[[2]script.Form_ID]bool, dt: f32) {
-	z := &ws.zones[id]
-	if z.left > 0 {
-		z.left -= dt
-		if z.left <= 0 {
-			worldstate.set_deleted(ws, id, worldstate.ref_cell(ws, db, id))
-			return
-		}
-	}
+run_zone :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, id: script.Form_ID, z: worldstate.Zone, actors: []script.Form_ID, live: ^map[[2]script.Form_ID]bool, dt: f32) {
+	if worldstate.is_deleted(ws, id) || !worldstate.ref_enabled(ws, db, id) {return}
 	if worldstate.ref_grid_cell(ws, db, id) not_in ws.attached {return}
 	cross(vm, db, ws, id, z.shape, actors, live)
 	if z.spell == 0 {return}
 	c := vm.ctx
 	for actor in actors {
 		key := [2]script.Form_ID{id, actor}
-		if key not_in ws.in_triggers || !worldstate.zone_hits(ws, db, z^, actor) {continue}
+		if key not_in ws.in_triggers || !worldstate.zone_hits(ws, db, z, actor) {continue}
 		if z.every == 0 {
 			at := worldstate.ref_pos(ws, db, id)
 			for other in actors {
 				near := smath.length3(worldstate.ref_pos(ws, db, other) - at) <= z.burst
-				if near && worldstate.zone_hits(ws, db, z^, other) {script.start_spell(&c, z.spell, other, z.caster)}
+				if near && worldstate.zone_hits(ws, db, z, other) {script.start_spell(&c, z.spell, other, z.caster)}
 			}
 			worldstate.set_deleted(ws, id, worldstate.ref_cell(ws, db, id))
 			return

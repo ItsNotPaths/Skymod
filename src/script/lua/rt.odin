@@ -57,6 +57,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__stolen_mark", rt_stolen_mark},
 		{"__resolve", rt_resolve},
 		{"__make_zone", rt_zone},
+		{"__spawn_hazard", rt_spawn_hazard},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -696,6 +697,16 @@ rt_zone :: proc "c" (L: ^lua.State) -> c.int {
 	lua.settop(L, 1)
 	id := worldstate.make_zone(vm.ctx.ws, vm.ctx.db, field_ref(L, 1, "form"), field_ref(L, 1, "at"), z, int(field_num(L, 1, "limit")))
 	push_ref(L, id)
+	return 1
+}
+
+// __spawn_hazard(effect) is rt.spawn_hazard's engine half (worldstate.effect_hazard).
+@(private)
+rt_spawn_hazard :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	effect, _ := ref_form(L, 1)
+	push_ref(L, worldstate.effect_hazard(vm.ctx.ws, vm.ctx.db, effect))
 	return 1
 }
 

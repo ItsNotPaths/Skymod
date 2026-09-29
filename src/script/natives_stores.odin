@@ -108,9 +108,12 @@ place_at_me :: proc(c: ^Call, base: Form_ID, count := 1, disabled := false) -> F
 		rot = r.rot
 	}
 
+	// A hazard is a zone: an actor that places one is its caster; a trap's hits everyone.
+	caster := c.self if gamedb.is_actor(c.db, worldstate.ref_base(c.ws, c.db, c.self)) else 0
+	zone, h, hazard := worldstate.hazard_zone(c.db, base, caster)
 	last: Form_ID
 	for _ in 0 ..< count {
-		last = worldstate.create_ref(c.ws, base, cell, {pos.x, pos.y, pos.z}, rot, 1)
+		last = worldstate.make_zone(c.ws, c.db, base, c.self, zone, int(h.limit)) if hazard else worldstate.create_ref(c.ws, base, cell, {pos.x, pos.y, pos.z}, rot, 1)
 		if disabled {
 			worldstate.set_disabled(c.ws, last, cell, true)
 		}

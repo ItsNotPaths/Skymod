@@ -195,6 +195,7 @@ archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	case .Peak_Value_Modifier: return "archetypepeakvaluemodifier"
 	case .Dual_Value_Modifier: return "archetypedualvaluemodifier"
 	case .Absorb:              return "archetypeabsorb"
+	case .Spawn_Hazard:        return "archetypespawnhazard"
 	}
 	return ""
 }

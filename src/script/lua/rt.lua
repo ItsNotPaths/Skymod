@@ -11,7 +11,7 @@ local now, info = __now, __info
 local effect_class, content_files, effect_def, spell_def, power_def = __effect_class, __content_files, __effect_def, __spell_def, __power_def
 local item_def = __item_def
 local av_part, global_value = __av_part, __global
-local resolve_ref, make_zone = __resolve, __make_zone
+local resolve_ref, make_zone, spawn_hazard = __resolve, __make_zone, __spawn_hazard
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -1439,6 +1439,10 @@ function rt.zone(def)
   def.caster, def.spell = def.caster and form_of(def.caster), def.spell and form_of(def.spell)
   return make_zone(def)
 end
+
+-- rt.spawn_hazard(effect) makes the hazard a Spawn Hazard effect names where its target stands, with
+-- its caster, and returns its zone (None when it names none).
+function rt.spawn_hazard(effect) return spawn_hazard(form_of(effect)) end
 
 -- rt.seed_spell(owner, spell) puts a spell on a race's or an NPC_'s records' list, for every actor
 -- of it; rt.unseed_spell(owner, spell) takes one off. Only inside OnGameLoaded: they last until the

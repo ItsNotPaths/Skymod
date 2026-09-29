@@ -427,7 +427,7 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	me: Magic_Effect
 	me.info, _ = esm.magic_effect_info(fl)
 	me.projectile = esm.remap_form(fm, me.info.projectile)
-	// (hole hazards :tags (magic world) :sev gap) nothing places a hazard (HAZD: fire on the ground, trap clouds, Blizzard) or a rune (a Lobber projectile that sits until someone comes near); both become runtime zones. MGEF explosions spawn nothing either. Their art is effect-fx.
+	// (hole hazards :tags (magic world) :sev gap :needs (spell-shapes)) hazards come only from PlaceAtMe, placed PHZD refs and Spawn Hazard effects: no impact data set places one where a spell lands (the walls; 240 MGEFs), no explosion does (4 EXPL), and no Lobber projectile sits as a rune (an rt.zone with no `every`). Their art is effect-fx.
 	me.explosion = esm.remap_form(fm, me.info.explosion)
 	me.related = esm.remap_form(fm, me.info.related)
 	if f, has := esm.find_field(fl, "SNDD"); has {

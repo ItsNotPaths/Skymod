@@ -44,6 +44,28 @@ projectile :: proc(fields: []Field) -> (p: Projectile, ok: bool) {
 	}, true
 }
 
+// Hazard is a HAZD's DATA: a volume that casts its spell on who stands in it (UESP, Skyrim Mod:Mod
+// File Format/HAZD).
+Hazard :: struct {
+	limit:    u32, // how many may exist at once; 0 = any
+	radius:   f32, // feet
+	lifetime: f32, // seconds; 0 = until removed
+	interval: f32, // seconds between casts on one target
+	flags:    u32, // HAZD_*
+	spell:    Form_ID, // raw
+}
+
+HAZD_PLAYER_ONLY :: 0x1
+HAZD_INHERIT_DURATION :: 0x2 // from the effect that spawns it
+HAZD_INHERIT_RADIUS :: 0x8
+
+hazard :: proc(fields: []Field) -> (h: Hazard, ok: bool) {
+	f := find_field(fields, "DATA") or_return
+	if len(f.data) < 28 {return}
+	d := f.data
+	return {limit = rd32(d, 0), radius = rf32(d, 4), lifetime = rf32(d, 8), interval = rf32(d, 16), flags = rd32(d, 20), spell = Form_ID(rd32(d, 24))}, true
+}
+
 // item_damage reads a WEAP's base damage (DATA u16) or an AMMO's (DATA f32) and the PROJ it flies
 // as (raw). AMMO DATA is 16 bytes on LE and 20 on SE, which adds weight.
 item_damage :: proc(rec_type: string, fields: []Field) -> (damage: f32, projectile: u32) {

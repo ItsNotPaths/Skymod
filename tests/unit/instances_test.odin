@@ -1595,6 +1595,49 @@ rt.zone { at = ref(0x700), shape = { sphere = 100 }, lifetime = 2.5, spell = ref
 	testing.expect(t, len(burst) == 2 && slice.contains(burst, f.ws.player) && slice.contains(burst, NPC), "the NPC is outside the box, inside the burst")
 }
 
+// Hazards are zones from their HAZD: PlaceAtMe by a trap makes one that hits everyone, up to its
+// limit; a placed PHZD casts in an attached cell; a Spawn Hazard effect makes its hazard at its
+// target with the effect's duration when the hazard inherits it.
+@(test)
+test_hazards :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_hazards", {})
+	defer fixture_destroy(&f)
+	CELL, TRAP, PLACED :: script.Form_ID(0x100), script.Form_ID(0x700), script.Form_ID(0x701)
+	SPELL, HAZ, INHERITS, MGEF :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x910), gamedb.Form_ID(0x911), gamedb.Form_ID(0x920)
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = 0x901, duration = 60}}}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[SPELL] = .Spell
+	f.db.hazards = make(map[gamedb.Form_ID]esm.Hazard, context.temp_allocator)
+	f.db.hazards[HAZ] = {limit = 2, radius = 3, lifetime = 30, interval = 0.5, spell = SPELL}
+	f.db.hazards[INHERITS] = {radius = 20, lifetime = 40, interval = 0.5, flags = esm.HAZD_INHERIT_DURATION, spell = SPELL}
+	f.db.magic_effects = make(map[gamedb.Form_ID]gamedb.Magic_Effect, context.temp_allocator)
+	f.db.magic_effects[MGEF] = {related = INHERITS}
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[TRAP] = {form_id = TRAP, cell_form_id = CELL, scale = 1}
+	f.db.ref_by_id[PLACED] = {form_id = PLACED, base = HAZ, cell_form_id = CELL, pos = {0, 0, 0}, scale = 1}
+
+	c := f.vm.ctx
+	c.self = TRAP
+	for _ in 0 ..< 3 {script.place_at_me(&c, HAZ)}
+	testing.expect_value(t, len(f.ws.zones), 2)
+	for _, z in f.ws.zones {testing.expect(t, z.caster == 0 && z.left == 30 && abs(z.shape.half.x - 64) < 0.01, "a trap's hazard, 3 feet")}
+
+	f.ws.zones = {} // a fresh start for the placed hazard
+	f.db.placed_hazards = make([dynamic]gamedb.Form_ID, context.temp_allocator)
+	append(&f.db.placed_hazards, PLACED)
+	f.ws.attached[CELL] = make([dynamic]script.Form_ID)
+	f.ws.ai.loaded[f.ws.player] = true
+	worldstate.set_moved(&f.ws, f.ws.player, CELL, {}, {10, 0, 0})
+	slua.tick_triggers(&f.vm, &f.db, &f.ws, 0.1)
+	testing.expect(t, len(f.ws.new_effects) == 1 && f.ws.effects[f.ws.new_effects[0]].target == f.ws.player, "a placed hazard burns")
+
+	h := worldstate.start_effect(&f.ws, {effect = MGEF, spell = SPELL, target = f.ws.player, caster = 0x800, duration = 12})
+	zone := worldstate.effect_hazard(&f.ws, &f.db, h)
+	testing.expect(t, zone != 0 && f.ws.zones[zone].left == 12 && f.ws.zones[zone].caster == 0x800, "the effect's duration and caster")
+}
+
 // A script makes factions at runtime: rt.faction gets or creates by name, the faction reads like a
 // record's through worldstate.faction, its relations are relation deltas (mutual by default), and a
 // save keeps it whole.

@@ -278,6 +278,8 @@ DB :: struct {
 	packages:              map[Form_ID]Package, // PACK -> its decoded package (packages.odin)
 	ingredients:           map[Form_ID][]Magic_Effect_Ref, // INGR -> its effects (owned)
 	projectiles:           map[Form_ID]esm.Projectile, // PROJ -> its flight (projectiles.odin)
+	hazards:               map[Form_ID]esm.Hazard,     // HAZD -> its DATA
+	placed_hazards:        [dynamic]Form_ID,           // PHZD refs, which ref_by_id holds
 	load_slots:            [dynamic]u32,        // load-order index -> that plugin's slot (Papyrus form ids)
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
 	vendor_chests:         map[Form_ID]bool, // FACT VENC refs: merchant chests, restocked on their own timer
@@ -1111,6 +1113,8 @@ destroy :: proc(db: ^DB) {
 	delete(db.zones)
 	delete(db.equip_slots)
 	delete(db.projectiles)
+	delete(db.hazards)
+	delete(db.placed_hazards)
 	for _, t in db.equip_types {delete(t.parents, db.allocator)}
 	delete(db.equip_types)
 	delete(db.ref_zones)
@@ -1673,6 +1677,11 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "PROJ":
 		index_base(db, rec, ctx.fm)
 		index_projectile(db, rec, ctx.fm)
+	case s == "HAZD":
+		index_base(db, rec, ctx.fm)
+		index_hazard(db, rec, ctx.fm)
+	case s == "PHZD":
+		if _, ok := db.cells[ctx.cell_form_id]; ok {index_placed_hazard(db, rec, ctx)}
 	case is_base_type(s):
 		index_base(db, rec, ctx.fm)
 	}
