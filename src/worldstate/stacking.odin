@@ -5,7 +5,7 @@ package worldstate
 // restarts it, adds, or keeps the running one, by its `stack`; in a `nostack` group, across effects
 // and AVs, only the strongest runs (a weaker one does not land; CK Magic Effect, vanilla's Peak
 // Value Modifier keywords). Dispelling by tag is the effect's land (DispelTagged).
-// (hole stack-per-hand :tags magic :sev gap :needs (spell-use)) a cast does not know its hand, so Flames in each hand restarts one copy; vanilla runs one per hand for a Value Modifier.
+// (hole stack-per-hand :tags (magic unclaimed) :sev gap :needs (spell-use)) a cast does not know its hand, so Flames in each hand restarts one copy; vanilla runs one per hand for a Value Modifier.
 
 import "core:slice"
 import "core:strings"

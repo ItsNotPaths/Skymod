@@ -253,7 +253,7 @@ use_item :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // target's Mod Incoming Spell perks, then a record's resistance (worldstate.resisted), then the
 // landing hooks (the last resists a defined effect) and the effect's land; effects stack by
 // worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
-// (hole concentration-conditions :tags magic :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
+// (hole concentration-conditions :tags (magic unclaimed) :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
