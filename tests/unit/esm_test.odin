@@ -2693,6 +2693,79 @@ test_gamedb_location_and_weather :: proc(t: ^testing.T) {
 	testing.expect_value(t, w.imagespaces[3], gamedb.Form_ID(0x0000_0A13))
 }
 
+// Climates and region weather (gamedb/climate.odin): a CLMT's WLST, a REGN's weather block, a child
+// worldspace that takes its parent's climate, and a cell's XCLR regions.
+@(test)
+test_gamedb_climate_and_regions :: proc(t: ^testing.T) {
+	tes4 := make([dynamic]u8, 0, 32);defer delete(tes4)
+	hedr: [12]u8;put_f32(hedr[:], 0, 1.7);put_u32(hedr[:], 8, 0x0000_0F00)
+	field(&tes4, "HEDR", hedr[:])
+
+	chance :: proc(b: []u8, off: int, weather: u32, pct: u32) {put_u32(b, off, weather);put_u32(b, off + 4, pct)}
+	clmt := make([dynamic]u8, 0, 32);defer delete(clmt)
+	wlst: [12]u8;chance(wlst[:], 0, 0x0000_0910, 100)
+	field(&clmt, "WLST", wlst[:])
+	clmts := make([dynamic]u8, 0, 64);defer delete(clmts)
+	record(&clmts, "CLMT", 0, 0x0000_0920, clmt[:])
+
+	regn := make([dynamic]u8, 0, 64);defer delete(regn)
+	rdat: [8]u8;put_u32(rdat[:], 0, esm.REGN_WEATHER);rdat[4] = 1;rdat[5] = 95
+	field(&regn, "RDAT", rdat[:])
+	rdwt: [24]u8;chance(rdwt[:], 0, 0x0000_0911, 90);chance(rdwt[:], 12, 0x0000_0912, 10)
+	field(&regn, "RDWT", rdwt[:])
+	regns := make([dynamic]u8, 0, 96);defer delete(regns)
+	record(&regns, "REGN", 0, 0x0000_0930, regn[:])
+
+	parent := make([dynamic]u8, 0, 16);defer delete(parent)
+	field(&parent, "CNAM", u32_bytes(0x0000_0920))
+	child := make([dynamic]u8, 0, 32);defer delete(child)
+	field(&child, "WNAM", u32_bytes(0x0000_0940))
+	field(&child, "PNAM", []u8{esm.WRLD_USE_PARENT_CLIMATE, 0})
+	own := make([dynamic]u8, 0, 32);defer delete(own)
+	field(&own, "WNAM", u32_bytes(0x0000_0940))
+	field(&own, "PNAM", []u8{0x04, 0})
+	wrlds := make([dynamic]u8, 0, 128);defer delete(wrlds)
+	record(&wrlds, "WRLD", 0, 0x0000_0940, parent[:])
+	record(&wrlds, "WRLD", 0, 0x0000_0941, child[:])
+	record(&wrlds, "WRLD", 0, 0x0000_0942, own[:])
+
+	cell := make([dynamic]u8, 0, 32);defer delete(cell)
+	field(&cell, "DATA", []u8{0x01, 0})
+	xclr: [8]u8;put_u32(xclr[:], 0, 0x0000_0930);put_u32(xclr[:], 4, 0x0000_0931)
+	field(&cell, "XCLR", xclr[:])
+	cells := make([dynamic]u8, 0, 64);defer delete(cells)
+	record(&cells, "CELL", 0, 0x0000_00AA, cell[:])
+
+	out := make([dynamic]u8, 0, 512);defer delete(out)
+	record(&out, "TES4", 0, 0, tes4[:])
+	group(&out, transmute([]u8)string("CLMT"), 0, clmts[:])
+	group(&out, transmute([]u8)string("REGN"), 0, regns[:])
+	group(&out, transmute([]u8)string("WRLD"), 0, wrlds[:])
+	group(&out, transmute([]u8)string("CELL"), 0, cells[:])
+
+	db := gamedb.build(out[:])
+	defer gamedb.destroy(&db)
+
+	cw := gamedb.climate_weathers(&db, 0x0000_0920)
+	testing.expect_value(t, len(cw), 1)
+	if len(cw) == 1 {testing.expect_value(t, cw[0], gamedb.Weather_Chance{0x0000_0910, 100, 0})}
+
+	r, rok := gamedb.region_weather(&db, 0x0000_0930)
+	testing.expect(t, rok, "region weather indexed")
+	testing.expect(t, r.override, "override flag")
+	testing.expect_value(t, r.priority, u8(95))
+	testing.expect_value(t, len(r.weathers), 2)
+	if len(r.weathers) == 2 {testing.expect_value(t, r.weathers[1].weather, gamedb.Form_ID(0x0000_0912))}
+
+	testing.expect_value(t, gamedb.world_climate(&db, 0x0000_0940), gamedb.Form_ID(0x0000_0920))
+	testing.expect_value(t, gamedb.world_climate(&db, 0x0000_0941), gamedb.Form_ID(0x0000_0920))
+	testing.expect_value(t, gamedb.world_climate(&db, 0x0000_0942), gamedb.Form_ID(0))
+
+	regions := gamedb.cell_regions(&db, 0x0000_00AA)
+	testing.expect_value(t, len(regions), 2)
+	if len(regions) == 2 {testing.expect_value(t, regions[1], gamedb.Form_ID(0x0000_0931))}
+}
+
 // --- VMAD (records_scripts.odin) ---
 //
 // Synthetic, like the rest of this file: the REAL proof is `esmdump --vmad`, which decodes every

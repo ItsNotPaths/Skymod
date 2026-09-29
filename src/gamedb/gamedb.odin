@@ -217,6 +217,10 @@ DB :: struct {
 	music_types:      map[Form_ID]Music_Type, // MUSC formID -> its priority and tracks
 	music_tracks:     map[Form_ID]Music_Track, // MUST formID -> its file, palette or silence
 	world_music:      map[Form_ID]Form_ID, // WRLD formID -> its music type (ZNAM)
+	climates:         map[Form_ID][]Weather_Chance, // CLMT formID -> its weathers (WLST; owned)
+	region_weathers:  map[Form_ID]Region_Weather, // REGN formID -> its weather block (regions with one only)
+	world_climates:   map[Form_ID]World_Climate, // WRLD formID -> its climate and parent
+	cell_regions:     map[Form_ID][]Form_ID, // exterior CELL formID -> its regions (XCLR; owned)
 	base_sounds:      map[Form_ID]Base_Sounds, // DOOR/CONT/ACTI/FLOR/item base -> its use and done sounds
 	classes:       map[Form_ID]Class, // CLAS formID -> level-up weighting (owned description)
 	voice_types:   map[Form_ID]u8, // VTYP formID -> its DNAM flags (identity is the form itself)
@@ -825,6 +829,10 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		music_types      = make(map[Form_ID]Music_Type, 64, allocator),
 		music_tracks     = make(map[Form_ID]Music_Track, 512, allocator),
 		world_music      = make(map[Form_ID]Form_ID, 32, allocator),
+		climates         = make(map[Form_ID][]Weather_Chance, 8, allocator),
+		region_weathers  = make(map[Form_ID]Region_Weather, 64, allocator),
+		world_climates   = make(map[Form_ID]World_Climate, 64, allocator),
+		cell_regions     = make(map[Form_ID][]Form_ID, 16384, allocator),
 		base_sounds      = make(map[Form_ID]Base_Sounds, 8192, allocator),
 		outfits       = make(map[Form_ID][]Form_ID, 512, allocator),
 		actor_value_info     = make(map[Form_ID]Actor_Value_Info, 256, allocator),
@@ -1150,6 +1158,7 @@ destroy :: proc(db: ^DB) {
 	free_actor_indexes(db) // races, classes, voice types, outfits, actor values
 	free_sound_indexes(db) // descriptors, markers, categories, DOBJ defaults
 	free_music_indexes(db)
+	free_climate_indexes(db)
 	db^ = {}
 }
 
@@ -1626,6 +1635,10 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 		index_equip_type(db, rec, ctx.fm)
 	case s == "WTHR":
 		index_weather(db, rec, ctx.fm)
+	case s == "CLMT":
+		index_climate(db, rec, ctx.fm)
+	case s == "REGN":
+		index_region(db, rec, ctx.fm)
 	case s == "RACE":
 		index_race(db, rec, ctx.fm)
 	case s == "MOVT":
@@ -1984,6 +1997,7 @@ index_world :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	if m, mok := esm.subrecord_formid(fl, "ZNAM"); mok {
 		db.world_music[rec.form_id] = esm.remap_form(fm, m)
 	}
+	index_world_climate(db, rec.form_id, fl, fm)
 }
 
 @(private)
@@ -2032,6 +2046,7 @@ index_cell :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 	if m, mok := esm.subrecord_formid(fl, "XCMO"); mok {
 		cell.music = esm.remap_form(ctx.fm, m)
 	}
+	index_cell_regions(db, rec.form_id, fl, ctx.fm)
 	index_owner(db, rec.form_id, fl, ctx.fm)
 	if gx, gy, gok := esm.cell_grid(fl); gok {
 		cell.gx, cell.gy, cell.has_grid = gx, gy, true

@@ -9,7 +9,6 @@ package esm
 // Records the base game ships that nothing here decodes into their content.
 //
 // (hole arma-records :tags records :sev gap) ARMA is never decoded: ARMO has stats and slots but no per-race model list. Drawing worn armour is skinned-pipeline.
-// (hole weather-select :tags (records world unclaimed) :sev gap) no weather system: REGN and CLMT are never decoded, and nothing picks, times or blends a weather (WTHR is read), so there is no regional climate.
 
 // --- keywords -------------------------------------------------------------------------
 
@@ -758,6 +757,73 @@ location_marker_color :: proc(fields: []Field) -> (u32, bool) {
 		return rd32(f.data, 0), true
 	}
 	return 0, false
+}
+
+// --- CLMT / REGN (climate, region weather) ------------------------------------------------
+
+// Weather_Chance is one entry of a climate's WLST or a region's RDWT: a weather, its chance and an
+// optional global. Raw/local formIDs. (Validated vs WeatherFFRiften: 3 entries, 90/5/5.)
+Weather_Chance :: struct {
+	weather: u32,
+	chance:  i32,
+	global:  u32,
+}
+
+// weather_chances reads every 12-byte {weather, chance, global} entry of the `tag` fields (WLST on a
+// CLMT, RDWT on a REGN). Returns a freshly-allocated slice the caller owns (nil when there are none).
+weather_chances :: proc(fields: []Field, tag: string, allocator := context.allocator) -> []Weather_Chance {
+	n := 0
+	for f in fields {
+		if f.type == tag {n += len(f.data) / 12}
+	}
+	if n == 0 {return nil}
+	out := make([]Weather_Chance, n, allocator)
+	i := 0
+	for f in fields {
+		if f.type != tag {continue}
+		for off := 0; off + 12 <= len(f.data); off += 12 {
+			out[i] = {rd32(f.data, off), i32(rd32(f.data, off + 4)), rd32(f.data, off + 8)}
+			i += 1
+		}
+	}
+	return out
+}
+
+// REGN_WEATHER is the RDAT kind of a region's weather entry block. RDAT is {kind u32, override u8,
+// priority u8, pad u16}. (Validated vs WeatherCoastFog: kind 3, override 1, priority 95.)
+REGN_WEATHER :: 3
+
+// region_weather reads a REGN's weather block header: whether it overrides lower regions and its
+// priority. ok=false when the region has no weather block.
+region_weather :: proc(fields: []Field) -> (override: bool, priority: u8, ok: bool) {
+	for f in fields {
+		if f.type == "RDAT" && len(f.data) >= 6 && rd32(f.data, 0) == REGN_WEATHER {
+			return f.data[4] != 0, f.data[5], true
+		}
+	}
+	return false, 0, false
+}
+
+// WRLD_USE_PARENT_CLIMATE is the WRLD PNAM bit that makes a child worldspace use its parent's (WNAM)
+// climate. (Validated: WhiterunWorld PNAM 0x7F has it and no CNAM; Blackreach 0x04 lacks it and names
+// its own.)
+WRLD_USE_PARENT_CLIMATE :: 0x10
+
+// world_parent reads a WRLD's parent worldspace (WNAM) and whether it takes the parent's climate.
+world_parent :: proc(fields: []Field) -> (parent: u32, parent_climate: bool) {
+	if f, ok := find_field(fields, "WNAM"); ok && len(f.data) >= 4 {parent = rd32(f.data, 0)}
+	if f, ok := find_field(fields, "PNAM"); ok && len(f.data) >= 1 {parent_climate = f.data[0] & WRLD_USE_PARENT_CLIMATE != 0}
+	return
+}
+
+// cell_regions reads an exterior CELL's XCLR region list. Returns a freshly-allocated slice the caller
+// owns (nil when there is none). Raw/local formIDs.
+cell_regions :: proc(fields: []Field, allocator := context.allocator) -> []u32 {
+	f, ok := find_field(fields, "XCLR")
+	if !ok || len(f.data) < 4 {return nil}
+	out := make([]u32, len(f.data) / 4, allocator)
+	for &r, i in out {r = rd32(f.data, i * 4)}
+	return out
 }
 
 // --- WTHR (weather) ----------------------------------------------------------------------
