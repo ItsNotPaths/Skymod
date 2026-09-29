@@ -328,12 +328,12 @@ fn_get_vm_quest_variable :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID
 
 // ── actors ──────────────────────────────────────────────────────────────────────────────────────
 
-// GetIsID compares the base form; a leveled actor compares the NPC_ it spawned as.
+// GetIsID compares the base form. A leveled actor matches both its own base (the Whiterun gate
+// guard's quest names it) and the NPC_ it spawned as.
 @(private = "file")
 fn_get_is_id :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	base := worldstate.actor_pick(ctx.ws, ctx.db, on)
-	if base == 0 {base = worldstate.ref_base(ctx.ws, ctx.db, on)}
-	return yes(base != 0 && base == p1(c))
+	id := p1(c)
+	return yes(id != 0 && (id == worldstate.ref_base(ctx.ws, ctx.db, on) || id == worldstate.actor_pick(ctx.ws, ctx.db, on)))
 }
 
 @(private = "file")
@@ -696,13 +696,14 @@ fn_is_sneaking :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32,
 	return yes(actorstate.current(&ctx.ws.states, on) == actorstate.SNEAK)
 }
 
-// IsInList(list): the ref, or its base, is a member of the form list.
+// IsInList(list): the ref, its base or, for a leveled actor, the NPC_ it spawned as is in the list.
 @(private = "file")
 fn_is_in_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	base := worldstate.actor_pick(ctx.ws, ctx.db, on)
-	if base == 0 {base = worldstate.ref_base(ctx.ws, ctx.db, on)}
 	list := p1(c)
-	return yes(worldstate.list_has(ctx.ws, ctx.db, list, on) || (base != 0 && worldstate.list_has(ctx.ws, ctx.db, list, base)))
+	for f in ([]Form_ID{on, worldstate.ref_base(ctx.ws, ctx.db, on), worldstate.actor_pick(ctx.ws, ctx.db, on)}) {
+		if f != 0 && worldstate.list_has(ctx.ws, ctx.db, list, f) {return yes(true)}
+	}
+	return yes(false)
 }
 
 // GetCurrentTime: the hour of the day.
