@@ -607,8 +607,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	plugin.trust_destroy(&trust)
 	g.sim.detection = detection.BUILTIN
 	plugin.apply(&g.plugins, detection.SEAM, detection.VERSION, &g.sim.detection)
-	g.sim.combat = combat.BUILTIN
-	plugin.apply(&g.plugins, combat.SEAM, combat.VERSION, &g.sim.combat)
+	plugin.apply(&g.plugins, combat.SEAM, combat.VERSION, &script.combat_table)
 	plugin.apply(&g.plugins, sight.SEAM, sight.VERSION, &sighthost.table)
 	plugin.apply(&g.plugins, condfn.SEAM, condfn.VERSION, &conditions.table)
 	plugin.apply(&g.plugins, magic.SEAM, magic.VERSION, &script.magic_table)

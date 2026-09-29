@@ -3,7 +3,7 @@ package combat
 // The combat brain: for each loaded actor, whether it warns, fights or flees, and whom; the AI's
 // mover carries it out. This is a seam (ws.md Workstream H): the host hands in the actor snapshot
 // and each fighter's last fight, answers the queries, and keeps each fight `set` reports. A plugin
-// replaces Table.tick.
+// replaces Table.tick, and Table.damage (damage.odin).
 
 import "core:math"
 import "../plugin"
@@ -11,7 +11,7 @@ import "../plugin"
 Form_ID :: plugin.Form_ID
 
 SEAM :: "skymod_combat"
-VERSION :: u32(1)
+VERSION :: u32(2)
 
 State :: enum u8 {
 	None,
@@ -56,10 +56,11 @@ Input :: struct {
 }
 
 Table :: struct {
-	tick: proc "c" (inp: ^Input),
+	tick:   proc "c" (inp: ^Input),
+	damage: proc "c" (w: ^plugin.World, a: Attack, base: f32) -> f32,
 }
 
-BUILTIN :: Table{tick_builtin}
+BUILTIN :: Table{tick_builtin, damage_builtin}
 
 COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
 FAR :: f32(1e9) // the distance to an actor not loaded

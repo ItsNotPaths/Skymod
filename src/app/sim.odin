@@ -30,7 +30,6 @@ Sim :: struct {
 	trans:        slua.Transitions, // what OnLoad/OnCellAttach were last told (the script phase)
 	agents:       ai.World, // every actor's running package
 	detection:    detection.Table, // who sees whom: the built-in or a plugin's
-	combat:       combat.Table, // who fights whom: the built-in brain or a plugin's
 	weather:      weather.Table, // which weather is in force: the built-in or a plugin's
 	actors:       Actor_Snapshot, // the loaded actors as the seams see them
 	actor_bodies: map[Form_ID]Actor_Body, // every loaded actor ref, the one the player controls too

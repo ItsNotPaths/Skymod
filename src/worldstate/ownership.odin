@@ -102,6 +102,7 @@ set_stolen_mark :: proc(ws: ^World_State, item: Form_ID, marks: bool) {
 	ws.stolen_marks[item] = marks
 }
 
+// (hole item-tempering :tags (combat player save) :sev gap) no item is tempered: a stack is an item and a stolen flag, with no per-item quality, so no weapon or armor gets its smithing bonus, and Mod_Tempering_Health (11 SE entries) is not run.
 // Item_Stack is one row of a holder's items: the clean ones stack, a stolen one never does.
 Item_Stack :: struct {
 	item:   Form_ID,

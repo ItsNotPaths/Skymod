@@ -118,6 +118,7 @@ damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) 
 	check_death(c, actor, attacker)
 }
 
+// (hole bleedout :tags (combat unclaimed) :sev gap :needs (actor-states)) an essential actor at 0 Health stands on with no bleedout: fBleedoutDefault 0.15, fBleedoutMin 5, fBleedoutRate 15 and fBleedoutRecover 0.05 are unread.
 // check_death kills an actor at 0 Health, unless essential or protected (protected dies only to
 // the player). Every way Health drops ends here.
 check_death :: proc(c: ^Call, actor: Form_ID, attacker: Form_ID) {

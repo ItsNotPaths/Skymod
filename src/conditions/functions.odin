@@ -394,6 +394,8 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
 // (hole combat-conditions :tags combat :sev gap) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget and GetCombatTargetHasKeyword read 0, though the stand-in combat state (ai.combat_state) has the answer.
+// (hole damage-perk-conditions :tags (combat records) :sev gap) these have no body, so they pass, and the damage perks test them: IsUndead (144 uses in damage perk tabs, SE), WornApparelHasKeywordCount (31), IsWeaponSkillType (2). An anti-undead perk would add to every hit.
+// (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsAttackType (16 uses in damage perk tabs, SE), IsSprinting (4) and IsBlocking (2) have no body, so they pass.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole magic-conditions :tags (magic records) :sev gap) these have no body, so they pass: HasShout, GetSpellUsageNum, HasEquippedSpell, GetCurrentCastingType, IsCurrentSpell, IsWardState, IsDualCasting, EPMagic_IsAdvanceSkill, EPMagic_SpellHasKeyword, EPMagic_SpellHasSkill, HasBoundWeaponEquipped, SpellHasCastingPerk, EffectWasDualCast. A perk gated on an EPMagic_ one applies to every spell.
