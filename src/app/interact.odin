@@ -181,7 +181,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		if worldstate.is_dead(&g.sim.ws, &g.db, form) {send_parked(g, Evt_Open_Container{form})} else {open_dialogue(g, form)}
 	case .None, .Activator:
 		if by == g.sim.ws.player && by in g.sim.ws.jailed && ai.is_bed(&g.sim.agents, &g.sim.ws, &g.db, form) {
-			worldstate.serve_time(&g.sim.ws, by) // a jail bed: the player sleeps the sentence away
+			worldstate.ask_jail_bed(&g.sim.ws)
 			break
 		}
 		if by == g.sim.ws.player {log.infof("activate: %q [%s] — no menu yet (stub)", interact_subject(g, form), activate_kind_tag[kind])}

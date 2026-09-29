@@ -505,9 +505,23 @@ send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, crime, guard: Form
 
 // serve_time is ServeTime and a jailed actor's bed: the clock skips to the end of the sentence.
 // Only the player's controller asks: a jailed NPC waits its days out on the running clock.
-// (hole jail-bed-prompt :tags (ui combat) :sev polish) the bed serves the sentence at once: no JailBedMsg (MESG 0x3403D) asks first.
 serve_time :: proc(ws: ^World_State, actor: Form_ID) {
 	if j, ok := ws.jailed[actor]; ok {skip_game_time(ws, j.until - ws.clock.hours)}
+}
+
+// ask_jail_bed is the jailed player's bed: it asks whether to serve the days left. Backing out
+// declines.
+ask_jail_bed :: proc(ws: ^World_State) {
+	if j, ok := ws.jailed[ws.player]; ok {
+		ask(ws, formid.JAIL_BED_MSG, {0 = f32((j.until - ws.clock.hours) / 24)}, can_back = true)
+	}
+}
+
+// tick_jail_bed serves the sentence once the player picked Serve Time, and spends that answer.
+tick_jail_bed :: proc(ws: ^World_State) {
+	if answer(ws, formid.JAIL_BED_MSG) != 0 {return}
+	delete_key(&ws.answers, formid.JAIL_BED_MSG)
+	serve_time(ws, ws.player)
 }
 
 // lose_skill_progress clears the progress toward the next level of random skills: all 18 for a

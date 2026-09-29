@@ -20,8 +20,9 @@ Box_Text :: struct {
 Box_Pick :: #type proc(g: ^Game, pick: int)
 
 Message_Box :: struct {
-	sess:    UI_Session,
-	on_pick: Box_Pick,
+	sess:     UI_Session,
+	on_pick:  Box_Pick,
+	can_back: bool, // Esc picks len(buttons): none of them
 }
 
 message_box_init :: proc(g: ^Game) -> bool {
@@ -42,8 +43,8 @@ message_box_up :: proc(g: ^Game) -> bool {
 
 // message_box_open shows `body` with `buttons` and pauses the world. `on_pick` gets the picked index
 // when the player picks, with the sim still parked; a second box replaces the first, which then gets
-// no pick.
-message_box_open :: proc(g: ^Game, body: string, buttons: []string, on_pick: Box_Pick) {
+// no pick. With `can_back`, Esc picks len(buttons).
+message_box_open :: proc(g: ^Game, body: string, buttons: []string, on_pick: Box_Pick, can_back := false) {
 	if !g.box.sess.ok {
 		log.warnf("[message] no message box screen; picked 0 for %q", body)
 		on_pick(g, 0)
@@ -53,7 +54,7 @@ message_box_open :: proc(g: ^Game, body: string, buttons: []string, on_pick: Box
 	labels := make([]string, len(buttons))
 	for b, i in buttons {labels[i] = strings.clone(b)}
 	g.box.sess.host.box = Box_Text{strings.clone(body), labels}
-	g.box.on_pick = on_pick
+	g.box.on_pick, g.box.can_back = on_pick, can_back
 	g.box.sess.start = time.tick_now()
 	delete(g.box.sess.focus)
 	g.box.sess.focus = ""
@@ -73,7 +74,9 @@ frame_message_box :: proc(g: ^Game) {
 	}
 	verb, picked, ok := ui_session_step(&g.box.sess, w, h, nav, mx, my, g.p.input.select)
 	pick := 0
-	if !ok {
+	if g.box.can_back && input.fired(&g.imgr, "Pause") {
+		pick = len(g.box.sess.host.box.?.buttons)
+	} else if !ok {
 		log.error("[message] the message box screen failed; picked 0")
 	} else if !picked {
 		return
@@ -88,11 +91,12 @@ frame_message_box :: proc(g: ^Game) {
 // ask_next shows the oldest box a script asked for (worldstate.ask). Its answer shows the next.
 ask_next :: proc(g: ^Game) {
 	if len(g.sim.ws.asks) == 0 {return}
-	m, _ := gamedb.message_of(&g.db, g.sim.ws.asks[0])
-	message_box_open(g, m.body, m.buttons, proc(g: ^Game, pick: int) {
+	a := g.sim.ws.asks[0]
+	m, _ := gamedb.message_of(&g.db, a.message)
+	message_box_open(g, gamedb.format_message(m.body, a.args), m.buttons, proc(g: ^Game, pick: int) {
 		worldstate.take_ask(&g.sim.ws, i32(pick))
 		ask_next(g)
-	})
+	}, a.can_back)
 }
 
 @(private = "file")

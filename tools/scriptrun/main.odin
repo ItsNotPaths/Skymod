@@ -110,7 +110,7 @@ main :: proc() {
 		clear(&ws.activations)
 		updates += slua.tick_end(&vm, 1.0 / TICK_HZ)
 		for len(ws.asks) > 0 { // the app's box: the player picks before the next tick
-			pick, _ := slua.eval_int(&vm, fmt.tprintf("return driver_answer and driver_answer(%d) or 0", ws.asks[0]))
+			pick, _ := slua.eval_int(&vm, fmt.tprintf("return driver_answer and driver_answer(%d) or 0", ws.asks[0].message))
 			worldstate.take_ask(&ws, i32(pick))
 		}
 		if tick == 0 {worldstate.skip_game_time(&ws, args.skip)}

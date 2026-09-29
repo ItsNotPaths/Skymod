@@ -179,7 +179,7 @@ Runtime :: struct {
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
-	asks:            [dynamic]Form_ID,      // message boxes scripts asked for, oldest first (asks.odin); not saved
+	asks:            [dynamic]Ask,          // message boxes asked for, oldest first (asks.odin); not saved
 	answers:         map[Form_ID]i32,       // message -> the button picked on its last box; not saved
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
 	regen:           Regen_Turns,           // whose turn it is to regenerate outside the loaded cells (av_regen)

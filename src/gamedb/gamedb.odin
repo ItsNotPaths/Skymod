@@ -10,6 +10,7 @@ package gamedb
 // global load-order space so a later plugin overrides an earlier one (last write wins).
 
 import "base:runtime"
+import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:strings"
@@ -2612,6 +2613,34 @@ message_of :: proc(db: ^DB, form: Form_ID) -> (Message, bool) {
 	}
 	m, ok := db.messages[form]
 	return m, ok
+}
+
+// format_message fills a message's printf tokens (%.0f, %d, %%) with Show's arguments, in order.
+// The text is temp-allocated.
+format_message :: proc(text: string, args: [9]f32) -> string {
+	b := strings.builder_make(context.temp_allocator)
+	next := 0
+	for i := 0; i < len(text); i += 1 {
+		if text[i] != '%' || i + 1 >= len(text) {
+			strings.write_byte(&b, text[i])
+			continue
+		}
+		j := i + 1
+		for j < len(text) && strings.index_byte("0123456789.-+ ", text[j]) >= 0 {j += 1}
+		if j >= len(text) || strings.index_byte("fdig%", text[j]) < 0 {
+			strings.write_byte(&b, text[i])
+			continue
+		}
+		v := args[next] if next < len(args) else 0
+		switch text[j] {
+		case '%': strings.write_byte(&b, '%')
+		case 'd', 'i': fmt.sbprintf(&b, "%d", int(v))
+		case: fmt.sbprintf(&b, fmt.tprintf("%%%sf", text[i + 1:j]), v)
+		}
+		if text[j] != '%' {next += 1}
+		i = j
+	}
+	return strings.to_string(b)
 }
 
 // setting_of looks a game setting up by name. Names are case-insensitive — a script spells a

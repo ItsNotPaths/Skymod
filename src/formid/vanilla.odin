@@ -7,6 +7,7 @@ package formid
 PLAYER :: Form_ID(0x14)
 PLAYER_BASE :: Form_ID(0x7) // the NPC_ a new game's character places
 GOLD :: Form_ID(0xF) // Gold001
+JAIL_BED_MSG :: Form_ID(0x3403D) // "Do you want to serve your time? (%.0f days)", one button: Serve Time
 PRISON_MARKER :: Form_ID(0x4) // a DOOR base whose refs mark a jail's way in and out; its teleport is data, not a door
 IS_GUARD_FACTION :: Form_ID(0x86EEE) // IsGuardFaction: its members are guards (IsGuard)
 ATTACK_ON_SIGHT_VIOLENT :: Form_ID(0xE9C) // CrimeArrestOnSightViolentThreshold (999)

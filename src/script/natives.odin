@@ -363,8 +363,9 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 		log.infof("[message] %s", m.body)
 		return i32(0)
 	}
-	// (hole message-args :tags (ui script) :sev gap) Show's nine float arguments are dropped: a box whose text formats them (%.0f, the jail bed's days) shows the raw text.
-	worldstate.ask(c.ws, c.self)
+	values: [9]f32
+	for &v, i in values {v = arg_f32(args, i, 0)}
+	worldstate.ask(c.ws, c.self, values)
 	return i32(0)
 }
 

@@ -11,6 +11,7 @@ import "../worldstate"
 // (JOUT) and the JAIL event goes out. Coming out: it moves to the jail's exterior marker (JAIL),
 // gets its gear back, wears what it wore before, loses skill progress and the bounty clears.
 tick_jail :: proc(g: ^Game) {
+	worldstate.tick_jail_bed(&g.sim.ws)
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	for o in g.sim.ws.jail_orders {
 		f, _ := worldstate.faction(&g.sim.ws, &g.db, o.faction)
