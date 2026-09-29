@@ -11,13 +11,13 @@ import "../formats/esm"
 import "../formid"
 import "../gamedb"
 
-// resisted is magnitude `m` of `effect` from `source` after `target`'s resistances.
-// (hole resist-rules :tags magic :sev gap) resistance is code, and it differs from vanilla (build/out/wsM/mechanics.md): it cuts only magnitude (Resist Magic should follow the power, so it shortens Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, and worn armour enchantments are resisted. Wanted: resistance as a core landing hook reading FireResist and the rest, and this proc gone.
+// resisted is magnitude `m` of a record `effect` from `source` after `target`'s resistances. A
+// defined effect is resisted by the core Resist hook (rt.lua) instead.
+// (hole record-resist :tags magic :sev gap :needs (magic-translate)) record effects still resist here, unlike vanilla (build/out/wsM/mechanics.md): only magnitude is cut (Resist Magic should shorten Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, worn armour enchantments are resisted, and the cap is not ResistCap. The translator makes them rt.effects and this proc goes.
 resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_ID, m: f32) -> f32 {
 	mgef, _ := gamedb.magic_effect_of(db, effect)
 	if mgef.info.flags & esm.MGEF_HOSTILE == 0 {return m}
-	i := mgef.info.resist_av
-	resist := gamedb.AV_NAMES[i] if i >= 0 && int(i) < len(gamedb.AV_NAMES) else ""
+	resist := effect_resistance(ws, db, effect)
 	magic := true
 	if sp, ok := gamedb.spell_of(db, source); ok {
 		if sp.info.flags & esm.SPELL_IGNORE_RESISTANCE != 0 {return m}
@@ -33,4 +33,13 @@ resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_
 	if magic && resist != "MagicResist" {m *= 1 - min(av_current(ws, db, target, "MagicResist"), cap) / 100}
 	if resist != "" {m *= 1 - min(av_current(ws, db, target, resist), cap) / 100}
 	return m
+}
+
+// create_resist_cap makes ResistCap, the most of any one resistance that counts (the Resist hook):
+// 100, immune; the player's is fPlayerMaxResistance unless the save holds its own.
+create_resist_cap :: proc(ws: ^World_State, db: ^gamedb.DB) {
+	av_create(ws, "ResistCap", 100, .Static)
+	if _, saved := av_parts(ws, ws.player, "ResistCap").base.?; !saved {
+		av_set_base(ws, ws.player, "ResistCap", gamedb.setting_float(db, "fPlayerMaxResistance", 85))
+	}
 }

@@ -1136,6 +1136,8 @@ end
 local starting        -- during game start: { forms = attached, fresh = those that run OnInit }
 local game_loading = false
 local hooks = {} -- rt.hook's, in order: { name =, land =, cost = }
+local core_set = {} -- a mod's replacement for a core hook, by name; false removes it
+local add_core_hooks -- (below rt.hook)
 
 local function send_now(form, name)
   for _, inst in ipairs(ordered[form] or {}) do rt.event(inst, name) end
@@ -1164,7 +1166,7 @@ end
 -- defers OnInit; rt.start_end sends OnGameLoaded to every form attached, then OnInit to the new ones.
 -- rt.actor_value works only inside OnGameLoaded.
 function rt.start_begin()
-  hooks = {}
+  hooks, core_set = {}, {}
   rt.load_effects()
   starting = { forms = {}, fresh = {} }
 end
@@ -1174,6 +1176,7 @@ function rt.start_end()
   starting = nil
   game_loading = true
   for i = 0, #s.forms - 1 do send_now(s.forms[i], "OnGameLoaded") end
+  add_core_hooks()
   game_loading = false
   for i = 0, #s.fresh - 1 do send_now(s.fresh[i], "OnInit") end
 end
@@ -1191,6 +1194,7 @@ end
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
 --   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
+--   resist = "FrostResist"                  -- the AV that resists it (GetResistance), when tagged hostile
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
 --   land = function(e) ... end              -- once as it lands: return false and it does not start;
 --                                           -- set e.m, e.d and tunables (e.taken = ...). An effect
@@ -1215,8 +1219,46 @@ rt.global = setmetatable({}, { __index = function(_, name) return global_value(n
 -- c.cost). Either returns false to stop that effect or refuse that cast. Hooks run in the order
 -- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
 -- new game or load.
+-- resist is the core Resist hook: a hostile effect's power, cut by each resistance of the target
+-- up to its ResistCap. Resist Magic, then the effect's own (GetResistance); a poison's by
+-- PoisonResist alone; a disease's not here (disease-resistance).
+local function resist(e)
+  local src = e.spell
+  if not e.effect:HasTag("hostile") then return end
+  if src and (src:HasTag("ignore_resist") or src:HasTag("disease")) then return end
+  local av = e.target.av
+  local cap = av.ResistCap.value
+  local function keep(name) return 1 - math.min(av[name].value, cap) / 100 end
+  if src and src:HasTag("poison") then
+    e.m = e.m * keep("PoisonResist")
+    return
+  end
+  e.m = e.m * keep("MagicResist")
+  local own = e.effect:GetResistance()
+  if own ~= "" and own ~= "MagicResist" then e.m = e.m * keep(own) end
+end
+
+-- CORE_HOOKS run after every mod's, so resistance has the last say, as in vanilla. rt.hook with a
+-- core hook's name replaces it there; nil removes it.
+local CORE_HOOKS = { { name = "Resist", land = resist } }
+
+add_core_hooks = function()
+  for i = 0, #CORE_HOOKS - 1 do
+    local core = CORE_HOOKS[i]
+    local def = core_set[core.name]
+    if def == nil then def = core end
+    if def then hooks[#hooks] = { name = core.name, land = def.land, cost = def.cost } end
+  end
+end
+
 function rt.hook(name, def)
   if not game_loading then error("rt.hook outside OnGameLoaded", 2) end
+  for i = 0, #CORE_HOOKS - 1 do
+    if CORE_HOOKS[i].name == name then
+      core_set[name] = def or false
+      return
+    end
+  end
   for i = 0, #hooks - 1 do
     if hooks[i].name == name then
       if def then

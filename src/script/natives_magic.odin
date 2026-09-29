@@ -242,7 +242,8 @@ use_item :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // conditions for that effect decide whether it is active, now and at each second's recheck (CK
 // wiki, Magic Effect: Target Conditions). They run on the target, with the caster as the condition
 // target. A spell's magnitude and duration go through the caster's Mod Spell perks and the
-// target's Mod Incoming Spell perks, then resistance (worldstate.resisted), then the landing hooks and the effect's land; effects stack by
+// target's Mod Incoming Spell perks, then a record's resistance (worldstate.resisted), then the
+// landing hooks (the last resists a defined effect) and the effect's land; effects stack by
 // worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
 // (hole concentration-conditions :tags magic :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
@@ -266,7 +267,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 			duration = perk_value(c, .Mod_Spell_Duration, caster, duration, source, target)
 			duration = perk_value(c, .Mod_Incoming_Spell_Duration, target, duration, source)
 		}
-		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
+		m := magnitude if defined else worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
 		m, duration = effect_numbers(c, hit, e.effect, m, duration)
 		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)

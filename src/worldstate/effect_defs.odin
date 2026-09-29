@@ -17,6 +17,7 @@ MAX_TUNABLES :: 8
 // Effect_Def is one defined effect, compiled.
 Effect_Def :: struct {
 	name:     string, // owned
+	resist:   string, // owned: the AV that resists it (GetResistance); "" none
 	terms:    [dynamic]Effect_Term,
 	tunables: [dynamic]Tunable, // Active_Effect.tunables in this order
 	scripts:  []esm.Script_Attach, // the moments; owned (esm.free_form_scripts shape)
@@ -31,6 +32,7 @@ Tunable :: struct {
 // Effect_Def_Src is a definition as content wrote it: formulas as strings, borrowed.
 Effect_Def_Src :: struct {
 	name, form: string, // form: "File.esm:012FCD" or an editor id; "" makes a Lua form
+	resist:     string,
 	tags:       []string,
 	terms:      []Effect_Src,
 	defaults:   []Tunable, // the definition's numbers
@@ -68,7 +70,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	forget_effect_terms(ws)
 
-	d := Effect_Def{name = strings.clone(src.name)}
+	d := Effect_Def{name = strings.clone(src.name), resist = strings.clone(src.resist)}
 	for t in src.defaults {add_tunable(&d, t.name, t.default)}
 	bind := Def_Bind{ws, db, &d}
 	for s in src.terms {
@@ -108,6 +110,14 @@ land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool
 		e.duration = 0
 	}
 	return ok
+}
+
+// effect_resistance is the AV that resists `effect`: its definition's, else its record's; "" none.
+effect_resistance :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> string {
+	if d, ok := ws.effect_defs[effect]; ok {return d.resist}
+	mgef, _ := gamedb.magic_effect_of(db, effect)
+	i := mgef.info.resist_av
+	return gamedb.AV_NAMES[i] if i >= 0 && int(i) < len(gamedb.AV_NAMES) else ""
 }
 
 // effect_by_name is the effect a name means: a defined one, else a record's by editor id.
@@ -170,6 +180,7 @@ clone_scripts :: proc(src: []esm.Script_Attach) -> []esm.Script_Attach {
 @(private)
 free_effect_def :: proc(d: ^Effect_Def) {
 	delete(d.name)
+	delete(d.resist)
 	for &t in d.terms {
 		delete(t.av)
 		formula.destroy(&t.f)

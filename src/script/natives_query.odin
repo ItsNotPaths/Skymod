@@ -77,6 +77,7 @@ register_query :: proc(reg: ^Registry) {
 		register(reg, class, "IsHostile", n_is_hostile)
 	}
 	register(reg, "MagicEffect", "GetAssociatedSkill", n_get_associated_skill)
+	register(reg, "MagicEffect", "GetResistance", n_get_resistance)
 	register(reg, "Package", "GetTemplate", n_get_template)
 	register(reg, "Form", "GetFormID", n_get_form_id)
 	register(reg, "Form", "PlayerKnows", n_player_knows)
@@ -337,6 +338,11 @@ n_has_common_parent :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_hostile :: proc(c: ^Call, args: []Value) -> Value {
 	return gamedb.is_hostile(c.db, c.self)
+}
+
+// GetResistance() (SKSE's name): the AV that resists this effect, "" for none.
+n_get_resistance :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.effect_resistance(c.ws, c.db, c.self)
 }
 
 // GetAssociatedSkill: the skill an effect trains, "" for none.

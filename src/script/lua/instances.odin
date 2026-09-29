@@ -68,6 +68,7 @@ new_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 // how many instances were made.
 start_game :: proc(vm: ^VM, db: ^gamedb.DB) -> int {
 	call_rt(vm, "start_begin")
+	worldstate.create_resist_cap(vm.ctx.ws, db)
 	made := 0
 	for q in sorted_quests(db) {made += attach_quest(vm, db, q)}
 

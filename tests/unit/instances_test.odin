@@ -1884,3 +1884,62 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
 	testing.expect(t, !ok, "the cost hook refuses it")
 }
+
+@(private = "file")
+PLUS_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("Plus", nil)
+C.__fn["ongameloaded"] = function(self) rt.hook("Plus", { land = function(e) e.m = e.m + 10 end }) end
+return C
+`
+
+// The core Resist hook runs after every mod's hook and cuts a hostile effect's m by Resist Magic
+// and its own resistance, each capped at ResistCap (the player's is fPlayerMaxResistance); a
+// poison by PoisonResist alone, an ignore_resist spell not at all.
+@(test)
+test_resist_hook :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_resist", {{"plus.lua", PLUS_LUA}})
+	defer fixture_destroy(&f)
+	CHILL :: `return require('skymod.rt').effect { tags = { "hostile" }, resist = "FrostResist", av = { Health = { amount = "-m" } } }`
+	files := [][2]string {
+		{"effects/chill.lua", CHILL},
+		{"spells/frostbite.lua", `return require('skymod.rt').spell { applies = { { "Chill", m = 30 } } }`},
+		{"spells/pierce.lua", `return require('skymod.rt').spell { tags = { "ignore_resist" }, applies = { { "Chill", m = 30 } } }`},
+		{"spells/venom.lua", `return require('skymod.rt').spell { tags = { "poison" }, applies = { { "Chill", m = 30 } } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	QUEST, NPC, STURDY, CASTER :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x700), gamedb.Form_ID(0x702), gamedb.Form_ID(0x701)
+	f.ws.player = formid.PLAYER
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "Plus"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+	for a in ([]gamedb.Form_ID{NPC, STURDY, formid.PLAYER}) {worldstate.av_set_base(&f.ws, a, "Health", 1000)}
+	worldstate.av_set_base(&f.ws, NPC, "FrostResist", 50)
+	worldstate.av_set_base(&f.ws, NPC, "MagicResist", 50)
+	worldstate.av_set_base(&f.ws, NPC, "PoisonResist", 20)
+	worldstate.av_set_base(&f.ws, STURDY, "FrostResist", 100)
+	worldstate.av_set_base(&f.ws, formid.PLAYER, "FrostResist", 100)
+	slua.set_script_dirs(&f.vm, {f.dir})
+	slua.start_game(&f.vm, &f.db)
+
+	landed :: proc(t: ^testing.T, f: ^Fixture, spell: string, target: gamedb.Form_ID) -> f32 {
+		form := formid.lua_form("spell", spell)
+		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x%X))", form, target)
+		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+		hs := script.spell_effects(&f.ws, target, form)
+		if len(hs) == 0 {return -1}
+		return f.ws.effects[hs[0]].magnitude
+	}
+	testing.expect_value(t, landed(t, &f, "Frostbite", NPC), 10) // (30 + 10) * 0.5 * 0.5: the mod's hook first
+	testing.expect_value(t, landed(t, &f, "Pierce", NPC), 40)
+	testing.expect_value(t, landed(t, &f, "Venom", NPC), 32) // 40 * 0.8, no Resist Magic
+	testing.expect_value(t, landed(t, &f, "Frostbite", STURDY), 0) // 100: immune
+	player := landed(t, &f, "Frostbite", formid.PLAYER)
+	testing.expect(t, abs(player - 6) < 1e-4, "the player's 100 counts as 85") // 40 * 0.15
+}

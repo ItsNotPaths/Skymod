@@ -488,6 +488,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		key := to_string(L, -2)
 		switch {
 		case key == "form": src.form = to_string(L, -1)
+		case key == "resist": src.resist = to_string(L, -1)
 		case key == "land": // Lua keeps it (rt.land)
 		case key == "meta": // (stacking-meta)
 		case key == "tags":
