@@ -144,9 +144,11 @@ effect_resistance :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> 
 	return gamedb.AV_NAMES[i] if i >= 0 && int(i) < len(gamedb.AV_NAMES) else ""
 }
 
-// effect_by_name is the effect a name means: a defined one, else a record's by editor id.
+// effect_by_name is the effect a name means: a defined one, else a record's by editor id or as
+// "File.esm:012FCD".
 effect_by_name :: proc(ws: ^World_State, db: ^gamedb.DB, name: string) -> (Form_ID, bool) {
 	if f, ok := defined_by_name(ws.effect_defs, "effect", name); ok {return f, true}
+	if strings.contains(name, ":") {return form_by_name(ws, db, name)}
 	return gamedb.form_by_editor_id(db, name)
 }
 
