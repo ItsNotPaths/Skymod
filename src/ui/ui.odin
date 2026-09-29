@@ -32,7 +32,7 @@ set_font :: proc(a: ^font.Atlas) {
 	g_font = a
 }
 
-// (hole ui-images :tags ui :sev gap) an .Effect widget draws a flat placeholder rect, so no animated widget renders; .Image and 3-slice frames draw.
+// (hole ui-images :tags (ui ui-train) :sev gap) an .Effect widget draws a flat placeholder rect, so no animated widget renders; .Image and 3-slice frames draw.
 Kind :: enum {
 	Container, // layout-only box (paints `color` as a background if opaque)
 	Column,    // stacks children top→down with `gap`

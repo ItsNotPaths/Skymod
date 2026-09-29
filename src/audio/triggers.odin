@@ -77,7 +77,7 @@ wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_
 	return best
 }
 
-// (hole region-sounds :tags (audio world) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
+// (hole region-sounds :tags (audio world unclaimed) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
 // (hole acoustic-reverb :tags (audio world) :sev gap) no acoustic space's reverb (ASPC RDAT, a REVB) applies: sounds play dry in caves and halls alike.
 
 // Ambient is what plays because of where the listener is: the looping sound markers, activators and
@@ -151,7 +151,7 @@ impact_sound :: proc(db: ^gamedb.DB, source, target: formid.Form_ID, pos: [3]f32
 // (hole anim-sounds :tags (audio animation unclaimed) :sev gap :needs (hkx-porter)) no animation plays a sound: SoundPlay/SoundStop/SoundPlayAt annotations (727 SNDR names over 800 SE clips; 90 of 183 dragon clips), weaponSwing (the WEAP attack sound) and FootLeft/FootRight (FSTS/FSTP footstep sets, by gait and ground material; not decoded) have no animation to fire them.
 anim_sound :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, actor: formid.Form_ID, event: string) {}
 
-// (hole ui-button-sounds :tags (audio ui) :sev polish) menu buttons and list focus make no sound (UIMenuOKSD, UIMenuFocus, UIMenuPrevNextSD): the menus are ImGui placeholders with no per-widget hook.
+// (hole ui-button-sounds :tags (audio ui ui-train) :sev polish) menu buttons and list focus make no sound (UIMenuOKSD, UIMenuFocus, UIMenuPrevNextSD): the menus are ImGui placeholders with no per-widget hook.
 // ui_sound plays a sound descriptor by editor id, flat ("UIMenuOKSD"); 0 without a database.
 ui_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, edid: string) -> Handle {
 	if db == nil || edid == "" {return 0}

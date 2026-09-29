@@ -262,7 +262,7 @@ n_set_lock_level :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// (hole lockpicking :tags (ui player) :sev gap) IsLockBroken reads false: no pick or bash breaks a lock.
+// (hole lockpicking :tags (ui player ui-train) :sev gap) IsLockBroken reads false: no pick or bash breaks a lock.
 n_is_lock_broken :: proc(c: ^Call, args: []Value) -> Value {
 	return false
 }

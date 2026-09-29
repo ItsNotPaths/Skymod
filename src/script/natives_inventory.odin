@@ -214,7 +214,7 @@ new_stack :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
 	return ref
 }
 
-// (hole item-event-owner :tags (quest player) :sev polish :needs (container-screen)) the player's AIPL and REMP story events name no owner and never say Buy or Pickpocket (a theft says Steal): nothing trades or pickpockets.
+// (hole item-event-owner :tags (quest player) :sev polish :needs (barter)) the player's AIPL and REMP story events name no owner and never say Buy or Pickpocket (a theft says Steal): nothing trades or pickpockets.
 // queue_item_event makes items the player gains or loses a story event (AIPL / REMP):
 // the container, the player's location, the item, how.
 @(private = "file")

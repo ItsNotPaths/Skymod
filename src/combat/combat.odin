@@ -64,6 +64,7 @@ BUILTIN :: Table{tick_builtin}
 COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
 FAR :: f32(1e9) // the distance to an actor not loaded
 
+// (hole hit-model :tags (combat unclaimed) :sev gap :needs (combat-damage)) the built-in hit is flat weapon damage in reach: no swing arc, block, power attack, stagger or sneak multiplier.
 // (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage actor-states)) the brain is a stand-in: close, swing in reach, flee on low confidence, and it can only answer a State and a target. Wanted: real tactics (block, dodge, ranged, spells, groups) from someone who knows combat AI; its actions (a swing, a block, a mod's dodge roll) are actor states it asks the actor-state model for, a new Fight field under a new VERSION.
 tick_builtin :: proc "c" (inp: ^Input) {
 	for f in plugin.items(inp.fighters) {inp.host.set(inp.host.data, f.actor, next(inp, f))}

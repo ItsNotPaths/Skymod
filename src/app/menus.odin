@@ -15,11 +15,13 @@ import "../input"
 import "../script"
 import "../worldstate"
 
-// (hole inventory-screen :tags ui :sev gap) the inventory is an ImGui placeholder, not a real menu: category tabs, a name list and an item card with value, weight and effects; no icons or 3D preview.
-// (hole magic-screen :tags ui :sev gap) the magic menu is an ImGui placeholder, not a real menu: school tabs, a spell list and a card with cost and effects; no favourites and no shouts.
-// (hole skills-screen :tags ui :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations, and perk points cannot be spent.
-// (hole pause-menu :tags (ui save) :sev gap) the pause menu is an ImGui placeholder, not a real menu: journal, stats and system tabs, each a sidebar and a panel.
-// (hole container-screen :tags ui :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons; no barter, and an owned item does not say Steal. Barter must refuse a Quest Object (worldstate.quest_object_kept) and a stolen stack unless the vendor fences (BypassVendorStolenCheck).
+// (hole inventory-screen :tags (ui ui-train) :sev gap) the inventory is an ImGui placeholder, not a real menu: category tabs, a name list and an item card with value, weight and effects; no icons or 3D preview.
+// (hole magic-screen :tags (ui ui-train) :sev gap) the magic menu is an ImGui placeholder, not a real menu: school tabs, a spell list and a card with cost and effects; no favourites and no shouts.
+// (hole skills-screen :tags (ui ui-train) :sev gap) the skills menu is an ImGui placeholder, not a real menu: skill numbers, XP and the level-up choice buttons; no perk tree or constellations.
+// (hole perk-spending :tags (ui player) :sev gap) perk points cannot be spent: the placeholder lists no perks to take.
+// (hole pause-menu :tags (ui save ui-train) :sev gap) the pause menu is an ImGui placeholder, not a real menu: journal, stats and system tabs, each a sidebar and a panel.
+// (hole container-screen :tags (ui ui-train) :sev gap) the container menu is an ImGui placeholder, not a real menu: two lists with take and store buttons.
+// (hole barter :tags (ui player) :sev gap) no barter, and an owned item does not say Steal. Barter must refuse a Quest Object (worldstate.quest_object_kept) and a stolen stack unless the vendor fences (BypassVendorStolenCheck).
 
 Menu :: enum u8 {
 	None,
@@ -386,7 +388,7 @@ skills_menu :: proc(g: ^Game) {
 	}
 }
 
-// (hole map-screen :tags ui :sev gap) no map — no world map, no local map, no fast-travel target.
+// (hole map-screen :tags (ui ui-train) :sev gap) no map — no world map, no local map, no fast-travel target.
 @(private = "file")
 map_menu :: proc(g: ^Game) {
 	imgui.TextDisabled("No map yet.")

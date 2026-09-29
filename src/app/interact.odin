@@ -127,11 +127,13 @@ tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	}
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := tgt.form if tgt.present else 0
+	// (hole shouts :tags (magic input player) :sev gap :needs (spell-use)) nothing uses the Voice slot: no Shout action, no shout cooldown or Voice recovery (ShoutRecoveryMult, Get/SetVoiceRecoveryTime), no once-a-day limit on powers, no GetCurrentShoutVariation.
 	if in_.cast_left && !was.cast_left {script.cast_hand(&c, g.sim.ws.player, .LeftHand, target)}
 	if in_.cast_right && !was.cast_right {script.cast_hand(&c, g.sim.ws.player, .RightHand, target)}
 }
 
-// (hole lockpicking :tags (ui player) :sev gap) a locked door or container opens like any other: no key check, no lockpicking screen, no Lockpicking XP.
+// (hole lock-keys :tags player :sev gap) a locked door or container opens like any other: nothing checks for its key.
+// (hole lockpicking :tags (ui player ui-train) :sev gap :needs (lock-keys)) no lockpicking screen and no Lockpicking XP.
 // activate is the one activation path, for the Activate key and for a script's Activate, by any
 // actor: OnActivate is queued for the ref's scripts (it runs at the next tick, after the default
 // action, as in Papyrus), then the default action runs unless a script blocked it. `default_only`

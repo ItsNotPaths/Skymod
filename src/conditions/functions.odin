@@ -396,10 +396,11 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // (hole combat-conditions :tags combat :sev gap) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget and GetCombatTargetHasKeyword read 0, though the stand-in combat state (ai.combat_state) has the answer.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
-// (hole commanded-actors :tags magic :sev gap :needs (spell-casting)) IsCommandedActor reads 0: no spell raises or commands an actor.
+// (hole magic-conditions :tags (magic records) :sev gap) these have no body, so they pass: HasShout, GetSpellUsageNum, HasEquippedSpell, GetCurrentCastingType, IsCurrentSpell, IsWardState, IsDualCasting, EPMagic_IsAdvanceSkill, EPMagic_SpellHasKeyword, EPMagic_SpellHasSkill, HasBoundWeaponEquipped, SpellHasCastingPerk, EffectWasDualCast. A perk gated on an EPMagic_ one applies to every spell.
+// (hole commanded-actors :tags magic :sev gap :needs (other-archetypes magic-natives)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (animation combat unclaimed) :sev gap :needs (actor-states)) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole weather-conditions :tags (world unclaimed) :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
-// (hole map-markers :tags (ui quest) :sev gap :needs map-screen) GetMapMarkerVisible reads 0: there is no map, so no marker is ever found.
+// (hole map-markers :tags quest :sev gap) GetMapMarkerVisible reads 0: no marker is ever found; nothing discovers one as the player nears it, and AddToMap and IsMapMarkerVisible are not natives.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
 // (hole favor-commands :tags (dialogue ai) :sev gap :needs (teammate-behavior)) IsInFavorState reads 0: no follower takes commands.
 @(private = "file")
