@@ -739,7 +739,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// missing (caller drops the entry). When remap is disabled every id passes through as-is. The
 	// created slot always passes through.
 	rf := proc(remap: map[u32]u32, on: bool, fid: Form_ID) -> (Form_ID, bool) {
-		if !on || fid == 0 || fid == formid.START_CHARACTER || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) || formid.is_script_faction(fid) {return fid, true}
+		if !on || fid == 0 || fid == formid.START_CHARACTER || u32(fid >> 32) == formid.CREATED_SLOT || formid.is_effect(fid) || formid.is_script_faction(fid) || formid.is_lua_form(fid) {return fid, true}
 		quest, id, is_alias := formid.alias_key(fid)
 		src := quest if is_alias else fid
 		ns, rok := remap[u32(src >> 32)]
@@ -1268,7 +1268,7 @@ add_slot :: proc(seen: ^map[u32]bool, fid: Form_ID) {
 	if fid == 0 {return}
 	quest, _, is_alias := formid.alias_key(fid)
 	s := u32((quest if is_alias else fid) >> 32)
-	if s == formid.CREATED_SLOT || s == formid.EFFECT_SLOT || s == formid.SCRIPT_FACTION_SLOT {return}
+	if s == formid.CREATED_SLOT || s == formid.EFFECT_SLOT || s == formid.SCRIPT_FACTION_SLOT || s == formid.LUA_FORM_SLOT {return}
 	seen[s] = true
 }
 

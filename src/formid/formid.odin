@@ -27,6 +27,21 @@ script_faction :: proc(n: u32) -> Form_ID {return Form_ID(SCRIPT_FACTION_SLOT) <
 
 is_script_faction :: proc(f: Form_ID) -> bool {return u32(f >> 32) == SCRIPT_FACTION_SLOT}
 
+// A Lua form is one that content defines by name with no record behind it (rt.effect): high word
+// LUA_FORM_SLOT, low word a hash of the lower-cased name, so it is the same in every session and
+// install and a save passes it through.
+LUA_FORM_SLOT :: u32(0x8000_0003)
+
+lua_form :: proc(name: string) -> Form_ID {
+	h := u32(2166136261) // FNV-1a
+	for c in transmute([]u8)name {
+		h = (h ~ u32(c | 0x20 if c >= 'A' && c <= 'Z' else c)) * 16777619
+	}
+	return Form_ID(LUA_FORM_SLOT) << 32 | Form_ID(h)
+}
+
+is_lua_form :: proc(f: Form_ID) -> bool {return u32(f >> 32) == LUA_FORM_SLOT}
+
 // START_CHARACTER is the character a new game gives the player to control (base PLAYER_BASE). The
 // engine makes it, no plugin holds it, and no load order reaches its slot.
 START_CHARACTER :: Form_ID(0x8000_0002) << 32 | 1
