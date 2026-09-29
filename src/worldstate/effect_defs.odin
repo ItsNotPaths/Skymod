@@ -5,6 +5,7 @@ package worldstate
 // VMAD scripts, keywords and conditions. Not saved: content defines them again as each game starts.
 
 import "core:log"
+import "core:math"
 import "core:strings"
 import "../formats/esm"
 import "../formid"
@@ -98,7 +99,12 @@ land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool
 	if !ok {return true}
 	for t, i in d.tunables {e.tunables[i] = t.default}
 	if !d.land || ws.land_hook.run == nil {return true}
-	return ws.land_hook.run(ws.land_hook.data, d, e)
+	ok = ws.land_hook.run(ws.land_hook.data, d, e)
+	if math.is_nan(e.duration) || math.is_inf(e.duration) { // a timed effect must end: only its source makes one last
+		log.warnf("rt.effect %s: land set d to %v; it applies once", d.name, e.duration)
+		e.duration = 0
+	}
+	return ok
 }
 
 // effect_by_name is the effect a name means: a defined one, else a record's by editor id.

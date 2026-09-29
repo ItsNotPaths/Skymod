@@ -68,14 +68,16 @@ n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // ApplyEffect(akEffect, afMagnitude = 0, afDuration = -1) is not Papyrus: it starts an effect on the
-// actor directly, with its own m; a negative duration lasts until DispelEffect (user, 2026-09-28: a
-// passive is an effect, the vampire stage its m). It lands like any effect and is saved with its m.
+// actor directly, with its own m; a duration of exactly -1 (or none) lasts until DispelEffect (user,
+// 2026-09-28: a passive is an effect, the vampire stage its m). Any other negative one, a computed
+// time that ran out, is 0: it applies once and ends, never lasts. It is saved with its m.
 n_apply_effect :: proc(c: ^Call, args: []Value) -> Value {
 	effect := arg_form(c, args, 0)
 	if effect == 0 {return nil}
 	d := arg_f32(args, 2, -1)
+	lasts := d == -1
 	entries := []gamedb.Magic_Effect_Ref{{effect = effect, magnitude = arg_f32(args, 1, 0), duration = max(d, 0)}}
-	start_effects(c, effect, entries, d < 0, c.self, c.self)
+	start_effects(c, effect, entries, lasts, c.self, c.self)
 	return nil
 }
 

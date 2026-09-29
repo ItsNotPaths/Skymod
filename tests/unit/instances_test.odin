@@ -1791,6 +1791,8 @@ test_apply_effect :: proc(t: ^testing.T) {
 	p, _ := filepath.join({f.dir, "effects", "vampirism.lua"}, context.temp_allocator)
 	os.make_directory_all(filepath.dir(p))
 	testing.expect(t, os.write_entire_file(p, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "10 + 10 * m" } } }`)) == nil, "write")
+	p2, _ := filepath.join({f.dir, "effects", "broken.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(p2, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "5" } }, land = function(e) e.d = e.m / 0 end }`)) == nil, "write")
 	slua.set_script_dirs(&f.vm, {f.dir})
 	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.load_effects()`), "load")
 
@@ -1800,4 +1802,12 @@ test_apply_effect :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 30) // it lasts
 	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "DispelEffect", "Vampirism") == true); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 3)`), "next stage")
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 40)
+
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x700), "DispelEffect", "Vampirism"); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 1, -0.3)`), "a time that ran out")
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 0) // ended, did not last
+
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x700), "ApplyEffect", "Broken", 1, 5)`), "a land that divides by zero")
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 0) // d inf -> 0: ended
 }
