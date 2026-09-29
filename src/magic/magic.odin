@@ -50,7 +50,7 @@ on_hit_builtin :: proc "c" (h: ^Host, hit: Hit) -> Verdict {
 	return .Lands
 }
 
-// (hole effect-scales :tags magic :sev gap :needs (av-scales)) no scale reaches an effect here: its m and d should go through every AV scale whose tags match, in phases base, add, mul, set (mul multiplies, so 50% magic and 50% fire leave 25%). Resistance and perks are still code in worldstate.resisted and script.perk_value.
+// The engine's landing hooks (rt.on_land) have already run when this is called.
 @(private = "file")
 scale_builtin :: proc "c" (h: ^Host, hit: Hit, effect: Form_ID, n: Numbers) -> Numbers {
 	return n

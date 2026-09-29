@@ -1174,7 +1174,7 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
--- (hole av-scales :tags (magic mods) :sev gap) an actor value cannot say what it does to magic. Wanted: rt.actor_value(name, { scale = "-min(v, target.ResistCap)", tags = { "magic.fire", "status" }, from = "target" | "caster", of = "m" | "d" | "radius" | "cost" | { "m", "d" } ... }), or `scales = { {...}, {...} }` for several on one AV; also on engine AVs (FireResist gets its scale here, not a new AV) and on perk names (v = the rank). A tag list matches when all its tags match (worldstate.has_tag); several matching scales multiply, so scaling m and d of a rate effect compounds (x1.2 each = x1.44 total; user 2026-09-28).
+-- (hole landing-hooks :tags (magic mods) :sev gap) no rt.on_land or rt.on_cost: a perk that reaches many effects is a Lua hook that changes m, d and the tunables as each effect lands (`if e.effect:HasTag("magic.fire") then e.m = e.m * (1 + 0.25 * e.caster.av.AugmentedFlames.value) end`), or a spell's cost as it is cast; hooks run in mod priority order, before the effect's own land (user, 2026-09-28: they replace the scale language of tags, from, of and phases).
 
 -- rt.effect(def) is an effect, in an effects/<name>.lua file that returns it (the name is the file's):
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
@@ -1189,6 +1189,9 @@ end
 -- <name>.patch.lua returns a function that edits the definition from below it.
 -- (hole effect-action-scripts :tags magic :sev gap) no core moment scripts with parameters: about 50 of Apocalypse's 159 effect scripts only cast a spell at someone on an event, dispel, interrupt, kill below a threshold or push (build/out/wsM/apoc/scripts.md). Wanted: CastOn, DispelOn, KillBelow and the like, so such an effect is data.
 function rt.effect(def) return def end
+
+function rt.on_land(name, fn) end
+function rt.on_cost(name, fn) end
 
 -- rt.load_effects defines every effect the effects/ folders hold, for the engine.
 function rt.load_effects()

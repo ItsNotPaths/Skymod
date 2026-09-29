@@ -7,7 +7,7 @@ package script
 // (hole spell-shapes :tags (magic combat) :sev gap :needs (rt-spell)) a spell hits `target` at once: no shape. Wanted: self, touch, ray, stream, missile, lobber, cone and sphere, an on_hit shape after a missile, line of sight for area, `hits = "direct"` entries that only the struck actor gets (62 of 227 area spells mix areas), and shape classes a mod defines.
 // (hole concentration :tags magic :sev gap :needs (spell-use spell-shapes)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags magic :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
-// (hole cast-cost :tags magic :sev gap :needs (spell-use av-scales)) the cost is the SPIT base: no 1 - (skill/400)^0.65 skill multiplier and no cost scales (perks, Fortify School gear as `of = "cost"`).
+// (hole cast-cost :tags magic :sev gap :needs (spell-use landing-hooks)) the cost is the SPIT base: no 1 - (skill/400)^0.65 skill multiplier and no cost hooks (half-cost perks, Fortify School gear through rt.on_cost).
 
 import "../audio"
 import "../gamedb"

@@ -104,6 +104,7 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	return form, true
 }
 
+// (hole effect-land :tags (magic script) :sev gap) an effect decides at landing with formula strings (m, d, tunables, `when`); it should be Lua, `land = function(e)`: return false to not start, set e.d, capture tunables, e:apply riders (user, 2026-09-28). Needs a VM callback on script.Call, as quest_vars is.
 // land_effect works out a defined effect's landing numbers and checks its `when`: false, and the
 // effect does not start. An effect with no definition always lands.
 land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool {

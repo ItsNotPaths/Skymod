@@ -227,7 +227,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		if !defined && !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
 		magnitude, duration := e.magnitude, f32(e.duration)
-		// (hole spell-perk-sources :tags magic :sev gap :needs (effect-scales)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it).
+		// (hole spell-perk-sources :tags magic :sev gap :needs (landing-hooks)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it). Landing hooks run for every source.
 		if is_spell {
 			magnitude = perk_value(c, .Mod_Spell_Magnitude, caster, magnitude, source, target)
 			magnitude = perk_value(c, .Mod_Incoming_Spell_Magnitude, target, magnitude, source)
