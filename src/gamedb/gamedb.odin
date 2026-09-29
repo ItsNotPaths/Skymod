@@ -503,6 +503,7 @@ Magic_Effect :: struct {
 	projectile:  Form_ID, // remapped
 	explosion:   Form_ID, // remapped
 	related:     Form_ID, // remapped: a Peak Value Modifier's no-stack keyword
+	art:         [esm.Effect_Art_Slot]Form_ID, // remapped
 	sounds:      [Effect_Sound]Form_ID, // SNDD, remapped SNDRs
 	description: string, // DNAM (owned)
 	conditions:  []Condition, // CTDA (owned)

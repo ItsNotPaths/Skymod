@@ -513,11 +513,35 @@ MGEF_PAINLESS :: 0x0400_0000
 // value slots (an i32 −1).
 AV_NONE :: i32(-1)
 
+// Effect_Art_Slot names an art or light form an MGEF's DATA links.
+Effect_Art_Slot :: enum u8 {
+	Casting_Light,  // LIGH
+	Hit_Shader,     // EFSH on the target
+	Enchant_Shader, // EFSH on the enchanted item
+	Casting_Art,    // ARTO on the caster
+	Hit_Art,        // ARTO on the target
+	Impact_Data,    // IPDS where it lands
+	Enchant_Art,    // ARTO on the enchanted item
+	Imod,           // IMAD while it is on the player
+}
+
+// EFFECT_ART_AT is each slot's offset in DATA. (Validated on SE Skyrim.esm: all 950 MGEFs, each
+// non-null slot is its record type.)
+EFFECT_ART_AT :: [Effect_Art_Slot]int {
+	.Casting_Light  = 24,
+	.Hit_Shader     = 32,
+	.Enchant_Shader = 36,
+	.Casting_Art    = 92,
+	.Hit_Art        = 96,
+	.Impact_Data    = 100,
+	.Enchant_Art    = 116,
+	.Imod           = 132,
+}
+
 // Magic_Effect_Info is an MGEF's DATA block (152 bytes) — the half of it the data layer needs.
 // Actor-value slots are the CK's ActorValue INDICES (validated: 18 Alteration, 19 Conjuration,
 // 24 Health, 53 Paralysis), AV_NONE when unset; naming them is the consumer's job, so the raw
-// index is what's stored. Form slots are raw/local until remapped. The unread tail is art and
-// sound links (casting art, hit shader, impact data, …) — appearance, not data-layer concerns.
+// index is what's stored. Form slots are raw/local until remapped.
 Magic_Effect_Info :: struct {
 	flags:        u32, // MGEF_* bits
 	base_cost:    f32,
@@ -538,13 +562,14 @@ Magic_Effect_Info :: struct {
 	explosion:    u32,
 	cast_type:    Cast_Type,
 	delivery:     Delivery,
+	art:          [Effect_Art_Slot]u32, // 0 = none
 }
 
 // magic_effect_info reads an MGEF's DATA: flags u32@0, base cost f32@4, related u32@8, magic skill i32@12,
 // resist AV i32@16, taper weight f32@28, min skill level u32@40, area u32@44, casting time f32@48,
 // taper curve f32@52, taper duration f32@56, second AV weight f32@60, archetype u32@64,
 // primary AV i32@68, projectile u32@72, explosion u32@76, cast type u32@80, delivery u32@84,
-// second AV i32@88. ok=false when absent/short. (Offsets validated by editor-id convention
+// second AV i32@88, art (EFFECT_ART_AT). ok=false when absent/short. (Offsets validated by editor-id convention
 // across Skyrim.esm: every "…FFContact" reads cast type 1 / delivery 1, "…FFAimedArea" reads
 // 1 / 2, "…FFSelfArea" reads 1 / 0; paralysis effects read archetype 21, soul trap 23.)
 magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) {
@@ -553,28 +578,31 @@ magic_effect_info :: proc(fields: []Field) -> (mi: Magic_Effect_Info, ok: bool) 
 		return {}, false
 	}
 	d := f.data
-	return Magic_Effect_Info {
-			flags        = rd32(d, 0),
-			base_cost    = rf32(d, 4),
-			related      = rd32(d, 8),
-			magic_skill  = cast(i32)rd32(d, 12),
-			resist_av    = cast(i32)rd32(d, 16),
-			skill_level  = rd32(d, 40),
-			area         = rd32(d, 44),
-			casting_time = rf32(d, 48),
-			second_av_weight = rf32(d, 60),
-			taper_weight = rf32(d, 28),
-			taper_curve = rf32(d, 52),
-			taper_duration = rf32(d, 56),
-			archetype    = Effect_Archetype(rd32(d, 64)),
-			primary_av   = cast(i32)rd32(d, 68),
-			projectile   = rd32(d, 72),
-			explosion    = rd32(d, 76),
-			cast_type    = Cast_Type(rd32(d, 80)),
-			delivery     = Delivery(rd32(d, 84)),
-			second_av    = cast(i32)rd32(d, 88),
-		},
-		true
+	mi = Magic_Effect_Info {
+		flags        = rd32(d, 0),
+		base_cost    = rf32(d, 4),
+		related      = rd32(d, 8),
+		magic_skill  = cast(i32)rd32(d, 12),
+		resist_av    = cast(i32)rd32(d, 16),
+		skill_level  = rd32(d, 40),
+		area         = rd32(d, 44),
+		casting_time = rf32(d, 48),
+		second_av_weight = rf32(d, 60),
+		taper_weight = rf32(d, 28),
+		taper_curve = rf32(d, 52),
+		taper_duration = rf32(d, 56),
+		archetype    = Effect_Archetype(rd32(d, 64)),
+		primary_av   = cast(i32)rd32(d, 68),
+		projectile   = rd32(d, 72),
+		explosion    = rd32(d, 76),
+		cast_type    = Cast_Type(rd32(d, 80)),
+		delivery     = Delivery(rd32(d, 84)),
+		second_av    = cast(i32)rd32(d, 88),
+	}
+	if len(d) >= 136 {
+		for at, slot in EFFECT_ART_AT {mi.art[slot] = rd32(d, at)}
+	}
+	return mi, true
 }
 
 // --- QUST aliases -----------------------------------------------------------------------

@@ -187,6 +187,7 @@ sync_refs :: proc(vm: ^VM) {
 		for h in started {
 			e := ws.effects[h]
 			attach_effect(vm, h)
+			worldstate.play_effect_visuals(ws, vm.ctx.db, e)
 			send(vm, e.target, "OnMagicEffectApply", e.caster, e.effect)
 			send_own(vm, h, "OnEffectStart", e.target, e.caster)
 		}
@@ -196,6 +197,7 @@ sync_refs :: proc(vm: ^VM) {
 			e, ok := &ws.effects[h]
 			if !ok {continue}
 			e.finished = true
+			worldstate.stop_effect_visuals(ws, vm.ctx.db, h)
 			worldstate.unregister_all(ws, h)
 			send_own(vm, h, "OnEffectFinish", e.target, e.caster)
 		}

@@ -1,6 +1,7 @@
 package worldstate
 
 import "core:strings"
+import "../gamedb"
 
 // Visuals: the effects scripts and magic start (shaders, art, impacts, image space modifiers), kept
 // as state the graphics seam draws. Placed emitters are not here: they come with their refs.
@@ -77,4 +78,43 @@ expire_visuals :: proc(ws: ^World_State) {
 remove_visual :: proc(ws: ^World_State, h: u32) {
 	delete(ws.visuals[h].node)
 	delete_key(&ws.visuals, h)
+}
+
+// play_effect_visuals shows what a starting magic effect shows (effect_visuals).
+play_effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) {
+	for v in effect_visuals(ws, db, e) {
+		if v.form != 0 {play_visual(ws, v)}
+	}
+}
+
+// stop_effect_visuals stops what effect `h` showed, unless another running effect on its target
+// shows the same.
+stop_effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID) {
+	e := ws.effects[h]
+	others, _ := ws.effects_on[e.target]
+	outer: for v in effect_visuals(ws, db, e) {
+		if v.form == 0 {continue}
+		for o in others {
+			oe := ws.effects[o]
+			if o == h || oe.ended {continue}
+			for ov in effect_visuals(ws, db, oe) {
+				if ov.kind == v.kind && ov.form == v.form {continue outer}
+			}
+		}
+		stop_visual(ws, v.kind, v.form, v.ref)
+	}
+}
+
+// effect_visuals is what a running magic effect shows: its MGEF hit shader and hit art on the
+// target, and its image space modifier while the target is the player. 0 forms show nothing.
+// (hole cast-visuals :tags (vfx magic) :sev gap) a cast shows no casting art or casting light on the caster, and a spell's projectile or touch landing plays no impact data set: Visual has no world position for a hit on terrain.
+// (hole enchant-visuals :tags (vfx magic combat) :sev gap :needs (weapon-enchantments)) an enchanted weapon or item shows no enchant shader or enchant art.
+@(private = "file")
+effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> [3]Visual {
+	me, _ := gamedb.magic_effect_of(db, e.effect)
+	return {
+		{kind = .Shader, form = me.art[.Hit_Shader], ref = e.target},
+		{kind = .Art, form = me.art[.Hit_Art], ref = e.target},
+		{kind = .Imod, form = me.art[.Imod] if e.target == ws.player else 0, strength = 1},
+	}
 }

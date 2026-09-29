@@ -8,7 +8,6 @@ import "../formid"
 import "../formula"
 import "../gamedb"
 
-// (hole effect-visuals :tags (vfx magic records) :sev gap) a running effect plays no visual on its target: the MGEF hit shader, hit art and enchant shader are not decoded, so start_effect cannot play_visual them for the effect's duration.
 // Active_Effect is one scripted magic effect on a target (docs/script-api.md section 3). Its script
 // instance keys on the effect handle, and its class's __effect terms change the target's actor
 // values. The instance lingers after the effect ends while its state still ticks.
