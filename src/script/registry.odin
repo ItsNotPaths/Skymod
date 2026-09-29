@@ -18,6 +18,7 @@ package script
 
 import "base:runtime"
 import "core:log"
+import "core:slice"
 import "core:strings"
 import "../audio"
 import "../conditions"
@@ -111,14 +112,15 @@ register :: proc(reg: ^Registry, class, fn: string, impl: Native) {
 // None (a call the manifest never declared: usually a form whose kind resolved wrong, rt.odin).
 call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Value {
 	c.reg = reg
+	k := key_temp(class, fn)
+	impl, ok := reg.natives[k]
 	if c.ws != nil {
 		c.self = worldstate.resolve(c.ws, c.self)
 		for &a in args {
-			if f, ok := a.(Form_ID); ok {a = worldstate.resolve(c.ws, f)}
+			if f, is_form := a.(Form_ID); is_form && !(ok && slice.contains(KEEPS_PLAYER_REF, impl)) {a = worldstate.resolve(c.ws, f)}
 		}
 	}
-	k := key_temp(class, fn)
-	if impl, ok := reg.natives[k]; ok {
+	if ok {
 		return impl(c, args)
 	}
 	first := k not_in reg.warned
@@ -132,6 +134,25 @@ call :: proc(reg: ^Registry, class, fn: string, c: ^Call, args: []Value) -> Valu
 	return nil
 }
 
+
+// KEEPS_PLAYER_REF are the natives that store a form argument for later. They keep PlayerRef as
+// passed, so what they stored follows the controlled actor; their readers resolve it.
+@(private = "file")
+KEEPS_PLAYER_REF := []Native {
+	n_alias_force,
+	n_register_anim_event,
+	n_unregister_anim_event,
+	n_register_los,
+	n_register_single_los_gain,
+	n_register_single_los_lost,
+	n_unregister_los,
+	n_send_story_event,
+	n_send_story_event_and_wait,
+	n_path_to,
+	n_path_to_reference,
+	n_keep_offset_from_actor,
+	n_set_camera_target,
+}
 
 // native_fallbacks is what a stub answers where its type's zero would be wrong: Papyrus's
 // documented value, else the absent, quiet, done answer (docs/script-rewrite.md "Missing data").

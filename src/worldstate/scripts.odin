@@ -102,7 +102,15 @@ register_anim_event :: proc(ws: ^World_State, sender, form: Form_ID, event: stri
 
 // unregister_anim_event is UnregisterForAnimationEvent.
 unregister_anim_event :: proc(ws: ^World_State, sender, form: Form_ID, event: string) {
-	drop_anim_regs(ws, sender, form, event)
+	for s in senders_of(ws, sender) {drop_anim_regs(ws, s, form, event)}
+}
+
+// senders_of is the keys a sender's registrations sit under (0 = none): PlayerRef and the
+// controlled actor are one sender.
+@(private = "file")
+senders_of :: proc(ws: ^World_State, sender: Form_ID) -> [2]Form_ID {
+	if resolve(ws, sender) != ws.player {return {sender, 0}}
+	return {formid.PLAYER, ws.player}
 }
 
 // unregister_anim_events drops every registration `form` holds: a stopped quest or alias, an
@@ -133,9 +141,11 @@ drop_anim_regs :: proc(ws: ^World_State, sender, form: Form_ID, event: string) {
 // anim_registrants lists the forms that hear `event` from `sender`, in registration order.
 anim_registrants :: proc(ws: ^World_State, sender: Form_ID, event: string) -> []Form_ID {
 	out := make([dynamic]Form_ID, context.temp_allocator)
-	list, _ := ws.anim_regs[sender]
-	for r in list {
-		if strings.equal_fold(r.event, event) {append(&out, r.form)}
+	for s in senders_of(ws, sender) {
+		list, _ := ws.anim_regs[s]
+		for r in list {
+			if strings.equal_fold(r.event, event) {append(&out, r.form)}
+		}
 	}
 	return out[:]
 }
@@ -163,8 +173,9 @@ register_los :: proc(ws: ^World_State, form, viewer, target: Form_ID, mode: Los_
 // unregister_los drops `form`'s LOS registrations for the pair, or all of them when both are 0.
 unregister_los :: proc(ws: ^World_State, form, viewer, target: Form_ID) {
 	all := viewer == 0 && target == 0
+	viewer, target := resolve(ws, viewer), resolve(ws, target)
 	#reverse for r, i in ws.los_regs {
-		if r.form == form && (all || (r.viewer == viewer && r.target == target)) {ordered_remove(&ws.los_regs, i)}
+		if r.form == form && (all || (resolve(ws, r.viewer) == viewer && resolve(ws, r.target) == target)) {ordered_remove(&ws.los_regs, i)}
 	}
 }
 

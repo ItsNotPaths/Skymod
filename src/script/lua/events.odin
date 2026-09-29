@@ -205,7 +205,7 @@ tick_casts :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 tick_los :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	for i := 0; i < len(ws.los_regs); {
 		r := &ws.los_regs[i]
-		seen := sighthost.has_los(ws, db, r.viewer, r.target)
+		seen := sighthost.has_los(ws, db, worldstate.resolve(ws, r.viewer), worldstate.resolve(ws, r.target))
 		if seen == r.seen {i += 1;continue}
 		r.seen = seen
 		send_own(vm, r.form, "OnGainLOS" if seen else "OnLostLOS", r.viewer, r.target)

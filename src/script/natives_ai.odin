@@ -46,7 +46,7 @@ n_path_to :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_pathing_to :: proc(c: ^Call, args: []Value) -> Value {
 	o, ok := c.ws.ai.paths[c.self]
-	return ok && o.to == arg_form(c, args, 0)
+	return ok && worldstate.resolve(c.ws, o.to) == arg_form(c, args, 0)
 }
 
 // PathToReference never blocks (script-api.md): it is PathTo, and reports the order taken.

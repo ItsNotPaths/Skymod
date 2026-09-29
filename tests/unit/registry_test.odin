@@ -403,6 +403,36 @@ test_method_class_dispatch :: proc(t: ^testing.T) {
 	testing.expect_value(t, cm, "Quest")
 }
 
+// A native that stores a form keeps PlayerRef, so what it stored follows a takeover; a native that
+// acts at once gets the controlled actor.
+@(test)
+test_registry_keeps_player_ref :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	db: gamedb.DB
+
+	watcher := script.Form_ID(0x0005_0000)
+	c := script.Call{self = watcher, ws = &ws, db = &db}
+	script.call(&reg, "Form", "RegisterForAnimationEvent", &c, {formid.PLAYER, "FootLeft"})
+	testing.expect_value(t, len(worldstate.anim_registrants(&ws, ws.player, "footleft")), 1)
+	ws.player = script.Form_ID(0x0006_0000) // a takeover
+	testing.expect_value(t, len(worldstate.anim_registrants(&ws, ws.player, "footleft")), 1)
+	script.call(&reg, "Form", "UnregisterForAnimationEvent", &c, {ws.player, "FootLeft"})
+	testing.expect_value(t, len(worldstate.anim_registrants(&ws, ws.player, "footleft")), 0)
+
+	actor := script.Form_ID(0x0007_0000)
+	ac := script.Call{self = actor, ws = &ws, db = &db}
+	script.call(&reg, "Actor", "PathTo", &ac, {formid.PLAYER})
+	testing.expect_value(t, ws.ai.paths[actor].to, formid.PLAYER)
+	testing.expect(t, script.call(&reg, "Actor", "IsPathingTo", &ac, {ws.player}).(bool), "IsPathingTo the controlled actor")
+	script.call(&reg, "Actor", "SetRelationshipRank", &ac, {formid.PLAYER, i32(2)})
+	testing.expect_value(t, worldstate.rel_rank(&ws, &db, actor, ws.player), 2)
+}
+
 // A-tier stores: globals, actor Kill/IsDead/Resurrect, SetAlpha, PlaceAtMe.
 @(test)
 test_registry_stores :: proc(t: ^testing.T) {

@@ -257,7 +257,7 @@ publish_snapshot :: proc(g: ^Game) {
 	s.body.form = g.sim.ws.player
 	if has_body {s.body = actor_view(g, s, g.sim.ws.player, body)}
 	s.follow = s.body.feet
-	if b, ok := &g.sim.actor_bodies[g.sim.ws.camera.target]; ok {s.follow.from, s.follow.to = physics.character_step(&b.char)}
+	if b, ok := &g.sim.actor_bodies[worldstate.resolve(&g.sim.ws, g.sim.ws.camera.target)]; ok {s.follow.from, s.follow.to = physics.character_step(&b.char)}
 	s.boom = camera_boom(g, s.follow.to + {0, 0, EYE_HEIGHT})
 	world.capture_poses(active_space(g), &s.bodies)
 	for b, i in g.sim.drops {world.add_pose(&s.bodies, &g.phys, {0, i32(i)}, b)}

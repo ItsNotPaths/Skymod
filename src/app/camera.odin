@@ -100,7 +100,7 @@ camera_boom :: proc(g: ^Game, head: smath.Vec3) -> f32 {
 	dist := g.sim.ws.camera.dist
 	if dist == 0 || g.sim.noclip || g.sim.cur_phys == nil {return 0}
 	for h in physics.ray_hits(g.sim.cur_phys, head, head - g.sim.input.aim_dir * dist) {
-		if h.owner == u64(g.sim.ws.player) || h.owner == u64(g.sim.ws.camera.target) {continue}
+		if h.owner == u64(g.sim.ws.player) || h.owner == u64(worldstate.resolve(&g.sim.ws, g.sim.ws.camera.target)) {continue}
 		return max(h.fraction * dist - CAMERA_CLEARANCE, 0)
 	}
 	return dist

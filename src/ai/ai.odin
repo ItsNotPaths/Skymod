@@ -231,14 +231,15 @@ note_location :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, ac
 follow_path_order :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
 	o, ok := ws.ai.paths[actor]
 	if !ok {return}
-	at := worldstate.ref_pos(ws, db, o.to)
-	if o.to == 0 || linalg.length(at.xy - feet.xy) <= ARRIVED {
+	to := worldstate.resolve(ws, o.to)
+	at := worldstate.ref_pos(ws, db, to)
+	if to == 0 || linalg.length(at.xy - feet.xy) <= ARRIVED {
 		delete_key(&ws.ai.paths, actor)
 		a.mover.goal = {}
 		return
 	}
 	g: Gait = .Run if o.speed >= 0.75 else .Jog if o.speed >= 0.5 else .Walk
-	a.mover.goal = {active = true, point = at, radius = ARRIVED, gait = g, cell = worldstate.ref_grid_cell(ws, db, o.to)}
+	a.mover.goal = {active = true, point = at, radius = ARRIVED, gait = g, cell = worldstate.ref_grid_cell(ws, db, to)}
 }
 
 OFFSET_REACHED :: f32(16) // nearer than this an offset holder stands
@@ -248,12 +249,13 @@ OFFSET_REACHED :: f32(16) // nearer than this an offset holder stands
 keep_offset :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, feet: [3]f32) {
 	o, ok := ws.ai.offsets[actor]
 	if !ok {return}
-	at := worldstate.ref_pos(ws, db, o.target)
-	h := worldstate.ref_rot(ws, db, o.target).z + o.angle
+	target := worldstate.resolve(ws, o.target)
+	at := worldstate.ref_pos(ws, db, target)
+	h := worldstate.ref_rot(ws, db, target).z + o.angle
 	right, ahead := [2]f32{math.cos(h), -math.sin(h)}, [2]f32{math.sin(h), math.cos(h)} // heading 0 faces +Y, turning clockwise
 	spot := at + {right.x * o.offset.x + ahead.x * o.offset.y, right.y * o.offset.x + ahead.y * o.offset.y, o.offset.z}
 	d := linalg.length(spot.xy - feet.xy)
-	a.mover.goal = {active = true, point = spot, radius = max(o.follow, OFFSET_REACHED), gait = .Run if d > o.catch_up else .Walk, cell = worldstate.ref_grid_cell(ws, db, o.target)}
+	a.mover.goal = {active = true, point = spot, radius = max(o.follow, OFFSET_REACHED), gait = .Run if d > o.catch_up else .Walk, cell = worldstate.ref_grid_cell(ws, db, target)}
 }
 
 // cross_load_door puts the actor at the door's teleport marker, in the destination door's cell.
@@ -304,8 +306,9 @@ step_unloaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, lo
 		clear(&a.trip)
 	}
 	if o, ok := ws.ai.paths[actor]; ok { // unloaded, a PathTo arrives at once
-		to := worldstate.ref_pos(ws, db, o.to)
-		worldstate.set_moved(ws, actor, worldstate.ref_grid_cell(ws, db, o.to), smath.trs(to, {}, 1), to)
+		target := worldstate.resolve(ws, o.to)
+		to := worldstate.ref_pos(ws, db, target)
+		worldstate.set_moved(ws, actor, worldstate.ref_grid_cell(ws, db, target), smath.trs(to, {}, 1), to)
 		delete_key(&ws.ai.paths, actor)
 		return
 	}

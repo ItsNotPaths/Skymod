@@ -70,7 +70,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Game", "GetPlayer", n_get_player)
 	register(reg, "Game", "ForceFirstPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = 0; return nil})
 	register(reg, "Game", "ForceThirdPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = max(c.ws.camera.dist, worldstate.THIRD_MIN); return nil})
-	register(reg, "Game", "SetCameraTarget", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.target = arg_form(c, args, 0); return nil})
+	register(reg, "Game", "SetCameraTarget", n_set_camera_target)
 	register(reg, "Game", "GetFormFromFile", n_get_form_from_file)
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)
@@ -162,6 +162,11 @@ n_unregister_for_update_game_time :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // RegisterForAnimationEvent(akSender, asEventName): true, as nothing here can fail to register.
+n_set_camera_target :: proc(c: ^Call, args: []Value) -> Value {
+	c.ws.camera.target = arg_form(c, args, 0)
+	return nil
+}
+
 n_register_anim_event :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.register_anim_event(c.ws, arg_form(c, args, 0), c.self, arg_str(args, 1))
 	return true

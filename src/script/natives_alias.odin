@@ -44,11 +44,13 @@ clear_aliases :: proc(c: ^Call, quest: Form_ID) {
 }
 
 // enter_alias puts `form` in alias `h`. The ref keeps the alias's items, and its display name
-// unless the alias clears it; its spells last while it stays (CK "Quest Alias Tab").
+// unless the alias clears it; its spells last while it stays (CK "Quest Alias Tab"). PlayerRef
+// stays in the alias; the actor it stands for now gets the items and name.
 enter_alias :: proc(c: ^Call, h, form: Form_ID) {
 	leave_alias(c, h)
 	worldstate.fill_alias(c.ws, h, form)
 	if form == 0 {return}
+	form := worldstate.resolve(c.ws, form)
 	quest, a := alias_data(c, h)
 	for e in a.items {give_items(c, form, e.item, e.count)}
 	if m, ok := gamedb.message_of(c.db, a.display_name); ok {
@@ -59,7 +61,7 @@ enter_alias :: proc(c: ^Call, h, form: Form_ID) {
 
 // leave_alias empties alias `h`.
 leave_alias :: proc(c: ^Call, h: Form_ID) {
-	form := c.ws.aliases[h]
+	form := worldstate.resolve(c.ws, c.ws.aliases[h])
 	if form == 0 {return}
 	worldstate.clear_alias(c.ws, h)
 	if _, a := alias_data(c, h); a.flags & esm.ALIAS_CLEARS_NAME != 0 && a.display_name != 0 {
