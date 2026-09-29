@@ -28,14 +28,15 @@ EMBED_MAIN_MENU :: #load("lua/main_menu.lua", string)
 EMBED_LOADING_MENU :: #load("lua/loading_menu.lua", string)
 @(private = "file")
 EMBED_HUD :: #load("lua/hud.lua", string)
+@(private = "file")
+EMBED_MESSAGE_BOX :: #load("lua/message_box.lua", string)
 
-// Three screens exist: main menu, loading, HUD. Everything a player opens does not; the inventory,
+// Four screens exist: main menu, loading, HUD, message box. Everything a player opens does not; the inventory,
 // magic, skills, map, journal, pause and container menus are ImGui placeholders (app/menus.odin).
 //
 // (hole dialogue-screen :tags (ui ui-train) :sev gap) the dialogue screen is an ImGui placeholder (app/dialogue.odin), not a real screen.
 // (hole crafting-screen :tags ui :sev gap) no crafting screen, which is also why EPTemperingItemIsEnchanted (659) cannot know which item is selected.
 // (hole story-craft-event :tags (quest ui) :sev gap :needs (crafting-screen)) crafting queues no CRFT story event (the smithing and alchemy tutorials).
-// (hole message-box-screen :tags ui :sev gap) no message box: an in-world Lua screen that takes input (the HUD takes none, the main menu runs before the world) must show a MESG's text and buttons and hand back the picked index.
 // (hole console-screen :tags (ui ui-train) :sev gap) the console is an ImGui dev panel (tools.console_panel), not a Lua UI screen: a mod cannot restyle or replace it.
 //
 // FRAMEWORK is the framework files (relative paths under the UI lua root) run before any screen, in
@@ -54,6 +55,7 @@ EMBEDDED_FILES := [?]string {
 	"main_menu.lua",
 	"loading_menu.lua",
 	"hud.lua",
+	"message_box.lua",
 }
 
 // embedded returns the #load-embedded bytes for a built-in UI file (relative to the UI lua root),
@@ -76,6 +78,8 @@ embedded :: proc(rel: string) -> (string, bool) {
 		return EMBED_LOADING_MENU, true
 	case "hud.lua":
 		return EMBED_HUD, true
+	case "message_box.lua":
+		return EMBED_MESSAGE_BOX, true
 	}
 	return "", false
 }

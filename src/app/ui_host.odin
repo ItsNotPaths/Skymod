@@ -48,6 +48,8 @@ UI_Host :: struct {
 	act_name:       string, // the object's own display name
 	act_dest:       string, // a door's destination place name ("Riverwood Trader")
 	act_locked:     bool,
+	// The open message box (engine.message_box()), owned by Game.box. Unset = no box.
+	box:            Maybe(Box_Text),
 	// Button-prompt resolution (engine.prompt(action)): the live input manager + the pad
 	// art family. nil imgr (a session opened before input exists) → engine.prompt returns
 	// nil and the prompt widget falls back to text.
@@ -78,6 +80,7 @@ install_engine_api :: proc(vm: ^ui.VM) {
 	ui.register_host(L, vm, "activation", engine_activation)
 	ui.register_host(L, vm, "prompt", engine_prompt)
 	ui.register_host(L, vm, "play_sound", engine_play_sound)
+	ui.register_host(L, vm, "message_box", engine_message_box)
 	lua.setglobal(L, "engine") // pops engine
 }
 
@@ -116,6 +119,29 @@ engine_prompt :: proc "c" (L: ^lua.State) -> c.int {
 	lua.createtable(L, 0, 2)
 	set_str_field(L, "glyph", glyph)
 	set_str_field(L, "label", label)
+	return 1
+}
+
+// engine_message_box() → { body, buttons } | nil: the open message box (message_box.lua).
+// `buttons` is a list of labels; empty means the screen supplies its own default button.
+@(private = "file")
+engine_message_box :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	box, ok := host.box.?
+	if !ok {
+		lua.pushnil(L)
+		return 1
+	}
+	lua.createtable(L, 0, 2)
+	set_str_field(L, "body", box.body)
+	lua.createtable(L, c.int(len(box.buttons)), 0)
+	for b, i in box.buttons {
+		lua.pushstring(L, strings.clone_to_cstring(b, context.temp_allocator))
+		lua.seti(L, -2, lua.Integer(i))
+	}
+	lua.setfield(L, -2, "buttons")
 	return 1
 }
 

@@ -82,7 +82,7 @@ game_frame :: proc(g: ^Game) {
 	// cursor gate: overlay OPEN → cursor free to click its panels + console; overlay CLOSED → mouse locked
 	// for look. (The overlay is on by default, so a fresh session starts cursor-free until you un-tilde.)
 	// Applied on the next pump.
-	platform.set_mouse_capture(&g.p, !g.show_overlay && g.menu == .None)
+	platform.set_mouse_capture(&g.p, !g.show_overlay && !in_menu(g))
 	g.fr.st = world.stream_stats(&g.streamer)
 
 	frame_diag(g)
@@ -95,6 +95,7 @@ game_frame :: proc(g: ^Game) {
 	frame_active_scene(g)
 	frame_look(g)
 	frame_debug_verbs(g)
+	frame_message_box(g)
 	frame_menus(g)
 	park_for_menu(g)
 	frame_subtitles(g)
@@ -511,6 +512,24 @@ frame_debug_verbs :: proc(g: ^Game) {
 		if g.interiors_on {world.clear_collision_debug(&g.interiors.interior_scene)}
 		log.infof("collision hitboxes: %v", g.show_hitboxes)
 	}
+	if input.fired(&g.imgr, "DevMessageBox") {dev_message_box(g)}
+}
+
+// dev_message_box opens the next box MESG of the load order, one per press, and logs the pick.
+@(private = "file")
+dev_message_box :: proc(g: ^Game) {
+	i := 0
+	for form, m in g.db.messages {
+		if !m.message_box {continue}
+		if i == g.dev_box {
+			g.dev_box += 1
+			log.infof("dev box: MESG 0x%X", form)
+			message_box_open(g, m.body, m.buttons, proc(g: ^Game, pick: int) {log.infof("dev box: picked %d", pick)})
+			return
+		}
+		i += 1
+	}
+	g.dev_box = 0
 }
 
 // drop_ball spawns a falling ball (physics verification). Exterior only: the markers read

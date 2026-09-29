@@ -127,7 +127,7 @@ latch_input :: proc(g: ^Game) -> Sim_Input {
 		wheel      = g.wheel,
 		zoom_in    = g.zoom_in,
 		zoom_out   = g.zoom_out,
-		in_menu    = g.menu != .None,
+		in_menu    = in_menu(g),
 	}
 	if g.fr.kb_cap {si.move = {}}
 	return si

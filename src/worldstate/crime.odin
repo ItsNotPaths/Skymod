@@ -505,7 +505,7 @@ send_to_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor, crime, guard: Form
 
 // serve_time is ServeTime and a jailed actor's bed: the clock skips to the end of the sentence.
 // Only the player's controller asks: a jailed NPC waits its days out on the running clock.
-// (hole jail-bed-prompt :tags (ui combat) :sev polish :needs (message-box-screen)) the bed serves the sentence at once: no JailBedMsg (MESG 0x3403D) asks first.
+// (hole jail-bed-prompt :tags (ui combat) :sev polish) the bed serves the sentence at once: no JailBedMsg (MESG 0x3403D) asks first.
 serve_time :: proc(ws: ^World_State, actor: Form_ID) {
 	if j, ok := ws.jailed[actor]; ok {skip_game_time(ws, j.until - ws.clock.hours)}
 }

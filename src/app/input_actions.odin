@@ -42,6 +42,12 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"Inventory",     "menu",     .Button, "i"},
 	{"Magic",         "menu",     .Button, "p"},
 	{"Skills",        "menu",     .Button, "l"},
+	// a Lua screen's focus (message_box.odin)
+	{"MenuUp",        "menu",     .Button, "up"},
+	{"MenuDown",      "menu",     .Button, "down"},
+	{"MenuLeft",      "menu",     .Button, "left"},
+	{"MenuRight",     "menu",     .Button, "right"},
+	{"MenuAccept",    "menu",     .Button, "enter"},
 	// dev-verification verbs (behind the dev overlay in practice)
 	{"DevDrop",       "gameplay", .Button, "g"},
 	{"DevShove",      "gameplay", .Button, "h"},
@@ -50,6 +56,7 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"DevSpawn",      "gameplay", .Button, "b"},
 	{"DevGrabActor",  "gameplay", .Button, "j"},
 	{"DevShoot",      "gameplay", .Button, "mouse1"},
+	{"DevMessageBox", "gameplay", .Button, "n"},
 }
 
 // input_setup initializes the manager, registers the default scheme, then applies any

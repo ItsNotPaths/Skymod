@@ -33,7 +33,7 @@ hud_destroy :: proc(g: ^Game) {
 // frame_render composites the UI drawlist. Activate itself is handled in tick_interact; this only
 // shows the prompt. A no-op when the session failed to init.
 frame_hud :: proc(g: ^Game) {
-	if !g.hud.ok {
+	if !g.hud.ok || message_box_up(g) { // the box draws in the HUD's place
 		return
 	}
 	// Dev overlay open (tilde) = cursor free / imgui panels up: hide the HUD so no stray reticle sits

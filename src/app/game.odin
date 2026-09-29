@@ -73,7 +73,7 @@ SNEAK_SPEED :: f32(222) // MOVT NPC_Sneaking_MT forward run
 // documented order — a partial setup (early Quit, failed init) tears down only what exists.
 // Subsystems with their own liveness flag (phys_ok, char_ok, repl_ok, interiors_on) use it.
 Game_Up :: struct {
-	platform, render, ui, audio, loadui, hud, profile, vfs, db, scene, lights, ws, formtable, traversal,
+	platform, render, ui, audio, loadui, hud, box, profile, vfs, db, scene, lights, ws, formtable, traversal,
 	console, marker, sreg: bool,
 }
 
@@ -213,6 +213,9 @@ Game :: struct {
 	// the full hudmenu (compass, H/M/S bars) later.
 	hud: UI_Session,
 
+	// the message box (message_box.odin): an interactive session drawn in place of the HUD while open.
+	box: Message_Box,
+
 	// mod profile + save paths
 	mprofile:       mods.Profile,
 	plugins:        plugin.Plugins, // the mods' native plugins, lowest priority first
@@ -291,6 +294,7 @@ Game :: struct {
 	show_overlay:  bool, // ` toggles
 	show_profiler: bool, // F3 toggles the tick graph
 	show_hitboxes: bool, // K toggles
+	dev_box:       int,  // N: the next box MESG dev_message_box opens
 	pretty:        bool, // hide untextured marker placeholders; live-toggleable in Stats
 
 	// tuning (from settings; fixed for the session)
@@ -582,6 +586,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// In-world HUD (crosshair reticle + activation prompt) — its own always-on substrate session.
 	// Non-fatal if it fails to init (frame_hud becomes a no-op); the game still plays.
 	g.up.hud = hud_init(g)
+	g.up.box = message_box_init(g)
 
 	// Dev command console (fixed bottom-left panel): a Lua REPL on the gameplay VM plus
 	// CE aliases (tcl, player.additem, …). The panel is just the widget; the REPL that
@@ -728,6 +733,7 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.quicksave_path)
 	delete(g.saves_dir)
 	if g.up.profile {mods.profile_destroy(&g.mprofile)}
+	if g.up.box {message_box_destroy(g)}
 	if g.up.hud {hud_destroy(g)} // releases the HUD atlas/UI textures — before render.shutdown (device alive)
 	if g.up.loadui {loadui_destroy(g)} // releases the atlas/UI textures — before render.shutdown (device alive)
 	if g.up.ui {render.ui_shutdown(&g.r)} // before render.shutdown — device still alive

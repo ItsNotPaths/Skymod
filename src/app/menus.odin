@@ -73,7 +73,11 @@ Quit_To :: enum u8 {
 
 // world_paused reports whether an open menu stops the ticks.
 world_paused :: proc(g: ^Game) -> bool {
-	return MENUS[g.menu].pauses_world
+	return MENUS[g.menu].pauses_world || message_box_up(g)
+}
+
+in_menu :: proc(g: ^Game) -> bool {
+	return g.menu != .None || message_box_up(g)
 }
 
 // open_container shows a container's contents to the player (Activate on a container).
@@ -90,18 +94,7 @@ frame_menus :: proc(g: ^Game) {
 		audio.ui_sound(&g.audio, &g.v, &g.db, MENUS[g.menu].sounds[0])
 		if was == .Container {audio.activate_sound(&g.audio, &g.v, &g.db, &g.sim.ws, g.menu_target, done = true)}
 	}
-	for kind, m in MENUS {
-		if kind.action == "" || !input.fired(&g.imgr, kind.action) {continue}
-		closes := g.menu == m || (m == .Tween && g.menu in TWEEN)
-		g.menu = .None if closes else m
-	}
-	if input.fired(&g.imgr, "Pause") {
-		switch g.menu {
-		case .None:     g.menu = .Pause
-		case .Dialogue: handoff.push(&g.commands, Cmd_Talk_Leave{})
-		case .Tween, .Inventory, .Magic, .Skills, .Map, .Container, .Pause: g.menu = .None // Esc closes any menu
-		}
-	}
+	if !message_box_up(g) {toggle_menus(g)} // the box holds the keys until the player picks
 	if g.menu == .None {return}
 	if world_paused(g) && !g.menu_parked {park_for_menu(g)} // the menu reads the sim as it draws
 	if g.menu == .Tween {
@@ -126,6 +119,23 @@ frame_menus :: proc(g: ^Game) {
 	imgui.End()
 	if !open {
 		if g.menu == .Dialogue {handoff.push(&g.commands, Cmd_Talk_Leave{})} else {g.menu = .None}
+	}
+}
+
+// toggle_menus opens and closes the menus from their actions.
+@(private = "file")
+toggle_menus :: proc(g: ^Game) {
+	for kind, m in MENUS {
+		if kind.action == "" || !input.fired(&g.imgr, kind.action) {continue}
+		closes := g.menu == m || (m == .Tween && g.menu in TWEEN)
+		g.menu = .None if closes else m
+	}
+	if input.fired(&g.imgr, "Pause") {
+		switch g.menu {
+		case .None:     g.menu = .Pause
+		case .Dialogue: handoff.push(&g.commands, Cmd_Talk_Leave{})
+		case .Tween, .Inventory, .Magic, .Skills, .Map, .Container, .Pause: g.menu = .None // Esc closes any menu
+		}
 	}
 }
 
