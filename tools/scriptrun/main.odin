@@ -127,7 +127,7 @@ main :: proc() {
 	fmt.printfln("cells: instances %d, OnInit run in %v", cell_made, cell_took)
 	fmt.printfln("attach: %d events (OnCellAttach, OnLoad, OnCellLoad) run in %v", events, trans_took)
 	fmt.printfln("updates: %d OnUpdate, OnUpdateGameTime and item events over %d s of ticks, %.1f game hours skipped (registered forms left: %d real, %d game time), run in %v", updates, args.seconds, args.skip, len(ws.updates), len(ws.game_updates), update_took)
-	fmt.printfln("effects: %d live, the last handle %d", len(ws.effects), ws.next_effect)
+	fmt.printfln("effects: %d defined, %d live, the last handle %d", len(ws.effect_defs), len(ws.effects), ws.next_effect)
 	playing := 0
 	for _, run in ws.scenes {if run.begun {playing += 1}}
 	fmt.printfln("scenes: %d playing, %d waiting for their actors", playing, len(ws.scenes) - playing)

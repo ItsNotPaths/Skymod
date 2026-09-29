@@ -9,10 +9,13 @@ package main
 // as it is now (a later mod changing a master's effect does not reach the ported files).
 
 import "core:fmt"
+import "core:log"
 import "core:os"
+import "core:slice"
 import "../../src/magictranslate"
 
 main :: proc() {
+	context.logger = log.create_console_logger(.Warning)
 	args := os.args[1:]
 	out := ""
 	rest := make([dynamic]string)
@@ -30,9 +33,11 @@ main :: proc() {
 	}
 	plugin := rest[1]
 	order := make([dynamic]string)
-	append(&order, ..rest[2:])
+	for name in rest[2:] {
+		if !slice.contains(order[:], name) && name != plugin {append(&order, name)} // a plugin twice crashes the load
+	}
 	append(&order, plugin)
 	st, ok := magictranslate.translate(rest[0], order[:], {plugin}, out)
 	if !ok {os.exit(1)}
-	fmt.printfln("magic2lua: %d spell(s), %d effect(s) -> %s", st.spells, st.effects, out)
+	fmt.printfln("magic2lua: %d spell(s), %d effect(s), %d record(s) not translated yet -> %s", st.spells, st.effects, st.skipped, out)
 }

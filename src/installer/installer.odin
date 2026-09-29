@@ -33,7 +33,7 @@ progress_read  :: converters.progress_read
 // Bump a part's version when its converter's output changes, so an older install re-runs that part.
 SCRIPTS_VERSION :: 4
 AUDIO_VERSION   :: 4
-MAGIC_VERSION   :: 1
+MAGIC_VERSION   :: 2
 
 // Part is a converted piece of the install. Each has its own key in the manifest; a part whose key
 // changed runs again alone, and the others keep their output.
@@ -167,7 +167,11 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 		log.infof("installer: converted %d sound(s) to Ogg, %d unreadable", ast.converted, ast.failed)
 	}
 	if .Magic in stale {
-		magic_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR, "magic"}, context.temp_allocator)
+		magic_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
+		for sub in ([]string{"effects", "spells", "powers", "items"}) { // the translator's alone
+			old, _ := filepath.join({magic_dir, sub}, context.temp_allocator)
+			os.remove_all(old)
+		}
 		plugins := make([dynamic]string, context.temp_allocator)
 		append(&plugins, ..esms)
 		append(&plugins, ..esls)
@@ -176,7 +180,7 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 		if !mok {
 			return false
 		}
-		log.infof("installer: translated %d spell(s) and %d effect(s) to Lua", mst.spells, mst.effects)
+		log.infof("installer: translated %d spell(s) and %d effect(s) to Lua, %d record(s) not yet", mst.spells, mst.effects, mst.skipped)
 	}
 	log.infof("installer: parts redone %v, kept %v", stale, ~stale)
 
