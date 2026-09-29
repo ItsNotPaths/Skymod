@@ -104,6 +104,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register_magic(reg) // spells start and end scripted magic effects
 	register_projectiles(reg) // Weapon.Fire
 	register_levels(reg) // encounter zone levels for mods
+	register_weather(reg)
 	register_equip(reg) // what actors wear and hold
 	register_leveling(reg) // skill XP, levels, perk points
 	register_query(reg) // reads over records and the stores their setters write

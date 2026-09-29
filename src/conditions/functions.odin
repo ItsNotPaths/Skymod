@@ -40,7 +40,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	58  = fn_get_stage,
 	59  = fn_get_stage_done,
 	61  = fn_get_alarmed,
-	62  = fn_resting,
+	62  = fn_is_raining,
 	66  = fn_resting,
 	67  = fn_get_in_cell,
 	69  = fn_get_is_race,
@@ -49,7 +49,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	72  = fn_get_is_id,
 	73  = fn_get_faction_rank,
 	74  = fn_get_global_value,
-	75  = fn_resting,
+	75  = fn_is_snowing,
 	77  = fn_get_random_percent,
 	79  = fn_get_quest_variable,
 	80  = fn_get_level,
@@ -63,7 +63,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	136 = fn_get_is_reference,
 	144 = fn_get_trespass_warning_level,
 	145 = fn_is_trespassing,
-	149 = fn_resting,
+	149 = fn_get_is_current_weather,
 	157 = fn_get_open_state,
 	159 = fn_get_sitting,
 	161 = fn_get_is_current_package,
@@ -84,7 +84,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	261 = fn_has_parent_relationship,
 	263 = fn_resting,
 	264 = fn_has_spell,
-	266 = fn_resting_true,
+	266 = fn_is_pleasant,
 	274 = fn_resting,
 	277 = fn_get_base_actor_value,
 	286 = fn_is_sneaking,
@@ -399,18 +399,12 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // (hole magic-conditions :tags (magic records) :sev gap) these have no body, so they pass: HasShout, GetSpellUsageNum, HasEquippedSpell, GetCurrentCastingType, IsCurrentSpell, IsWardState, IsDualCasting, EPMagic_IsAdvanceSkill, EPMagic_SpellHasKeyword, EPMagic_SpellHasSkill, HasBoundWeaponEquipped, SpellHasCastingPerk, EffectWasDualCast. A perk gated on an EPMagic_ one applies to every spell.
 // (hole commanded-actors :tags magic :sev gap :needs (other-archetypes)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (animation combat unclaimed) :sev gap :needs (actor-states)) GetIsFlying and GetFlyingState read 0: no dragon flies.
-// (hole weather-conditions :tags (world unclaimed) :sev gap :needs (weather-select)) IsRaining, IsSnowing and GetIsCurrentWeather read 0 and IsPleasant 1: no weather is selected, so the sky reads clear.
 // (hole map-markers :tags quest :sev gap) GetMapMarkerVisible reads 0: no marker is ever found; nothing discovers one as the player nears it, and AddToMap and IsMapMarkerVisible are not natives.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
 // (hole favor-commands :tags (dialogue ai) :sev gap :needs (teammate-behavior)) IsInFavorState reads 0: no follower takes commands.
 @(private = "file")
 fn_resting :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return 0, true
-}
-
-@(private = "file")
-fn_resting_true :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
-	return 1, true
 }
 
 @(private = "file")
@@ -878,6 +872,23 @@ fn_get_in_worldspace :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) ->
 }
 
 @(private = "file")
+// IsRaining, IsSnowing, IsPleasant: the current weather's class. GetIsCurrentWeather: it is param1.
+fn_is_raining :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(gamedb.weather_classification(ctx.db, ctx.ws.weather.current) == .Rainy)
+}
+
+fn_is_snowing :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(gamedb.weather_classification(ctx.db, ctx.ws.weather.current) == .Snow)
+}
+
+fn_is_pleasant :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(gamedb.weather_classification(ctx.db, ctx.ws.weather.current) == .Pleasant)
+}
+
+fn_get_is_current_weather :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(ctx.ws.weather.current != 0 && ctx.ws.weather.current == p1(c))
+}
+
 fn_is_in_interior :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	cell, ok := gamedb.cell_by_formid(ctx.db, worldstate.ref_cell(ctx.ws, ctx.db, on))
 	return yes(ok && cell.interior)

@@ -48,7 +48,7 @@ echo "==> holes (swiss sync: ws.md)"
 # The plugin seams see the world only through their Host (ws.md Workstream H): core:*, base:*,
 # formid and plugin, nothing else; plugin's record views also use formats/esm's fixed format types.
 echo "==> seam imports"
-for pkg in plugin detection combat sight condfn actorstate magic graphics; do
+for pkg in plugin detection combat sight condfn actorstate magic graphics weather; do
     allowed='^(core:|base:|\.\./formid$|\.\./plugin$)'
     [ "$pkg" = plugin ] && allowed='^(core:|base:|\.\./formid$|\.\./formats/esm$)'
     bad="$(grep -hoP '^import(\s+\w+)?\s+"\K[^"]+' src/$pkg/*.odin \

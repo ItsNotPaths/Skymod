@@ -82,7 +82,7 @@ range_builtin :: proc "c" (h: ^Host, viewer: Form_ID) -> f32 {
 	return r
 }
 
-// (hole light-at-point :tags (query ai unclaimed) :sev gap :needs (day-night weather-select)) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit. It runs on the sim: build it from LIGH refs, the cell lighting and the game clock and weather, never from render's lighting state.
+// (hole light-at-point :tags (query ai unclaimed) :sev gap :needs (day-night)) nothing says how lit a point is (placed lights, sun), so detection cannot weigh light; every point reads fully lit. It runs on the sim: build it from LIGH refs, the cell lighting and the game clock and weather, never from render's lighting state.
 light_builtin :: proc "c" (h: ^Host, ref: Form_ID) -> f32 {
 	return 1
 }

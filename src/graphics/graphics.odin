@@ -49,7 +49,7 @@ Host :: struct {
 	read_file:  proc "c" (data: rawptr, path: cstring, out: [^]u8, cap: int) -> int, // the size, -1 = missing; written only when it fits in cap
 }
 
-// (hole render-inputs-snapshot :tags (threading render unclaimed) :sev gap :needs (weather-select)) the frame carries no game hour, weather and its transition, lighting template or interior lighting, which day-night and sky need. Wanted: the sim publishes these in the snapshot and main passes them here, never ws.clock or g.trav.
+// (hole render-inputs-snapshot :tags (threading render unclaimed) :sev gap) the frame carries no game hour, weather and its transition (ws.weather), lighting template or interior lighting, which day-night and sky need. Wanted: the sim publishes these in the snapshot and main passes them here, never ws.clock or g.trav.
 Frame :: struct {
 	host:          Host,
 	table:         ^Table,

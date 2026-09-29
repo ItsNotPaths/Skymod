@@ -84,6 +84,8 @@ Overlay :: struct {
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	clock:           Game_Clock,               // game time (clock.odin)
+	weather:         Weather_State,            // the weather in force (weather.odin)
+	weathers_offered: [dynamic]Form_ID,        // what the player's place offers, regions first (FindWeather; not saved)
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
 	cleared:         Form_Set,                     // locations cleared (Location.SetCleared)
 	books_read:      Form_Set,                     // skill books the player has read (each teaches once)
@@ -518,6 +520,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.pending_moves)
 	delete(o.anim_regs)
 	delete(o.los_regs)
+	delete(o.weathers_offered)
 	delete(o.projectiles)
 	delete(o.zones)
 	delete(o.effects)

@@ -37,6 +37,7 @@ import "../detection"
 import "../formid"
 import "../gamedb"
 import "../graphics"
+import "../weather"
 import "../handoff"
 import "../input"
 import "../installer"
@@ -131,6 +132,7 @@ Tick_Part :: enum {
 	Window,
 	Physics,
 	Traversal,
+	Weather,
 	Audio,
 	Script_Events,
 	Scripts,
@@ -610,6 +612,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	plugin.apply(&g.plugins, sight.SEAM, sight.VERSION, &sighthost.table)
 	plugin.apply(&g.plugins, condfn.SEAM, condfn.VERSION, &conditions.table)
 	plugin.apply(&g.plugins, magic.SEAM, magic.VERSION, &script.magic_table)
+	g.sim.weather = weather.BUILTIN
+	plugin.apply(&g.plugins, weather.SEAM, weather.VERSION, &g.sim.weather)
 	g.graphics = GRAPHICS_BUILTIN
 	plugin.apply(&g.plugins, graphics.SEAM, graphics.VERSION, &g.graphics)
 	script.init(&g.sreg)

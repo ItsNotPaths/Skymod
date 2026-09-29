@@ -77,7 +77,7 @@ wanted_music :: proc(a: ^Audio, db: ^gamedb.DB, ws: ^worldstate.World_State, in_
 	return best
 }
 
-// (hole region-sounds :tags (audio world unclaimed) :sev gap :needs (weather-select)) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: nothing selects a weather.
+// (hole region-sounds :tags (audio world unclaimed) :sev gap) region sounds (REGN RDSA: 687 entries over 53 regions, each by weather and chance) do not play: RDSA is not decoded, though ws.weather.current and gamedb.cell_regions are there to pick by.
 // (hole acoustic-reverb :tags (audio world) :sev gap) no acoustic space's reverb (ASPC RDAT, a REVB) applies: sounds play dry in caves and halls alike.
 
 // Ambient is what plays because of where the listener is: the looping sound markers, activators and

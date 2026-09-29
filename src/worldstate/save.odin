@@ -397,6 +397,7 @@ Save_Body :: struct {
 	effects:       []Saved_Effect,
 	next_effect:   u32,
 	clock:         Game_Clock,
+	weather:       Weather_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
 
@@ -684,6 +685,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
 		clock         = ws.clock,
+		weather       = ws.weather,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
 	// remapped on load (reorder / cross-install). No bridge ⇒ same-install identity (empty table).
@@ -1152,6 +1154,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		rel_upsert(ws, a)^[b] = r.rank
 	}
 	ws.clock = body.clock
+	ws.weather = body.weather
+	for f in ([]^Form_ID{&ws.weather.current, &ws.weather.outgoing, &ws.weather.natural, &ws.weather.override, &ws.weather.request}) {
+		r, ok := rf(remap, have_remap, f^)
+		f^ = r if ok else 0 // its mod is gone
+	}
 	return m, true
 }
 
@@ -1198,6 +1205,8 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.teammates {add_slot(&seen, a)}
 	for a in body.no_pc_dialogue {add_slot(&seen, a)}
 	for s in body.actor_states {add_slot(&seen, s.actor)}
+	w := body.weather
+	for f in ([]Form_ID{w.current, w.outgoing, w.natural, w.override, w.request}) {add_slot(&seen, f)}
 	for a in body.grounded {add_slot(&seen, a)}
 	for a in body.dont_move {add_slot(&seen, a)}
 	for a in body.restrained {add_slot(&seen, a)}
