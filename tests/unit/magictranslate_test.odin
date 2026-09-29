@@ -111,3 +111,27 @@ test_magic_translate_land :: proc(t: ^testing.T) {
   end,
 `)
 }
+
+// A potion becomes an rt.item on its record, its effects named with their numbers, a poison tagged.
+@(test)
+test_magic_translate_item :: proc(t: ^testing.T) {
+	src: magictranslate.Source
+	src.files = make(map[u32]string, context.temp_allocator)
+	src.edids = make(map[gamedb.Form_ID]string, context.temp_allocator)
+	src.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	src.files[0] = "Skyrim.esm"
+	src.edids[0x73F38] = "DamageHealthLinger05"
+	src.edids[0x3EB42] = "AlchDamageHealthDuration"
+	src.db.form_by_edid["alchdamagehealthduration"] = 0x3EB42
+	potion := gamedb.Potion{poison = true, effects = []gamedb.Magic_Effect_Ref{{effect = 0x3EB42, magnitude = 3, duration = 20}}}
+	testing.expect_value(t, magictranslate.item_lua(&src, 0x73F38, potion), `-- Skyrim.esm ALCH DamageHealthLinger05
+local rt = require('skymod.rt')
+return rt.item {
+  form = "Skyrim.esm:073F38",
+  tags = { "poison" },
+  applies = {
+    { "AlchDamageHealthDuration", m = 3, d = "20s" },
+  },
+}
+`)
+}

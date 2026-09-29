@@ -17,7 +17,7 @@ import "../gamedb"
 Form_ID :: gamedb.Form_ID
 
 Stats :: struct {
-	spells, effects: int,
+	spells, effects, items: int,
 	skipped:         int, // records no part of the translator handles yet
 }
 
@@ -57,14 +57,27 @@ write_all :: proc(src: ^Source, out_dir: string) -> (st: Stats, ok: bool) {
 			st.skipped += 1
 			continue
 		}
-		path, _ := filepath.join({effects_dir, fmt.tprintf("%s.lua", src.edids[form])}, context.temp_allocator)
-		if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
-			log.errorf("magic: cannot write %s: %v", path, err)
-			return
-		}
+		write_file(effects_dir, src.edids[form], text) or_return
 		st.effects += 1
 	}
+	items_dir, _ := filepath.join({out_dir, "items"}, context.temp_allocator)
+	os.make_directory_all(items_dir)
+	for form, potion in src.db.potions {
+		if !src.wanted[form] {continue}
+		write_file(items_dir, src.edids[form], item_lua(src, form, potion)) or_return
+		st.items += 1
+	}
 	return st, true
+}
+
+@(private)
+write_file :: proc(dir, name, text: string) -> bool {
+	path, _ := filepath.join({dir, fmt.tprintf("%s.lua", name)}, context.temp_allocator)
+	if err := os.write_entire_file(path, transmute([]u8)text); err != nil {
+		log.errorf("magic: cannot write %s: %v", path, err)
+		return false
+	}
+	return true
 }
 
 // load reads `plugins` from `data_dir` into a Source.
