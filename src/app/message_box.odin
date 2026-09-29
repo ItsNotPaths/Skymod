@@ -7,8 +7,10 @@ import "core:log"
 import "core:strconv"
 import "core:strings"
 import "core:time"
+import "../gamedb"
 import "../input"
 import "../ui"
+import "../worldstate"
 
 Box_Text :: struct {
 	body:    string,   // owned
@@ -39,7 +41,8 @@ message_box_up :: proc(g: ^Game) -> bool {
 }
 
 // message_box_open shows `body` with `buttons` and pauses the world. `on_pick` gets the picked index
-// when the player picks; a second box replaces the first, which then gets no pick.
+// when the player picks, with the sim still parked; a second box replaces the first, which then gets
+// no pick.
 message_box_open :: proc(g: ^Game, body: string, buttons: []string, on_pick: Box_Pick) {
 	if !g.box.sess.ok {
 		log.warnf("[message] no message box screen; picked 0 for %q", body)
@@ -77,10 +80,19 @@ frame_message_box :: proc(g: ^Game) {
 	} else {
 		pick, _ = strconv.parse_int(verb)
 	}
-	on_pick := g.box.on_pick
 	box_text_free(&g.box.sess.host.box)
+	g.box.on_pick(g, pick) // the sim is still parked; this may open the next box
 	park_for_menu(g)
-	on_pick(g, pick)
+}
+
+// ask_next shows the oldest box a script asked for (worldstate.ask). Its answer shows the next.
+ask_next :: proc(g: ^Game) {
+	if len(g.sim.ws.asks) == 0 {return}
+	m, _ := gamedb.message_of(&g.db, g.sim.ws.asks[0])
+	message_box_open(g, m.body, m.buttons, proc(g: ^Game, pick: int) {
+		worldstate.take_ask(&g.sim.ws, i32(pick))
+		ask_next(g)
+	})
 }
 
 @(private = "file")

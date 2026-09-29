@@ -7,7 +7,7 @@ local rt = require('skymod.rt')
 local function trace(self, msg) rt.static("Debug", "Trace", tostring(self) .. " " .. msg) end
 
 return function(C)
-	C.__exits_menu = { OnEquipped = true }
+	C.__exits_menu = { OnEquipped = true } -- (hole exits-menu :tags (ui script) :sev gap) nothing reads __exits_menu: the read waits until the player closes the inventory
 	-- each stage names the step that runs when `wait` runs out; Travel* is the MQ206 time-travel
 	-- read, Blind* the normal read
 	C.Read = rt.sequence("Idle",

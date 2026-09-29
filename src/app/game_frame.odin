@@ -66,7 +66,7 @@ game_frame :: proc(g: ^Game) {
 	// "global" actions (overlay toggle) stay live regardless.
 	{
 		_, kb_cap := render.ui_capturing(&g.r)
-		input.set_context(&g.imgr, "gameplay", !kb_cap)
+		input.set_context(&g.imgr, "gameplay", !kb_cap && !message_box_up(g))
 		input.set_context(&g.imgr, "menu", !render.ui_typing(&g.r))
 		f := platform.input_frame(&g.p)
 		input.update(&g.imgr, &f)
@@ -194,6 +194,7 @@ game_tick :: proc(g: ^Game) {
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	run_scripts(g)
+	if len(g.sim.ws.asks) > 0 {send_parked(g, Evt_Ask{})} // the box pauses the world before the next tick
 	t = time.tick_now()
 	publish_snapshot(g)
 	forward_ref_events(g)

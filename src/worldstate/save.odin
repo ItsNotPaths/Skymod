@@ -764,6 +764,8 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// saved `live` set verbatim rather than going through the per-field verbs, since the file already
 	// records which fields diverge).
 	destroy_overlay(&ws.overlay)
+	clear(&ws.asks)
+	clear(&ws.answers)
 	init_overlay(&ws.overlay)
 	for d in body.deltas {
 		fid, kok := rf(remap, have_remap, d.form_id)

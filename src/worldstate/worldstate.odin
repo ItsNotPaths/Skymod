@@ -179,6 +179,8 @@ Runtime :: struct {
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
+	asks:            [dynamic]Form_ID,      // message boxes scripts asked for, oldest first (asks.odin); not saved
+	answers:         map[Form_ID]i32,       // message -> the button picked on its last box; not saved
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
 	regen:           Regen_Turns,           // whose turn it is to regenerate outside the loaded cells (av_regen)
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
@@ -281,6 +283,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.zone_waits)
 	delete(ws.story_events)
 	delete(ws.barks)
+	delete(ws.asks)
+	delete(ws.answers)
 	destroy_ai_link(&ws.ai)
 	delete(ws.story_quests)
 	delete(ws.quest_steps)

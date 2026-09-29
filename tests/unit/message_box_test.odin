@@ -1,10 +1,12 @@
 package unit_tests
 
 // message_box.lua: each label is a button, a pick hands back its index, no labels gets one button.
+// worldstate asks: the queue Show fills and the answers the box gives.
 
 import "core:testing"
 import lua "../../vendor/lua"
 import "../../src/ui"
+import ws "../../src/worldstate"
 
 @(private = "file")
 open_box :: proc(vm: ^ui.VM, engine_src: cstring) -> bool {
@@ -61,4 +63,28 @@ test_message_box_default_button :: proc(t: ^testing.T) {
 		verb, _ := ui.take_result(&vm)
 		testing.expect_value(t, verb, "0")
 	}
+}
+
+// Show queues a message once while it waits; a new ask drops the old answer, so a script sees -1
+// until the player picks again.
+@(test)
+test_message_asks :: proc(t: ^testing.T) {
+	MSG_A :: ws.Form_ID(0x0003403D)
+	MSG_B :: ws.Form_ID(0x0003403E)
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+
+	ws.ask(&s, MSG_A)
+	ws.ask(&s, MSG_B)
+	ws.ask(&s, MSG_A)
+	testing.expect_value(t, len(s.asks), 2)
+	testing.expect_value(t, ws.answer(&s, MSG_A), -1)
+
+	ws.take_ask(&s, 1)
+	testing.expect_value(t, ws.answer(&s, MSG_A), 1)
+	testing.expect_value(t, s.asks[0], MSG_B)
+
+	ws.ask(&s, MSG_A)
+	testing.expect_value(t, ws.answer(&s, MSG_A), -1)
 }

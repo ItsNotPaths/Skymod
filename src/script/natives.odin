@@ -76,6 +76,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Debug", "Notification", n_notification)
 
 	register(reg, "Message", "Show", n_message_show)
+	register(reg, "Message", "Answer", n_message_answer)
 
 	// No handler runs inside a menu: a world-pausing menu stops the ticks (docs/script-api.md section 7).
 	register(reg, "Utility", "IsInMenuMode", n_is_in_menu_mode)
@@ -349,26 +350,28 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 
 // ── Message ──────────────────────────────────────────────────────────────────
 
-// n_message_show resolves the receiving MESG and puts it on screen. Papyrus returns the index of
-// the button the player picked, so a script branches on it.
+// n_message_show queues a box MESG (worldstate.ask). The box pauses the world before the next tick,
+// so the script reads the pick there with Answer (docs/script-rewrite.md "Menus that pause the world").
 //
-// (hole menu-mode :tags ui :sev gap) Show does not open the message box (app message_box_open), so it never pauses the world. The yield must end the script phase suspended and park the sim (sim_drain); main blocking in a join until the click would deadlock.
-// When it lands, Show yields the handler's coroutine until the click, and ticks stop meanwhile
-// (docs/script-rewrite.md "Menus that pause the world"). Until then this logs the text and returns
-// 0, the first button, which the base game authors as the "carry on" choice on the records that
-// matter (OghmaInfinium button 0 is "(Do not read)").
+// (hole show-answer :tags (script ui) :sev gap) converted code that reads Show's result gets 0, the first button: the 36 functions that branch on it need the split (Show, then Answer in OnTick).
 n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 	m, ok := gamedb.message_of(c.db, c.self)
 	if !ok {
 		log.warnf("[message] Show on 0x%X: not an indexed MESG", c.self)
 		return i32(0)
 	}
-	if m.message_box {
-		log.infof("[message] box %q: %s  buttons=%v", m.title, m.body, m.buttons)
-	} else {
+	if !m.message_box {
 		log.infof("[message] %s", m.body)
+		return i32(0)
 	}
-	return i32(0) // the first button, until the menu can return a real choice
+	worldstate.ask(c.ws, c.self)
+	return i32(0)
+}
+
+// n_message_answer is the button picked on the last box of this message, -1 while none: not asked,
+// or asked before a load.
+n_message_answer :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.answer(c.ws, c.self)
 }
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────

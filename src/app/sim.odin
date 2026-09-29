@@ -293,12 +293,14 @@ Sim_Event :: union {
 	Evt_Door,
 	Evt_Follow,
 	Evt_Ref,
+	Evt_Ask,
 }
 
 Evt_Place :: struct {place: Place} // the player is somewhere else: main shows it (show_place)
 Evt_Open_Container :: struct {container: Form_ID}
 Evt_Door :: struct {hit: Door_Hit} // the player goes through a load door
 Evt_Follow :: struct {} // a script moved the player's ref (MoveTo, jail)
+Evt_Ask :: struct {} // scripts asked for message boxes (worldstate.ask)
 Evt_Ref :: struct {ext: bool, e: world.Ref_Event} // a change to a live cell, of the exterior's space or the interior's
 
 event_destroy :: proc(e: Sim_Event) {
@@ -337,6 +339,10 @@ handle_events :: proc(g: ^Game) {
 		case Evt_Follow:
 			sim_wait(g)
 			player_follow(g)
+			sim_resume(g)
+		case Evt_Ask:
+			sim_wait(g)
+			ask_next(g)
 			sim_resume(g)
 		}
 	}

@@ -1,7 +1,7 @@
 -- pex: beginsurgery dbfba956 30f21b54
 -- Surgery polled the surgeon's dialogue every 0.5 s, opened the limited race menu, then waited in
--- menu mode until it closed. ShowLimitedRaceMenu yields like Message.Show, so only the dialogue
--- poll is left. As in the original, a player who cannot use the face menu keeps controls disabled.
+-- menu mode until it closed. The race menu pauses the world, so nothing after the call can run
+-- before it closes; only the dialogue poll is left. As in the original, a player who cannot use the face menu keeps controls disabled.
 local rt = require('skymod.rt')
 
 return function(C)
@@ -22,7 +22,7 @@ return function(C)
 		self.MenuLight:Enable()
 		if not self:CanUseFaceMenu() then return end
 		game("AddAchievement", 59)
-		game("ShowLimitedRaceMenu") -- (hole menu-mode :tags ui :sev gap) returns at once; must yield until the menu closes
+		game("ShowLimitedRaceMenu") -- (hole race-menu :tags (ui player) :sev gap) no race menu screen: the call does nothing
 		game("EnablePlayerControls")
 		self.MenuLight:Disable()
 	end

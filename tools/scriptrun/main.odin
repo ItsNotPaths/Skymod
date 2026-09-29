@@ -9,7 +9,8 @@ package main
 //   --cell <formid>|all  also attach this cell (hex form id), or every cell; repeatable
 //   --patches <dir>      layer the scripts in <dir> over <scripts dir> (.lua replaces, .patch.lua edits)
 //   --driver <file.lua>  run this Lua once after the attach, before the ticks (send events, set stages);
-//                        a global `driver_tick(t)` it defines is then called after every tick, t in seconds
+//                        a global `driver_tick(t)` it defines is then called after every tick, t in seconds;
+//                        `driver_answer(message)` picks the button of each box a script asks for (default 0)
 //   --seconds <n>        how long ticks run after the attach, default 10
 //   --skip <hours>       skip game time once, after the first tick
 //   --trace              print Debug.Trace and Notification lines with the tick time they ran at
@@ -108,6 +109,10 @@ main :: proc() {
 		}
 		clear(&ws.activations)
 		updates += slua.tick_end(&vm, 1.0 / TICK_HZ)
+		for len(ws.asks) > 0 { // the app's box: the player picks before the next tick
+			pick, _ := slua.eval_int(&vm, fmt.tprintf("return driver_answer and driver_answer(%d) or 0", ws.asks[0]))
+			worldstate.take_ask(&ws, i32(pick))
+		}
 		if tick == 0 {worldstate.skip_game_time(&ws, args.skip)}
 		if args.driver != "" {
 			slua.do_string(&vm, fmt.tprintf("if driver_tick then require('skymod.rt').guard('driver_tick', driver_tick, %f) end", f32(tick + 1) / TICK_HZ))
