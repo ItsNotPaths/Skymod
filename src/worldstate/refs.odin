@@ -409,9 +409,10 @@ turn_to :: proc(ws: ^World_State, db: ^gamedb.DB, a: Form_ID, d: [3]f32) -> f32 
 	return math.mod(math.mod(turn, 360) + 540, 360) - 180
 }
 
-// has_keyword checks the form, a ref's base form, and the aliases that hold it.
+// has_keyword checks the form, a ref's base form, an actor's race, and the aliases that hold it.
 has_keyword :: proc(ws: ^World_State, db: ^gamedb.DB, form, keyword: Form_ID) -> bool {
 	if gamedb.has_keyword(db, form, keyword) || gamedb.has_keyword(db, ref_base(ws, db, form), keyword) {return true}
+	if race := actor_traits(ws, db, form).race; race != 0 && gamedb.has_keyword(db, race, keyword) {return true}
 	for a in holder_aliases(ws, db, form) {
 		if slice.contains(a.keywords, keyword) {return true}
 	}
