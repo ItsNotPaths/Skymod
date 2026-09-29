@@ -22,6 +22,7 @@ import "core:slice"
 import "core:strings"
 import "../audio"
 import "../conditions"
+import "../formats/esm"
 import "../gamedb"
 import "../vfs"
 import "../worldstate"
@@ -207,6 +208,19 @@ is_implemented :: proc(reg: ^Registry, class, fn: string) -> bool {
 }
 is_declared :: proc(reg: ^Registry, class, fn: string) -> bool {
 	return key_temp(class, fn) in reg.declared
+}
+
+// condition_stands_in reports whether a declared native with no body is answered by the condition
+// function of its name: one exists, and the native returns a bool or a number, never a form.
+condition_stands_in :: proc(reg: ^Registry, class, fn: string) -> bool {
+	e, declared := reg.declared[key_temp(class, fn)]
+	if !declared || is_implemented(reg, class, fn) {return false}
+	switch strings.to_lower(e.ret, context.temp_allocator) {
+	case "bool", "int", "float":
+		_, ok := esm.condition_function_by_name(fn)
+		return ok
+	}
+	return false
 }
 
 // REF_CLASS_CHAIN is the object-ref method-resolution order, most-derived first.

@@ -12,7 +12,7 @@ local effect_class, content_files, effect_def, spell_def, power_def = __effect_c
 local item_def = __item_def
 local av_part, global_value = __av_part, __global
 local resolve_ref, make_zone, spawn_hazard = __resolve, __make_zone, __spawn_hazard
-local method_kind, condition = __method_kind, __condition
+local method_kind, condition, native_condition = __method_kind, __condition, __native_condition
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -760,6 +760,7 @@ end
 
 function rt.native(class, fn, global)
   if waits[low(class .. "." .. fn)] then return wait_returns(fn) end
+  if not global and native_condition(class, fn) then return function(self, ...) return condition(form_of(self), fn, ...) end end
   local p = native_params[low(class .. "." .. fn)]
   if global then
     if p then return function(...) return native(class, fn, nil, args_out(with_defaults(p, ...))) end end

@@ -58,6 +58,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__resolve", rt_resolve},
 		{"__ref", rt_ref},
 		{"__method_kind", rt_method_kind},
+		{"__native_condition", rt_native_condition},
 		{"__condition", rt_condition},
 		{"__make_zone", rt_zone},
 		{"__spawn_hazard", rt_spawn_hazard},
@@ -781,6 +782,16 @@ rt_method_kind :: proc "c" (L: ^lua.State) -> c.int {
 		return 1
 	}
 	return 0
+}
+
+// __native_condition(class, fn) reports whether the condition function of that name stands in for
+// a native with no body (script.condition_stands_in).
+@(private)
+rt_native_condition :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	lua.pushboolean(L, b32(script.condition_stands_in(vm.reg, to_string(L, 1), to_string(L, 2))))
+	return 1
 }
 
 // __condition(ref, name, args...) runs a condition function on ref. A form argument is a ref or a
