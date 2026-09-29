@@ -448,7 +448,7 @@ Magic_Effect_Ref :: struct {
 	effect:    Form_ID,
 	magnitude: f32,
 	area:      u32,
-	duration:  u32,
+	duration:  f32, // seconds
 	conditions: []Condition, // the CTDAs after its EFIT (owned)
 }
 

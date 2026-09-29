@@ -473,7 +473,7 @@ index_effects :: proc(db: ^DB, fl: []esm.Field, fm: ^esm.Form_Map) -> []Magic_Ef
 			effect     = esm.remap_form(fm, e.effect),
 			magnitude  = e.magnitude,
 			area       = e.area,
-			duration   = e.duration,
+			duration   = f32(e.duration),
 			conditions = index_conditions(db, fl[starts[i]:starts[i + 1]], fm),
 		}
 	}

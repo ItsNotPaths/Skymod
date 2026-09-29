@@ -99,7 +99,7 @@ conditions :: proc(cs: []gamedb.Condition) -> plugin.Span(plugin.Condition) {
 @(private)
 effects :: proc(es: []gamedb.Magic_Effect_Ref) -> plugin.Span(plugin.Effect_Item) {
 	out := make([]plugin.Effect_Item, len(es), context.temp_allocator)
-	for e, i in es {out[i] = {e.effect, e.magnitude, e.area, e.duration, conditions(e.conditions)}}
+	for e, i in es {out[i] = {e.effect, e.magnitude, e.area, u32(e.duration), conditions(e.conditions)}}
 	return plugin.span(out)
 }
 

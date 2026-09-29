@@ -2254,7 +2254,7 @@ test_gamedb_magic :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sp.effects), 2)
 	testing.expect_value(t, sp.effects[0].effect, gamedb.Form_ID(0x0000_0601))
 	testing.expect_value(t, sp.effects[0].magnitude, f32(50))
-	testing.expect_value(t, sp.effects[0].duration, u32(5))
+	testing.expect_value(t, sp.effects[0].duration, f32(5))
 	testing.expect_value(t, sp.effects[1].effect, gamedb.Form_ID(0x0000_0602))
 	testing.expect(t, len(sp.effects[0].conditions) == 0 && len(sp.effects[1].conditions) == 1, "a CTDA belongs to the effect before it")
 	dear_me, _ := gamedb.magic_effect_of(&db, 0x0000_0602)
