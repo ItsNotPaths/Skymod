@@ -1188,21 +1188,43 @@ end
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
 --   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
---   m = "formula", d = "m"                  -- numbers worked out once as it lands, from the spell's
---   radius = 320, taken = "target.av.Health.value * 0.3"  -- tunables, also once as it lands (at most 8)
---   when = "formula"                        -- checked once as it lands; 0 and it does not start
+--   radius = 320                            -- a tunable's default; a bare name in a formula is one
+--   land = function(e) ... end              -- once as it lands: return false and it does not start;
+--                                           -- set e.m, e.d and tunables (e.taken = ...); e:apply
+--                                           -- ("Rider", { m = 99, d = 15 }) starts another beside it
 --   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties; it switches
 --                                              -- the effect on and off with self:SetActive(bool)
--- AV formulas see t, m, d, the tunables and reads by the naming rule (target.av.Health.value, global.GameHour, target:IsSneaking()). A
--- <name>.patch.lua returns a function that edits the definition from below it.
--- (hole effect-action-scripts :tags magic :sev gap) no core moment scripts with parameters: about 50 of Apocalypse's 159 effect scripts only cast a spell at someone on an event, dispel, interrupt, kill below a threshold or push (build/out/wsM/apoc/scripts.md). Wanted: CastOn, DispelOn, KillBelow and the like, so such an effect is data.
+-- AV formulas are per tick, in t, m, d, the tunables and reads by the naming rule
+-- (target.av.Health.value, global.GameHour, target:IsSneaking()). land gets e.caster, e.target,
+-- e.spell, e.effect (refs), e.m and e.d. A <name>.patch.lua returns a function that edits the
+-- definition from below it.
 function rt.effect(def) return def end
+
+local lands = {} -- lower effect name -> its land (rt.load_effects)
+
+-- The context an effect's land sees; e:apply asks for a rider.
+local Landing = {}
+Landing.__index = Landing
+function Landing:apply(name, opts)
+  local a = self.__applies
+  a[#a] = { name = name, m = opts and opts.m or 0, d = opts and opts.d or 0 }
+end
+
+-- rt.land(lname, caster, target, spell, effect, m, d) runs an effect's land: its context, or false
+-- when it does not start (worldstate.Land_Hook).
+function rt.land(lname, caster, target, spell, effect, m, d)
+  local e = setmetatable({ caster = caster, target = target, spell = spell, effect = effect, m = m, d = d, __applies = {} }, Landing)
+  local fn = lands[lname]
+  if fn and fn(e) == false then return false end
+  return e
+end
 
 function rt.on_land(name, fn) end
 function rt.on_cost(name, fn) end
 
 -- rt.load_effects defines every effect the effects/ folders hold, for the engine.
 function rt.load_effects()
+  lands = {}
   for _, f in ipairs(effect_files()) do
     local def
     for _, layer in ipairs(f.layers) do
@@ -1218,7 +1240,10 @@ function rt.load_effects()
         warn(layer.path .. ": patches effect '" .. f.name .. "', which nothing below it defines")
       end
     end
-    if type(def) == "table" then effect_def(f.name, def) end
+    if type(def) == "table" then
+      lands[f.name] = def.land
+      effect_def(f.name, def)
+    end
   end
 end
 

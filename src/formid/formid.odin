@@ -27,15 +27,17 @@ script_faction :: proc(n: u32) -> Form_ID {return Form_ID(SCRIPT_FACTION_SLOT) <
 
 is_script_faction :: proc(f: Form_ID) -> bool {return u32(f >> 32) == SCRIPT_FACTION_SLOT}
 
-// A Lua form is one that content defines by name with no record behind it (rt.effect): high word
-// LUA_FORM_SLOT, low word a hash of the lower-cased name, so it is the same in every session and
-// install and a save passes it through.
+// A Lua form is one that content defines by name with no record behind it (rt.effect, rt.spell):
+// high word LUA_FORM_SLOT, low word a hash of its kind and lower-cased name, so it is the same in
+// every session and install and a save passes it through.
 LUA_FORM_SLOT :: u32(0x8000_0003)
 
-lua_form :: proc(name: string) -> Form_ID {
-	h := u32(2166136261) // FNV-1a
-	for c in transmute([]u8)name {
-		h = (h ~ u32(c | 0x20 if c >= 'A' && c <= 'Z' else c)) * 16777619
+lua_form :: proc(kind, name: string) -> Form_ID {
+	h := u32(2166136261) // FNV-1a over "kind/name", so an effect and a spell may share a name
+	for part in ([]string{kind, "/", name}) {
+		for c in transmute([]u8)part {
+			h = (h ~ u32(c | 0x20 if c >= 'A' && c <= 'Z' else c)) * 16777619
+		}
 	}
 	return Form_ID(LUA_FORM_SLOT) << 32 | Form_ID(h)
 }

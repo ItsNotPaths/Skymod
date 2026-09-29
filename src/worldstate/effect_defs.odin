@@ -1,11 +1,10 @@
 package worldstate
 
 // Effects content defines (rt.effect): the engine's table of them, keyed by form. A definition
-// stands in for its form's record: its terms, scripts, tags and `when` replace the MGEF's archetype,
+// stands in for its form's record: its terms, scripts, tags and land replace the MGEF's archetype,
 // VMAD scripts, keywords and conditions. Not saved: content defines them again as each game starts.
 
 import "core:log"
-import "core:slice"
 import "core:strings"
 import "../formats/esm"
 import "../formid"
@@ -18,16 +17,15 @@ MAX_TUNABLES :: 8
 Effect_Def :: struct {
 	name:     string, // owned
 	terms:    [dynamic]Effect_Term,
-	landing:  [dynamic]Effect_Landing,
-	tunables: [dynamic]string, // owned, sorted: Active_Effect.tunables in this order
-	gate:     Maybe(formula.Formula), // `when`: checked once as it lands
+	tunables: [dynamic]Tunable, // Active_Effect.tunables in this order
+	land:     bool, // it has a Lua land (Land_Hook)
 	scripts:  []esm.Script_Attach, // the moments; owned (esm.free_form_scripts shape)
 }
 
-// Effect_Landing is a number worked out once as the effect lands: m, d, or a tunable.
-Effect_Landing :: struct {
-	name: string, // owned
-	f:    formula.Formula,
+// Tunable is a name the effect's formulas read bare: its default until land sets it.
+Tunable :: struct {
+	name:    string, // owned
+	default: f32,
 }
 
 // Effect_Def_Src is a definition as content wrote it: formulas as strings, borrowed.
@@ -35,19 +33,32 @@ Effect_Def_Src :: struct {
 	name, form: string, // form: "File.esm:012FCD" or an editor id; "" makes a Lua form
 	tags:       []string,
 	terms:      []Effect_Src,
-	landing:    [][2]string, // {name, formula}
-	gate:       string, // `when`
+	defaults:   []Tunable, // the definition's numbers
+	land:       bool,
 	scripts:    []esm.Script_Attach, // borrowed; cloned here
 }
 
-// LANDING_VARS: what landing formulas and `when` see as the effect lands.
-LANDING_VARS_ARRAY := [?]string{"t", "m", "d"}
-LANDING_VARS := LANDING_VARS_ARRAY[:]
+// Land_Hook runs an effect's Lua land as it lands (the VM sets it): false, and it does not start.
+// It may change m, d and the tunables, and asks for riders.
+Land_Hook :: struct {
+	data: rawptr,
+	run:  proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect, riders: ^[dynamic]Rider) -> bool,
+}
 
-// set_effect_def compiles a definition and makes it the one for its form, which it returns. A bad
-// formula warns and drops only its part.
+// Rider is an effect a land applies beside its own, on the same target from the same source.
+Rider :: struct {
+	effect: Form_ID,
+	m, d:   f32,
+}
+
+// AV_VARS: what an effect's AV formulas see besides reads and tunables.
+AV_VARS_ARRAY := [?]string{"t", "m", "d"}
+AV_VARS := AV_VARS_ARRAY[:]
+
+// set_effect_def compiles a definition and makes it the one for its form, which it returns. A bare
+// name in a formula is a tunable. A bad formula warns and drops only its term.
 set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) -> (Form_ID, bool) {
-	form := formid.lua_form(src.name)
+	form := formid.lua_form("effect", src.name)
 	if src.form != "" {
 		f, ok := form_by_name(db, src.form)
 		if !ok {
@@ -61,36 +72,16 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	}
 	forget_effect_terms(ws)
 
-	d := Effect_Def{name = strings.clone(src.name)}
-	warn :: proc(name, part, src, err: string) {log.warnf("rt.effect %s: %s = %q: %s", name, part, src, err)}
-	for l in src.landing {
-		if l[0] == "m" || l[0] == "d" {continue}
-		if len(d.tunables) == MAX_TUNABLES {
-			warn(src.name, l[0], l[1], "too many tunables")
+	d := Effect_Def{name = strings.clone(src.name), land = src.land}
+	for t in src.defaults {add_tunable(&d, t.name, t.default)}
+	bind := Def_Bind{db, &d}
+	for s in src.terms {
+		f, err := formula.compile(s.src, AV_VARS, binder = {&bind, def_bind})
+		if err != "" {
+			log.warnf("rt.effect %s: %s = %q: %s", src.name, s.av, s.src, err)
 			continue
 		}
-		append(&d.tunables, strings.clone(l[0]))
-	}
-	slice.sort(d.tunables[:])
-	none := Def_Bind{db = db}
-	with := Def_Bind{db = db, tunables = d.tunables[:]}
-	for l in src.landing {
-		if l[0] != "m" && l[0] != "d" && !slice.contains(d.tunables[:], l[0]) {continue}
-		f, err := formula.compile(l[1], LANDING_VARS, binder = {&none, def_bind})
-		if err != "" {warn(src.name, l[0], l[1], err); continue}
-		append(&d.landing, Effect_Landing{strings.clone(l[0]), f})
-	}
-	for s in src.terms {
-		f, err := formula.compile(s.src, LANDING_VARS, binder = {&with, def_bind})
-		if err != "" {warn(src.name, s.av, s.src, err); continue}
 		append(&d.terms, Effect_Term{av = strings.clone(s.av), knob = s.knob, f = f, on_caster = s.on_caster})
-	}
-	if src.gate != "" {
-		if f, err := formula.compile(src.gate, LANDING_VARS, binder = {&with, def_bind}); err != "" {
-			warn(src.name, "when", src.gate, err)
-		} else {
-			d.gate = f
-		}
 	}
 	d.scripts = clone_scripts(src.scripts)
 	set_tags(ws, form, src.tags)
@@ -104,30 +95,33 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	return form, true
 }
 
-// (hole effect-land :tags (magic script) :sev gap) an effect decides at landing with formula strings (m, d, tunables, `when`); it should be Lua, `land = function(e)`: return false to not start, set e.d, capture tunables, e:apply riders (user, 2026-09-28). Needs a VM callback on script.Call, as quest_vars is.
-// land_effect works out a defined effect's landing numbers and checks its `when`: false, and the
+// land_effect sets a defined effect's tunables to their defaults and runs its land. False, and the
 // effect does not start. An effect with no definition always lands.
-land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool {
-	d, ok := ws.effect_defs[e.effect]
+land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect, riders: ^[dynamic]Rider) -> bool {
+	d, ok := &ws.effect_defs[e.effect]
 	if !ok {return true}
-	reads := Effect_Read{ws, db, e.caster, e.target, nil}
-	vars := [3]f64{0, f64(e.magnitude), f64(e.duration)}
-	m, dur := e.magnitude, e.duration
-	for l in d.landing {
-		v := f32(formula.eval(l.f, vars[:], {&reads, effect_read}))
-		switch l.name {
-		case "m": m = v
-		case "d": dur = v
-		case:
-			if i, found := slice.linear_search(d.tunables[:], l.name); found {e.tunables[i] = v}
-		}
+	for t, i in d.tunables {e.tunables[i] = t.default}
+	if !d.land || ws.land_hook.run == nil {return true}
+	return ws.land_hook.run(ws.land_hook.data, d, e, riders)
+}
+
+// effect_by_name is the effect a name means: a defined one, else a record's by editor id.
+effect_by_name :: proc(ws: ^World_State, db: ^gamedb.DB, name: string) -> (Form_ID, bool) {
+	if f := formid.lua_form("effect", name); f in ws.effect_defs {return f, true}
+	for f, d in ws.effect_defs {
+		if strings.equal_fold(d.name, name) {return f, true} // one that claims a record's form
 	}
-	e.magnitude, e.duration = m, dur
-	w, has := d.gate.?
-	if !has {return true}
-	reads.tunables = e.tunables[:]
-	vars = {0, f64(m), f64(dur)}
-	return formula.eval(w, vars[:], {&reads, effect_read}) != 0
+	return gamedb.form_by_editor_id(db, name)
+}
+
+@(private)
+add_tunable :: proc(d: ^Effect_Def, name: string, default: f32) -> (int, bool) {
+	for t, i in d.tunables {
+		if t.name == name {return i, true}
+	}
+	if len(d.tunables) == MAX_TUNABLES {return 0, false}
+	append(&d.tunables, Tunable{strings.clone(name), default})
+	return len(d.tunables) - 1, true
 }
 
 // effect_scripts are the scripts an effect's instance runs: its definition's, else its record's.
@@ -136,19 +130,20 @@ effect_scripts :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> []e
 	return gamedb.form_scripts(db, effect)
 }
 
-// Def_Bind is what a definition's formulas may read besides effect_bind's: its tunables.
+// Def_Bind is what a definition's formulas may read besides effect_bind's: its tunables, any bare
+// name.
 @(private)
 Def_Bind :: struct {
-	db:       ^gamedb.DB,
-	tunables: []string,
+	db:  ^gamedb.DB,
+	def: ^Effect_Def,
 }
 
 @(private)
 def_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	b := cast(^Def_Bind)data
 	if r.object == "" && !r.call {
-		i, ok := slice.linear_search(b.tunables, r.name)
-		if !ok {return "unknown variable or tunable"}
+		i, ok := add_tunable(b.def, r.name, 0)
+		if !ok {return "too many tunables"}
 		r.bound = {u64(Read_Kind.Tunable), u64(i), 0, 0}
 		return ""
 	}
@@ -177,14 +172,8 @@ free_effect_def :: proc(d: ^Effect_Def) {
 		formula.destroy(&t.f)
 	}
 	delete(d.terms)
-	for &l in d.landing {
-		delete(l.name)
-		formula.destroy(&l.f)
-	}
-	delete(d.landing)
-	for t in d.tunables {delete(t)}
+	for t in d.tunables {delete(t.name)}
 	delete(d.tunables)
-	if w, ok := &d.gate.?; ok {formula.destroy(w)}
 	for s in d.scripts {
 		delete(s.name)
 		for p in s.props {

@@ -297,6 +297,51 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 	}
 }
 
+// run_land is worldstate.Land_Hook: rt.land runs the effect's Lua land, then its context gives back
+// m, d, the tunables and the riders it applied.
+@(private)
+run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect, riders: ^[dynamic]worldstate.Rider) -> bool {
+	vm := cast(^VM)data
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "land") {return true}
+	lua.pushstring(L, strings.clone_to_cstring(strings.to_lower(def.name, context.temp_allocator), context.temp_allocator))
+	for f in ([4]script.Form_ID{e.caster, e.target, e.spell, e.effect}) {push_value(L, f if f != 0 else nil)}
+	lua.pushnumber(L, lua.Number(e.magnitude))
+	lua.pushnumber(L, lua.Number(e.duration))
+	if lua.pcall(L, 7, 1, 0) != 0 {
+		log.errorf("lua: %s land: %s", def.name, to_string(L, -1))
+		return true // a broken land does not keep the effect from starting
+	}
+	if !lua.istable(L, -1) {return false}
+	number :: proc(L: ^lua.State, key: cstring, v: ^f32) {
+		if lua.getfield(L, -1, key) == i32(lua.TNUMBER) {v^ = f32(lua.tonumber(L, -1))}
+		lua.pop(L, 1)
+	}
+	number(L, "m", &e.magnitude)
+	number(L, "d", &e.duration)
+	for t, i in def.tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
+	lua.getfield(L, -1, "__applies")
+	lua.pushnil(L)
+	for lua.next(L, -2) != 0 {
+		lua.getfield(L, -1, "name")
+		name := to_string(L, -1)
+		lua.pop(L, 1)
+		r := worldstate.Rider{}
+		number(L, "m", &r.m)
+		number(L, "d", &r.d)
+		if f, ok := worldstate.effect_by_name(vm.ctx.ws, vm.ctx.db, name); ok {
+			r.effect = f
+			append(riders, r)
+		} else {
+			log.warnf("lua: %s land: e:apply(%q): no such effect", def.name, name)
+		}
+		lua.pop(L, 1)
+	}
+	return true
+}
+
 // __av_part(ref, name, part) reads ref.av.<name>.<part> (worldstate.av_part).
 @(private)
 rt_av_part :: proc "c" (L: ^lua.State) -> c.int {
@@ -316,7 +361,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	src := worldstate.Effect_Def_Src{name = to_string(L, 1)}
 	terms := make([dynamic]worldstate.Effect_Src, context.temp_allocator)
-	landing := make([dynamic][2]string, context.temp_allocator)
+	defaults := make([dynamic]worldstate.Tunable, context.temp_allocator)
 	tags := make([dynamic]string, context.temp_allocator)
 	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
 	lua.pushnil(L)
@@ -324,20 +369,19 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		key := to_string(L, -2)
 		switch {
 		case key == "form": src.form = to_string(L, -1)
-		case key == "when": src.gate = to_string(L, -1)
+		case key == "land": src.land = lua.isfunction(L, -1)
 		case key == "meta": // (stacking-meta)
 		case key == "tags":
 			lua.pushnil(L)
 			for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
 		case key == "script": append(&scripts, read_moment(L))
 		case (key == "av" || key == "caster") && lua.istable(L, -1): read_avs(L, src.name, &terms, key == "caster")
-		case lua.istable(L, -1): log.warnf("rt.effect %s: %s is a table; actor values go under av or caster", src.name, key)
-		case bool(lua.isstring(L, -1)): append(&landing, [2]string{key, to_string(L, -1)}) // numbers too
-		case: log.warnf("rt.effect %s: %s is not a formula or a table", src.name, key)
+		case lua.type(L, -1) == .NUMBER: append(&defaults, worldstate.Tunable{key, f32(lua.tonumber(L, -1))})
+		case: log.warnf("rt.effect %s: %s: formulas go under av or caster, decisions in land", src.name, key)
 		}
 		lua.pop(L, 1)
 	}
-	src.terms, src.landing, src.tags, src.scripts = terms[:], landing[:], tags[:], scripts[:]
+	src.terms, src.defaults, src.tags, src.scripts = terms[:], defaults[:], tags[:], scripts[:]
 	worldstate.set_effect_def(vm.ctx.ws, vm.ctx.db, src)
 	return 0
 }
