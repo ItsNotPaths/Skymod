@@ -298,9 +298,9 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 }
 
 // run_land is worldstate.Land_Hook: rt.land runs the effect's Lua land, then its context gives back
-// m, d, the tunables and the riders it applied.
+// m, d and the tunables.
 @(private)
-run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect, riders: ^[dynamic]worldstate.Rider) -> bool {
+run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
@@ -322,23 +322,6 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 	number(L, "m", &e.magnitude)
 	number(L, "d", &e.duration)
 	for t, i in def.tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
-	lua.getfield(L, -1, "__applies")
-	lua.pushnil(L)
-	for lua.next(L, -2) != 0 {
-		lua.getfield(L, -1, "name")
-		name := to_string(L, -1)
-		lua.pop(L, 1)
-		r := worldstate.Rider{}
-		number(L, "m", &r.m)
-		number(L, "d", &r.d)
-		if f, ok := worldstate.effect_by_name(vm.ctx.ws, vm.ctx.db, name); ok {
-			r.effect = f
-			append(riders, r)
-		} else {
-			log.warnf("lua: %s land: e:apply(%q): no such effect", def.name, name)
-		}
-		lua.pop(L, 1)
-	}
 	return true
 }
 

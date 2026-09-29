@@ -1190,8 +1190,8 @@ end
 --   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
 --   land = function(e) ... end              -- once as it lands: return false and it does not start;
---                                           -- set e.m, e.d and tunables (e.taken = ...); e:apply
---                                           -- ("Rider", { m = 99, d = 15 }) starts another beside it
+--                                           -- set e.m, e.d and tunables (e.taken = ...). An effect
+--                                           -- never starts another: a spell names all its effects
 --   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties; it switches
 --                                              -- the effect on and off with self:SetActive(bool)
 -- AV formulas are per tick, in t, m, d, the tunables and reads by the naming rule
@@ -1202,18 +1202,10 @@ function rt.effect(def) return def end
 
 local lands = {} -- lower effect name -> its land (rt.load_effects)
 
--- The context an effect's land sees; e:apply asks for a rider.
-local Landing = {}
-Landing.__index = Landing
-function Landing:apply(name, opts)
-  local a = self.__applies
-  a[#a] = { name = name, m = opts and opts.m or 0, d = opts and opts.d or 0 }
-end
-
 -- rt.land(lname, caster, target, spell, effect, m, d) runs an effect's land: its context, or false
 -- when it does not start (worldstate.Land_Hook).
 function rt.land(lname, caster, target, spell, effect, m, d)
-  local e = setmetatable({ caster = caster, target = target, spell = spell, effect = effect, m = m, d = d, __applies = {} }, Landing)
+  local e = { caster = caster, target = target, spell = spell, effect = effect, m = m, d = d }
   local fn = lands[lname]
   if fn and fn(e) == false then return false end
   return e

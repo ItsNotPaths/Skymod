@@ -39,16 +39,11 @@ Effect_Def_Src :: struct {
 }
 
 // Land_Hook runs an effect's Lua land as it lands (the VM sets it): false, and it does not start.
-// It may change m, d and the tunables, and asks for riders.
+// It may change m, d and the tunables. An effect never starts another: a spell names all its
+// effects (user, 2026-09-28).
 Land_Hook :: struct {
 	data: rawptr,
-	run:  proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect, riders: ^[dynamic]Rider) -> bool,
-}
-
-// Rider is an effect a land applies beside its own, on the same target from the same source.
-Rider :: struct {
-	effect: Form_ID,
-	m, d:   f32,
+	run:  proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
 }
 
 // AV_VARS: what an effect's AV formulas see besides reads and tunables.
@@ -97,12 +92,12 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 
 // land_effect sets a defined effect's tunables to their defaults and runs its land. False, and the
 // effect does not start. An effect with no definition always lands.
-land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect, riders: ^[dynamic]Rider) -> bool {
+land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool {
 	d, ok := &ws.effect_defs[e.effect]
 	if !ok {return true}
 	for t, i in d.tunables {e.tunables[i] = t.default}
 	if !d.land || ws.land_hook.run == nil {return true}
-	return ws.land_hook.run(ws.land_hook.data, d, e, riders)
+	return ws.land_hook.run(ws.land_hook.data, d, e)
 }
 
 // effect_by_name is the effect a name means: a defined one, else a record's by editor id.

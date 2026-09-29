@@ -1590,14 +1590,13 @@ return rt.effect {
     if e.target.av.Health.value <= 0 then return false end
     e.d = e.m
     e.taken = e.target.av.Health.value * 0.5
-    e:apply("Spark", { m = 3 })
   end,
   script = { "Moment", label = "hi" },
 }
 `
 
 // An rt.effect file defines an effect by name: a Lua form, its land (d from m, a tunable taken as it
-// lands, a rider), its AV formula and its moment script with properties. A patched land keeps
+// lands), its AV formula and its moment script with properties. A patched land keeps
 // another from starting. The moment script switches it off (SetActive).
 @(test)
 test_rt_effect :: proc(t: ^testing.T) {
@@ -1606,7 +1605,7 @@ test_rt_effect :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
 	os.make_directory_all(effects)
-	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.land = function(e) return e.target.av.Health.value > 1000 end end`}, {"spark.lua", `return require('skymod.rt').effect { av = { Stamina = { amount = "-m" } } }`}}) {
+	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.land = function(e) return e.target.av.Health.value > 1000 end end`}}) {
 		p, _ := filepath.join({effects, file[0]}, context.temp_allocator)
 		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write effect")
 	}
@@ -1614,7 +1613,7 @@ test_rt_effect :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load_effects")
 
 	SPELL, TARGET, CASTER :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
-	BURN, GATED, SPARK := formid.lua_form("effect", "Burn"), formid.lua_form("effect", "gated"), formid.lua_form("effect", "Spark")
+	BURN, GATED := formid.lua_form("effect", "Burn"), formid.lua_form("effect", "gated")
 	testing.expect(t, worldstate.has_tag(&f.ws, &f.db, BURN, "magic"), "tags")
 	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
 	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = BURN, magnitude = 4, duration = 99}, {effect = GATED, magnitude = 4, duration = 99}}}
@@ -1627,10 +1626,8 @@ test_rt_effect :: proc(t: ^testing.T) {
 	worldstate.perk_add(&f.ws, TARGET, PERK)
 
 	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x701), ref(0x700))`), "Cast")
-	testing.expect_value(t, len(f.ws.effects), 2)
+	testing.expect_value(t, len(f.ws.effects), 1)
 	h := script.spell_effects(&f.ws, TARGET, SPELL)[0]
-	if f.ws.effects[h].effect == SPARK {h = script.spell_effects(&f.ws, TARGET, SPELL)[1]}
-	testing.expect(t, worldstate.has_effect(&f.ws, TARGET, SPARK), "the land's rider")
 	e := f.ws.effects[h]
 	testing.expect(t, e.effect == BURN && e.duration == 4 && e.tunables[0] == 50, "d = m, taken once as it lands")
 	for i in 0 ..< 4 {

@@ -7,7 +7,6 @@ package script
 // (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
 // (hole effect-sounds :tags (magic audio unclaimed) :sev gap :needs (cast-animation concentration)) an effect's charge, ready, cast-loop and draw/sheathe sounds do not play: casting is instant. Release and on-hit play (casting.odin).
 
-import "core:log"
 import "core:slice"
 import "../conditions"
 import "../formid"
@@ -148,7 +147,7 @@ recheck_effect :: proc(c: ^Call, h: Form_ID) {
 	e := &c.ws.effects[h]
 	if e.effect in c.ws.effect_defs {return}
 	items := gamedb.effect_items_of(c.db, e.spell)
-	if e.ended || e.item < 0 || e.item >= len(items) {return}
+	if e.ended || e.item >= len(items) {return}
 	ctx := condition_context(c, e.target, e.caster)
 	e.inactive = !conditions.all(&ctx, items[e.item].conditions)
 }
@@ -222,11 +221,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 	ctx := condition_context(c, target, caster)
 	_, is_spell := gamedb.spell_of(c.db, source)
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
-	riders := make([dynamic]worldstate.Rider, context.temp_allocator)
-	work := make([dynamic]gamedb.Magic_Effect_Ref, 0, len(effects), context.temp_allocator)
-	append(&work, ..effects)
-	for i := 0; i < len(work); i += 1 {
-		e := work[i]
+	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
 		_, defined := c.ws.effect_defs[e.effect] // its land stands in for the MGEF's conditions
 		if !defined && !conditions.all(&ctx, mgef.conditions) {continue}
@@ -241,25 +236,13 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		}
 		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
 		m, duration = effect_numbers(c, hit, e.effect, m, duration)
-		item := i if i < len(effects) else -1 // a rider has no entry
-		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = item}
+		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)
-		clear(&riders)
-		if !worldstate.land_effect(c.ws, c.db, &eff, &riders) {continue}
+		if !worldstate.land_effect(c.ws, c.db, &eff) {continue}
 		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
-		for r in riders {
-			if len(work) - len(effects) >= MAX_RIDERS {
-				log.warnf("magic: %v applies more than %d riders; the rest are dropped", source, MAX_RIDERS)
-				break
-			}
-			append(&work, gamedb.Magic_Effect_Ref{effect = r.effect, magnitude = r.m, duration = u32(max(r.d, 0))})
-		}
 	}
 	for eff in starting {worldstate.start_effect(c.ws, eff)}
 }
-
-// MAX_RIDERS bounds the riders one landing may apply, so riders that apply each other end.
-MAX_RIDERS :: 16
 
 // spell_effects lists the live effects `spell` put on `target`.
 spell_effects :: proc(ws: ^worldstate.World_State, target, spell: Form_ID) -> []Form_ID {
