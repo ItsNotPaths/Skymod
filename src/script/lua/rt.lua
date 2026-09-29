@@ -1211,8 +1211,14 @@ function rt.load_effects()
   end
 end
 
--- (hole rt-spell :tags (magic script) :sev gap) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
+-- (hole rt-spell :tags (magic script) :sev gap) no rt.spell: the charged and held castables, and enchantments (a spell tagged `enchantment`; item_charge on weapons and staves, applied while worn on apparel). Wanted: `use` (charged or held), `shape`, `cost`, `name`, tags for spell-level numbers (cost, tier), `applies = { { "EffectName", m = 8, d = "3s", hits = "direct" } }` naming effects by name, durations "3s" or "20tk" (stored as seconds); no entry conditions or scripts: a gate lives in the effect, and a spell that needs a different one uses its own copy (user, 2026-09-28). A form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
 function rt.spell(def) return def end
+
+-- (hole rt-power :tags (magic script) :sev gap :needs (rt-spell)) no rt.power: lesser powers, powers and shouts, one kind (user, 2026-09-28): a cooldown time instead of a Magicka cost (a lesser power's is 0, a power's a day, a shout's its recovery), with the same shape and applies as rt.spell; a shout's words pick its variant. Activation is ours to design, not vanilla's.
+function rt.power(def) return def end
+
+-- (hole rt-consumable :tags (magic script) :sev gap :needs (rt-spell)) no rt.consumable: a potion, food, poison, ingredient or scroll is an item whose use applies effects (`applies` with m and d, as rt.spell) or casts a spell (a scroll aims like its spell). The item's weight, value and model stay with its record.
+function rt.consumable(def) return def end
 
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is
 -- game state from then on, saved whole; change it through the Faction natives. def may hold:

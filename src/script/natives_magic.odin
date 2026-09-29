@@ -89,6 +89,7 @@ n_lycanthropy_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_
 // and the constant-effect enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
 // (hole weapon-enchantments :tags (magic combat) :sev gap :needs (combat-damage)) a melee weapon's enchantment (a Contact effect on hit) never applies; projectile hits and worn constant effects do.
 // (hole twin-enchantments :tags magic :sev polish) two worn items carrying the same ENCH form run it once; Skyrim adds enchantments.
+// (hole passive-effects :tags magic :sev gap) an ability is a spell here; it should be an effect given with d = -1 (user, 2026-09-28: the active effects menu is the same), on a list like spells: the records' abilities plus a saved delta, with its live conditions in the effect's own script.
 sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
 	sources := make([dynamic]Form_ID, context.temp_allocator)
 	for s in worldstate.spell_list(c.ws, c.db, actor) {

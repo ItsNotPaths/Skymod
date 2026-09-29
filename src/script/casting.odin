@@ -3,7 +3,7 @@ package script
 // Casting: an actor uses the spell in one of its hands. Rudimentary for now: the spell lands at
 // once, its cost is paid up front, a Self spell hits the caster and any other hits `target`.
 // (hole cast-animation :tags (magic animation unclaimed) :sev gap :needs (animation)) casting is instant: no charge and release from the cast clip.
-// (hole spell-use :tags magic :sev gap :needs (rt-spell)) one way to use a spell: pay its SPIT cost at once. Wanted: `use` classes (charged, held, instant, daily, passive, consume, item_charge, shout) whose costs and cooldowns are named AVs (a power's day is an AV counting down).
+// (hole spell-use :tags magic :sev gap :needs (rt-spell)) one way to use a spell: pay its SPIT cost at once. Wanted: charged (a charge time, then release), held (drain while held) and item_charge (an enchanted weapon or staff spends its charge), costs as named AVs.
 // (hole spell-shapes :tags (magic combat) :sev gap :needs (rt-spell)) a spell hits `target` at once: no shape. Wanted: self, touch, ray, stream, missile, lobber, cone and sphere, an on_hit shape after a missile, line of sight for area, `hits = "direct"` entries that only the struck actor gets (62 of 227 area spells mix areas), and shape classes a mod defines.
 // (hole concentration :tags magic :sev gap :needs (spell-use spell-shapes)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags magic :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
@@ -15,7 +15,7 @@ import "../worldstate"
 
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
-// (hole scrolls :tags magic :sev gap :needs (spell-use)) a scroll casts like a spell: it costs Magicka, is not used up and gives school XP; Spell.scroll is never read and Scroll.Cast has no native.
+// (hole scrolls :tags magic :sev gap :needs (rt-consumable)) a scroll casts like a spell: it costs Magicka, is not used up and gives school XP; Spell.scroll is never read and Scroll.Cast has no native.
 // (hole item-charge :tags (magic combat) :sev gap :needs (spell-use)) a staff cannot cast (a WEAP, so spell_of misses), and no enchanted item has charge: ENCH charge_amount is unused, nothing drains it on use and RightItemCharge/LeftItemCharge read nothing.
 cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID) -> bool {
 	spell := worldstate.in_slot(c.ws, c.db, caster, hand)
