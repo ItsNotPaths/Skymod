@@ -277,7 +277,7 @@ use_item :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // target. A spell's magnitude and duration go through the caster's Mod Spell perks and the
 // target's Mod Incoming Spell perks, then a record's resistance (worldstate.resisted), then the
 // landing hooks (the last resists a defined effect) and the effect's land; effects stack by
-// worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
+// worldstate.stack_effect. A timed effect goes on for its taper after its duration.
 // (hole concentration-conditions :tags (magic unclaimed) :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
@@ -289,9 +289,9 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)
-		_, defined := c.ws.effect_defs[e.effect] // its land stands in for the MGEF's conditions
+		def, defined := c.ws.effect_defs[e.effect] // its land stands in for the MGEF's conditions
 		if !defined && !conditions.all(&ctx, mgef.conditions) {continue}
-		taper := 0 if lasts else mgef.info.taper_duration
+		taper := 0 if lasts else def.taper if defined else mgef.info.taper_duration
 		magnitude, duration := e.magnitude, f32(e.duration)
 		// (hole spell-perk-sources :tags magic :sev gap :needs (perk-translate)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it). Landing hooks already run for every source; this goes once those perks are hooks.
 		if is_spell {

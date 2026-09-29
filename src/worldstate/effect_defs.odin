@@ -20,6 +20,7 @@ Effect_Def :: struct {
 	resist:   string, // owned: the AV that resists it (GetResistance); "" none
 	stack:    Stack_Rule,
 	nostack:  string, // owned: its group, where only the strongest runs; "" none
+	taper:    f32,    // seconds a timed copy goes on after its duration
 	terms:    [dynamic]Effect_Term,
 	tunables: [dynamic]Tunable, // Active_Effect.tunables in this order
 	scripts:  []esm.Script_Attach, // the moments; owned (esm.free_form_scripts shape)
@@ -44,6 +45,7 @@ Effect_Def_Src :: struct {
 	resist:     string,
 	stack:      string, // "restart" (or ""), "add", "keep"
 	nostack:    string,
+	taper:      string, // "1s", "20tk" or seconds
 	tags:       []string,
 	terms:      []Effect_Src,
 	defaults:   []Tunable, // the definition's numbers
@@ -87,6 +89,11 @@ set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) ->
 	case "add":         d.stack = .Add
 	case "keep":        d.stack = .Keep
 	case:               log.warnf("rt.effect %s: stack %q is not restart, add or keep", src.name, src.stack)
+	}
+	if taper, ok := parse_duration(src.taper); ok {
+		d.taper = taper
+	} else {
+		log.warnf("rt.effect %s: taper %q is not \"1s\", \"20tk\" or seconds", src.name, src.taper)
 	}
 	for t in src.defaults {add_tunable(&d, t.name, t.default)}
 	bind := Def_Bind{ws, db, &d}

@@ -56,6 +56,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__faction", rt_faction},
 		{"__stolen_mark", rt_stolen_mark},
 		{"__resolve", rt_resolve},
+		{"__ref", rt_ref},
 		{"__make_zone", rt_zone},
 		{"__spawn_hazard", rt_spawn_hazard},
 	}
@@ -497,10 +498,11 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		case key == "land": // Lua keeps it (rt.land)
 		case key == "stack": src.stack = to_string(L, -1)
 		case key == "nostack": src.nostack = to_string(L, -1)
+		case key == "taper": src.taper = to_string(L, -1)
 		case key == "tags":
 			lua.pushnil(L)
 			for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
-		case key == "script": append(&scripts, read_moment(L))
+		case key == "script": read_moments(L, &scripts)
 		case (key == "av" || key == "caster") && lua.istable(L, -1): read_avs(L, src.name, &terms, key == "caster")
 		case lua.type(L, -1) == .NUMBER: append(&defaults, worldstate.Tunable{key, f32(lua.tonumber(L, -1))})
 		case: log.warnf("rt.effect %s: %s: formulas go under av or caster, decisions in land", src.name, key)
@@ -510,6 +512,26 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 	src.terms, src.defaults, src.tags, src.scripts = terms[:], defaults[:], tags[:], scripts[:]
 	worldstate.set_effect_def(vm.ctx.ws, vm.ctx.db, src)
 	return 0
+}
+
+// read_moments reads `script` on top of the stack: one script, or a list of them.
+@(private)
+read_moments :: proc(L: ^lua.State, out: ^[dynamic]esm.Script_Attach) {
+	list := false // a single script's table has no entry 1
+	if lua.istable(L, -1) {
+		first, second := lua.geti(L, -1, 0), lua.geti(L, -2, 1)
+		lua.pop(L, 2)
+		list = first == i32(lua.TTABLE) || second != i32(lua.TNIL)
+	}
+	if !list {
+		append(out, read_moment(L))
+		return
+	}
+	for i: lua.Integer = 0; lua.geti(L, -1, i) != i32(lua.TNIL); i += 1 {
+		append(out, read_moment(L))
+		lua.pop(L, 1)
+	}
+	lua.pop(L, 1)
 }
 
 // read_moment reads `script = "Name"` or `{ "Name", Prop = value }` on top of the stack. A ref value
@@ -717,6 +739,17 @@ rt_resolve :: proc "c" (L: ^lua.State) -> c.int {
 	context = vm.host_context
 	form, _ := ref_form(L, 1)
 	if vm.ctx.ws != nil {form = worldstate.resolve(vm.ctx.ws, form)}
+	push_ref(L, form)
+	return 1
+}
+
+// __ref(name) is the form a name means, "File.esm:012FCD" or an editor id, as a ref; nil for none.
+@(private)
+rt_ref :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	form, ok := worldstate.form_by_name(vm.ctx.ws, vm.ctx.db, to_string(L, 1))
+	if !ok {return 0}
 	push_ref(L, form)
 	return 1
 }

@@ -1214,17 +1214,21 @@ end
 --   resist = "FrostResist"                  -- the AV that resists it (GetResistance), when tagged hostile
 --   stack = "restart" | "add" | "keep"      -- the same caster landing it again from the same source
 --   nostack = "Blessing"                    -- a group, across effects: only the strongest runs
+--   taper = "1s"                            -- a timed copy goes on this long after d (t runs past d)
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
 --   land = function(e) ... end              -- once as it lands: return false and it does not start;
 --                                           -- set e.m, e.d and tunables (e.taken = ...). An effect
 --                                           -- never starts another: a spell names all its effects
---   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties; it switches
---                                              -- the effect on and off with self:SetActive(bool)
+--   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties, or a list of
+--                                              -- them; it switches the effect with self:SetActive(bool)
 -- AV formulas are per tick, in t, m, d, the tunables and reads by the naming rule
 -- (target.av.Health.value, global.GameHour, target:IsSneaking()). land gets e.caster, e.target,
 -- e.spell, e.effect (refs), e.m and e.d. A <name>.patch.lua returns a function that edits the
 -- definition from below it.
 function rt.effect(def) return def end
+
+-- rt.ref(name) is the form "File.esm:012FCD" or an editor id names, for a property that holds a form.
+rt.ref = __ref
 
 local lands = {} -- lower effect name -> its land (rt.load_effects)
 

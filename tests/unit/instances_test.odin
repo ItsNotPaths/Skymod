@@ -1750,6 +1750,44 @@ test_rt_effect :: proc(t: ^testing.T) {
 	testing.expect(t, f.ws.effects[h].inactive, "its script switched it off")
 }
 
+// A translated effect keeps its record's form, runs on for its taper, and hands its list of scripts
+// to the engine with their properties, a form one through rt.ref.
+@(test)
+test_rt_effect_translated :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_rt_effect_translated", {})
+	defer fixture_destroy(&f)
+	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
+	os.make_directory_all(effects)
+	p, _ := filepath.join({effects, "MGTimeFreezeEffect.lua"}, context.temp_allocator)
+	testing.expect(t, os.write_entire_file(p, transmute([]u8)string(`local rt = require('skymod.rt')
+return rt.effect {
+  form = "Skyrim.esm:012F03",
+  taper = "1.5s",
+  av = { Health = { amount = "-m" } },
+  script = {
+    "magicimodbeginloopend",
+    { "shaderparticlegeometryscript", FadeInTime = 0.1, PSGD = rt.ref("Skyrim.esm:0486F3") },
+  },
+}
+`)) == nil, "write effect")
+	f.db.plugin_slots = make(map[string]u32, context.temp_allocator)
+	f.db.plugin_slots["skyrim.esm"] = 0
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load_effects")
+	d, ok := f.ws.effect_defs[0x012F03]
+	testing.expect(t, ok, "defined at its record's form")
+	testing.expect_value(t, d.taper, 1.5)
+	testing.expect_value(t, len(d.scripts), 2)
+	if len(d.scripts) < 2 {return}
+	testing.expect_value(t, d.scripts[0].name, "magicimodbeginloopend")
+	testing.expect_value(t, len(d.scripts[1].props), 2)
+	for prop in d.scripts[1].props {
+		if prop.name == "PSGD" {testing.expect(t, prop.value.(esm.Prop_Object).form == 0x0486F3, "rt.ref gives the form")}
+	}
+}
+
 // An rt.spell file names every effect it applies; Spell.Cast reaches it by its Lua form. Each effect
 // gates itself in its land (here by the hour, through e.global), and a duration may be in ticks.
 @(test)
