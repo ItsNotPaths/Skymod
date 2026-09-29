@@ -1179,14 +1179,14 @@ end
 -- rt.effect(def) is an effect, in an effects/<name>.lua file that returns it (the name is the file's):
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
---   Health = { capacity = "formula", amount = "formula" }, caster = { Magicka = {...} }
+--   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
 --   m = "formula", d = "m"                  -- numbers worked out once as it lands, from the spell's
 --   radius = 320, taken = "target.Health * 0.3"  -- tunables, also once as it lands (at most 8)
 --   when = "formula"                        -- checked once as it lands; 0 and it does not start
---   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties
+--   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties; it switches
+--                                              -- the effect on and off with self:SetActive(bool)
 -- AV formulas see t, m, d, the tunables and reads (caster.X, target.X, global.X, functions). A
 -- <name>.patch.lua returns a function that edits the definition from below it.
--- (hole effect-live-conditions :tags magic :sev gap) a live on/off condition is a moment script (user, 2026-09-28), and no core one exists: wanted a script taking a formula that rechecks it each second and sets the effect inactive, for vanilla's spell-side conditions (84 abilities: time of day, sneaking, worn sets) and Apocalypse's global tier gates.
 -- (hole effect-action-scripts :tags magic :sev gap) no core moment scripts with parameters: about 50 of Apocalypse's 159 effect scripts only cast a spell at someone on an event, dispel, interrupt, kill below a threshold or push (build/out/wsM/apoc/scripts.md). Wanted: CastOn, DispelOn, KillBelow and the like, so such an effect is data.
 function rt.effect(def) return def end
 

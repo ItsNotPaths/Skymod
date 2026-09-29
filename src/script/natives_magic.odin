@@ -33,6 +33,7 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
 	register(reg, "ActiveMagicEffect", "Dispel", n_effect_dispel)
+	register(reg, "ActiveMagicEffect", "SetActive", n_effect_set_active)
 	register(reg, "ActiveMagicEffect", "GetBaseObject", n_effect_base)
 	register(reg, "ActiveMagicEffect", "GetTargetActor", n_effect_target)
 	register(reg, "ActiveMagicEffect", "GetCasterActor", n_effect_caster)
@@ -139,9 +140,11 @@ n_dispel_all_spells :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// recheck_effect re-tests a running effect's own conditions (tick_effects, each second).
+// recheck_effect re-tests a running effect's own conditions (tick_effects, each second). A defined
+// effect's scripts switch it instead (SetActive).
 recheck_effect :: proc(c: ^Call, h: Form_ID) {
 	e := &c.ws.effects[h]
+	if e.effect in c.ws.effect_defs {return}
 	items := gamedb.effect_items_of(c.db, e.spell)
 	if e.ended || e.item >= len(items) {return}
 	ctx := condition_context(c, e.target, e.caster)
@@ -168,6 +171,13 @@ n_spell_remote_cast :: proc(c: ^Call, args: []Value) -> Value {
 
 n_effect_dispel :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.end_effect(c.ws, c.self)
+	return nil
+}
+
+// SetActive(abActive) is not Papyrus: a defined effect's moment script switches it on and off
+// (rt.effect); an inactive effect runs on, changing nothing.
+n_effect_set_active :: proc(c: ^Call, args: []Value) -> Value {
+	if e, ok := &c.ws.effects[c.self]; ok {e.inactive = !arg_bool(args, 0, true)}
 	return nil
 }
 

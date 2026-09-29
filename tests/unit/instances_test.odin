@@ -1574,6 +1574,7 @@ local C = rt.class("Moment", nil)
 C.__vars = { ["::label_var"] = { type = "String", default = nil } }
 C.__autoprop["label"] = "::label_var"
 C.__fn["oneffectstart"] = function(self) __moment = self.vars["::label_var"] end
+function C:OnTick() self:SetActive(__on ~= false) end
 return C
 `
 
@@ -1582,7 +1583,7 @@ return rt.effect {
   tags = { "magic.fire" },
   d = "m",
   taken = "target.Health * 0.5",
-  Health = { amount = "-taken * min(t, d) / d" },
+  av = { Health = { amount = "-taken * min(t, d) / d" } },
   when = "target.Health > 0 and GetDistance(target, caster) >= 0",
   script = { "Moment", label = "hi" },
 }
@@ -1590,7 +1591,7 @@ return rt.effect {
 
 // An rt.effect file defines an effect by name: a Lua form, its landing numbers (d from m, a tunable
 // taken as it lands), its AV formula, its moment script with properties, and a `when` that keeps
-// another from starting. A patch edits a definition.
+// another from starting. A patch edits a definition. The moment script switches it off (SetActive).
 @(test)
 test_rt_effect :: proc(t: ^testing.T) {
 	f: Fixture
@@ -1619,10 +1620,12 @@ test_rt_effect :: proc(t: ^testing.T) {
 	h := script.spell_effects(&f.ws, TARGET, SPELL)[0]
 	e := f.ws.effects[h]
 	testing.expect(t, e.effect == BURN && e.duration == 4 && e.tunables[0] == 50, "d = m, taken once as it lands")
-	for _ in 0 ..< 4 {
+	for i in 0 ..< 4 {
+		if i == 2 {testing.expect(t, slua.do_string(&f.vm, `__on = false`), "switch")}
 		slua.tick_effects(&f.vm, &f.ws, 1)
 		slua.tick_end(&f.vm, 1)
 	}
 	testing.expect(t, slua.do_string(&f.vm, `assert(__moment == "hi", tostring(__moment))`), "the moment script got its property")
-	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 50)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 62.5) // off from the tick after the switch: 3 s of 4
+	testing.expect(t, f.ws.effects[h].inactive, "its script switched it off")
 }

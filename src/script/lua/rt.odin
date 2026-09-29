@@ -270,6 +270,17 @@ read_effect_table :: proc(L: ^lua.State, class: string, srcs: ^[dynamic]worldsta
 	}
 }
 
+// read_avs reads {AV = {knob = "formula"}} on top of the stack: the av or caster part of rt.effect.
+@(private)
+read_avs :: proc(L: ^lua.State, owner: string, srcs: ^[dynamic]worldstate.Effect_Src, on_caster: bool) {
+	lua.pushnil(L)
+	for lua.next(L, -2) != 0 {
+		av := to_string(L, -2)
+		if lua.istable(L, -1) {read_knobs(L, owner, av, srcs, on_caster)} else {log.warnf("rt.effect %s: %s is not a table of knobs", owner, av)}
+		lua.pop(L, 1)
+	}
+}
+
 // read_knobs reads one AV's {capacity = "formula", amount = "formula"} on top of the stack.
 @(private)
 read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.Effect_Src, on_caster: bool) {
@@ -306,8 +317,8 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 			lua.pushnil(L)
 			for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
 		case key == "script": append(&scripts, read_moment(L))
-		case key == "caster" && lua.istable(L, -1): read_effect_table(L, src.name, &terms, true)
-		case lua.istable(L, -1): read_knobs(L, src.name, key, &terms, false)
+		case (key == "av" || key == "caster") && lua.istable(L, -1): read_avs(L, src.name, &terms, key == "caster")
+		case lua.istable(L, -1): log.warnf("rt.effect %s: %s is a table; actor values go under av or caster", src.name, key)
 		case bool(lua.isstring(L, -1)): append(&landing, [2]string{key, to_string(L, -1)}) // numbers too
 		case: log.warnf("rt.effect %s: %s is not a formula or a table", src.name, key)
 		}
