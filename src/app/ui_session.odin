@@ -10,8 +10,10 @@ package main
 // The caller mounts the VFS and synthesizes/extracts the baseui files (baseui_ensure / extract_assets)
 // before opening — the session only needs a built VFS to read the font + assets through.
 
+import "core:strings"
 import "core:time"
 import "../font"
+import "../platform"
 import "../render"
 import "../ui"
 import "../vfs"
@@ -25,6 +27,7 @@ UI_Session :: struct {
 	cmds:      [dynamic]ui.Draw_Cmd, // per-frame draw-cmd scratch (cleared each frame)
 	phase_buf: [96]u8, // scratch for a formatted phase label (e.g. a city name) — no per-frame alloc
 	start:     time.Tick, // animation clock origin, published to Lua as ui.time
+	focus:     string, // owned: the focused node id, kept across frames (ui_session_step)
 	ok:        bool,
 }
 
@@ -58,6 +61,8 @@ ui_session_open :: proc(s: ^UI_Session, r: ^render.Renderer, v: ^vfs.VFS, base, 
 // clears the renderer's stale UI quads so the next screen doesn't redraw them. Safe on a zero session.
 ui_session_close :: proc(s: ^UI_Session) {
 	delete(s.cmds)
+	delete(s.focus)
+	s.focus = ""
 	if !s.ok {
 		return
 	}
@@ -93,4 +98,42 @@ ui_session_draw :: proc(s: ^UI_Session, w, h: f32) {
 	ui.emit(&tree, &s.cmds)
 	ui_render_draw(&s.ren, s.cmds[:], {w, h})
 	ui.destroy(&tree)
+}
+
+// ui_session_step runs one interactive frame: route the input to the screen's focusables, draw, then
+// dispatch the activated action. `verb` is what the screen handed back with ui.exit (temp-allocated);
+// ok=false means the screen failed to build its tree.
+ui_session_step :: proc(s: ^UI_Session, w, h: f32, nav: ui.Nav, mx, my: f32, click: bool) -> (verb: string, has_verb, ok: bool) {
+	ui.set_font(&s.atlas) // see ui_session_draw
+	ui.set_time(&s.vm, time.duration_seconds(time.tick_since(s.start)))
+	ui.set_viewport(&s.vm, w, h)
+	ui.set_focus(&s.vm, s.focus)
+	tree := ui.frame(&s.vm) or_return
+	defer ui.destroy(&tree)
+	ui.measure(&tree)
+	tree.screen = ui.Rect{0, 0, w, h}
+	ui.layout_children(&tree)
+	focusables: [dynamic]ui.Focusable
+	defer delete(focusables)
+	ui.collect_focusables(ui.focus_root(&tree), &focusables)
+
+	// Both results borrow the tree: keep the focus and dispatch before the deferred destroy.
+	activated, new_focus := ui.route_input(focusables[:], s.focus, nav, mx, my, click)
+	if s.focus != new_focus {
+		delete(s.focus)
+		s.focus = strings.clone(new_focus)
+	}
+	clear(&s.cmds)
+	ui.emit(&tree, &s.cmds)
+	ui_render_draw(&s.ren, s.cmds[:], {w, h})
+	if nav.back {ui.back(&s.vm)}
+	ui.dispatch(&s.vm, activated)
+	verb, has_verb = ui.take_result(&s.vm)
+	return verb, has_verb, true
+}
+
+// ui_mouse_px converts the platform's NDC cursor to UI pixel space (top-left origin).
+ui_mouse_px :: proc(p: ^platform.Platform, w, h: f32) -> (f32, f32) {
+	ndc := p.input.mouse_ndc
+	return (ndc.x + 1) * 0.5 * w, (1 - ndc.y) * 0.5 * h
 }

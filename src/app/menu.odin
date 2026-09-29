@@ -8,8 +8,6 @@ package main
 // entirely in Lua; the only menu↔engine contract is the result VERB (ui.exit) mapped to a boot
 // action here. Returns ok=false on init failure so the caller falls back to the imgui boot menu.
 
-import "core:strings"
-import "core:time"
 import sdl "vendor:sdl3"
 import "../mods"
 import "../platform"
@@ -67,64 +65,21 @@ run_lua_main_menu :: proc(
 	p.on_event = menu_event_hook
 	defer p.on_event = prev_hook
 
-	// focus_id is OWNED (cloned into context.allocator) and persists across frames: the focusables it
-	// is derived from borrow the per-frame tree, which is destroyed every iteration, so we must not
-	// hold a borrowed id. Starts as the empty string's zero value (nil data) — delete is a no-op.
-	focus_id: string
-	defer delete(focus_id)
-	cmds: [dynamic]ui.Draw_Cmd
-	defer delete(cmds)
-	start := time.tick_now() // animation clock (seconds since the menu opened), exposed to Lua as ui.time
-
 	for platform.pump(p) {
 		nav := menu_nav_take()
 		render.ui_new_frame(r) // imgui NewFrame — MUST be matched by a Render (begin_frame) below,
 		// EVERY iteration including the one we return on, or the next screen's NewFrame asserts.
 		w, h := ui_screen_size()
-		mx, my := menu_mouse_px(p, w, h)
+		mx, my := ui_mouse_px(p, w, h)
 		click := p.input.select
 
-		// 1. Lua builds the tree (with last frame's focus + clock + viewport so widgets can style/animate).
-		ui.set_font(&sess.atlas) // bind THIS session's atlas — set_font is a global (see ui_session_draw)
-		ui.set_time(&sess.vm, time.duration_seconds(time.tick_since(start)))
-		ui.set_viewport(&sess.vm, w, h)
-		ui.set_focus(&sess.vm, focus_id)
-		tree, tok := ui.frame(&sess.vm)
-		if !tok {
+		verb, rok, fok := ui_session_step(&sess, w, h, nav, mx, my, click)
+		if !fok {
 			if render.begin_frame(r, MENU_CLEAR) {render.end_frame(r)} // balance imgui, then bail
 			return .None, false // broken UI → fall back to imgui
 		}
 
-		// 2. Lay it out and collect the focusables the engine routes to (scoped to a modal subtree).
-		ui.measure(&tree)
-		tree.screen = ui.Rect{0, 0, w, h}
-		ui.layout_children(&tree)
-		focusables: [dynamic]ui.Focusable
-		ui.collect_focusables(ui.focus_root(&tree), &focusables)
-
-		// 3. Route input → the activated action + the focus for next frame. Both BORROW the tree, so
-		//    clone the focus into our owned buffer now and dispatch the action (step 5) before the
-		//    tree is destroyed below.
-		activated, new_focus := ui.route_input(focusables[:], focus_id, nav, mx, my, click)
-		set_focus_owned(&focus_id, new_focus)
-
-		// 4. Draw THIS frame's tree.
-		clear(&cmds)
-		ui.emit(&tree, &cmds)
-		ui_render_draw(&sess.ren, cmds[:], {w, h})
-
-		// 5. Apply the activation while the tree `activated` borrows is still alive (state change shows
-		//    next frame), THEN destroy the tree.
-		if nav.back {
-			ui.back(&sess.vm)
-		}
-		ui.dispatch(&sess.vm, activated)
-		verb, rok := ui.take_result(&sess.vm)
-
-		ui.destroy(&tree)
-		delete(focusables)
-
-		// 6. Present (this Render balances the NewFrame above) BEFORE returning on a result. The 3D
+		// Present (this Render balances the NewFrame above) BEFORE returning on a result. The 3D
 		//    logo draws into the scene pass; the UI composites over it in end_frame. The menu Lua owns
 		//    enabled/pos/scale (ui.menu_logo) so a mod can disable or move it; lighting is set BEFORE
 		//    begin_frame (scene_begin pushes it) so the flat-fullbright env covers the logo.
@@ -169,25 +124,6 @@ menu_map_verb :: proc(verb: string) -> (tools.Menu_Action, bool) {
 		return .Quit, true
 	}
 	return .None, false
-}
-
-// menu_mouse_px converts the platform's NDC cursor to UI pixel space (top-left origin).
-@(private = "file")
-menu_mouse_px :: proc(p: ^platform.Platform, w, h: f32) -> (f32, f32) {
-	ndc := p.input.mouse_ndc
-	return (ndc.x + 1) * 0.5 * w, (1 - ndc.y) * 0.5 * h
-}
-
-// set_focus_owned replaces the owned focus id with a clone of `src` (which borrows the per-frame
-// tree). Skips the realloc when the content is unchanged — the common case frame to frame — so the
-// owned buffer stays valid and stable. `dst` starts as the empty string (nil data); delete is safe.
-@(private = "file")
-set_focus_owned :: proc(dst: ^string, src: string) {
-	if dst^ == src {
-		return
-	}
-	delete(dst^)
-	dst^ = strings.clone(src)
 }
 
 // ── keyboard navigation (raw SDL events → the substrate's edge-triggered ui.Nav intent) ─────────
