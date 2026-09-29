@@ -1780,3 +1780,24 @@ return rt.effect { land = function(e) e.target:AddItem("Gold001", rt.static("Uti
 	testing.expect_value(t, worldstate.in_slot(&f.ws, &f.db, ACTOR, .RightHand), 0)
 	testing.expect(t, !script.cast_hand(c, ACTOR, .RightHand, TARGET), "nothing left to cast")
 }
+
+// A passive is an effect applied straight to an actor with its own m, lasting until dispelled: the
+// vampire stage goes up by dispelling and applying again with the new m.
+@(test)
+test_apply_effect :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_apply_effect", {})
+	defer fixture_destroy(&f)
+	p, _ := filepath.join({f.dir, "effects", "vampirism.lua"}, context.temp_allocator)
+	os.make_directory_all(filepath.dir(p))
+	testing.expect(t, os.write_entire_file(p, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "10 + 10 * m" } } }`)) == nil, "write")
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.load_effects()`), "load")
+
+	ACTOR :: gamedb.Form_ID(0x700)
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x700), "ApplyEffect", "Vampirism", 2)`), "apply")
+	for _ in 0 ..< 3 {slua.tick_effects(&f.vm, &f.ws, 10)}
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 30) // it lasts
+	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "DispelEffect", "Vampirism") == true); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 3)`), "next stage")
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 40)
+}

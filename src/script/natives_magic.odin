@@ -30,6 +30,8 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "SendVampirismStateChanged", n_vampirism_changed)
 	register(reg, "Actor", "SendLycanthropyStateChanged", n_lycanthropy_changed)
 	register(reg, "Actor", "DispelAllSpells", n_dispel_all_spells)
+	register(reg, "Actor", "ApplyEffect", n_apply_effect)
+	register(reg, "Actor", "DispelEffect", n_dispel_effect)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
 	register(reg, "Scroll", "Cast", n_spell_cast)
@@ -65,6 +67,31 @@ n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
 	return true
 }
 
+// ApplyEffect(akEffect, afMagnitude = 0, afDuration = -1) is not Papyrus: it starts an effect on the
+// actor directly, with its own m; a negative duration lasts until DispelEffect (user, 2026-09-28: a
+// passive is an effect, the vampire stage its m). It lands like any effect and is saved with its m.
+n_apply_effect :: proc(c: ^Call, args: []Value) -> Value {
+	effect := arg_form(c, args, 0)
+	if effect == 0 {return nil}
+	d := arg_f32(args, 2, -1)
+	entries := []gamedb.Magic_Effect_Ref{{effect = effect, magnitude = arg_f32(args, 1, 0), duration = max(d, 0)}}
+	start_effects(c, effect, entries, d < 0, c.self, c.self)
+	return nil
+}
+
+// DispelEffect(akEffect) is not Papyrus: it ends that effect's running copies on the actor, whatever
+// started them. True when it had any.
+n_dispel_effect :: proc(c: ^Call, args: []Value) -> Value {
+	effect, any := arg_form(c, args, 0), false
+	for h in worldstate.effects_on(c.ws, c.self) {
+		if e := c.ws.effects[h]; e.effect == effect && !e.ended {
+			worldstate.end_effect(c.ws, h)
+			any = true
+		}
+	}
+	return any
+}
+
 // DispelSpell ends the spell's effects; the actor still knows it. True when it had any.
 n_dispel_spell :: proc(c: ^Call, args: []Value) -> Value {
 	effects := spell_effects(c.ws, c.self, arg_form(c, args, 0))
@@ -90,7 +117,7 @@ n_lycanthropy_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_
 // and the constant-effect enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
 // (hole weapon-enchantments :tags (magic combat) :sev gap :needs (combat-damage)) a melee weapon's enchantment (a Contact effect on hit) never applies; projectile hits and worn constant effects do.
 // (hole twin-enchantments :tags magic :sev polish) two worn items carrying the same ENCH form run it once; Skyrim adds enchantments.
-// (hole passive-effects :tags magic :sev gap) an ability is a spell here; it should be an effect given with d = -1 (user, 2026-09-28: the active effects menu is the same), on a list like spells: the records' abilities plus a saved delta, with its live conditions in the effect's own script.
+// (hole list-effects :tags magic :sev polish) a race, NPC or perk list cannot name an effect, only an ability spell: an effect given by a list would need its own source, so the sync here does not end one a script applied with ApplyEffect.
 sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
 	sources := make([dynamic]Form_ID, context.temp_allocator)
 	for s in worldstate.spell_list(c.ws, c.db, actor) {
