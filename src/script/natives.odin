@@ -77,6 +77,7 @@ register_builtins :: proc(reg: ^Registry) {
 
 	register(reg, "Message", "Show", n_message_show)
 	register(reg, "Message", "Answer", n_message_answer)
+	register(reg, "Actor", "ShowGiftMenu", n_show_gift_menu)
 
 	// No handler runs inside a menu: a world-pausing menu stops the ticks (docs/script-api.md section 7).
 	register(reg, "Utility", "IsInMenuMode", n_is_in_menu_mode)
@@ -352,8 +353,6 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 
 // n_message_show queues a box MESG (worldstate.ask). The box pauses the world before the next tick,
 // so the script reads the pick there with Answer (docs/script-rewrite.md "Menus that pause the world").
-//
-// (hole show-answer :tags (script ui) :sev gap) converted code that reads Show's result gets 0, the first button: 44 functions read it (build/out/show_readers_se.tsv less the 3 patches that use Answer) and need the split (Show, then Answer in OnTick).
 n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 	m, ok := gamedb.message_of(c.db, c.self)
 	if !ok {
@@ -364,6 +363,7 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 		log.infof("[message] %s", m.body)
 		return i32(0)
 	}
+	// (hole message-args :tags (ui script) :sev gap) Show's nine float arguments are dropped: a box whose text formats them (%.0f, the jail bed's days) shows the raw text.
 	worldstate.ask(c.ws, c.self)
 	return i32(0)
 }
@@ -372,6 +372,11 @@ n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 // or asked before a load.
 n_message_answer :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.answer(c.ws, c.self)
+}
+
+// (hole gift-menu :tags (ui player) :sev gap) no gift menu screen: ShowGiftMenu shows nothing and returns 0 items given, so a follower or child gift ends at once.
+n_show_gift_menu :: proc(c: ^Call, args: []Value) -> Value {
+	return i32(0)
 }
 
 // ── read-through helpers (baseline ⊕ overlay) ────────────────────────────────
