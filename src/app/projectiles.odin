@@ -32,7 +32,7 @@ tick_projectiles :: proc(g: ^Game) {
 	}
 }
 
-// (hole fire-without-ammo :tags (combat script) :sev gap) Weapon.Fire with no ammo launches nothing; a weapon has no default projectile here.
+// (hole fire-without-ammo :tags (combat script mods) :sev polish) Weapon.Fire with no ammo launches nothing. No vanilla ref does it (the two scripts that pass None attach to nothing), and a WEAP names no projectile, so a default would be ours: a data-driven projectile per weapon type, for mods.
 // fire launches a Weapon.Fire from the source's ProjectileNode (its origin without one), along the
 // node's +Y.
 @(private = "file")
