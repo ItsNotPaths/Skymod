@@ -35,10 +35,7 @@ import "../vfs"
 Shape :: struct {
 	mesh:         render.Mesh,
 	tex:          render.Texture,
-	normal:       render.Texture, // normal map (cache-owned; flat-normal fallback at draw if zero)
-	material:     nif.Material, // specular/glossiness/emissive scalars (DEFAULT_MATERIAL if none)
 	diffuse_path: string, // owned diffuse texture path ("" = none) — for inspect + texture-based cull
-	normal_path:  string, // owned normal-map texture path ("" = none) — D1: recompute the tex key at model evict
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque); foliage cutouts
 	lod_tris:     [3]u32, // BSLODTriShape per-level triangle partition ({0,0,0} = none)
@@ -69,8 +66,6 @@ Model :: struct {
 	                  // no texture named, or named one that's missing/undecodable) — i.e. the model renders
 	                  // as a flat white placeholder. --pretty hides these; a real textured mesh (incl.
 	                  // effects: rapids/fire/mist) has at least one bound diffuse, so untextured=false.
-	shadow_proxy: render.Mesh, // low-poly canopy hull for cheap tree shadows (Phase D2); zero mesh if none
-	has_shadow_proxy: bool, // canopy substantial enough for a proxy (else cast full alpha)
 	// shape_body maps each render Shape → the movable Collision_Body (index) that drives it, for
 	// ARTICULATED models only (hinged signs/carts — Phase C); -1 = static. nil for ordinary models.
 	// The world layer poses a mapped shape by its live body transform so the visible mesh swings/rolls.
@@ -225,10 +220,6 @@ free_model_entry :: proc(c: ^Cache, m: ^Model) {
 	for sh in m.shapes {
 		render.release_mesh(c.r, sh.mesh)
 		delete(sh.diffuse_path)
-		delete(sh.normal_path)
-	}
-	if m.has_shadow_proxy {
-		render.release_mesh(c.r, m.shadow_proxy)
 	}
 	delete(m.shapes)
 	delete(m.pick_pos)
@@ -346,7 +337,6 @@ evict_model :: proc(c: ^Cache, model: models.ID) {
 	// which frees the whole texture map separately — never double-frees.
 	for sh in m.shapes {
 		tex_release(c, sh.diffuse_path, true)
-		tex_release(c, sh.normal_path, false)
 	}
 	c.model_bytes -= m.bytes
 	free_model_entry(c, m)
@@ -429,7 +419,7 @@ trim_textures :: proc(c: ^Cache) {
 
 // evict_texture frees a resident texture and drops it from the cache (GPU release + map slot + owned
 // key + byte tally). Only called by trim_textures on a cold (zero-ref, non-pinned) texture — no
-// resident model shape's sh.tex/sh.normal handle points at it (all its holders released), so no draw
+// resident model shape's sh.tex handle points at it (all its holders released), so no draw
 // handle can dangle.
 @(private)
 evict_texture :: proc(c: ^Cache, key: string) {
@@ -537,21 +527,17 @@ upload_cpu_model :: proc(c: ^Cache, model: models.ID, cpu: Cpu_Model) -> (^Model
 		shapes[i] = Shape {
 			mesh         = render.upload_mesh_into(&batch, cs.verts, cs.indices),
 			tex          = upload_or_cached_texture(c, &batch, cs.diffuse_path, cs.diffuse, true), // diffuse = sRGB
-			normal       = upload_or_cached_texture(c, &batch, cs.normal_path, cs.normal, false), // normal = linear
-			material     = cs.material,
 			diffuse_path = strings.clone(cs.diffuse_path),
-			normal_path  = strings.clone(cs.normal_path),
 			local        = cs.local,
 			alpha_cutoff = cs.alpha_cutoff,
 			lod_tris     = cs.lod_tris,
 			is_effect    = cs.is_effect,
 			scroll       = cs.scroll,
 		}
-		// D1 slice 2: this shape references its diffuse + normal texture — record the refs (the
+		// D1 slice 2: this shape references its diffuse texture — record the ref (the
 		// texture entry exists after upload_or_cached_texture; a white-fallback path is a no-op).
 		// Balanced by evict_model's tex_release over the same shape paths.
 		tex_acquire(c, cs.diffuse_path, true)
-		tex_acquire(c, cs.normal_path, false)
 		has_effect ||= cs.is_effect
 		// "Blank white" is exactly the renderer's white-fallback condition: a shape draws
 		// r.white_tex when its uploaded diffuse handle is nil — which happens both when the NIF
@@ -560,12 +546,6 @@ upload_cpu_model :: proc(c: ^Cache, model: models.ID, cpu: Cpu_Model) -> (^Model
 		if shapes[i].tex.tex != nil {
 			untextured = false
 		}
-	}
-	// Canopy-hull proxy uploads in the SAME batch (must be before upload_end, which submits +
-	// frees the batch — uploading after would record into a freed batch and crash).
-	proxy_mesh: render.Mesh
-	if cpu.has_proxy {
-		proxy_mesh = render.upload_mesh_into(&batch, cpu.proxy_verts, cpu.proxy_indices)
 	}
 	render.upload_end(&batch)
 
@@ -576,10 +556,6 @@ upload_cpu_model :: proc(c: ^Cache, model: models.ID, cpu: Cpu_Model) -> (^Model
 	m.radius = cpu.radius
 	m.has_effect = has_effect
 	m.untextured = untextured
-	if cpu.has_proxy {
-		m.shadow_proxy = proxy_mesh
-		m.has_shadow_proxy = true
-	}
 	// Instance-only extras (pick copy, articulation map) — skipped for draw-only decodes
 	// (want_extras=false: LOD bake meshes, billboards, grass).
 	if cpu.extras {
@@ -602,7 +578,7 @@ upload_cpu_model :: proc(c: ^Cache, model: models.ID, cpu: Cpu_Model) -> (^Model
 }
 
 // model_bytes approximates a cached model's resident footprint: the GPU vertex/index buffers
-// (+ shadow proxy) plus the retained CPU copy (pick geometry). Textures are
+// plus the retained CPU copy (pick geometry). Textures are
 // tallied separately (shared across models). Payload bytes, not allocator-exact — for the diag
 // probe + the eviction budget, where "close and consistent" beats exact.
 @(private)
@@ -611,7 +587,6 @@ model_bytes :: proc(m: ^Model, cpu: Cpu_Model) -> int {
 	for cs in cpu.shapes {
 		b += len(cs.verts) * size_of(render.Mesh_Vertex) + len(cs.indices) * size_of(u16)
 	}
-	b += len(cpu.proxy_verts) * size_of(render.Mesh_Vertex) + len(cpu.proxy_indices) * size_of(u16)
 	b += len(m.pick_pos) * size_of([3]u16) + len(m.pick_idx16) * size_of(u16) +
 		len(m.pick_idx32) * size_of(u32) + len(m.pick_shape) * size_of(u16)
 	b += len(m.shapes) * size_of(Shape)
@@ -826,7 +801,7 @@ debug_compare_refs :: proc(c: ^Cache, expected: map[models.ID]int) -> (ok: bool,
 }
 
 // debug_check_texture_refs (verification aid, slice 2) recounts texture refs straight from the
-// resident models — every shape's diffuse (sRGB) + normal (linear) key — and compares to each
+// resident models — every shape's diffuse key — and compares to each
 // entry's live refs. Texture refs derive PURELY from c.loaded (a model shape is the only thing that
 // increments), so a mismatch means a tex_acquire/tex_release imbalance. Pinned (terrain) entries are
 // skipped — their refs aren't model-driven. Self-contained (no world layer). Temp-allocated.
@@ -835,7 +810,6 @@ debug_check_texture_refs :: proc(c: ^Cache) -> (ok: bool, key: string, want, got
 	for _, m in c.loaded {
 		for sh in m.shapes {
 			if sh.diffuse_path != "" {expected[tex_key(sh.diffuse_path, true)] += 1}
-			if sh.normal_path != "" {expected[tex_key(sh.normal_path, false)] += 1}
 		}
 	}
 	// Every resident, non-pinned texture's refs must equal the model-shape count referencing it.
@@ -871,9 +845,6 @@ Cpu_Shape :: struct {
 	indices:      []u16, // owned
 	diffuse_path: string, // owned ("" if none)
 	diffuse:      Cpu_Tex,
-	normal_path:  string, // owned ("" if none) — normal-map texture path
-	normal:       Cpu_Tex, // decoded normal map (linear, NOT sRGB)
-	material:     nif.Material, // specular/glossiness/emissive scalars
 	local:        smath.Mat4,
 	alpha_cutoff: f32, // alpha-test threshold in [0,1] (0 = opaque)
 	lod_tris:     [3]u32, // BSLODTriShape per-level triangle partition ({0,0,0} = none)
@@ -889,7 +860,7 @@ Cpu_Model :: struct {
 	shapes:        []Cpu_Shape,
 	center:        smath.Vec3,
 	radius:        f32,
-	proxy_verts:   []render.Mesh_Vertex, // canopy-hull shadow proxy (owned; empty if none)
+	proxy_verts:   []render.Mesh_Vertex, // canopy-hull proxy (owned; empty if none)
 	proxy_indices: []u16, // owned
 	has_proxy:     bool,
 	collision:     nif.Collision, // bhk* collision shapes (owned in `alloc`; physics, Phase 2e)
@@ -906,9 +877,9 @@ Cpu_Model :: struct {
 // on read/parse failure or zero drawable shapes.
 //
 // `want_extras` = also decode what only PLACED INSTANCES need: bhk* collision (physics
-// build), the canopy shadow proxy, and (at upload) the CPU pick copy. Draw-only decodes —
+// build), the canopy proxy, and (at upload) the CPU pick copy. Draw-only decodes —
 // the object-LOD bake meshes, tree billboards, grass — pass false and skip all three
-// (they are never picked, cooked, or proxy-shadowed). The two request kinds never share
+// (they are never picked or cooked). The two request kinds never share
 // a model (LOD/billboard/grass NIFs aren't cell-instance models), so the model-keyed cache
 // can't conflate a slim decode with a full one.
 decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.allocator, want_extras := true) -> Cpu_Model {
@@ -975,25 +946,11 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 				tex = decode_texture(v, ps.diffuse, alloc = alloc) // first use → decode; dups stay un-ok
 			}
 		}
-		// Normal map (texture-set slot 1) — decoded LINEAR (srgb=false); deduped like diffuse.
-		npath := ""
-		ntex: Cpu_Tex
-		if ps.normal != "" {
-			npath = strings.clone(ps.normal, alloc)
-			low := tex_key(ps.normal, false) // linear-tagged (see the diffuse note); distinct from an sRGB use of the same file
-			if !seen_tex[low] {
-				seen_tex[low] = true
-				ntex = decode_texture(v, ps.normal, srgb = false, alloc = alloc)
-			}
-		}
 		shapes[si] = Cpu_Shape {
 			verts        = verts,
 			indices      = slice.clone(ps.geometry.triangles, alloc),
 			diffuse_path = dpath,
 			diffuse      = tex,
-			normal_path  = npath,
-			normal       = ntex,
-			material     = ps.material,
 			local        = ps.world,
 			alpha_cutoff = ps.alpha_cutoff,
 			lod_tris     = ps.lod_tris,
@@ -1004,9 +961,9 @@ decode_model :: proc(v: ^vfs.VFS, modl: string, lod: int, alloc := context.alloc
 
 	// Instance-only extras (skipped for draw-only decodes — see the doc comment):
 	//
-	// Canopy-hull shadow proxy: gather the alpha-tested (leaf) shapes' vertices in MODEL space
+	// Canopy-hull proxy: gather the alpha-tested (leaf) shapes' vertices in MODEL space
 	// (apply each shape's local transform) and wrap them in a low-poly lathe hull. Built here on
-	// the worker (pure CPU); uploaded in upload_cpu_model. ok=false → cast full (blacklist path).
+	// the worker (pure CPU); sight's cutout (collision_fill). ok=false → the leaf shapes are the cutout.
 	pv: []render.Mesh_Vertex
 	pi: []u16
 	phas: bool
@@ -1063,13 +1020,6 @@ free_cpu_model :: proc(cpu: Cpu_Model, alloc := context.allocator) {
 		if cs.diffuse.ok {
 			delete(cs.diffuse.pixels, alloc)
 			delete(cs.diffuse.mips, alloc)
-		}
-		if cs.normal_path != "" {
-			delete(cs.normal_path, alloc)
-		}
-		if cs.normal.ok {
-			delete(cs.normal.pixels, alloc)
-			delete(cs.normal.mips, alloc)
 		}
 	}
 	delete(cpu.shapes, alloc)

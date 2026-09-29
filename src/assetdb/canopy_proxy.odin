@@ -1,17 +1,13 @@
 package assetdb
 
-// Canopy-hull shadow proxy (ROADMAP full-scene-lighting Phase D2). For trees, casting the full
-// alpha-tested canopy into the shadow map is expensive (huge overdraw + per-leaf discard). Instead
-// we build ONCE, at model decode, a low-poly LATHE hull wrapping the canopy (the alpha-tested leaf
-// shapes): bin the leaf vertices into height bands, take the max radius per band about the trunk
-// axis, and stack rings into a closed solid. It follows the tree's vertical silhouette (narrow-top
-// pine, round oak, …) species-agnostically — no cone assumption — and casts as cheap opaque
-// geometry. The trunk casts via its own opaque shapes (handled by the normal caster path), so the
-// hull only needs the canopy. Soft edges come from the shadow PCF.
+// Canopy-hull proxy. Built ONCE, at model decode: a low-poly LATHE hull wrapping a tree's canopy
+// (the alpha-tested leaf shapes): bin the leaf vertices into height bands, take the max radius per
+// band about the trunk axis, and stack rings into a closed solid. It follows the tree's vertical
+// silhouette species-agnostically. Sight uses it as the tree's cutout (collision_fill.cutout_mesh):
+// thousands of leaf cards are too many to cook per placed tree.
 //
-// A model only gets a proxy if its canopy is substantial (PROXY_MIN_*); trees with little/no alpha
-// foliage fail the test (has_proxy=false) and fall back to full alpha casting (the world layer's
-// blacklist path). Plants are too small to pass and simply don't get one.
+// A model only gets a proxy if its canopy is substantial (PROXY_MIN_*); otherwise the cutout is the
+// leaf shapes themselves.
 
 import "core:math"
 import smath "../math"
@@ -80,7 +76,7 @@ build_canopy_proxy :: proc(pts: [][3]f32, alloc := context.allocator) -> (verts:
 		z := zmin + (f32(b) + 0.5) / f32(PROXY_BANDS) * span
 		for s in 0 ..< PROXY_SIDES {
 			a := f32(s) / f32(PROXY_SIDES) * 2 * math.PI
-			// shadow pass reads only position; safe defaults otherwise
+			// only position is read; safe defaults otherwise
 			v[b * PROXY_SIDES + s] = render.mesh_vertex(
 				{cx + ring_r[b] * math.cos(a), cy + ring_r[b] * math.sin(a), z},
 				{0, 0, 1},

@@ -2,8 +2,8 @@ package mods
 
 // A mod's identity sidecar (docs/mods.md "Two tiers"): mods/<name>/skymod/mod.txt carries the
 // author-stable UUID + metadata that make the mod's forms portable across installs — the save bridge
-// keys on it, and it names the mod's dependencies. `skymod/` is the shared per-mod metadata seam
-// (the lighting system already uses mods/<name>/skymod/lighting.txt). A mod WITHOUT a sidecar falls
+// keys on it, and it names the mod's dependencies. `skymod/` is the shared per-mod metadata seam.
+// A mod WITHOUT a sidecar falls
 // back to a content hash of its plugin bytes: deterministic and stable while the files are unchanged,
 // so legacy mods still get a usable (if non-authoritative, install-local-ish) identity.
 //

@@ -65,7 +65,7 @@ draw_portal_quad :: proc(r: ^Renderer, pipeline: ^sdl.GPUGraphicsPipeline, quad:
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, quad.index_count, 1, 0, 0, 0)
 }
 
-// draw_mesh_stencil draws `m` exactly like draw_mesh (same mesh.vert/frag, wind, alpha
+// draw_mesh_stencil draws `m` exactly like draw_mesh (same mesh.vert/frag, alpha
 // cutoff) but through the mesh_stencil_pipeline, which renders ONLY where the stencil equals
 // PORTAL_STENCIL_REF — i.e. inside the marked doorway opening. Use it to draw an interior
 // cell's shapes with the relayed virtual-camera `vp`. Call after draw_portal_reset.
@@ -75,11 +75,6 @@ draw_mesh_stencil :: proc(
 	vp, model: smath.Mat4,
 	diffuse: Texture,
 	alpha_cutoff: f32 = 0,
-	wind: Wind = {},
-	time: f32 = 0,
-	phase: f32 = 0,
-	normal: Texture = {},
-	mat: Material_Params = {},
 ) {
 	if r.mesh_stencil_pipeline == nil || m.vbuf == nil || m.ibuf == nil {
 		return
@@ -87,20 +82,16 @@ draw_mesh_stencil :: proc(
 	u := Mesh_Uniforms {
 		vp     = vp,
 		model  = model,
-		mtl    = {alpha_cutoff, 0, 0, 0},
-		wind   = {wind.dir.x, wind.dir.y, wind.strength, wind.speed},
-		params = {time, phase, wind.height_cap, 0},
+		mtl    = {alpha_cutoff, 1, 0, 0},
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
-	mp := mat
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp)))
 	sdl.SetGPUStencilReference(r.frame_pass, PORTAL_STENCIL_REF)
 	bind_pipeline(r, r.frame_pass, r.mesh_stencil_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	bind_lit_textures(r, diffuse, normal)
+	bind_diffuse(r, diffuse)
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, m.index_count, 1, 0, 0, 0)
 }
 
@@ -122,7 +113,7 @@ portal_quad_attrs := [1]sdl.GPUVertexAttribute {
 @(private = "file")
 no_color_target :: proc(r: ^Renderer) -> sdl.GPUColorTargetDescription {
 	return {
-		format = r.scene_format,
+		format = r.swapchain_format,
 		blend_state = {enable_color_write_mask = true, color_write_mask = {}},
 	}
 }
@@ -237,7 +228,7 @@ make_portal_reset_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 @(private)
 make_mesh_stencil_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	vshader := create_shader(r.device, MESH_VERT_SPV, .VERTEX, 0, 1)
-	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 3, 2) // diffuse+normal samplers, lighting+material UBOs
+	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 1, 0)
 	if vshader == nil || fshader == nil {
 		return nil
 	}
@@ -254,7 +245,7 @@ make_mesh_stencil_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 	}
 	attrs := mesh_vertex_attrs()
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -263,7 +254,7 @@ make_mesh_stencil_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 1,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 4,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},

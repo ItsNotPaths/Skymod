@@ -49,7 +49,6 @@ when DEVTOOLS {
 			if mouse_cap {look = {}}
 			camera_update(&cam, move, look, p.input.fast, p.dt)
 
-			render.set_lighting(r, menu_logo_light(&cfg))
 			if render.begin_frame(r, {0.10, 0.11, 0.13, 1.0}) {
 				vp := camera_view_proj(cam, render.aspect(r))
 				render.draw_cube(r, vp) // reference: unit cube at the origin (confirms 3D renders)

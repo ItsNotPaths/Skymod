@@ -25,16 +25,11 @@ Obj_Instances :: struct {
 	count: int,
 }
 
-// Obj_Uniforms mirrors the obj.vert UBO (set 1, binding 0). Scene lighting is in the per-frame
-// fragment lighting UBO (set 3, shared mesh.frag); this carries the matrices, the alpha cutoff
-// (mtl.x), and the wind. wind/params drive the shared vegetation sway (per-instance phase is
-// derived in-shader from the instance position); zero wind = no displacement.
+// Obj_Uniforms mirrors the obj.vert UBO (set 1, binding 0).
 Obj_Uniforms :: struct {
 	vp:          smath.Mat4,
 	model_local: smath.Mat4,
-	mtl:         [4]f32, // x = alpha-test cutoff
-	wind:        [4]f32, // xy = global wind direction; z = strength; w = speed
-	params:      [4]f32, // x = time (seconds); z = height cap
+	mtl:         [4]f32, // x = alpha-test cutoff; y = fade-in
 }
 
 upload_obj_instances :: proc(r: ^Renderer, instances: []Obj_Instance) -> Obj_Instances {
@@ -63,10 +58,8 @@ release_obj_instances :: proc(r: ^Renderer, oi: Obj_Instances) {
 
 // draw_obj instanced-draws the placements in `oi` of base mesh `m`, with view-projection
 // `vp` and the NIF shape's internal `model_local`, textured by `diffuse` (alpha-tested at
-// `alpha_cutoff`). Scene lighting comes from the per-frame lighting UBO (set_lighting).
-// `index_count` (0 = whole mesh) selects a coarse LOD level's triangle prefix. `wind`/`time`
-// drive the vegetation sway (zero wind = no displacement; per-instance phase comes from the
-// instance position in-shader). Call between begin_frame and end_frame.
+// `alpha_cutoff`). `index_count` (0 = whole mesh) selects a coarse LOD level's triangle prefix.
+// Call between begin_frame and end_frame.
 draw_obj :: proc(
 	r: ^Renderer,
 	m: Mesh,
@@ -75,10 +68,7 @@ draw_obj :: proc(
 	diffuse: Texture,
 	alpha_cutoff: f32,
 	index_count: u32,
-	wind: Wind = {},
-	time: f32 = 0,
-	normal: Texture = {},
-	mat: Material_Params = {},
+	fade: f32 = 1,
 	first_instance: u32 = 0,
 	inst_count: u32 = 0, // 0 = all of oi; else draw a sub-range [first_instance, +inst_count) of a merged buffer
 ) {
@@ -88,18 +78,9 @@ draw_obj :: proc(
 	u := Obj_Uniforms {
 		vp          = vp,
 		model_local = model_local,
-		mtl         = {alpha_cutoff, 0, 0, 0},
-		wind        = {wind.dir.x, wind.dir.y, wind.strength, wind.speed},
-		params      = {time, 0, wind.height_cap, 0},
+		mtl         = {alpha_cutoff, fade, 0, 0},
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
-	mp := mat
-	// Force distant object-LOD matte: coarse LOD meshes ship without a normal map, so mesh.frag
-	// would apply the flat-normal fallback's FULL (unmasked) spec mask and read glossy — where the
-	// near mesh's normal-map alpha would attenuate it. Per-pixel spec at LOD range is just shimmer
-	// anyway, so drop it (mirrors terrain_draw's matte). Spec color / glossiness / emissive stay.
-	mp.spec[3] = 0
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp)))
 
 	// Opaque batches (rocks/walls, no alpha test) → backface-culled; tree/leaf batches stay two-sided.
 	bind_pipeline(r, r.frame_pass, r.obj_pipeline_culled if alpha_cutoff == 0 else r.obj_pipeline)
@@ -107,7 +88,7 @@ draw_obj :: proc(
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &binds[0], 2)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	bind_lit_textures(r, diffuse, normal)
+	bind_diffuse(r, diffuse)
 	count := index_count if index_count > 0 else m.index_count
 	// inst_count/first_instance let one merged instance buffer be drawn as per-model sub-ranges
 	// (cross-cell batching): the per-instance attributes are fetched at (first_instance + i), so
@@ -121,34 +102,31 @@ draw_obj :: proc(
 // (obj_pipeline_culled) that draw_obj routes cutoff==0 batches through.
 @(private)
 make_obj_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraphicsPipeline {
-	// obj.vert: 1 uniform buffer (set 1). mesh.frag (shared): 2 samplers (set 2: diffuse+normal)
-	// + 2 uniform buffers (set 3: lighting + material).
+	// obj.vert: 1 uniform buffer (set 1). mesh.frag (shared): 1 sampler.
 	vshader := create_shader(r.device, OBJ_VERT_SPV, .VERTEX, 0, 1)
-	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 3, 2)
+	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 1, 0)
 	if vshader == nil || fshader == nil {
 		return nil
 	}
 	defer sdl.ReleaseGPUShader(r.device, vshader)
 	defer sdl.ReleaseGPUShader(r.device, fshader)
 
-	// Slot 0 = base mesh vertex (loc 0-3); slot 1 = per-instance world matrix (4 vec4 columns,
-	// loc 4-7 — base mesh now occupies 0-3 incl. the tangent).
+	// Slot 0 = base mesh vertex (loc 0, 2); slot 1 = per-instance world matrix (4 vec4 columns,
+	// loc 4-7).
 	buffers := [2]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 		{slot = 1, pitch = u32(size_of(Obj_Instance)), input_rate = .INSTANCE},
 	}
 	base := mesh_vertex_attrs()
-	attrs := [8]sdl.GPUVertexAttribute {
+	attrs := [6]sdl.GPUVertexAttribute {
 		base[0],
 		base[1],
-		base[2],
-		base[3],
 		{location = 4, buffer_slot = 1, format = .FLOAT4, offset = 0},
 		{location = 5, buffer_slot = 1, format = .FLOAT4, offset = 16},
 		{location = 6, buffer_slot = 1, format = .FLOAT4, offset = 32},
 		{location = 7, buffer_slot = 1, format = .FLOAT4, offset = 48},
 	}
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -157,7 +135,7 @@ make_obj_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraphi
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 2,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 8,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = cull, front_face = MESH_CULL_FRONT_FACE},
 		multisample_state = {sample_count = ._1},

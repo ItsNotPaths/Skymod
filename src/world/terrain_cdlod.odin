@@ -25,7 +25,7 @@ TERR_PATCH_GRID :: 32
 
 // TERR_DROP sinks the CDLOD field slightly below true height so the full-detail NEAR terrain (drawn
 // on top in the lod-0 cells) wins where the two overlap — no z-fight. (Formerly farland's FAR_DROP.)
-TERR_DROP :: f32(1024)
+TERR_DROP :: f32(32)
 
 // Quadtree LOD: a node is detailed enough (gets emitted as one patch instance) once the camera is
 // farther than terr_lod_k × its world size; nearer than that it subdivides into 4. TERR_LEAF_CELLS

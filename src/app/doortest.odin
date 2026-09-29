@@ -140,8 +140,7 @@ when DEVTOOLS {
 					if s.under_hinge {
 						world = swing * world
 					}
-					// (The old per-draw "unlit black aperture" cue is gone — lighting is now a
-					// per-frame UBO, not a per-draw arg. Throwaway harness; default lit.)
+					// (The old per-draw "unlit black aperture" cue is gone; the renderer is fullbright.)
 					_ = highlight_black
 					render.draw_mesh(r, s.mesh, vp, world, s.tex)
 				}

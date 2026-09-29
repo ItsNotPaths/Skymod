@@ -14,12 +14,14 @@ import "../combat"
 import "../formats/nif"
 import "../formid"
 import "../gamedb"
+import "../graphics"
 import "../handoff"
 import "../models"
 import "../input"
 import "../nav"
 import smath "../math"
 import "../physics"
+import "../plugin"
 import "../render"
 import "../script"
 import "../world"
@@ -293,13 +295,13 @@ pick_actor :: proc(g: ^Game, origin, dir: smath.Vec3) -> (form: Form_ID, dist: f
 
 // draw_actor_bodies draws each actor capsule see-through in its own colour; the hovered one is near
 // opaque. The player's shows outside first person.
-draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
+draw_actor_bodies :: proc(g: ^Game, f: ^graphics.Frame, vp: smath.Mat4) {
 	render.release_mesh(&g.r, g.actor_mesh)
 	g.actor_mesh = {}
-	views := make([dynamic]Actor_View, 0, len(g.snap.actors) + 1, context.temp_allocator)
-	append(&views, ..g.snap.actors[:])
-	if !g.snap.first_person && g.snap.body.capsule != {} {append(&views, g.snap.body)}
-	if len(views) == 0 {return}
+	actors := make([dynamic]graphics.Actor, 0, f.actors.len + 1, context.temp_allocator)
+	append(&actors, ..plugin.items(f.actors))
+	if !f.first_person && f.player.radius > 0 {append(&actors, f.player)}
+	if len(actors) == 0 {return}
 	Range :: struct {
 		form:        Form_ID,
 		first, count: u32,
@@ -308,11 +310,11 @@ draw_actor_bodies :: proc(g: ^Game, vp: smath.Mat4) {
 	verts := make([dynamic]render.Mesh_Vertex, context.temp_allocator)
 	idx := make([dynamic]u16, context.temp_allocator)
 	ranges := make([dynamic]Range, context.temp_allocator)
-	for v in views {
+	for a in actors {
 		if len(verts) > 60000 {break}
 		first := u32(len(idx))
-		emit_capsule(&verts, &idx, blend(v.feet, g.fr.alpha), v.capsule)
-		append(&ranges, Range{v.form, first, u32(len(idx)) - first, v.dead})
+		emit_capsule(&verts, &idx, a.feet, {a.radius, a.half_h})
+		append(&ranges, Range{a.id, first, u32(len(idx)) - first, a.dead})
 	}
 	g.actor_mesh = render.upload_mesh(&g.r, verts[:], idx[:])
 	for rg in ranges {

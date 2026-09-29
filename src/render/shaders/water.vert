@@ -7,7 +7,6 @@
 layout(set = 1, binding = 0) uniform UBO {
     mat4 vp;
     vec4 cam;
-    vec4 sun;
     vec4 deep;
     vec4 shallow;
     vec4 params;

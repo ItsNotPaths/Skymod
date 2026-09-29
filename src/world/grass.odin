@@ -12,7 +12,7 @@ package world
 //   2. NOISE-MODULATED density — a low-frequency value-noise field thins/thickens the
 //      scatter into natural patches instead of a flat carpet.
 //   3. SLOPE-AWARE — the heightmap gradient culls steep ground (cliffs stay bare).
-//   4. PER-INSTANCE variation — hashed yaw / scale / wind-phase so no two clusters match.
+//   4. PER-INSTANCE variation — hashed yaw / scale so no two clusters match.
 // All hashed deterministically by (cell, quadrant, sub-cell), so streaming never
 // reshuffles. Grass TYPE is per-quadrant for now (true per-texel type needs the deferred
 // ATXT alpha-layer blending). Knobs below are the visual dials.
@@ -57,6 +57,7 @@ Grass_Batch :: struct {
 	model_id: models.ID,
 	model:      ^assetdb.Model, // nil until resolved from the cache
 	instances:  render.Grass_Instances, // per-cell scatter buffer (chunk-owned)
+	shown:      f32, // Scene.time its model resolved (fade_in)
 }
 
 // load_grass scatters and uploads a chunk's grass batches (MAIN THREAD: it decodes the
@@ -112,7 +113,6 @@ load_grass :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 			}
 			yaw := hashf(seed + 4) * 2 * math.PI
 			scale := math.lerp(GRASS_SCALE_MIN, GRASS_SCALE_MAX, hashf(seed + 5))
-			phase := hashf(seed + 6) * 2 * math.PI
 
 			list, has := &by_ltex[ltex]
 			if !has {
@@ -120,7 +120,7 @@ load_grass :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 				list = &by_ltex[ltex]
 			}
 			if len(list) < GRASS_MAX_INSTANCES {
-				append(list, render.Grass_Instance{pos = {px, py, z}, yps = {yaw, scale, phase}})
+				append(list, render.Grass_Instance{pos = {px, py, z}, ys = {yaw, scale}})
 			}
 		}
 	}
@@ -157,16 +157,14 @@ release_grass :: proc(s: ^Scene, chunk: ^Chunk) {
 }
 
 // draw_grass draws every loaded chunk's grass, frustum-culled by chunk AABB and distance-
-// culled against `grass_dist` (world units) from the eye, swaying under `wind` at `time`.
-// A separate pass from the static draw (its own pipeline + per-frame wind/time/eye).
+// culled against `grass_dist` (world units) from the eye. A separate pass from the static draw
+// (its own pipeline).
 draw_grass :: proc(
 	s: ^Scene,
 	r: ^render.Renderer,
 	vp: smath.Mat4,
 	eye: smath.Vec3,
 	grass_dist: f32,
-	wind: render.Wind,
-	time: f32,
 ) {
 	f := smath.frustum_from_vp(vp)
 	gd2 := grass_dist * grass_dist
@@ -191,22 +189,11 @@ draw_grass :: proc(
 				if b.model == nil {
 					continue // grass cluster not decoded yet — pops in when ready
 				}
+				b.shown = s.time
 			}
 			for sh in b.model.shapes {
 				cutoff := sh.alpha_cutoff if sh.alpha_cutoff > 0 else 0.5
-				render.draw_grass(
-					r,
-					sh.mesh,
-					b.instances,
-					vp,
-					sh.local,
-					sh.tex,
-					cutoff,
-					wind,
-					time,
-					normal = sh.normal,
-					mat = shape_mat(sh),
-				)
+				render.draw_grass(r, sh.mesh, b.instances, vp, sh.local, sh.tex, cutoff, fade_in(s, b.shown))
 			}
 		}
 	}

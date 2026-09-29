@@ -2,7 +2,7 @@ package render
 
 // Player-UI render path (backend v2): an own SDL3_gpu 2D pipeline that draws the `ui` package's
 // screen-space quads — solid rects (over the 1×1 white texture), font-atlas glyphs, and art images —
-// into the swapchain (post) pass, replacing imgui's DrawList for the skinned UI. The app rebuilds a
+// into the UI pass, replacing imgui's DrawList for the skinned UI. The app rebuilds a
 // vertex/index/batch list each frame (translating ui.Draw_Cmd → UI_Vertex with the right texture per
 // run) and hands it over with set_ui_drawlist; render uploads + draws it inside end_frame.
 //
@@ -96,7 +96,7 @@ ui2_ensure_buffers :: proc(r: ^Renderer, nverts, nindices: int) {
 }
 
 // ui2_upload records this frame's vertex/index upload into r.frame_cmd's own copy pass (called in
-// end_frame between the scene pass and the post pass). Returns the staging transfer buffers to free
+// end_frame between the scene pass and the UI pass). Returns the staging transfer buffers to free
 // after the command buffer is submitted (ui2_release_transfers).
 @(private)
 ui2_upload :: proc(r: ^Renderer) -> (xfer: [2]^sdl.GPUTransferBuffer) {
@@ -141,7 +141,7 @@ ui2_release_transfers :: proc(r: ^Renderer, xfer: [2]^sdl.GPUTransferBuffer) {
 	}
 }
 
-// ui2_draw issues the UI batches into the post (swapchain) pass. Pushes the drawable size for the
+// ui2_draw issues the UI batches into the UI pass. Pushes the drawable size for the
 // pixel→clip map, binds the shared pipeline + per-frame buffers, then draws each batch with its
 // texture (white fallback for rects).
 @(private)
@@ -215,7 +215,7 @@ make_ui_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{location = 1, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(UI_Vertex, uv))},
 		{location = 2, buffer_slot = 0, format = .UBYTE4_NORM, offset = u32(offset_of(UI_Vertex, col))},
 	}
-	// Straight-alpha blend over the swapchain (the post pass target has no depth/stencil).
+	// Straight-alpha blend over present_tex (the UI pass has no depth/stencil).
 	color_target := sdl.GPUColorTargetDescription {
 		format = r.swapchain_format,
 		blend_state = {

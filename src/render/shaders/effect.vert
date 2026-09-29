@@ -7,7 +7,6 @@
 // no lighting; the additive effect_pipeline blends the result over the opaque scene.
 
 layout(location = 0) in vec3 a_pos;
-layout(location = 1) in vec3 a_normal; // unused (effects are unlit)
 layout(location = 2) in vec2 a_uv;
 
 layout(set = 1, binding = 0) uniform UBO {

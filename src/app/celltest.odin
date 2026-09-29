@@ -59,12 +59,12 @@ when DEVTOOLS {
 			physics.shutdown()
 		}
 
-		collisions: collisions.Store
-		defer collisions.destroy(&collisions)
+		store: collisions.Store
+		defer collisions.destroy(&store)
 		space: world.Space
-		world.space_init(&space, &phys, &collisions, nil, dynamic_clutter = false)
+		world.space_init(&space, &phys, &store, nil, dynamic_clutter = false)
 		defer world.space_destroy(&space)
-		scene := world.scene_init(r, v, &collisions)
+		scene := world.scene_init(r, v, &store)
 		defer world.scene_destroy(&scene) // LIFO: runs before space and phys destroy → removes bodies while world lives
 
 		wfid, wok := gamedb.find_world(&db, "Tamriel")

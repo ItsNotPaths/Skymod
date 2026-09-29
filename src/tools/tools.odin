@@ -10,7 +10,6 @@ import "core:fmt"
 import "core:math"
 import "core:path/filepath"
 import "core:strings"
-import "../lighting"
 import smath "../math"
 import imgui "../../vendor/odin-imgui"
 
@@ -789,109 +788,6 @@ lod_test_legend :: proc(lod_tris: [3]u32) {
 		imgui.TextWrapped("Which ROW shows a clean full→coarse rock across the 3 columns?")
 	}
 	imgui.End()
-}
-
-// Lighting_Action is what the lighting configurator requests this frame: switch to a
-// different preset (`select` = index into names, -1 = no change) and/or save the active one.
-Lighting_Action :: struct {
-	select:  int,
-	save_as: bool, // write the active look as a preset in content/baselighting (caller reads the name)
-}
-
-// lighting_panel is the in-game lighting configurator (ROADMAP full-scene-lighting Phase A):
-// a profile picker plus live controls for every active field of `p` (edited in place). All
-// values are plain data — this package stays imgui-core-only; the app maps the profile to the
-// renderer. Returns the picker/save action for the app to act on. Live edits are free (the
-// renderer re-uploads a sub-kilobyte UBO each frame), so there's no perf-locked mode.
-lighting_panel :: proc(
-	p: ^lighting.Light_Profile,
-	names: []string,
-	current: int,
-	save_name: []u8,
-) -> (
-	act: Lighting_Action,
-) {
-	act.select = -1
-	if imgui.Begin("Lighting", nil, {.NoCollapse}) {
-		preview: cstring = "—"
-		if current >= 0 && current < len(names) {
-			preview = fmt.ctprintf("%s", names[current])
-		}
-		if imgui.BeginCombo("profile", preview) {
-			for n, i in names {
-				if imgui.Selectable(fmt.ctprintf("%s", n), i == current) {
-					act.select = i
-				}
-			}
-			imgui.EndCombo()
-		}
-
-		imgui.SeparatorText("Sun")
-		imgui.SliderFloat3("direction", &p.sun_dir, -1, 1)
-		imgui.ColorEdit3("color", &p.sun_color)
-		imgui.SliderFloat("intensity", &p.sun_intensity, 0, 4)
-
-		imgui.SeparatorText("Ambient")
-		imgui.ColorEdit3("sky##amb", &p.ambient_sky)
-		imgui.ColorEdit3("ground", &p.ambient_ground)
-		imgui.SliderFloat("amount", &p.ambient_intensity, 0, 2)
-		imgui.SliderFloat("floor", &p.ambient_floor, 0, 0.5) // min light (dark-albedo guard)
-
-		imgui.SeparatorText("Fog")
-		imgui.ColorEdit3("fog color", &p.fog_color)
-		imgui.DragFloat("start", &p.fog_start, 256, 0, 400000)
-		imgui.DragFloat("end", &p.fog_end, 256, 0, 400000)
-		imgui.SliderFloat("density", &p.fog_density, 0, 1)
-
-		imgui.SeparatorText("Sky / material")
-		imgui.ColorEdit3("sky color", &p.sky_color)
-		imgui.SliderFloat("albedo lift", &p.albedo_lift, 0.3, 1.5) // <1 brightens dark-authored diffuse
-		imgui.SliderFloat("spec scale", &p.spec_scale, 0, 4) // global specular strength remap
-		imgui.SliderFloat("foliage spec", &p.foliage_spec, 0, 1) // matte over-shiny leaves/grass
-		imgui.SliderFloat("normal strength", &p.normal_strength, 0, 2) // normal-map intensity
-		imgui.SliderFloat("emissive scale", &p.emissive_scale, 0, 4) // glow strength
-
-		imgui.SeparatorText("Tonemap / grade")
-		ops := [?]cstring{"Reinhard", "ACES", "Filmic", "None"}
-		mode := i32(p.tonemap)
-		if imgui.BeginCombo("operator", ops[mode]) {
-			for op, i in ops {
-				if imgui.Selectable(op, i32(i) == mode) {
-					p.tonemap = lighting.Tonemap(i)
-				}
-			}
-			imgui.EndCombo()
-		}
-		imgui.SliderFloat("exposure", &p.exposure, 0.1, 4)
-		imgui.SliderFloat("white point", &p.white_point, 0.5, 8)
-		imgui.SliderFloat("contrast", &p.contrast, 0.5, 1.5)
-		imgui.SliderFloat("saturation", &p.saturation, 0, 2)
-		imgui.ColorEdit3("color filter", &p.color_filter)
-
-		imgui.SeparatorText("Sun shadows")
-		imgui.SliderFloat("shadow strength", &p.shadow_strength, 0, 1) // 0 = off
-		imgui.SliderFloat("shadow softness", &p.shadow_softness, 0.25, 4) // PCF kernel scale
-		imgui.SliderFloat("shadow bias", &p.shadow_bias, 0, 0.01, "%.4f") // acne vs peter-panning
-		vshad := [?]cstring{"off", "proxy", "full"}
-		vmode := i32(p.veg_shadows)
-		if imgui.BeginCombo("veg shadows", vshad[vmode]) {
-			for o, i in vshad {
-				if imgui.Selectable(o, i32(i) == vmode) {
-					p.veg_shadows = lighting.Veg_Shadows(i)
-				}
-			}
-			imgui.EndCombo()
-		}
-
-		imgui.SeparatorText("Save as lighting mod")
-		imgui.SetNextItemWidth(-1)
-		imgui.InputTextWithHint("##lightname", "preset name", cstring(raw_data(save_name)), uint(len(save_name)))
-		if imgui.Button("Save As Mod") {
-			act.save_as = true
-		}
-	}
-	imgui.End()
-	return
 }
 
 // stack_graph draws a stacked area graph in the top-right corner: one column per sample, oldest at

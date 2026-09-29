@@ -36,6 +36,7 @@ import "../conditions"
 import "../detection"
 import "../formid"
 import "../gamedb"
+import "../graphics"
 import "../handoff"
 import "../input"
 import "../installer"
@@ -73,7 +74,7 @@ SNEAK_SPEED :: f32(222) // MOVT NPC_Sneaking_MT forward run
 // documented order — a partial setup (early Quit, failed init) tears down only what exists.
 // Subsystems with their own liveness flag (phys_ok, char_ok, repl_ok, interiors_on) use it.
 Game_Up :: struct {
-	platform, render, ui, audio, loadui, hud, box, profile, vfs, db, scene, lights, ws, formtable, traversal,
+	platform, render, ui, audio, loadui, hud, box, profile, vfs, db, scene, ws, formtable, traversal,
 	console, marker, sreg: bool,
 }
 
@@ -86,7 +87,7 @@ Frame_Profile :: struct {
 	// acquire — it BLOCKS when the GPU is behind, so a high acquire with low pass times means
 	// GPU-bound; high pass times mean CPU(draw-submission)-bound. Sum of passes + acquire vs
 	// render shows how much is unattributed (scene_begin/end_frame/present).
-	acquire, shadow, terrain, near, objdraw, grass, water, effects: f64,
+	acquire, terrain, near, objdraw, grass, water, effects: f64,
 }
 
 // Slow-frame detector (diagnostic): snapshot of the accumulated phase timers at the previous
@@ -232,10 +233,6 @@ Game :: struct {
 	scene:      world.Scene,
 	collisions: collisions.Store, // every scene's model collision, for the sim (assetdb)
 
-	// scene lighting (configurator panel state included)
-	lights:          Lighting_State,
-	light_save_name: [64]u8,
-
 	// streaming + door traversal + experimental open-interiors
 	streamer:     world.Streamer,
 	interior:     world.Scene, // the interior main draws, while shown.interior != 0
@@ -254,6 +251,7 @@ Game :: struct {
 	// main's view and controls
 	cam:         Camera,
 	actor_mesh:  render.Mesh, // last frame's NPC capsule mesh, released at the next draw
+	graphics:    graphics.Table, // who draws the scene: the built-in or a plugin's
 	hover_actor: Form_ID, // the actor under the Ctrl-hover cursor, 0 for none
 	actor_grab:  Actor_Grab, // the dev carry (hold DevGrabActor)
 	wheel:       f32, // main's running total of wheel notches, latched into Sim_Input
@@ -300,8 +298,6 @@ Game :: struct {
 	// tuning (from settings; fixed for the session)
 	full_radius: int, // full-detail bubble (cell radii) — also the near-water/object-LOD seam
 	grass_dist:  f32,
-	shadow_dist: f32,
-	wind:        render.Wind,
 	// Live portal-camera tuning (debug sliders): how far past the doorway plane to clamp the
 	// relay eye (clears the entrance wall) + a yaw offset on the relayed look direction.
 	portal_push:    f32,
@@ -309,7 +305,7 @@ Game :: struct {
 
 	// frame accounting
 	tick:        Tick, // fixed-step sim clock (see Tick); game_frame drives it
-	elapsed:     f32, // advances the wind/effects phase
+	elapsed:     f32, // advances the effects phase
 	diag_t:      f32, // throttle for the periodic memory/cache diagnostic log
 	prof:        Frame_Profile,
 	prev_bodies: int, // last diag window's body count — to flag a steady climb (leak)
@@ -471,7 +467,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 
 	// The full-detail bubble in cell radii: the sim's live cells (near terrain + grass + full objects).
 	// Terrain itself is whole-world CDLOD (no knob).
-	g.full_radius = settings.get_int(g.cfg, "render_distance", 2)
+	g.full_radius = settings.get_int(g.cfg, "render_distance", 3)
 
 	// Optional LOD falloff tuning (commented out in settings.txt by default — compiled defaults
 	// here). terrain_lod_falloff = the quadtree coarsening factor (lower = finer distant terrain);
@@ -521,19 +517,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	}
 	log.infof("stream: %d decode threads", decode_threads)
 
-	// Grass draw distance (world units) + a basic, reusable wind (a future HDT-SMP-style
-	// sim would drive/replace the procedural sway). `elapsed` advances the wind phase.
-	g.grass_dist = f32(settings.get_int(g.cfg, "grass_distance", 8192))
-	g.shadow_dist = f32(settings.get_int(g.cfg, "shadow_distance", 20000))
-	g.wind = render.Wind{dir = {0.7, 0.7}, strength = 0.12, speed = 2.2}
-
-	// Scene lighting (ROADMAP full-scene-lighting Phases A/B): populate the pinned baseline lighting
-	// content mod content/baselighting (stylized presets from #load; the data-faithful "vanilla"
-	// derived once from the user's own Skyrim.esm imagespace, local + never shipped), then load the
-	// active preset (`lighting_profile`). Live-editable via the Lighting panel; pushed each frame.
-	baselighting_ensure(base, resolve_source(cfg))
-	g.lights = lighting_state_init(base, settings.get(g.cfg, "lighting_profile"))
-	g.up.lights = true
+	g.grass_dist = f32(settings.get_int(g.cfg, "grass_distance", 8192)) // world units
 
 	// EXPERIMENTAL (open-interiors foundation): when experimental_open_interiors is set, discover
 	// the worldspace's load-door → interior links (build_portals) so the door alignment data is
@@ -626,6 +610,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	plugin.apply(&g.plugins, sight.SEAM, sight.VERSION, &sighthost.table)
 	plugin.apply(&g.plugins, condfn.SEAM, condfn.VERSION, &conditions.table)
 	plugin.apply(&g.plugins, magic.SEAM, magic.VERSION, &script.magic_table)
+	g.graphics = GRAPHICS_BUILTIN
+	plugin.apply(&g.plugins, graphics.SEAM, graphics.VERSION, &g.graphics)
 	script.init(&g.sreg)
 	g.up.sreg = true
 	g.repl_ok = console_repl_init(&g.sim.repl, &g.sreg, &g.sim.ws, &g.db, &g.audio, &g.v, &g.sim.noclip)
@@ -720,7 +706,6 @@ game_teardown :: proc(g: ^Game) {
 	}
 	if g.up.formtable {mods.formtable_destroy(&g.save_ft)}
 	if g.up.ws {worldstate.destroy(&g.sim.ws)} // outlives traversal (trav borrows the overlay)
-	if g.up.lights {lighting_state_destroy(&g.lights)}
 	if g.up.scene {world.scene_destroy(&g.scene)} // removes chunk bodies while the phys world lives
 	world.space_destroy(&g.sim.ext)
 	collisions.destroy(&g.collisions) // after every scene that reads it

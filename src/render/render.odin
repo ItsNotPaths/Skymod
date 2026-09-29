@@ -23,32 +23,11 @@ import imgui_sdlgpu3 "../../vendor/odin-imgui/imgui_impl_sdlgpu3"
 // relative to this file; the bytes are embedded into the binary via #load.
 CUBE_VERT_SPV :: #load("shaders/cube.vert.spv")
 CUBE_FRAG_SPV :: #load("shaders/cube.frag.spv")
-POST_VERT_SPV :: #load("shaders/post.vert.spv")
-POST_FRAG_SPV :: #load("shaders/post.frag.spv")
-SHADOW_VERT_SPV :: #load("shaders/shadow.vert.spv")
-SHADOW_FRAG_SPV :: #load("shaders/shadow.frag.spv")
-SHADOW_ALPHA_FRAG_SPV :: #load("shaders/shadow_alpha.frag.spv")
-
-// SHADOW_RES is the per-cascade shadow-map resolution (square). SHADOW_FORMAT is its depth format.
-SHADOW_RES :: u32(2048)
-SHADOW_FORMAT :: sdl.GPUTextureFormat.D32_FLOAT
-
-// Shadow_Uniforms mirrors shadow.vert's UBO (set 1, binding 0): the cascade light view-projection
-// and the caster's model matrix.
-Shadow_Uniforms :: struct {
-	light_vp: smath.Mat4,
-	model:    smath.Mat4,
-	params:   [4]f32, // x = alpha-test cutoff (0 = opaque caster)
-}
 
 // Vertex uniform block — mirrors UBO in cube.vert (set 1, binding 0).
 Cube_Uniforms :: struct {
 	mvp: smath.Mat4,
 }
-
-// SHADOW_CASCADES is the number of cascaded shadow-map slices (Phase D). The app's cascade
-// math (app/shadows.odin) references this so the two never diverge.
-SHADOW_CASCADES :: 3
 
 // MESH_CULL_FRONT_FACE is the winding the opaque culled pipelines (mesh_pipeline_culled /
 // obj_pipeline_culled) treat as front-facing. Skyrim NIF triangle lists have consistent winding,
@@ -58,80 +37,13 @@ SHADOW_CASCADES :: 3
 // sided draws (foliage/grass/water) ignore it — they use cull NONE.
 MESH_CULL_FRONT_FACE :: sdl.GPUFrontFace.COUNTER_CLOCKWISE
 
-// Light_Env is the per-frame scene-lighting block (ROADMAP full-scene-lighting Phase A) —
-// the GPU-facing mirror of the `Light` UBO in mesh.frag (set 3, binding 0, the SDL3_gpu
-// Vulkan slot for fragment uniform buffers). All-vec4 so std140 layout is padding-free.
-// The app fills this from the active lighting profile each frame (lighting.Light_Profile is
-// the rich authored form; this is the flattened render form) and calls set_lighting; the
-// renderer pushes it once in begin_frame, so every lit-mesh draw that frame reads it.
-Light_Env :: struct {
-	sun_dir:        [4]f32, // xyz = direction toward the sun (world); w = albedo_lift (gamma)
-	sun_color:      [4]f32, // rgb = sun color; w = sun intensity
-	ambient_sky:    [4]f32, // rgb = up-facing ambient; w = ambient floor (min light)
-	ambient_ground: [4]f32, // rgb = down-facing ambient; w = ambient intensity
-	fog_color:      [4]f32, // rgb = fog/horizon color
-	fog_params:     [4]f32, // x = start dist, y = end dist, z = height falloff, w = density
-	cam_pos:        [4]f32, // xyz = camera world position (fog distance + specular view dir)
-	material:       [4]f32, // x = spec_scale, y = normal_strength, z = emissive_scale, w = foliage_spec (global material remap)
-	csm_vp:         [SHADOW_CASCADES]smath.Mat4, // cascade light view-projections (shadow sampling)
-	csm_splits:     [4]f32, // x,y,z = far radial distance per cascade
-	shadow_params:  [4]f32, // x = strength, y = depth bias, z = PCF texel step, w = cascade count (0 = off)
-}
-
-// DEFAULT_LIGHT_ENV reproduces the engine's pre-lighting look EXACTLY (flat ambient 0.3 +
-// sun 0.7 · N·L, fog off) so any run that never calls set_lighting (e.g. the lodtest /
-// doortest harnesses) still renders correctly. The game overrides it from a profile.
-DEFAULT_LIGHT_ENV :: Light_Env {
-	sun_dir        = {0.4, 0.6, 1.0, 1.0},
-	sun_color      = {1, 1, 1, 0.7},
-	ambient_sky    = {0.3, 0.3, 0.3, 0.0},
-	ambient_ground = {0.3, 0.3, 0.3, 1.0},
-	fog_color      = {0.10, 0.11, 0.13, 0},
-	fog_params     = {0, 200000, 0, 0}, // density 0 = no fog
-	cam_pos        = {0, 0, 0, 0},
-	material       = {1, 1, 1, 1}, // spec_scale, normal_strength, emissive_scale, foliage_spec
-}
-
-// Material_Params is the per-DRAW material block (mirror of the `Mat` UBO in mesh.frag, set 3
-// binding 1) — the shape's authored specular/glossiness/emissive (Skyrim spec-gloss model). The
-// per-frame Light_Env.material carries the GLOBAL remap (spec_scale etc.) applied on top.
-Material_Params :: struct {
-	spec:     [4]f32, // rgb = specular color; w = specular strength
-	emissive: [4]f32, // rgb = emissive color; w = emissive multiple
-	params:   [4]f32, // x = glossiness
-}
-
-// Post_Params is the HDR post/tonemap block (ROADMAP full-scene-lighting Phase B) — the
-// GPU mirror of the `Post` UBO in post.frag (set 3). Filled from the active profile's
-// tonemap/grade fields each frame (set_post), pushed in the post pass (end_frame).
-Post_Params :: struct {
-	params: [4]f32, // x = exposure, y = tonemap mode (0 reinhard / 1 ACES / 2 filmic), z = white point, w = contrast
-	grade:  [4]f32, // xyz = color filter (tint); w = saturation
-}
-
-// DEFAULT_POST is an identity-ish pass (exposure 1, Reinhard, neutral grade) so harnesses
-// that never call set_post still resolve the HDR target sensibly.
-DEFAULT_POST :: Post_Params {
-	params = {1, 0, 1, 1},
-	grade  = {1, 1, 1, 1},
-}
-
 // Renderer holds the SDL3_gpu backend state — opaque to callers.
 Renderer :: struct {
 	device:           ^sdl.GPUDevice,
 	window:           ^sdl.Window,
 	swapchain_format: sdl.GPUTextureFormat,
-	scene_format:     sdl.GPUTextureFormat, // offscreen HDR scene color target format (Phase B)
 
-	// HDR pipeline (Phase B): the scene renders into this offscreen RGBA16F target; the post
-	// pass (post_pipeline) samples it (hdr_sampler), tonemaps/grades, and writes the swapchain.
-	hdr_tex:          ^sdl.GPUTexture,
-	hdr_w, hdr_h:     u32,
-	hdr_sampler:      ^sdl.GPUSampler,
-	post_pipeline:    ^sdl.GPUGraphicsPipeline,
-	post:             Post_Params, // active tonemap/grade (set_post); pushed in the post pass
-
-	// Present cache: the post pass + UI compose into THIS owned texture (swapchain format), then it's
+	// Present cache: the scene + UI compose into THIS owned texture (swapchain format), then it's
 	// BLIT to the acquired swapchain image. So the swapchain is always fully written by a real rendered
 	// frame — when it's recreated (e.g. a pointer-lock/grab toggle reconfigures the Wayland surface) the
 	// fresh, undefined image can never flash (no checkerboard, no black); the blit covers it entirely,
@@ -139,17 +51,8 @@ Renderer :: struct {
 	present_tex:      ^sdl.GPUTexture,
 	present_w, present_h: u32,
 
-	// Cascaded sun shadows (Phase D): a depth texture array (one layer per cascade) the scene
-	// renders casters into (depth-only) before the lit pass samples it. shadow_cmd/shadow_pass
-	// are valid only between shadow_begin and shadow_end.
-	shadow_tex:       ^sdl.GPUTexture,    // D32 depth array, SHADOW_CASCADES layers
-	shadow_sampler:   ^sdl.GPUSampler,    // nearest/clamp (manual PCF taps in mesh.frag)
-	shadow_pipeline:  ^sdl.GPUGraphicsPipeline, // depth-only opaque caster (shadow.vert/frag)
-	shadow_alpha_pipeline: ^sdl.GPUGraphicsPipeline, // alpha-tested caster (foliage cutouts; shadow_alpha.frag)
-	shadow_pass:      ^sdl.GPURenderPass, // cascade depth pass (on frame_cmd, before the scene pass)
-
 	cube_pipeline:    ^sdl.GPUGraphicsPipeline,
-	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general position+normal meshes (B3); two-sided (foliage cutouts)
+	mesh_pipeline:    ^sdl.GPUGraphicsPipeline, // general meshes (B3); two-sided (foliage cutouts)
 	mesh_pipeline_culled: ^sdl.GPUGraphicsPipeline, // OPAQUE variant of mesh_pipeline with backface culling — draw_mesh routes alpha_cutoff==0 draws here (solid architecture/statics), halving rasterized back faces; foliage (cutoff>0) stays two-sided on mesh_pipeline
 	grass_pipeline:   ^sdl.GPUGraphicsPipeline, // instanced grass clusters (F2 vegetation)
 	obj_pipeline:     ^sdl.GPUGraphicsPipeline, // instanced distant static objects (object LOD); two-sided (tree cutouts)
@@ -172,7 +75,7 @@ Renderer :: struct {
 	mesh_sampler:     ^sdl.GPUSampler,
 	terrain_sampler:  ^sdl.GPUSampler, // trilinear + anisotropic/repeat for the CDLOD ground array (grazing-angle distance)
 	white_tex:        ^sdl.GPUTexture,
-	flat_normal_tex:  ^sdl.GPUTexture, // 1x1 {128,128,255} tangent-space "up" — fallback for shapes with no normal map
+	clamp_sampler:    ^sdl.GPUSampler, // linear/clamp (the terrain height field)
 
 	depth_tex:        ^sdl.GPUTexture,
 	depth_w, depth_h: u32,
@@ -185,11 +88,6 @@ Renderer :: struct {
 	portal_reset_pipeline: ^sdl.GPUGraphicsPipeline, // depth → far where stencil == 1
 	mesh_stencil_pipeline: ^sdl.GPUGraphicsPipeline, // mesh path, drawn only where stencil == 1
 
-	// Active scene lighting (full-scene-lighting Phase A). Set via set_lighting from the
-	// app's current profile; pushed to the fragment lighting UBO once per begin_frame.
-	// Initialized to DEFAULT_LIGHT_ENV so harnesses that never set it still render lit.
-	lighting:         Light_Env,
-
 	// Redundant-bind elimination: the pipeline currently bound in the active pass. Draw procs bind
 	// through bind_pipeline, which skips the SDL call when the requested pipeline is already current
 	// — the near mesh path re-selected the SAME pipeline on every shape. Reset to nil at each pass
@@ -199,7 +97,7 @@ Renderer :: struct {
 	// Per-frame state, valid only between begin_frame and end_frame.
 	frame_cmd:        ^sdl.GPUCommandBuffer,
 	frame_pass:       ^sdl.GPURenderPass,
-	frame_swap_tex:   ^sdl.GPUTexture, // acquired swapchain image (post pass targets it in end_frame)
+	frame_swap_tex:   ^sdl.GPUTexture, // acquired swapchain image (end_frame blits present_tex to it)
 	swap_w, swap_h:   u32,
 
 	// Dear ImGui (dev tooling / MVP UI). The SDL3 + SDL_gpu backends are imgui's,
@@ -216,7 +114,7 @@ Renderer :: struct {
 
 	// Player-facing UI (backend v2): an own SDL3_gpu 2D pipeline that draws the `ui` package's
 	// textured/coloured quads (solid rects over white_tex, glyphs over the font atlas, art images)
-	// into the swapchain (post) pass — replacing imgui's DrawList for the skinned UI. The vertex /
+	// into the UI pass — replacing imgui's DrawList for the skinned UI. The vertex /
 	// index data is rebuilt each frame (set_ui_drawlist) and uploaded + drawn in end_frame.
 	ui2_pipeline:     ^sdl.GPUGraphicsPipeline,
 	ui2_bar_pipeline: ^sdl.GPUGraphicsPipeline, // meter-fill (glossy sheen) pipeline; Bar batches
@@ -268,9 +166,6 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 	r.device = device
 	r.window = window
 	r.swapchain_format = sdl.GetGPUSwapchainTextureFormat(device, window)
-	r.scene_format = pick_scene_format(device) // offscreen HDR (RGBA16F) target for the post pass
-	r.lighting = DEFAULT_LIGHT_ENV
-	r.post = DEFAULT_POST
 
 	// Depth target carries a STENCIL aspect (for the open-interiors portals). Prefer the
 	// widely-supported D24_S8; fall back to D32F_S8, then plain D32F if a driver somehow
@@ -404,10 +299,7 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 		},
 	)
 	r.white_tex = make_white_texture(device)
-	r.flat_normal_tex = make_flat_normal_texture(device)
-
-	// HDR post: a linear/clamp sampler for the offscreen scene target + the tonemap pipeline.
-	r.hdr_sampler = sdl.CreateGPUSampler(
+	r.clamp_sampler = sdl.CreateGPUSampler(
 		device,
 		{
 			min_filter = .LINEAR,
@@ -416,43 +308,6 @@ init :: proc(window: ^sdl.Window) -> (r: Renderer, ok: bool) {
 			address_mode_v = .CLAMP_TO_EDGE,
 		},
 	)
-	r.post_pipeline = make_post_pipeline(&r)
-	if r.post_pipeline == nil {
-		log.errorf("render: post pipeline failed: %s", sdl.GetError())
-		shutdown(&r)
-		return {}, false
-	}
-
-	// Cascaded shadow maps: a depth texture array (one layer per cascade) + a nearest/clamp
-	// sampler (manual PCF in the shader) + the depth-only caster pipeline.
-	r.shadow_tex = sdl.CreateGPUTexture(
-		device,
-		{
-			type = .D2_ARRAY,
-			format = SHADOW_FORMAT,
-			usage = {.DEPTH_STENCIL_TARGET, .SAMPLER},
-			width = SHADOW_RES,
-			height = SHADOW_RES,
-			layer_count_or_depth = u32(SHADOW_CASCADES),
-			num_levels = 1,
-			sample_count = ._1,
-		},
-	)
-	r.shadow_sampler = sdl.CreateGPUSampler(
-		device,
-		{min_filter = .NEAREST, mag_filter = .NEAREST, address_mode_u = .CLAMP_TO_EDGE, address_mode_v = .CLAMP_TO_EDGE},
-	)
-	r.shadow_pipeline = make_shadow_pipeline(&r)
-	r.shadow_alpha_pipeline = make_shadow_alpha_pipeline(&r)
-	if r.shadow_tex == nil ||
-	   r.shadow_sampler == nil ||
-	   r.shadow_pipeline == nil ||
-	   r.shadow_alpha_pipeline == nil {
-		log.errorf("render: shadow resources failed: %s", sdl.GetError())
-		shutdown(&r)
-		return {}, false
-	}
-
 	// Player UI (v2): LINEAR/clamp sampler, NO mips. Glyphs bake at their display size (font's live
 	// atlas), so text samples ~1:1 — no minified mip chain (that's what made small text wobble). Plus
 	// the 2D quad pipeline.
@@ -488,11 +343,8 @@ shutdown :: proc(r: ^Renderer) {
 	if r.mesh_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.mesh_sampler)}
 	if r.terrain_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.terrain_sampler)}
 	if r.white_tex != nil {sdl.ReleaseGPUTexture(r.device, r.white_tex)}
-	if r.flat_normal_tex != nil {sdl.ReleaseGPUTexture(r.device, r.flat_normal_tex)}
-	if r.hdr_tex != nil {sdl.ReleaseGPUTexture(r.device, r.hdr_tex)}
+	if r.clamp_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.clamp_sampler)}
 	if r.present_tex != nil {sdl.ReleaseGPUTexture(r.device, r.present_tex)}
-	if r.hdr_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.hdr_sampler)}
-	if r.post_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.post_pipeline)}
 	if r.ui2_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.ui2_pipeline)}
 	if r.ui2_bar_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.ui2_bar_pipeline)}
 	if r.ui2_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.ui2_sampler)}
@@ -501,10 +353,6 @@ shutdown :: proc(r: ^Renderer) {
 	delete(r.ui2_verts)
 	delete(r.ui2_indices)
 	delete(r.ui2_batches)
-	if r.shadow_tex != nil {sdl.ReleaseGPUTexture(r.device, r.shadow_tex)}
-	if r.shadow_sampler != nil {sdl.ReleaseGPUSampler(r.device, r.shadow_sampler)}
-	if r.shadow_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.shadow_pipeline)}
-	if r.shadow_alpha_pipeline != nil {sdl.ReleaseGPUGraphicsPipeline(r.device, r.shadow_alpha_pipeline)}
 	if r.depth_tex != nil {sdl.ReleaseGPUTexture(r.device, r.depth_tex)}
 	if r.cube_vbuf != nil {sdl.ReleaseGPUBuffer(r.device, r.cube_vbuf)}
 	if r.cube_ibuf != nil {sdl.ReleaseGPUBuffer(r.device, r.cube_ibuf)}
@@ -540,10 +388,7 @@ aspect :: proc(r: ^Renderer) -> f32 {
 
 // frame_acquire acquires the frame command buffer + swapchain image and ensures the offscreen
 // targets, but opens NO render pass yet. Returns false when no image is available (minimized) —
-// skip the rest of the frame. The SHADOW passes (shadow_cascade/draw_shadow/…) run on this command
-// buffer AFTER frame_acquire and BEFORE scene_begin, so the depth-array write → sampler read happens
-// within ONE command buffer and SDL3_gpu inserts the barrier (a separate shadow cmd buffer faulted
-// the Intel driver). Then call scene_begin to open the lit pass.
+// skip the rest of the frame. Then call scene_begin to open the scene pass.
 frame_acquire :: proc(r: ^Renderer) -> bool {
 	// Finalize the UI's draw data first (balances ui_new_frame even on a dropped frame).
 	// PrepareDrawData must run on the cmd buffer BEFORE the passes that consume it. Only Render an
@@ -573,7 +418,6 @@ frame_acquire :: proc(r: ^Renderer) -> bool {
 	r.frame_swap_tex = tex
 	r.frame_cmd = cmd
 	ensure_depth(r, w, h)
-	ensure_hdr(r, w, h)
 	ensure_present(r, w, h)
 
 	if r.ui_enabled && r.ui_draw_data != nil {
@@ -582,11 +426,10 @@ frame_acquire :: proc(r: ^Renderer) -> bool {
 	return true
 }
 
-// scene_begin opens the lit scene pass into the offscreen HDR target (cleared to `clear`) +
-// pushes the per-frame lighting. Call after frame_acquire (and after any shadow passes).
+// scene_begin opens the scene pass into present_tex (cleared to `clear`). Call after frame_acquire.
 scene_begin :: proc(r: ^Renderer, clear: [4]f32) {
 	color := sdl.GPUColorTargetInfo {
-		texture     = r.hdr_tex,
+		texture     = r.present_tex,
 		clear_color = {clear[0], clear[1], clear[2], clear[3]},
 		load_op     = .CLEAR,
 		store_op    = .STORE,
@@ -602,15 +445,9 @@ scene_begin :: proc(r: ^Renderer, clear: [4]f32) {
 	}
 	r.frame_pass = sdl.BeginGPURenderPass(r.frame_cmd, &color, 1, &depth)
 	r.bound_pipeline = nil // new pass — bound pipeline state is invalidated
-
-	// Per-frame lighting UBO (set 3, binding 0); persists across pipeline binds for the whole
-	// command buffer. NOTE: water.frag reuses fragment slot 0 — water draws after lit geometry.
-	env := r.lighting
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 0, &env, u32(size_of(env)))
 }
 
-// begin_frame is the convenience for callers that don't render shadows (interiors, the lodtest /
-// doortest harnesses): acquire + open the scene pass in one call.
+// begin_frame is frame_acquire + scene_begin in one call.
 begin_frame :: proc(r: ^Renderer, clear: [4]f32) -> bool {
 	if !frame_acquire(r) {
 		return false
@@ -619,51 +456,30 @@ begin_frame :: proc(r: ^Renderer, clear: [4]f32) -> bool {
 	return true
 }
 
-// set_lighting sets the per-frame scene lighting (sun, ambient, fog, material lift, camera
-// position for fog). Call once per frame BEFORE begin_frame, which pushes it. Cheap (a small
-// struct copy); the GPU upload is a sub-kilobyte push — live profile editing costs nothing.
-set_lighting :: proc(r: ^Renderer, env: Light_Env) {
-	r.lighting = env
-}
-
-// set_post sets the per-frame HDR post / tonemap parameters (exposure, operator, white point,
-// contrast, saturation, color filter). Call before begin_frame; pushed in the post pass.
-set_post :: proc(r: ^Renderer, post: Post_Params) {
-	r.post = post
-}
-
+// end_frame closes the scene pass if one is open (a graphics plugin records its own), composes the
+// UI over present_tex and presents.
 end_frame :: proc(r: ^Renderer) {
-	// Close the scene pass (HDR target), then resolve it to the swapchain through the post /
-	// tonemap pass. Dear ImGui draws last, into the post (swapchain) pass — so the UI is NOT
-	// tonemapped/graded.
-	sdl.EndGPURenderPass(r.frame_pass)
+	if r.frame_pass != nil {sdl.EndGPURenderPass(r.frame_pass)}
 
 	// Upload this frame's player-UI quads (recorded into THIS command buffer's own copy pass,
-	// between the scene pass and the post pass, so SDL3_gpu orders the write before the draw).
+	// between the scene pass and the UI pass, so SDL3_gpu orders the write before the draw).
 	ui_xfer := ui2_upload(r)
 
-	// Compose into the owned present-cache texture, NOT the swapchain directly, then blit it below. The
-	// fullscreen triangle covers every pixel, so DONT_CARE is fine here (it's our texture).
-	swap := sdl.GPUColorTargetInfo {
+	// The UI composes over the scene in present_tex, then it's blitted below.
+	target := sdl.GPUColorTargetInfo {
 		texture  = r.present_tex,
-		load_op  = .DONT_CARE,
+		load_op  = .LOAD,
 		store_op = .STORE,
 	}
-	post_pass := sdl.BeginGPURenderPass(r.frame_cmd, &swap, 1, nil)
-	sdl.BindGPUGraphicsPipeline(post_pass, r.post_pipeline)
-	sb := sdl.GPUTextureSamplerBinding{texture = r.hdr_tex, sampler = r.hdr_sampler}
-	sdl.BindGPUFragmentSamplers(post_pass, 0, &sb, 1)
-	pp := r.post
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 0, &pp, u32(size_of(pp)))
-	sdl.DrawGPUPrimitives(post_pass, 3, 1, 0, 0) // fullscreen triangle (no vertex buffer)
+	ui_pass := sdl.BeginGPURenderPass(r.frame_cmd, &target, 1, nil)
 
-	// Player UI (v2) draws over the resolved scene, before imgui (dev overlays stay on top).
-	ui2_draw(r, post_pass)
+	// Player UI (v2) draws over the scene, before imgui (dev overlays stay on top).
+	ui2_draw(r, ui_pass)
 
 	if r.ui_enabled && r.ui_draw_data != nil {
-		imgui_sdlgpu3.RenderDrawData(r.ui_draw_data, r.frame_cmd, post_pass, nil)
+		imgui_sdlgpu3.RenderDrawData(r.ui_draw_data, r.frame_cmd, ui_pass, nil)
 	}
-	sdl.EndGPURenderPass(post_pass)
+	sdl.EndGPURenderPass(ui_pass)
 
 	// Blit the fully-composed frame onto the acquired swapchain image. This is what guarantees the
 	// swapchain is ALWAYS covered by a real rendered frame — a just-recreated (undefined) swapchain image
@@ -810,45 +626,8 @@ ensure_depth :: proc(r: ^Renderer, w, h: u32) {
 	r.depth_w, r.depth_h = w, h
 }
 
-// pick_scene_format chooses the offscreen scene color format. Prefer RGBA16F (real HDR — lit
-// values can exceed 1.0 before tonemap), fall back to RGBA8 (LDR, still tonemapped). Both must
-// support COLOR_TARGET + SAMPLER (rendered to, then sampled by the post pass).
-@(private)
-pick_scene_format :: proc(device: ^sdl.GPUDevice) -> sdl.GPUTextureFormat {
-	if sdl.GPUTextureSupportsFormat(device, .R16G16B16A16_FLOAT, .D2, {.COLOR_TARGET, .SAMPLER}) {
-		return .R16G16B16A16_FLOAT
-	}
-	return .R8G8B8A8_UNORM
-}
-
-// ensure_hdr (re)creates the offscreen HDR scene target at the swapchain size — the scene
-// renders here, the post pass samples it. Rebuilt on resize.
-@(private)
-ensure_hdr :: proc(r: ^Renderer, w, h: u32) {
-	if r.hdr_tex != nil && r.hdr_w == w && r.hdr_h == h {
-		return
-	}
-	if r.hdr_tex != nil {
-		sdl.ReleaseGPUTexture(r.device, r.hdr_tex)
-	}
-	r.hdr_tex = sdl.CreateGPUTexture(
-		r.device,
-		{
-			type = .D2,
-			format = r.scene_format,
-			usage = {.COLOR_TARGET, .SAMPLER},
-			width = w,
-			height = h,
-			layer_count_or_depth = 1,
-			num_levels = 1,
-			sample_count = ._1,
-		},
-	)
-	r.hdr_w, r.hdr_h = w, h
-}
-
 // ensure_present (re)creates the present-cache texture (swapchain format) at the drawable size. The
-// post pass renders into it and it's blitted to the swapchain — see the `present_tex` field comment.
+// scene and UI passes render into it and it's blitted to the swapchain — see the `present_tex` field.
 ensure_present :: proc(r: ^Renderer, w, h: u32) {
 	if r.present_tex != nil && r.present_w == w && r.present_h == h {
 		return
@@ -861,7 +640,7 @@ ensure_present :: proc(r: ^Renderer, w, h: u32) {
 		{
 			type = .D2,
 			format = r.swapchain_format,
-			usage = {.COLOR_TARGET, .SAMPLER}, // COLOR_TARGET: the post pass writes it; SAMPLER: the blit reads it
+			usage = {.COLOR_TARGET, .SAMPLER}, // COLOR_TARGET: the passes write it; SAMPLER: the blit reads it
 			width = w,
 			height = h,
 			layer_count_or_depth = 1,
@@ -870,32 +649,6 @@ ensure_present :: proc(r: ^Renderer, w, h: u32) {
 		},
 	)
 	r.present_w, r.present_h = w, h
-}
-
-// make_post_pipeline builds the HDR resolve/tonemap pipeline: post.vert (fullscreen triangle,
-// no vertex input) + post.frag (1 sampler set 2 = the HDR scene target; 1 uniform buffer set 3
-// = the tonemap/grade params). Targets the swapchain, no depth, no blend (overwrites).
-@(private)
-make_post_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	vshader := create_shader(r.device, POST_VERT_SPV, .VERTEX, 0, 0)
-	fshader := create_shader(r.device, POST_FRAG_SPV, .FRAGMENT, 1, 1)
-	if vshader == nil || fshader == nil {
-		return nil
-	}
-	defer sdl.ReleaseGPUShader(r.device, vshader)
-	defer sdl.ReleaseGPUShader(r.device, fshader)
-
-	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
-	info := sdl.GPUGraphicsPipelineCreateInfo {
-		vertex_shader = vshader,
-		fragment_shader = fshader,
-		primitive_type = .TRIANGLELIST,
-		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
-		multisample_state = {sample_count = ._1},
-		// No depth target in the post pass.
-		target_info = {color_target_descriptions = &color_target, num_color_targets = 1},
-	}
-	return sdl.CreateGPUGraphicsPipeline(r.device, info)
 }
 
 @(private)
@@ -918,7 +671,7 @@ make_cube_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Vertex, pos))},
 		{location = 1, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Vertex, uv))},
 	}
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -965,7 +718,7 @@ has_stencil :: proc(f: sdl.GPUTextureFormat) -> bool {
 
 // bind_pipeline binds `pl` on `pass`, skipping the SDL call when it is already the current pipeline
 // (redundant-bind elimination — see Renderer.bound_pipeline). Callers MUST reset r.bound_pipeline to
-// nil at the start of every render pass (scene_begin / shadow_cascade) so a freed-then-reused pass
+// nil at the start of every render pass (scene_begin) so a freed-then-reused pass
 // pointer can never make a needed rebind be skipped.
 @(private)
 bind_pipeline :: proc(r: ^Renderer, pass: ^sdl.GPURenderPass, pl: ^sdl.GPUGraphicsPipeline) {

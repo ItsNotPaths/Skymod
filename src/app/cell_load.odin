@@ -234,8 +234,7 @@ mods_root :: proc(base: string, allocator := context.temp_allocator) -> string {
 }
 
 // PROFILES_DIRNAME holds the per-profile mod lists (the mods/ folder itself is shared across all
-// profiles, MO2-style). This is now the ONLY "profiles" concept — the old lighting "profiles/" dir
-// became the pinned content/baselighting mod (see baselighting.odin), so this reclaimed the clean
+// profiles, MO2-style). The old lighting "profiles/" dir is gone, so this reclaimed the clean
 // name via migrate_profiles_layout. DEFAULT_PROFILE is the always-present "vanilla" baseline:
 // unmoddable (system plugins only) and the settings ROOT that every other profile inherits from (see
 // settings.load_child + the input-system notes). Other profiles carry only sparse overrides.
@@ -401,10 +400,6 @@ system_mod_names :: proc(src, base: string, allocator := context.temp_allocator)
 	baseui_dir, _ := filepath.join({base, "content", "baseui"}, context.temp_allocator)
 	if os.is_dir(baseui_dir) {
 		append(&out, strings.clone("SkyMod UI", allocator))
-	}
-	// The forced lighting baseline (content/baselighting): the pinned lighting presets.
-	if os.is_dir(baselighting_dir(base, context.temp_allocator)) {
-		append(&out, strings.clone("SkyMod Lighting", allocator))
 	}
 	return out[:]
 }

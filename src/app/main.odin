@@ -57,7 +57,7 @@ main :: proc() {
 	base := platform.base_path()
 
 	// One-time layout migration: the mod profiles moved from <base>/modprofiles/ to <base>/profiles/
-	// (the old lighting "profiles/" concept became the pinned content/baselighting mod). Runs before
+	// (the old lighting "profiles/" dir is gone). Runs before
 	// any dir is read below so settings/modlists resolve from the new location.
 	migrate_profiles_layout(base)
 

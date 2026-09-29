@@ -41,7 +41,7 @@ make_tint_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{location = 1, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, normal))},
 	}
 	color_target := sdl.GPUColorTargetDescription {
-		format = r.scene_format,
+		format = r.swapchain_format,
 		blend_state = {
 			enable_blend = true,
 			src_color_blendfactor = .SRC_ALPHA,

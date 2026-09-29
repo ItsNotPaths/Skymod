@@ -74,11 +74,15 @@ camera_ray :: proc(c: Camera, aspect: f32, ndc: [2]f32) -> (origin, dir: smath.V
 }
 
 camera_view_proj :: proc(c: Camera, aspect: f32) -> smath.Mat4 {
-	eye := c.pos
-	center := eye + camera_forward(c)
-	view := smath.look_at_rh(eye, center, {0, 0, 1})
-	proj := smath.perspective_rh_zo_rev(CAM_FOV_Y, aspect, CAM_NEAR, CAM_FAR)
-	return proj * view
+	return camera_proj(aspect) * camera_view(c)
+}
+
+camera_view :: proc(c: Camera) -> smath.Mat4 {
+	return smath.look_at_rh(c.pos, c.pos + camera_forward(c), {0, 0, 1})
+}
+
+camera_proj :: proc(aspect: f32) -> smath.Mat4 {
+	return smath.perspective_rh_zo_rev(CAM_FOV_Y, aspect, CAM_NEAR, CAM_FAR)
 }
 
 // The point of view, sim side: the wheel ramps worldstate.Camera.dist, and the tick works out how

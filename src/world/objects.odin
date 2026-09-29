@@ -43,7 +43,6 @@ Obj_Batch :: struct {
 	model_id:   models.ID,
 	model:      ^assetdb.Model, // nil until resolved from the cache
 	instances:  render.Obj_Instances, // per-cell instance buffer (built at load; released at unload)
-	veg:        Veg_Kind, // cached vegetation class (path match done once at load)
 }
 
 // tree_billboard_for resolves a TREE base form to its prebaked distant billboard — Skyrim's flat
@@ -51,7 +50,7 @@ Obj_Batch :: struct {
 // Landscape\Trees\TreePineForest03.nif → Landscape\Trees\TreePineForest03_lod_flat.nif. The NIF is
 // UV-mapped into its worldspace tree atlas, which it references internally (so no atlas handling
 // here). TREEs carry no MNAM, so the billboard IS their distant-LOD mesh; it flows through the same
-// Obj_Batch path (double-sided, alpha-tested, tree-wind sway via veg_classify). Only the ~35 LOD
+// Obj_Batch path (double-sided, alpha-tested). Only the ~35 LOD
 // trees ship one; flora/shrubs have none → drop at distance (Skyrim-faithful). Result cached per
 // base ("" = none). Scene-owned, freed on worldspace change. Placement stays per-REFR (the
 // streamer); the .lst/.btt atlas system is unused.

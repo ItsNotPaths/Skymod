@@ -4,12 +4,8 @@ package render
 // its XCLW height (resolved in gamedb); the depth buffer does the masking for free —
 // where terrain rises above the plane it occludes it, where terrain dips below the water
 // blends over it. No geometry waves, no normal-map asset, no reflection pass: the look is
-// fully PROCEDURAL in water.frag (analytic sum-of-sines normal → fresnel-to-sky + sun
-// specular). Drawn in a transparent pass AFTER opaque geometry.
-//
-// SHARED-LIGHT SEAM: Water_Uniforms carries a minimal scene-light block (sun dir + camera)
-// deliberately shaped like the lighting subsystem's eventual UBO, so landing full lighting
-// is "populate the block" — not "rewrite this shader's light handling".
+// fully PROCEDURAL in water.frag (analytic sum-of-sines normal → fresnel-to-sky), unlit.
+// Drawn in a transparent pass AFTER opaque geometry.
 
 import smath "../math"
 import sdl "vendor:sdl3"
@@ -22,8 +18,7 @@ WATER_FRAG_SPV :: #load("shaders/water.frag.spv")
 // stages. All-vec4 so std140 layout is padding-free.
 Water_Uniforms :: struct {
 	vp:      smath.Mat4,
-	cam:     [4]f32, // xyz = camera world position (view dir for fresnel/specular)
-	sun:     [4]f32, // xyz = direction toward the sun (the shared-light seam)
+	cam:     [4]f32, // xyz = camera world position (view dir for fresnel)
 	deep:    [4]f32, // rgb = deep-water color; a = base (top-down) opacity
 	shallow: [4]f32, // rgb = horizon/sky tint reflected at grazing angles
 	params:  [4]f32, // x = time (seconds)
@@ -35,20 +30,15 @@ WATER_DEEP :: [4]f32{0.02, 0.09, 0.12, 0.55}
 WATER_SHALLOW :: [4]f32{0.35, 0.55, 0.65, 1.0}
 
 // draw_water draws a cell's flat water quad `m` (world-space verts) under view-projection
-// `vp`, with the camera at `cam_pos`, rippling at `time` seconds. The sun direction comes
-// from the active scene lighting (set_lighting) — the shared-light seam now populated.
-// Transparent pass (depth-tested, no depth write): call AFTER opaque geometry. NOTE: water.frag
-// uses fragment uniform slot 0 (same as the lighting UBO), so this overwrites it for any later
-// fragment-UBO draw — fine, since water draws after all lit-mesh opaque geometry.
+// `vp`, with the camera at `cam_pos`, rippling at `time` seconds. Transparent pass
+// (depth-tested, no depth write): call AFTER opaque geometry.
 draw_water :: proc(r: ^Renderer, m: Mesh, vp: smath.Mat4, cam_pos: smath.Vec3, time: f32) {
 	if r.water_pipeline == nil || m.vbuf == nil {
 		return
 	}
-	sun := r.lighting.sun_dir
 	u := Water_Uniforms {
 		vp      = vp,
 		cam     = {cam_pos.x, cam_pos.y, cam_pos.z, 0},
-		sun     = {sun[0], sun[1], sun[2], 0},
 		deep    = WATER_DEEP,
 		shallow = WATER_SHALLOW,
 		params  = {time, 0, 0, 0},
@@ -85,7 +75,7 @@ make_water_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
 	}
 	color_target := sdl.GPUColorTargetDescription {
-		format = r.scene_format,
+		format = r.swapchain_format,
 		blend_state = {
 			enable_blend = true,
 			src_color_blendfactor = .SRC_ALPHA,

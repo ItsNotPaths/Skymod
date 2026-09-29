@@ -81,13 +81,8 @@ run_lua_main_menu :: proc(
 
 		// Present (this Render balances the NewFrame above) BEFORE returning on a result. The 3D
 		//    logo draws into the scene pass; the UI composites over it in end_frame. The menu Lua owns
-		//    enabled/pos/scale (ui.menu_logo) so a mod can disable or move it; lighting is set BEFORE
-		//    begin_frame (scene_begin pushes it) so the flat-fullbright env covers the logo.
+		//    enabled/pos/scale (ui.menu_logo) so a mod can disable or move it.
 		menu_logo_read_lua(&sess.vm, &logo_cfg)
-		if logo_ok {
-			render.set_lighting(r, menu_logo_light(&logo_cfg))
-			render.set_post(r, menu_logo_post()) // flat tonemap so the fullbright ambient isn't rolled off
-		}
 		if render.begin_frame(r, MENU_CLEAR) {
 			if logo_ok {menu_logo_draw(r, &logo, &logo_cfg)}
 			render.end_frame(r)

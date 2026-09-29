@@ -43,7 +43,7 @@ DEFAULTS := [?]Default {
 	// loaded square is (2·render_distance + 1)² cells around the player. Higher =
 	// see farther, more to stream/draw. LOD distance settings will join this when
 	// terrain/object LOD lands.
-	{"render_distance", "2"},
+	{"render_distance", "3"},
 	// Grass draw distance in world units (grass is dense/expensive, so much shorter
 	// than render_distance). Cells beyond this aren't drawn with grass. 0 disables grass.
 	{"grass_distance", "8192"},
@@ -73,14 +73,6 @@ DEFAULTS := [?]Default {
 	// inlined (and how far before it unloads, plus a hysteresis margin). Only used when
 	// experimental_open_interiors is on.
 	{"interior_load_distance", "2048"},
-	// Active lighting preset at boot: a preset name in content/baselighting/ ("vanilla",
-	// "realistic", any saved look) or the hardcoded "fullbright". Edit + save live in the
-	// in-game Lighting panel; a saved look becomes a new preset there.
-	{"lighting_profile", "vanilla"},
-	// Sun-shadow draw distance in world units (cascaded shadow maps cover [near, this]). 0
-	// disables shadows. Shorter = crisper near shadows (cascades pack closer); longer = shadows
-	// farther out but coarser. Strength/softness/bias are per lighting profile.
-	{"shadow_distance", "20000"},
 }
 
 // Config is an ordered key/value store: `keys` preserves write order, `vals` maps

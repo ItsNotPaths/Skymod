@@ -74,21 +74,21 @@ test_settings_overlay :: proc(t: ^testing.T) {
 	defer os.remove_all(child_dir)
 	defer delete(child_dir)
 
-	// Root (vanilla) baseline: render_distance defaults to 2, plus a game path.
+	// Root (vanilla) baseline: render_distance defaults to 3, plus a game path.
 	root := settings.load(root_dir)
 	defer settings.destroy(&root)
 	settings.set(&root, "source_game", "/games/Skyrim")
-	testing.expect(t, settings.get(&root, "render_distance") == "2", "root default rd")
+	testing.expect(t, settings.get(&root, "render_distance") == "3", "root default rd")
 
 	// A profile overlay overrides only render_distance; game path inherits from root.
 	child := settings.load_child(child_dir, &root)
 	defer settings.destroy(&child)
 	testing.expect(t, settings.get(&child, "source_game") == "/games/Skyrim", "inherits root game path")
-	testing.expect(t, settings.get(&child, "render_distance") == "2", "inherits root rd before override")
+	testing.expect(t, settings.get(&child, "render_distance") == "3", "inherits root rd before override")
 
 	settings.set(&child, "render_distance", "12")
 	testing.expect(t, settings.get(&child, "render_distance") == "12", "override wins")
-	testing.expect(t, settings.get(&root, "render_distance") == "2", "root unchanged by child override")
+	testing.expect(t, settings.get(&root, "render_distance") == "3", "root unchanged by child override")
 
 	// root() reaches the baseline from the child, for root-only keys.
 	settings.set(settings.root(&child), "active_profile", "modlistB")

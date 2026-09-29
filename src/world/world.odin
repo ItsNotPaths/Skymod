@@ -31,89 +31,6 @@ import "../vfs"
 XMARKER :: 0x0000_003B
 XMARKER_HEADING :: 0x0000_0034
 
-// Scene lighting (sun, ambient, fog, material response) now lives in the per-frame lighting
-// UBO, set via render.set_lighting from the active lighting profile (see src/lighting + the
-// app's frame loop) — NOT a hardcoded direction here. The draw paths below pass no light.
-
-// Vegetation wind tuning, by "weight". Displacement in the shaders is amplitude×height,
-// so SHORT foliage needs a much bigger amplitude than a tree to move a visible amount —
-// otherwise small plants look frozen next to swaying trees. Frequency varies too: heavy
-// trees sway slowly, light foliage flutters fast. (Grass has its own amplitude on its
-// dedicated path.) Visual tuning knobs — amplitude (per world-unit of height) + a
-// multiplier on the global wind speed.
-TREE_WIND :: f32(0.006) // heavy: small lean
-TREE_SPEED :: f32(0.7) // …and slow
-PLANT_WIND :: f32(0.13) // light: large amplitude (so short flora still moves visibly)
-PLANT_SPEED :: f32(1.5) // …and quick flutter
-// …but cap the height that feeds the amplitude, so TALL foliage (shrubs, ferns, vine
-// maple) doesn't wave wildly — only short flora scale up to it. World units.
-PLANT_HEIGHT_CAP :: f32(45)
-
-// Veg_Kind is a placement's vegetation class, classified ONCE from its model path at
-// build time (the string match is the expensive part) and cached on the Instance / batch.
-// veg_wind_for then derives the per-frame wind cheaply from it + the global wind.
-Veg_Kind :: enum u8 {
-	Rigid, // architecture, rocks, clutter — no sway
-	Tree,  // `...\Trees\` — heavy, small slow lean
-	Plant, // `...\Plants\` — light, large fast flutter
-}
-
-// Veg_Shadow_Mode is how vegetation casts sun shadows (the `veg_shadows` setting). Opaque
-// geometry (buildings, rocks, tree TRUNKS, terrain) always casts regardless. Off = foliage casts
-// nothing; Proxy = trees cast a cheap canopy-hull proxy (plants skip; blacklisted trees cast full);
-// Full = trees + plants cast their real alpha-tested geometry (accurate, expensive).
-Veg_Shadow_Mode :: enum u8 {
-	Off,
-	Proxy,
-	Full,
-}
-
-// veg_classify maps a model path to its vegetation class. The one string lowercase +
-// substring scan; call at build/load time, NOT per frame. Trees live under `...\Trees\`,
-// other foliage under `...\Plants\`; everything else is rigid.
-veg_classify :: proc(path: string) -> Veg_Kind {
-	p := strings.to_lower(path, context.temp_allocator)
-	switch {
-	case strings.contains(p, "trees\\"):
-		return .Tree
-	case strings.contains(p, "plants\\"):
-		return .Plant
-	}
-	return .Rigid
-}
-
-// veg_wind_for returns a class's per-type wind (amplitude, oscillation speed, height cap),
-// preserving the global wind DIRECTION. Cheap (a switch) — safe to call per frame.
-veg_wind_for :: proc(kind: Veg_Kind, base: render.Wind) -> render.Wind {
-	switch kind {
-	case .Tree:
-		return {dir = base.dir, strength = TREE_WIND, speed = base.speed * TREE_SPEED}
-	case .Plant:
-		return {dir = base.dir, strength = PLANT_WIND, speed = base.speed * PLANT_SPEED, height_cap = PLANT_HEIGHT_CAP}
-	case .Rigid:
-		return {dir = base.dir, speed = base.speed} // rigid (strength 0)
-	}
-	return {dir = base.dir, speed = base.speed}
-}
-
-// shape_mat flattens a shape's authored material (specular/glossiness/emissive) into the
-// renderer's per-draw material block. The global remap (spec_scale etc.) is applied in-shader
-// from the lighting env. Shared by every lit draw path so materials are uniform across them.
-shape_mat :: proc(sh: assetdb.Shape) -> render.Material_Params {
-	m := sh.material
-	return render.Material_Params {
-		spec     = {m.spec_color[0], m.spec_color[1], m.spec_color[2], m.spec_strength},
-		emissive = {m.emissive_color[0], m.emissive_color[1], m.emissive_color[2], m.emissive_mult},
-		params   = {m.glossiness, 0, 0, 0},
-	}
-}
-
-// veg_phase derives a per-placement wind phase from world position so neighbouring plants
-// sway out of sync — while all share the one global wind DIRECTION (no random directions).
-veg_phase :: proc(pos: smath.Vec3) -> f32 {
-	return pos.x * 0.013 + pos.y * 0.017
-}
-
 // is_marker_path reports whether a model is an invisible editor helper (dragon-landing,
 // critter/bird-path, link/civil-war markers, etc.) that shouldn't render in-game. Skyrim
 // names all such meshes with "marker" in the path; "market" doesn't contain "marker", so
@@ -138,6 +55,15 @@ is_nonworld_path :: proc(modl: string) -> bool {
 // geometry (e.g. a pure-marker NIF). Mixed meshes — a real textured effect bundled with an
 // untextured debug ring/arrow/route — are NOT caught here; those shed their debug shapes per-shape
 // at draw (sh.tex.tex == nil) so the textured part survives. A no-op until s.pretty + model resolve.
+// temporary bandaid so streaming pop-in doesnt look like shit: a model dithers in over FADE_IN
+// seconds from `shown`, the Scene.time it resolved.
+FADE_IN :: f32(0.5)
+
+fade_in :: proc(s: ^Scene, shown: f32) -> f32 {
+	if s.time <= 0 {return 1}
+	return clamp((s.time - shown) / FADE_IN, 0, 1)
+}
+
 pretty_hidden :: proc(s: ^Scene, inst: ^Instance) -> bool {
 	return s.pretty && inst.model != nil && inst.model.untextured
 }
@@ -183,14 +109,11 @@ CELL_SIZE :: gamedb.CELL_SIZE
 // never clips a tall/wide mesh whose origin sits near a cell edge.
 CHUNK_MARGIN :: f32(4096)
 
-// Instance_Vis is a placement's render visibility. Show is the default (zero) value.
-// Hidden / ShadowOnly are set by the open-interiors experiment to suppress an exterior
-// building's shell while the player is inside the inlined interior — the color passes skip
-// both. ShadowOnly is reserved: a future shadow/depth pass will still render it, so the
-// hidden building keeps casting shadows. Today it behaves like Hidden (no shadow pass yet).
+// Instance_Vis is a placement's render visibility. Show is the default (zero) value; the
+// open-interiors experiment sets Hidden to drop an exterior building's shell while the player is
+// inside the inlined interior.
 Instance_Vis :: enum u8 {
 	Show,
-	ShadowOnly,
 	Hidden,
 }
 
@@ -211,9 +134,9 @@ Instance :: struct {
 	tp_door:    Form_ID, // destination door formID (XTEL)
 	vis:        Instance_Vis, // render visibility (Show by default; see Instance_Vis)
 	world:      smath.Mat4, // cached trs(pos,rot,scale) — placement is static, so computed once at build
-	veg:        Veg_Kind, // cached vegetation class (path match done once, not per frame)
 	disabled:   bool, // overlay Disabled: hidden (set by apply_overlay / disable_ref)
 	posed:      bool, // the sim moves it: draw from the snapshot's poses (mark_posed)
+	shown:      f32, // Scene.time its model resolved (fade_in)
 }
 
 // Chunk is one loaded cell's instances + a culling AABB. Exterior cells carry their
@@ -247,7 +170,7 @@ Scene :: struct {
 	cache:    assetdb.Cache,
 	chunks:   map[Form_ID]Chunk,
 	// frame_chunks is a flat snapshot of the resident chunks (pointers + cull bounds), rebuilt
-	// once per frame by cull_begin and iterated by EVERY draw/shadow pass. Walking the chunk MAP
+	// once per frame by cull_begin and iterated by EVERY draw pass. Walking the chunk MAP
 	// directly streams its big inline Chunk values through cache on each of ~9 passes/frame; a
 	// flat array of 40-byte entries is the cache-friendly alternative. Pointers stay valid for the
 	// frame (no chunk insert/remove happens between cull_begin and end_frame).
@@ -273,6 +196,7 @@ Scene :: struct {
 	collisions: ^collisions.Store, // what the sim builds bodies from (never the GPU cache); shared by every scene
 	poses:    ^Poses, // the dynamic bodies' last step as main last took it; drawing reads only these
 	alpha:    f32, // how far into that step the frame being drawn sits
+	time:     f32, // seconds; drives fade_in (0 = no clock: draw at full)
 	dyn_debug: render.Mesh, // per-frame collision-wireframe of DYNAMIC bodies at their live pose (K overlay); rebuilt each draw
 	has_dyn_debug: bool,
 	// resident maps a ref's formID -> where its live Instance currently sits, so a runtime mutation
@@ -304,7 +228,7 @@ scene_init :: proc(r: ^render.Renderer, v: ^vfs.VFS, collisions: ^collisions.Sto
 }
 
 // cull_begin rebuilds the per-frame flat chunk list (s.frame_chunks) from the chunk map — one
-// map walk that every subsequent draw/shadow pass reuses instead of walking the map itself. Call
+// map walk that every subsequent draw pass reuses instead of walking the map itself. Call
 // ONCE per frame for a scene, AFTER all streaming/loading mutations and BEFORE its first draw
 // pass; the captured ^Chunk pointers + AABBs stay valid until the next chunk insert/remove.
 cull_begin :: proc(s: ^Scene) {
@@ -468,7 +392,6 @@ instance_of :: proc(r: Ref_Placement) -> Instance {
 		has_tp = r.has_tp,
 		tp_door = r.tp_door,
 		vis = .Hidden if r.disabled else .Show,
-		veg = veg_classify(models.path(r.model_id)),
 		disabled = r.disabled,
 	}
 }
@@ -549,8 +472,7 @@ spawn :: proc(s: ^Scene) -> (pos: smath.Vec3, ok: bool) {
 // draw renders every visible instance with the camera view-projection `vp`. Culls
 // whole chunks against the frustum, then individual instances by bounding sphere.
 // Resolves each instance's model lazily (skips ones not yet uploaded by the streamer).
-// `wind`/`time` drive the vegetation sway (trees + foliage); rigid statics pass strength 0.
-draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind = {}, time: f32 = 0) {
+draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 	f := smath.frustum_from_vp(vp)
 	// Near terrain is textured through the SHARED blended ground (terrain.frag) — the same array +
 	// per-cell index + noise blend as the distant CDLOD tier — so it blends seamlessly instead of
@@ -566,6 +488,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 		}
 		chunk := vc.c
 		for p in chunk.terrain {
+			tuni.morph = {fade_in(s, p.shown), 0, 0, 0}
 			render.draw_terrain_near(r, p.mesh, s.tfield.ground, s.tfield.index, tuni)
 		}
 		for &inst in chunk.instances {
@@ -577,6 +500,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 				if inst.model == nil {
 					continue // not streamed in yet
 				}
+				inst.shown = s.time
 			}
 			if pretty_hidden(s, &inst) {
 				continue // --pretty: blank-white untextured placeholder — hidden
@@ -600,9 +524,6 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 			if !smath.sphere_in_frustum(f, ccenter, crad) {
 				continue
 			}
-			// One global wind direction; per-vegetation amplitude+speed+cap, per-placement phase.
-			iw := veg_wind_for(inst.veg, wind)
-			phase := veg_phase(inst.pos)
 			for sh, si in inst.model.shapes {
 				if sh.is_effect {
 					continue // ghosted in the translucent draw_effects pass
@@ -611,99 +532,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind =
 					continue // --pretty: untextured CK debug shape (bounding ring/arrow baked into the mesh) — hidden
 				}
 				model := instance_shape_world(s, &inst, iworld, sh.local, si) // Phase C: articulated parts follow their body
-				render.draw_mesh(
-					r,
-					sh.mesh,
-					vp,
-					model,
-					sh.tex,
-					sh.alpha_cutoff,
-					wind = iw,
-					time = time,
-					phase = phase,
-					normal = sh.normal,
-					mat = shape_mat(sh),
-				)
-			}
-		}
-	}
-}
-
-// draw_casters renders the shadow casters for one cascade: opaque statics + terrain, depth-only,
-// culled by the cascade's LIGHT frustum `f` (reuses aabb_in_frustum against the light view-proj).
-// Skips effect shapes and alpha-tested foliage (D1 casts opaque only — foliage cutout shadows
-// need the alpha-test caster path in D2, else leaves cast solid rectangles). Call between
-// render.shadow_cascade and shadow_cascade_end, once per cascade.
-draw_casters :: proc(
-	s: ^Scene,
-	r: ^render.Renderer,
-	light_vp: smath.Mat4,
-	f: smath.Frustum,
-	cam_pos: smath.Vec3,
-	max_dist: f32,
-	veg: Veg_Shadow_Mode,
-) {
-	for vc in s.frame_chunks {
-		// Hard distance bound (closest point of the chunk AABB to the camera) — keeps the caster
-		// set within the shadowed region regardless of the light-frustum cull, so a huge streamed
-		// window can't blow up the shadow draw/uniform count.
-		cp := smath.Vec3 {
-			clamp(cam_pos.x, vc.lo.x, vc.hi.x),
-			clamp(cam_pos.y, vc.lo.y, vc.hi.y),
-			clamp(cam_pos.z, vc.lo.z, vc.hi.z),
-		}
-		if smath.length3(cp - cam_pos) > max_dist {
-			continue
-		}
-		if !smath.aabb_in_frustum(f, vc.lo, vc.hi) {
-			continue
-		}
-		chunk := vc.c
-		for p in chunk.terrain {
-			render.draw_shadow(r, p.mesh, light_vp, smath.Mat4(1)) // terrain verts are world-space
-		}
-		for &inst in chunk.instances {
-			if inst.vis != .Show {
-				continue
-			}
-			if inst.model == nil {
-				inst.model = assetdb.model_ptr(&s.cache, inst.model_id)
-				if inst.model == nil {
-					continue
-				}
-			}
-			if pretty_hidden(s, &inst) {
-				continue // --pretty: hidden, so it casts no shadow either
-			}
-			// Trees in proxy mode cast their cheap canopy-hull ONCE (the leaf shapes are then
-			// skipped below); the trunk still casts via its opaque shapes. Blacklisted trees
-			// (no proxy built) fall back to full alpha casting.
-			is_tree := inst.veg == .Tree
-			use_proxy := veg == .Proxy && is_tree && inst.model.has_shadow_proxy
-			iworld := instance_world(s, &inst) // live pose if a movable clutter body carries it (3b)
-			if use_proxy {
-				render.draw_shadow(r, inst.model.shadow_proxy, light_vp, iworld)
-			}
-			for sh, si in inst.model.shapes {
-				if sh.is_effect {
-					continue
-				}
-				if s.pretty && sh.tex.tex == nil {
-					continue // --pretty: untextured CK debug shape is hidden, so it casts no shadow either
-				}
-				if sh.alpha_cutoff <= 0 {
-					render.draw_shadow(r, sh.mesh, light_vp, instance_shape_world(s, &inst, iworld, sh.local, si)) // opaque: statics, trunks, branches
-					continue
-				}
-				// Alpha-tested foliage (leaves/plants).
-				if use_proxy {
-					continue // canopy already cast as the hull proxy
-				}
-				// Full mode → real cutout shadow; proxy mode + tree but no proxy = blacklisted → full.
-				if veg == .Full || (veg == .Proxy && is_tree) {
-					render.draw_shadow_alpha(r, sh.mesh, light_vp, instance_shape_world(s, &inst, iworld, sh.local, si), sh.tex, sh.alpha_cutoff)
-				}
-				// else (Off, or a plant in Proxy mode) → no foliage shadow
+				render.draw_mesh(r, sh.mesh, vp, model, sh.tex, sh.alpha_cutoff, fade = fade_in(s, inst.shown))
 			}
 		}
 	}
@@ -757,9 +586,8 @@ draw_effects :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, time: f32 =
 
 // draw_highlight overdraws the hovered instance's shapes in the highlight colour (a
 // separate pass, after the opaque geometry) so the user sees exactly what a click will
-// select. Uses the SAME wind/phase as draw so the highlight tracks a swaying tree. No-op
-// when nothing is hovered. `wind`/`time` must match the draw pass.
-draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: render.Wind = {}, time: f32 = 0) {
+// select. No-op when nothing is hovered.
+draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 	if !s.has_hover {
 		return
 	}
@@ -774,15 +602,13 @@ draw_highlight :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, wind: ren
 	if pretty_hidden(s, inst) {
 		return // --pretty: hidden instance isn't pickable, so nothing to highlight
 	}
-	iw := veg_wind_for(inst.veg, wind)
-	phase := veg_phase(inst.pos)
 	iworld := instance_world(s, inst) // live pose if a movable clutter body carries it (3b)
 	for sh in inst.model.shapes {
 		if s.pretty && sh.tex.tex == nil {
 			continue // --pretty: untextured CK debug shape is hidden, so don't highlight it
 		}
 		model := iworld * sh.local
-		render.draw_highlight(r, sh.mesh, vp, model, sh.tex, sh.alpha_cutoff, iw, time, phase)
+		render.draw_highlight(r, sh.mesh, vp, model, sh.tex, sh.alpha_cutoff)
 	}
 }
 

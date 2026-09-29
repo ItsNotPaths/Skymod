@@ -962,9 +962,8 @@ decode_xloc :: proc(fields: []Field) -> (Lock_Data, bool) {
 //   CNAM (Cinematic, 12B): SATURATION, BRIGHTNESS, CONTRAST.
 //   TNAM (Tint, 16B): TINT AMOUNT, tint color RGB.
 //   (DNAM, 16B, is depth-of-field — not needed.)
-// These are Bethesda's authored per-look grade, fed to CE's hardcoded HDR shader. We read them
-// from the USER's OWN ESM at install time to derive a data-faithful lighting profile LOCALLY —
-// NEVER baked into the shipped binary (they're Bethesda content; see lighting-system-design).
+// These are Bethesda's authored per-look grade, fed to CE's hardcoded HDR shader. Nothing reads
+// them yet (the renderer is fullbright); never bake them into the shipped binary (Bethesda content).
 Imagespace :: struct {
 	eye_adapt_speed:      f32,
 	bloom_blur:           f32,

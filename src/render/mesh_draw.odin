@@ -1,9 +1,8 @@
 package render
 
-// General mesh path (ROADMAP Iteration 1, Milestone B3): upload arbitrary
-// position+normal geometry and draw it with a per-object MVP + model matrix under
-// simple N·L shading. This is the path real NIF meshes (src/formats/nif) render
-// through, generalizing past the Phase-0 cube.
+// General mesh path (ROADMAP Iteration 1, Milestone B3): upload arbitrary geometry and draw
+// it fullbright with a per-object MVP + model matrix. This is the path real NIF meshes
+// (src/formats/nif) render through, generalizing past the Phase-0 cube.
 
 import smath "../math"
 import sdl "vendor:sdl3"
@@ -15,17 +14,11 @@ EFFECT_FRAG_SPV :: #load("shaders/effect.frag.spv")
 HIGHLIGHT_FRAG_SPV :: #load("shaders/highlight.frag.spv")
 
 // (hole skinned-pipeline :tags (render unclaimed) :sev blocker) no skinned pipeline — Mesh_Vertex carries no bone indices or weights, and nif/nodes.odin pulls a skin partition for its TRIANGLES only, drawing the mesh in bind pose. No actor, creature, armour or banner can ever move.
-// Mesh_Vertex is the general vertex: position + normal + diffuse UV + tangent. The tangent
-// (xyz + w = bitangent handedness ±1) is the authored NIF tangent (or a derived fallback) for
-// tangent-space normal mapping; the fragment shader builds B = cross(N,T)·w.
-//
-// COMPACT since the D1 footprint pass (48 → 28 bytes, −42% vertex memory + draw bandwidth):
-// normal + tangent are snorm8 (.BYTE4_NORM attributes — the GPU presents them to the shaders
-// as normalized floats, so NO shader changes; every fragment path normalize()s the normal, so
-// the ≤1/127 quantization washes out). Build vertices with mesh_vertex() — direct literals
-// are only for position(+uv)-only geometry (water planes, portal quads, wire debug).
-// If 8-bit vertex normals ever band visibly (large smooth surfaces under a grazing sun),
-// the escape hatch is normal: [4]i16 + .SHORT4_NORM (32-byte vertex) — a two-line change.
+// Mesh_Vertex is the general vertex: position + normal + diffuse UV + tangent. The fullbright
+// shaders read only position + UV; normal and tangent (snorm8, the authored NIF tangent with
+// w = bitangent handedness ±1) stay in the data for a lit renderer. Build vertices with
+// mesh_vertex() — direct literals are only for position(+uv)-only geometry (water planes,
+// portal quads, wire debug).
 Mesh_Vertex :: struct {
 	pos:     smath.Vec3, // offset 0
 	uv:      [2]f32,     // offset 12
@@ -51,16 +44,12 @@ snorm8 :: #force_inline proc(v: f32) -> i8 {
 	return i8(c + 0.5) if c >= 0 else i8(c - 0.5) // round to nearest (the cast truncates)
 }
 
-// Mesh_Uniforms mirrors the mesh.vert UBO (set 1, binding 0). Scene lighting (sun/ambient/
-// fog) now lives in the per-frame fragment lighting UBO (set 3); this per-draw block carries
-// only the matrices, the alpha-test cutoff (mtl.x), and the vegetation wind. The shader builds
-// mvp itself (vp·model) so it can displace the world position for wind before projecting.
+// Mesh_Uniforms mirrors the mesh.vert UBO (set 1, binding 0): the matrices and the alpha-test
+// cutoff (mtl.x).
 Mesh_Uniforms :: struct {
-	vp:     smath.Mat4,
-	model:  smath.Mat4,
-	mtl:    [4]f32, // x = alpha-test cutoff
-	wind:   [4]f32, // xy = global wind direction; z = strength; w = speed
-	params: [4]f32, // x = time (seconds); y = per-draw phase; z = height cap
+	vp:    smath.Mat4,
+	model: smath.Mat4,
+	mtl:   [4]f32, // x = alpha-test cutoff; y = fade-in
 }
 
 // Mesh is an uploaded GPU mesh — opaque handle for the caller.
@@ -95,14 +84,11 @@ release_mesh :: proc(r: ^Renderer, m: Mesh) {
 	if m.ibuf != nil {sdl.ReleaseGPUBuffer(r.device, m.ibuf)}
 }
 
-// draw_mesh draws `m` with the given view-projection `vp` and world `model` (the shader
-// forms mvp = vp·model, and uses model to place + transform normals). Scene lighting comes
-// from the per-frame lighting UBO (set via set_lighting); this call carries no light. Textured
-// by `diffuse` — a zero Texture (no diffuse) falls back to a 1x1 white map. `alpha_cutoff` in
+// draw_mesh draws `m` fullbright with the given view-projection `vp` and world `model` (the
+// shader forms mvp = vp·model). Textured by `diffuse` — a zero Texture (no diffuse) falls back to a 1x1 white map. `alpha_cutoff` in
 // [0,1] discards fragments below that diffuse-alpha (0 = opaque) — foliage leaf cutouts.
 // `first_index`/`index_count` draw only a sub-range of the index buffer (count 0 = the whole
-// mesh) — a BSLODTriShape LOD level's triangle partition. `wind`/`time`/`phase` drive the
-// vegetation sway (zero wind = no displacement). Call between begin/end_frame.
+// mesh) — a BSLODTriShape LOD level's triangle partition. Call between begin/end_frame.
 draw_mesh :: proc(
 	r: ^Renderer,
 	m: Mesh,
@@ -111,22 +97,14 @@ draw_mesh :: proc(
 	alpha_cutoff: f32 = 0,
 	first_index: u32 = 0,
 	index_count: u32 = 0,
-	wind: Wind = {},
-	time: f32 = 0,
-	phase: f32 = 0,
-	normal: Texture = {},
-	mat: Material_Params = {},
+	fade: f32 = 1,
 ) {
 	u := Mesh_Uniforms {
 		vp     = vp,
 		model  = model,
-		mtl    = {alpha_cutoff, 0, 0, 0},
-		wind   = {wind.dir.x, wind.dir.y, wind.strength, wind.speed},
-		params = {time, phase, wind.height_cap, 0},
+		mtl    = {alpha_cutoff, fade, 0, 0},
 	}
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
-	mp := mat
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp))) // set 3 binding 1 (material)
 
 	if m.vbuf == nil || m.ibuf == nil {return} // upload was skipped (GPU-resource pressure) — nothing to draw
 	// Opaque geometry (no alpha test) → the backface-culled pipeline; foliage cutouts stay two-sided.
@@ -136,25 +114,17 @@ draw_mesh :: proc(
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	bind_lit_textures(r, diffuse, normal)
+	bind_diffuse(r, diffuse)
 	count := index_count if index_count > 0 else m.index_count
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, count, 1, first_index, 0, 0)
 }
 
-// bind_lit_textures binds the diffuse (slot 0) + normal (slot 1) maps + the CSM shadow array
-// (slot 2) for a lit draw, with the white / flat-normal fallbacks for shapes missing either.
-// Shared by every mesh.frag path. The shadow array is always bound (the pipeline expects it);
-// the shader skips sampling when shadows are off (shadow_params.w == 0).
+// bind_diffuse binds the diffuse map (slot 0), with the white fallback for a shape with none.
 @(private)
-bind_lit_textures :: proc(r: ^Renderer, diffuse, normal: Texture) {
-	dtex := diffuse.tex if diffuse.tex != nil else r.white_tex
-	ntex := normal.tex if normal.tex != nil else r.flat_normal_tex
-	binds := [3]sdl.GPUTextureSamplerBinding {
-		{texture = dtex, sampler = r.mesh_sampler},
-		{texture = ntex, sampler = r.mesh_sampler},
-		{texture = r.shadow_tex, sampler = r.shadow_sampler},
-	}
-	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &binds[0], 3)
+bind_diffuse :: proc(r: ^Renderer, diffuse: Texture) {
+	tex := diffuse.tex if diffuse.tex != nil else r.white_tex
+	tb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.mesh_sampler}
+	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &tb, 1)
 }
 
 // Effect_Uniforms mirrors the effect.vert UBO (set 1, binding 0). anim packs the effect's
@@ -184,15 +154,12 @@ draw_effect :: proc(r: ^Renderer, m: Mesh, vp, model: smath.Mat4, diffuse: Textu
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	tex := diffuse.tex if diffuse.tex != nil else r.white_tex
-	tb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.mesh_sampler}
-	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &tb, 1)
+	bind_diffuse(r, diffuse)
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, m.index_count, 1, 0, 0, 0)
 }
 
 // draw_highlight overdraws `m` in the highlight colour (highlight.frag) for the inspect-
-// mode hover. Identical setup to draw_mesh (same vert shader, so pass the SAME wind/time/
-// phase to track a swaying mesh), but binds the highlight pipeline (depth LESS_OR_EQUAL,
+// mode hover. Identical setup to draw_mesh (same vert shader), but binds the highlight pipeline (depth LESS_OR_EQUAL,
 // no depth write) so it lands exactly over the already-drawn opaque mesh. Call after draw.
 draw_highlight :: proc(
 	r: ^Renderer,
@@ -200,16 +167,11 @@ draw_highlight :: proc(
 	vp, model: smath.Mat4,
 	diffuse: Texture,
 	alpha_cutoff: f32 = 0,
-	wind: Wind = {},
-	time: f32 = 0,
-	phase: f32 = 0,
 ) {
 	u := Mesh_Uniforms {
 		vp     = vp,
 		model  = model,
-		mtl    = {alpha_cutoff, 0, 0, 0},
-		wind   = {wind.dir.x, wind.dir.y, wind.strength, wind.speed},
-		params = {time, phase, wind.height_cap, 0},
+		mtl    = {alpha_cutoff, 1, 0, 0},
 	}
 	if m.vbuf == nil || m.ibuf == nil {return} // upload was skipped (GPU-resource pressure) — nothing to draw
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &u, u32(size_of(u)))
@@ -219,9 +181,7 @@ draw_highlight :: proc(
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &vb, 1)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	tex := diffuse.tex if diffuse.tex != nil else r.white_tex
-	tb := sdl.GPUTextureSamplerBinding{texture = tex, sampler = r.mesh_sampler}
-	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &tb, 1)
+	bind_diffuse(r, diffuse)
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, m.index_count, 1, 0, 0, 0)
 }
 
@@ -241,8 +201,8 @@ make_highlight_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	buffers := [1]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 	}
-	attrs := mesh_vertex_attrs() // mesh.vert reads the tangent (loc 3) too
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	attrs := mesh_vertex_attrs()
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -251,7 +211,7 @@ make_highlight_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 1,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 4,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
@@ -285,14 +245,9 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	buffers := [1]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 	}
-	// effect.vert reads position + UV (normal is in the vertex but unused).
-	attrs := [3]sdl.GPUVertexAttribute {
-		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
-		{location = 1, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, normal))},
-		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Mesh_Vertex, uv))},
-	}
+	attrs := mesh_vertex_attrs()
 	color_target := sdl.GPUColorTargetDescription {
-		format = r.scene_format,
+		format = r.swapchain_format,
 		blend_state = {
 			enable_blend = true,
 			src_color_blendfactor = .SRC_ALPHA,
@@ -311,7 +266,7 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 1,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 3,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
@@ -328,31 +283,26 @@ make_effect_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	return sdl.CreateGPUGraphicsPipeline(r.device, info)
 }
 
-// mesh_vertex_attrs is the base Mesh_Vertex layout on buffer slot 0: position(0), normal(1),
-// uv(2), tangent(3). Instanced paths (grass/obj) append their per-instance attrs at location 4+.
+// mesh_vertex_attrs is the Mesh_Vertex layout the shaders read on buffer slot 0: position(0),
+// uv(2). Instanced paths (grass/obj) append their per-instance attrs at location 4+.
 @(private)
-mesh_vertex_attrs :: proc() -> [4]sdl.GPUVertexAttribute {
+mesh_vertex_attrs :: proc() -> [2]sdl.GPUVertexAttribute {
 	return {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
-		// snorm8 normal/tangent: BYTE4_NORM reaches the shader as normalized floats, so the
-		// vec3/vec4 inputs are unchanged (a vec3 input just drops the 4th component).
-		{location = 1, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, normal))},
 		{location = 2, buffer_slot = 0, format = .FLOAT2, offset = u32(offset_of(Mesh_Vertex, uv))},
-		{location = 3, buffer_slot = 0, format = .BYTE4_NORM, offset = u32(offset_of(Mesh_Vertex, tangent))},
 	}
 }
 
-// make_mesh_pipeline builds the general lit-mesh pipeline with the given cull mode. `cull` = .NONE
+// make_mesh_pipeline builds the general mesh pipeline with the given cull mode. `cull` = .NONE
 // for the two-sided variant (foliage cutouts, and the default first-look path); .BACK for the
 // opaque-only variant (mesh_pipeline_culled) that draw_mesh routes solid geometry through. Both
 // share mesh.vert/mesh.frag and every other state, so they render identically bar culling.
 @(private)
 make_mesh_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraphicsPipeline {
-	// mesh.vert: 1 uniform buffer (set 1). mesh.frag: 2 samplers (set 2: diffuse + normal) + 2
-	// uniform buffers (set 3: b0 lighting [per-frame], b1 material [per-draw]). Counts MUST
-	// match the SPIR-V or SDL3_gpu mis-binds / the driver can crash at draw.
+	// mesh.vert: 1 uniform buffer (set 1). mesh.frag: 1 sampler (diffuse). Counts MUST match the
+	// SPIR-V or SDL3_gpu mis-binds / the driver can crash at draw.
 	vshader := create_shader(r.device, MESH_VERT_SPV, .VERTEX, 0, 1)
-	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 3, 2)
+	fshader := create_shader(r.device, MESH_FRAG_SPV, .FRAGMENT, 1, 0)
 	if vshader == nil || fshader == nil {
 		return nil
 	}
@@ -363,7 +313,7 @@ make_mesh_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraph
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 	}
 	attrs := mesh_vertex_attrs()
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -372,7 +322,7 @@ make_mesh_pipeline :: proc(r: ^Renderer, cull: sdl.GPUCullMode) -> ^sdl.GPUGraph
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 1,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 4,
+			num_vertex_attributes = len(attrs),
 		},
 		// cull .NONE = two-sided (foliage cutout planes seen from both sides); .BACK = opaque-only
 		// (front_face = MESH_CULL_FRONT_FACE — flip it there if solid geometry renders inside-out).

@@ -3,7 +3,7 @@ package main
 // One frame of the game session (the body of run_game's old 900-line loop), split into
 // cohesive helpers per docs/run-game-refactor.md. game_frame is a FIXED SEQUENCE with real
 // ordering constraints (scene select before locomotion so the capsule re-homes before it
-// moves; physics before draw; cull_begin before any draw pass; shadow before scene) — keep
+// moves; physics before draw; cull_begin before any draw pass) — keep
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
 // RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
@@ -111,7 +111,7 @@ game_frame :: proc(g: ^Game) {
 	g.fr.alpha = tick_alpha(g.snap.at)
 	sync_dialogue_menu(g)
 	frame_active_scene(g) // a door in the last tick may have switched (or freed) the scene
-	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha, s.pretty = &g.snap.bodies, g.fr.alpha, g.pretty}
+	for s in ([]^world.Scene{&g.scene, g.fr.active_scene}) {s.poses, s.alpha, s.pretty, s.time = &g.snap.bodies, g.fr.alpha, g.pretty, g.elapsed}
 	world.mark_posed(g.fr.active_scene, &g.snap.bodies) // the poses are the active space's
 
 	frame_camera(g)
@@ -119,7 +119,6 @@ game_frame :: proc(g: ^Game) {
 	frame_stream(g)
 	frame_inspect(g)
 	frame_actor_grab(g)
-	frame_dev_shot(g)
 	frame_hud(g) // publish g.snap.act to the prompt; draws into the UI drawlist end_frame composites
 	audio.update(&g.audio, g.cam.pos, camera_forward(g.cam), g.p.dt, emitters(g))
 	draw_actor_nametags(g)
@@ -278,8 +277,8 @@ frame_diag :: proc(g: ^Game) {
 		// per pass. If acquire ≫ passes, we're GPU-bound (fix = fewer/cheaper draws + verts);
 		// if passes dominate, CPU-bound (fix = fewer draw calls / less iteration).
 		log.infof(
-			"prof.render: acquire=%.2f shadow=%.2f terrain=%.2f near=%.2f objdraw=%.2f grass=%.2f water=%.2f effects=%.2f",
-			g.prof.acquire * inv, g.prof.shadow * inv, g.prof.terrain * inv, g.prof.near * inv,
+			"prof.render: acquire=%.2f terrain=%.2f near=%.2f objdraw=%.2f grass=%.2f water=%.2f effects=%.2f",
+			g.prof.acquire * inv, g.prof.terrain * inv, g.prof.near * inv,
 			g.prof.objdraw * inv, g.prof.grass * inv, g.prof.water * inv, g.prof.effects * inv,
 		)
 	}
@@ -382,31 +381,6 @@ frame_overlay :: proc(g: ^Game) {
 	g.fr.insp_action = tools.inspector_panel(&g.insp)
 	if g.fr.insp_action == .Cull_Tex && g.interiors_on {
 		world.interiors_add_cull_tex(&g.interiors, g.insp.sel_tex)
-	}
-
-	// Lighting configurator: live-edit, switch the active preset, or save the look as a new preset.
-	light_act := tools.lighting_panel(
-		&g.lights.active,
-		g.lights.names[:],
-		g.lights.current,
-		g.light_save_name[:],
-	)
-	if light_act.select >= 0 && light_act.select != g.lights.current {
-		lighting_select(&g.lights, light_act.select)
-		settings.set(g.cfg, "lighting_profile", g.lights.names[g.lights.current])
-		_ = settings.save(g.cfg)
-	}
-	if light_act.save_as {
-		name := strings.clone(
-			strings.trim_space(string(cstring(raw_data(g.light_save_name[:])))),
-			context.temp_allocator,
-		)
-		if name != "" && lighting_save_preset(&g.lights, name) {
-			settings.set(g.cfg, "lighting_profile", g.lights.names[g.lights.current])
-			_ = settings.save(g.cfg)
-			log.infof("lighting: saved preset %q", name)
-			g.light_save_name = {}
-		}
 	}
 
 	// Dev console: the submitted line goes to the sim, which evaluates it on the gameplay REPL
@@ -908,129 +882,18 @@ select_actor :: proc(g: ^Game, actor: Form_ID) {
 	}
 }
 
-// frame_render is the whole draw side: scene lighting + sun-shadow cascades, the swapchain
-// acquire, then the fixed draw sequence (shadow casters → terrain → near scene → object LOD →
-// grass → portal → water → effects → highlight → hitboxes). The cascade caster passes run on
-// the FRAME command buffer between frame_acquire and scene_begin, so the shadow-array write →
-// sampler read is one command buffer and SDL3_gpu inserts the barrier (a separate shadow cmd
-// buffer faulted the Intel Vulkan driver).
+SKY_COLOR :: [4]f32{0.45, 0.58, 0.78, 1.0} // the clear colour behind the world (no sky yet)
+
+// frame_render acquires the swapchain, has the graphics table draw the scene into the frame's
+// target, and composes the UI over it.
 @(private = "file")
 frame_render :: proc(g: ^Game) {
-	in_interior, active_scene := g.fr.in_interior, g.fr.active_scene
-	// A portal interior is loaded and (when not entered) viewed through the doorway.
-	interior_active := g.interiors_on && g.interiors.active
-
 	t_render := time.tick_now()
-	// (hole render-inputs-snapshot :tags (threading render unclaimed) :sev gap :needs (weather-select)) lighting, sky and fog come from a static profile; day-night and sky need the game hour, the weather and its transition, and the space's lighting template and interior flag. Wanted: the sim publishes these and render reads only them, never ws.clock or g.trav.
-	env := lighting_env(&g.lights.active, g.cam.pos)
-	shadows_on := g.shadow_dist > 0 && g.lights.active.shadow_strength > 0 && !in_interior
-	cascades: Cascades
-	vmode := world.Veg_Shadow_Mode.Proxy
-	if shadows_on {
-		cascades = compute_cascades(g.cam, render.aspect(&g.r), g.lights.active.sun_dir, g.shadow_dist)
-		for i in 0 ..< render.SHADOW_CASCADES {
-			env.csm_vp[i] = cascades.vp[i]
-			env.csm_splits[i] = cascades.splits[i]
-		}
-		texel := g.lights.active.shadow_softness / f32(render.SHADOW_RES)
-		env.shadow_params = {
-			g.lights.active.shadow_strength,
-			g.lights.active.shadow_bias,
-			texel,
-			f32(render.SHADOW_CASCADES),
-		}
-		// Vegetation shadow tier comes from the active lighting profile (per-preset, live).
-		switch g.lights.active.veg_shadows {
-		case .Off:
-			vmode = .Off
-		case .Full:
-			vmode = .Full
-		case .Proxy:
-			vmode = .Proxy
-		}
-	}
-	render.set_lighting(&g.r, env)
-	render.set_post(&g.r, lighting_post(&g.lights.active))
-	sky := g.lights.active.sky_color
 	t_acq := time.tick_now()
 	acquired := render.frame_acquire(&g.r) // blocks here if the GPU is behind → GPU-bound shows up in `acquire`
 	g.prof.acquire += time.duration_milliseconds(time.tick_since(t_acq))
 	if acquired {
-		// Snapshot the drawn scene's chunks into its flat per-frame list once (Fix A): every
-		// draw/shadow pass below iterates that tight array instead of walking the chunk MAP and
-		// streaming its big inline Chunk values through cache ~9×/frame. The interior path draws
-		// active_scene; the shadow cascades + exterior passes draw &scene.
-		world.cull_begin(active_scene if in_interior else &g.scene)
-		t_shadow := time.tick_now()
-		if shadows_on {
-			for c in 0 ..< render.SHADOW_CASCADES {
-				render.shadow_cascade(&g.r, c)
-				// Cap casters to the shadow region (+1 cell margin for tall off-slice casters).
-				world.draw_casters(&g.scene, &g.r, cascades.vp[c], cascades.frusta[c], g.cam.pos, g.shadow_dist + 4096, vmode)
-				render.shadow_cascade_end(&g.r)
-			}
-		}
-		g.prof.shadow += time.duration_milliseconds(time.tick_since(t_shadow))
-		render.scene_begin(&g.r, {sky.x, sky.y, sky.z, 1.0})
-		vp := camera_view_proj(g.cam, render.aspect(&g.r))
-		if in_interior {
-			// Inside a loaded interior cell (interior-local coords): draw it full-screen.
-			world.draw(active_scene, &g.r, vp)
-			world.draw_effects(active_scene, &g.r, vp, g.elapsed)
-			world.draw_highlight(active_scene, &g.r, vp)
-		} else {
-			t_terrain := time.tick_now()
-			world.draw_terrain_field(&g.scene, &g.r, vp, g.cam.pos) // CDLOD whole-world terrain (drawn under streamed detail)
-			g.prof.terrain += time.duration_milliseconds(time.tick_since(t_terrain))
-			t_near := time.tick_now()
-			world.draw(&g.scene, &g.r, vp, g.wind, g.elapsed) // trees + foliage sway under the global wind
-			g.prof.near += time.duration_milliseconds(time.tick_since(t_near))
-			// Drop-test markers: a box at each falling ball's pose, blended across the tick.
-			for i in 0 ..< g.snap.drops {
-				if m, ok := world.posed(&g.snap.bodies, {0, i32(i)}, g.fr.alpha); ok {render.draw_mesh(&g.r, g.drop_marker, vp, m, {})}
-			}
-			t_objdraw := time.tick_now()
-			world.draw_object_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.wind, g.elapsed) // baked per-quad distant objects
-			g.prof.objdraw += time.duration_milliseconds(time.tick_since(t_objdraw))
-			t_grass := time.tick_now()
-			if g.grass_dist > 0 {
-				world.draw_grass(&g.scene, &g.r, vp, g.cam.pos, g.grass_dist, g.wind, g.elapsed)
-			}
-			g.prof.grass += time.duration_milliseconds(time.tick_since(t_grass))
-			// Stencil portal: render the nearest in-range interior THROUGH its doorway, from a
-			// virtual camera relayed into interior space. After exterior opaque geometry (so a
-			// wall in front of the door hides it), before the translucent effect pass.
-			if interior_active {
-				relay := world.relay_view_proj(
-					g.interiors.active_portal,
-					g.cam.pos,
-					camera_forward(g.cam),
-					render.aspect(&g.r),
-					CAM_FOV_Y,
-					CAM_NEAR,
-					CAM_FAR,
-					g.portal_push,
-					g.portal_yaw_off,
-				)
-				world.interiors_render(&g.interiors, &g.r, vp, relay)
-			}
-			t_water := time.tick_now()
-			world.draw_water_lod(&g.scene, &g.r, vp, g.cam.pos, g.full_radius, g.elapsed) // baked distant water (per-quad, real heights)
-			world.draw_water(&g.scene, &g.r, vp, g.cam.pos, g.elapsed) // near animated per-cell water (bubble), over the distant
-			g.prof.water += time.duration_milliseconds(time.tick_since(t_water))
-			t_effects := time.tick_now()
-			world.draw_effects(&g.scene, &g.r, vp, g.elapsed) // additive FX (flowing water/fire/beams), over opaque (last)
-			g.prof.effects += time.duration_milliseconds(time.tick_since(t_effects))
-			world.draw_highlight(&g.scene, &g.r, vp, g.wind, g.elapsed) // inspect-mode hover highlight
-		}
-		// Collision-hitbox wireframe (K): green outlines of EXACTLY what Jolt collides — static
-		// geometry (cached) + dynamic clutter at its live body pose. Over the lit scene, before end.
-		draw_actor_bodies(g, vp)
-		if g.show_hitboxes {
-			dbg_scene := active_scene if in_interior else &g.scene
-			world.build_collision_debug(dbg_scene, &g.db)
-			world.draw_collision_debug(dbg_scene, &g.r, vp)
-		}
+		draw_graphics(g)
 		render.end_frame(&g.r)
 	}
 	g.prof.render += time.duration_milliseconds(time.tick_since(t_render))

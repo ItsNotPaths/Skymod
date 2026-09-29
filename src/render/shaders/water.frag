@@ -2,18 +2,13 @@
 //
 // Stopgap water fragment stage: fully procedural, no normal-map asset and no reflection
 // pass. The surface normal is the analytic gradient of a small sum of directional sine
-// waves over world XY (cheap "modern" ripples without geometry). From that normal:
-//   - fresnel blends a deep-water color into a sky/horizon tint at grazing angles,
-//   - a sharp Blinn-Phong highlight gives the sun glint,
-//   - the same fresnel raises opacity at grazing angles (water reads solid at the horizon,
-//     see-through looking straight down).
-// Lighting inputs (sun dir, camera) come from the shared-light UBO seam — when full scene
-// lighting lands, this shader reads richer values from the same block.
+// waves over world XY (cheap "modern" ripples without geometry). From that normal, fresnel
+// blends a deep-water color into a sky/horizon tint at grazing angles and raises opacity there
+// (water reads solid at the horizon, see-through looking straight down). Unlit.
 
 layout(set = 3, binding = 0) uniform UBO {
     mat4 vp;
     vec4 cam;     // xyz = camera world pos
-    vec4 sun;     // xyz = direction toward the sun
     vec4 deep;    // rgb deep-water color, a = base opacity
     vec4 shallow; // rgb horizon/sky tint
     vec4 params;  // x = time
@@ -58,19 +53,11 @@ void main() {
     vec3 N = normalize(vec3(-g, 1.0));
 
     vec3 V = normalize(u.cam.xyz - v_world);
-    vec3 L = normalize(u.sun.xyz);
 
     // Fresnel (Schlick, water F0 ~ 0.02): low looking down, ~1 at grazing.
     float fres = mix(0.02, 1.0, pow(1.0 - max(dot(V, N), 0.0), 5.0));
 
     vec3 col = mix(u.deep.rgb, u.shallow.rgb, fres);
-
-    // Sun glint (Blinn-Phong, tight exponent).
-    vec3 H = normalize(L + V);
-    col += vec3(1.0) * pow(max(dot(N, H), 0.0), 200.0) * 0.8;
-
-    // Subtle directional shading so the ripples read as relief.
-    col *= 0.7 + 0.3 * max(dot(N, L), 0.0);
 
     out_color = vec4(col, mix(u.deep.a, 1.0, fres));
 }

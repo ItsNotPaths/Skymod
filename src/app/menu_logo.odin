@@ -9,7 +9,7 @@ package main
 // MODDABLE: the menu Lua owns whether/where the logo draws via the `ui.menu_logo` table (enabled +
 // on-screen position + scale) — read each frame in menu.odin and folded into Menu_Logo_Cfg. A mod
 // overriding main_menu.lua can disable or reposition it without touching the engine. The remaining
-// look (camera framing, FOV, flat fullbright light) is baked into menu_logo_cfg_default.
+// look (camera framing, FOV) is baked into menu_logo_cfg_default.
 
 import "core:math"
 
@@ -25,18 +25,14 @@ import "../vfs"
 LOGO_NIF :: "meshes\\interface\\logo\\logo.nif"
 
 // Menu_Logo_Cfg is the logo's draw config. enabled/pos/scale are LIVE — overwritten from the Lua
-// `ui.menu_logo` table each frame (see menu.odin); the rest is the baked camera + light look.
+// `ui.menu_logo` table each frame (see menu.odin); the rest is the baked camera.
 Menu_Logo_Cfg :: struct {
 	enabled:   bool,    // Lua: ui.menu_logo.enabled — skip the draw entirely when false
 	pos:       [2]f32,  // Lua: ui.menu_logo.pos — on-screen offset in NDC (x = right, y = up)
 	scale:     f32,     // Lua: ui.menu_logo.scale — uniform size multiplier about the logo centre
-	lift:      f32,     // Lua: ui.menu_logo.lift — albedo gamma (pow); <1 FLATTENS the dark stone's
-	                    //   range toward an even tone (1 = off). The "flat shade" knob.
 	cam_dir:   [3]f32,  // eye offset direction from the logo centre (normalized internally)
 	cam_dist:  f32,     // eye distance = radius × this
 	fov:       f32,     // vertical FOV, degrees
-	light_dir: [3]f32,  // direction toward the (now zero-intensity) sun — kept for shape, unused while flat
-	ambient:   f32,     // flat fullbright level (no directional term — see menu_logo_light)
 }
 
 menu_logo_cfg_default :: proc() -> Menu_Logo_Cfg {
@@ -44,18 +40,14 @@ menu_logo_cfg_default :: proc() -> Menu_Logo_Cfg {
 		enabled = true,
 		pos = {0, 0},
 		scale = 1.0,
-		lift = 1.0, // gamma OFF → true fullbright (out = albedo × ambient), no lighting
 		cam_dir = {0, -1, 0.18},
 		cam_dist = 2.0,
 		fov = 52,
-		light_dir = {0.2, -1, 0.5},
-		ambient = 8.0,
 	}
 }
 
 // menu_logo_read_lua reads the Lua-owned `ui.menu_logo` table (the menu's 3D logo control surface)
-// into cfg: `enabled` (draw or skip), `pos` ({x,y} NDC screen offset), `scale`, `bright` (flat-
-// fullbright ambient → cfg.ambient), and `lift`. Returns present=false when the screen declares no
+// into cfg: `enabled` (draw or skip), `pos` ({x,y} NDC screen offset) and `scale`. Returns present=false when the screen declares no
 // table (mod with no logo concept) — the caller keeps its baked Menu_Logo_Cfg defaults. Each field
 // is optional; absent fields leave the current value.
 menu_logo_read_lua :: proc(vm: ^ui.VM, cfg: ^Menu_Logo_Cfg) -> (present: bool) {
@@ -76,8 +68,6 @@ menu_logo_read_lua :: proc(vm: ^ui.VM, cfg: ^Menu_Logo_Cfg) -> (present: bool) {
 	}
 	lua.settop(L, -2)
 	ui.read_num_field(L, "scale", &cfg.scale)
-	ui.read_num_field(L, "bright", &cfg.ambient)
-	ui.read_num_field(L, "lift", &cfg.lift)
 	lua.getfield(L, -1, "pos") // pos = {x, y}
 	if lua.type(L, -1) == .TABLE {
 		ui.read_num_index(L, 0, &cfg.pos[0])
@@ -150,40 +140,6 @@ menu_logo_destroy :: proc(r: ^render.Renderer, logo: ^Menu_Logo) {
 	}
 	delete(logo.shapes)
 	assetdb.cache_destroy(&logo.cache)
-}
-
-// menu_logo_light builds the scene light env for a TRUE FULLBRIGHT, UNLIT logo. The mesh.frag reduces
-// to `out = albedo × amb` when: sun intensity (sun_color.w) = 0 (no directional term / specular), the
-// per-shape material is default (menu_logo_draw passes none → spec/emissive 0), and the ambient is
-// forced UNIFORM regardless of normal — ambient_sky.rgb == ambient_ground.rgb == a, intensity
-// (ground.w) = 1, floor (sky.w) = a. So every texel is just its own colour × a: no lighting, no
-// normal/view dependence, no shine. `a` (cfg.ambient) is the fullbright multiplier — the diffuse is
-// dark carved stone, so it needs ~8×. sun_dir.w = cfg.lift is an OPTIONAL albedo gamma (1 = off / raw
-// texture); values <1 flatten the range but read metallic on this stone, so it's left at 1. Set
-// BEFORE begin_frame (scene_begin pushes it).
-menu_logo_light :: proc(d: ^Menu_Logo_Cfg) -> render.Light_Env {
-	a := d.ambient
-	return render.Light_Env {
-		sun_dir = {d.light_dir[0], d.light_dir[1], d.light_dir[2], d.lift},
-		sun_color = {1.0, 0.97, 0.92, 0.0}, // w = intensity 0 → no directional contribution (fullbright)
-		ambient_sky = {a, a, a, a}, // sky.w = floor = a → amb clamps to a everywhere (uniform, normal-independent)
-		ambient_ground = {a, a, a, 1.0},
-		fog_color = {0, 0, 0, 0},
-		fog_params = {0, 1.0e9, 0, 0},
-		material = {1.5, 1, 0.3, 1},
-	}
-}
-
-// menu_logo_post is the menu scene's tonemap: NONE (mode 3, passthrough = exposure + clamp, no
-// compressive curve). The default Reinhard curve rolls highlights off toward the white point, which
-// caps how bright the logo can get no matter how high the ambient — a flat tonemap lets the
-// fullbright ambient scale the logo linearly (clamped at white). Set BEFORE begin_frame. Only the 3D
-// scene is tonemapped; the UI composites on top afterward, so the menu text is unaffected.
-menu_logo_post :: proc() -> render.Post_Params {
-	return render.Post_Params {
-		params = {1, 3, 1, 1}, // exposure 1, tonemap NONE, white 1, contrast 1
-		grade = {1, 1, 1, 1},
-	}
 }
 
 // menu_logo_draw renders the logo shapes inside the open scene pass (between begin_frame/end_frame).

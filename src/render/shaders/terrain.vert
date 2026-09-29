@@ -29,13 +29,11 @@ layout(set = 1, binding = 0) uniform UBO {
     vec4 morph; // x = start ratio (of morph_end); y = strength (1 = crack-free); z = distance scale; w = drop fade start
 } ubo;
 
-layout(location = 0) out vec3 v_normal;
-layout(location = 1) out vec2 v_uv;
-layout(location = 2) out vec3 v_worldpos;
-layout(location = 3) out float v_cutoff;
-layout(location = 4) out vec4 v_tangent;
-layout(location = 5) out vec2 v_field_uv;   // 0..1 over the worldspace (index-map lookup)
-layout(location = 6) out vec2 v_inv_extent; // 1 / world extent (world→UV scale for the frag jitter)
+layout(location = 0) out vec2 v_uv;
+layout(location = 1) out vec3 v_worldpos;
+layout(location = 2) out vec2 v_field_uv;   // 0..1 over the worldspace (index-map lookup)
+layout(location = 3) out vec2 v_inv_extent; // 1 / world extent (world→UV scale for the frag jitter)
+layout(location = 4) out float v_fade;       // fade-in; the field never fades
 
 float h_at(vec2 uv) { return texture(u_height, uv).r; }
 
@@ -69,23 +67,12 @@ void main() {
     float drop = ubo.texel.w * (1.0 - clamp((dist - ubo.morph.w) / max(ubo.cam.w, 1.0), 0.0, 1.0));
     float z = h_at(uv) - drop;
 
-    // Normal from the height gradient (central difference over one texel), matching the
-    // per-cell terrain convention: n = normalize(-dz/dx, -dz/dy, 1).
-    float ws = ubo.texel.z;
-    float hl = h_at(uv - vec2(ubo.texel.x, 0.0));
-    float hr = h_at(uv + vec2(ubo.texel.x, 0.0));
-    float hd = h_at(uv - vec2(0.0, ubo.texel.y));
-    float hu = h_at(uv + vec2(0.0, ubo.texel.y));
-    vec3 n = normalize(vec3((hl - hr) / (2.0 * ws), (hd - hu) / (2.0 * ws), 1.0));
-
     vec3 world = vec3(world_xy, z);
     gl_Position = ubo.vp * vec4(world, 1.0);
-    v_normal = n;
     v_uv = world_xy / 4096.0; // distant tier tiles 1×/cell on purpose: the stretch reads as a soft,
     // blurry ground blend (kept deliberately coarse). Near terrain tiles finer (terrain_near.vert).
     v_worldpos = world;
-    v_cutoff = 0.0;
-    v_tangent = vec4(1.0, 0.0, 0.0, 1.0);
     v_field_uv = uv; // reuse the height-texture UV: 0..1 over the worldspace
     v_inv_extent = ubo.field.zw;
+    v_fade = 1.0;
 }

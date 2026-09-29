@@ -6,18 +6,8 @@ package world
 // → TX00). Basic, no alpha-layer blending yet: each of the cell's 4 quadrants gets one
 // base ground texture with hard seams (the ATXT/VTXT alpha splatting is the next step).
 //
-// SHADOW-READINESS (the design deviation from Skyrim): terrain is a FIRST-CLASS mesh on
-// the SAME render.Mesh / draw_mesh path as every static — NOT a special terrain path the
-// way the Creation Engine treats it. So when a sun shadow pass lands, the terrain is
-// already an ordinary caster: the pass just iterates the same chunks and draws each
-// terrain patch into the shadow map. Two concrete consequences baked in here:
-//   1. Per-vertex normals are COMPUTED from the heightmap (central differences), so they
-//      are exactly consistent with the surface the shadows are cast from — no reliance on
-//      VNML's authored bytes, no guess-and-check encoding to tune. (VNML exists and could
-//      replace these later to match Skyrim's exact shading.)
-//   2. The terrain's full XY footprint + its Z range are folded into the chunk's culling
-//      AABB, so the eventual cascaded-shadow-map caster cull reuses the same
-//      aabb_in_frustum machinery against the light frustum.
+// Per-vertex normals are computed from the heightmap (central differences), not read from VNML.
+// The terrain's XY footprint and Z range are folded into the chunk's culling AABB.
 //
 // Terrain build is IO-light (heights are resident in gamedb; only the diffuse DDS reads
 // hit the VFS, deduped by the asset cache), so unlike full model loading it runs on the
@@ -63,8 +53,9 @@ TERRAIN_UV_TILES :: f32(8)
 // Terrain_Patch is one drawable piece of a cell's terrain: a GPU mesh (owned by the
 // chunk) and its diffuse (shared, owned by the asset cache). One per textured quadrant.
 Terrain_Patch :: struct {
-	mesh: render.Mesh,
-	tex:  render.Texture,
+	mesh:  render.Mesh,
+	tex:   render.Texture,
+	shown: f32, // Scene.time it was built (fade_in)
 }
 
 // build_terrain_verts turns a cell's row-major heightmap (gamedb cumulative values) into
@@ -336,7 +327,7 @@ load_terrain :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 		for q in 0 ..< 4 {
 			tex := quadrant_texture(s, db, chunk.cell_form_id, q, base)
 			qverts, qidx := quadrant_geo(verts, q, context.temp_allocator)
-			append(&chunk.terrain, Terrain_Patch{mesh = render.upload_mesh(s.cache.r, qverts, qidx), tex = tex})
+			append(&chunk.terrain, Terrain_Patch{mesh = render.upload_mesh(s.cache.r, qverts, qidx), tex = tex, shown = s.time})
 		}
 	} else {
 		// Distant LOD: one downsampled + skirted mesh, one texture (any quadrant's base).
@@ -351,7 +342,7 @@ load_terrain :: proc(s: ^Scene, db: ^gamedb.DB, chunk: ^Chunk) {
 				break
 			}
 		}
-		append(&chunk.terrain, Terrain_Patch{mesh = render.upload_mesh(s.cache.r, verts[:], idx[:]), tex = tex})
+		append(&chunk.terrain, Terrain_Patch{mesh = render.upload_mesh(s.cache.r, verts[:], idx[:]), tex = tex, shown = s.time})
 	}
 
 	// Extend (or set) the culling AABB so the chunk is drawn whenever its terrain is

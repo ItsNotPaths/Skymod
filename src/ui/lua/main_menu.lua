@@ -133,10 +133,6 @@ end
 local MENU = {
   logo_pos    = { -0.370, -0.047 }, -- logo on-screen offset, NDC (x = right, y = up; 0,0 = centre)
   logo_scale  = 0.850,
-  logo_bright = 8.000,              -- TRUE FULLBRIGHT multiplier: out = albedo × this, no lighting at
-                                    --   all (sun off, uniform ambient). The dark stone needs ~8×.
-  logo_lift   = 1.000,              -- albedo gamma (1 = OFF = raw texture). <1 flattens the range but
-                                    --   reads metallic on this stone, so keep it 1 for honest fullbright.
   menu_off    = { -134, -86 },      -- Continue/New/Load… button column offset from bottom_right (px)
 }
 
@@ -220,8 +216,6 @@ ui.screen(function()
   -- Publish the logo placement to the table the engine reads after this frame.
   ui.menu_logo.pos = MENU.logo_pos
   ui.menu_logo.scale = MENU.logo_scale
-  ui.menu_logo.bright = MENU.logo_bright
-  ui.menu_logo.lift = MENU.logo_lift
   return container {
     id = "main_menu",
     fill = "both",

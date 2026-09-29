@@ -288,31 +288,8 @@ round_up4 :: proc(v: u32) -> u32 {
 	return (v + 3) & ~u32(3)
 }
 
-// make_flat_normal_texture builds the 1x1 {128,128,255,255} fallback — a tangent-space
-// normal of (0,0,1) (flat) + spec mask 1 in alpha — bound for shapes with no normal map, so
-// the lit shader's normal-map sample is a no-op there. Linear data (NOT sRGB).
-@(private)
-make_flat_normal_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
-	tex := sdl.CreateGPUTexture(
-		device,
-		{
-			type = .D2,
-			format = .R8G8B8A8_UNORM,
-			usage = {.SAMPLER},
-			width = 1,
-			height = 1,
-			layer_count_or_depth = 1,
-			num_levels = 1,
-			sample_count = ._1,
-		},
-	)
-	px := [4]u8{128, 128, 255, 255}
-	upload_texture_pixels(device, tex, px[:], 1, 1)
-	return tex
-}
-
 // make_white_texture builds the 1x1 opaque-white fallback bound for untextured
-// shapes (so the diffuse-sampling shader shows plain shading).
+// shapes.
 @(private)
 make_white_texture :: proc(device: ^sdl.GPUDevice) -> ^sdl.GPUTexture {
 	tex := sdl.CreateGPUTexture(

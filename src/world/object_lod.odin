@@ -44,7 +44,7 @@ Cell_Span :: struct {
 Lod_Draw :: struct {
 	model_id: models.ID,
 	model:      ^assetdb.Model,
-	veg:        Veg_Kind,
+	shown:      f32, // Scene.time its model resolved (fade_in)
 	buf:        render.Obj_Instances,
 	spans:      [dynamic]Cell_Span,
 }
@@ -85,7 +85,6 @@ bake_object_lod :: proc(st: ^Streamer) {
 		path: string,
 	}
 	Bucket :: struct {
-		veg:   Veg_Kind,
 		insts: [dynamic]render.Obj_Instance,
 		spans: [dynamic]Cell_Span, // per-cell sub-ranges of insts (extended as each cell's refs append)
 	}
@@ -129,7 +128,6 @@ bake_object_lod :: proc(st: ^Streamer) {
 			b, has := &buckets[qm]
 			if !has {
 				buckets[qm] = Bucket {
-					veg   = veg_classify(lod_path),
 					insts = make([dynamic]render.Obj_Instance, 0, 32, context.temp_allocator),
 					spans = make([dynamic]Cell_Span, 0, 16, context.temp_allocator),
 				}
@@ -175,7 +173,7 @@ bake_object_lod :: proc(st: ^Streamer) {
 		spans := make([dynamic]Cell_Span, len(b.spans)) // scene-owned copy (bucket is temp); freed in clear_object_lod
 		copy(spans[:], b.spans[:])
 		model := models.intern(qm.path)
-		append(&quad.draws, Lod_Draw{model_id = model, veg = b.veg, buf = buf, spans = spans})
+		append(&quad.draws, Lod_Draw{model_id = model, buf = buf, spans = spans})
 		assetdb.model_acquire(&s.cache, model) // D1: the session-long LOD pin (released in clear_object_lod)
 		enqueue_model(st, model, extras = false) // draw-only: LOD meshes/billboards are never picked or cooked
 		nbuf += 1
@@ -216,8 +214,6 @@ draw_object_lod :: proc(
 	vp: smath.Mat4,
 	cam_pos: smath.Vec3,
 	full_radius: int,
-	wind: render.Wind = {},
-	time: f32 = 0,
 ) {
 	f := smath.frustum_from_vp(vp)
 	pcx := i32(math.floor(cam_pos.x / CELL_SIZE))
@@ -249,8 +245,8 @@ draw_object_lod :: proc(
 				if d.model == nil {
 					continue // mesh not decoded yet — pops in when the worker delivers it
 				}
+				d.shown = s.time
 			}
-			bw := veg_wind_for(d.veg, wind) // amplitude+speed+cap by vegetation type (0 = rigid)
 			for sh in d.model.shapes {
 				// The mesh IS Skyrim's prebaked LOD model for this band — drawn whole (index_count 0).
 				if straddles {
@@ -269,10 +265,7 @@ draw_object_lod :: proc(
 							sh.tex,
 							sh.alpha_cutoff,
 							0,
-							wind = bw,
-							time = time,
-							normal = sh.normal,
-							mat = shape_mat(sh),
+							fade = fade_in(s, d.shown),
 							first_instance = sp.first,
 							inst_count = sp.count,
 						)
@@ -288,10 +281,7 @@ draw_object_lod :: proc(
 					sh.tex,
 					sh.alpha_cutoff,
 					0,
-					wind = bw,
-					time = time,
-					normal = sh.normal,
-					mat = shape_mat(sh),
+					fade = fade_in(s, d.shown),
 				)
 			}
 		}

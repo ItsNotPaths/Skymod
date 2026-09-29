@@ -254,8 +254,6 @@ interiors_render :: proc(m: ^Interiors, r: ^render.Renderer, ext_vp, relay_vp: s
 					model,
 					sh.tex,
 					sh.alpha_cutoff,
-					normal = sh.normal,
-					mat = shape_mat(sh),
 				)
 			}
 		}

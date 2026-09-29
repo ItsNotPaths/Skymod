@@ -47,7 +47,7 @@ make_wire_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 	attrs := [1]sdl.GPUVertexAttribute {
 		{location = 0, buffer_slot = 0, format = .FLOAT3, offset = u32(offset_of(Mesh_Vertex, pos))},
 	}
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -60,7 +60,7 @@ make_wire_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		},
 		rasterizer_state = {fill_mode = .LINE, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
-		// X-RAY: no depth test, so hitboxes draw OVER the lit scene — a dynamic clutter box sits exactly
+		// X-RAY: no depth test, so hitboxes draw OVER the scene — a dynamic clutter box sits exactly
 		// inside its visual mesh (coincident), so a depth-tested wire would be fully occluded/z-fought and
 		// invisible. Drawing on top shows every collision box through the models (the whole point of the view).
 		depth_stencil_state = {enable_depth_test = false, enable_depth_write = false},

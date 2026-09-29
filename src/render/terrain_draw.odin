@@ -2,9 +2,8 @@ package render
 
 // CDLOD terrain draw (terrain pivot, phase 1). A single reusable unit-grid patch (make_terrain_patch)
 // is drawn INSTANCED — one instance per quadtree node — with the heightfield sampled in the vertex
-// shader (terrain.vert) instead of baked into per-cell meshes. The fragment stage is the SHARED
-// mesh.frag, so terrain gets the full lighting + shadow path; terrain.vert just emits the same
-// varyings. This collapses thousands of per-cell terrain buffers into one patch mesh + one instance
+// shader (terrain.vert) instead of baked into per-cell meshes. The fragment stage (terrain.frag)
+// is fullbright, like mesh.frag. This collapses thousands of per-cell terrain buffers into one patch mesh + one instance
 // buffer, which is the whole point of the pivot (constant allocation, no per-cell GPU churn).
 
 import smath "../math"
@@ -27,7 +26,7 @@ Terrain_Instances :: struct {
 }
 
 // Terrain_Uniforms mirrors terrain.vert's UBO (set 1, binding 0). cam/morph drive the CDLOD
-// geomorph (terrain.vert); terrain_near.vert declares them too but ignores them.
+// geomorph (terrain.vert); terrain_near.vert reads only morph.x, as its fade-in.
 Terrain_Uniforms :: struct {
 	vp:    smath.Mat4,
 	field: [4]f32, // xy = height-texture world origin; zw = 1 / world extent
@@ -78,8 +77,7 @@ make_terrain_patch :: proc(r: ^Renderer, n: int) -> Mesh {
 
 // draw_terrain instanced-draws the patch `m` over the placements in `ti`: the vertex stage samples
 // `height` (R32F world-Z); the fragment stage (terrain.frag) reads the per-cell layer from `index`
-// (R8, nearest) and that layer of the `ground` array (mipped), lit by the per-frame lighting UBO
-// (set_lighting). Call between begin/end_frame.
+// (R8, nearest) and that layer of the `ground` array (mipped). Call between begin/end_frame.
 draw_terrain :: proc(
 	r: ^Renderer,
 	m: Mesh,
@@ -92,37 +90,33 @@ draw_terrain :: proc(
 	}
 	uu := u
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &uu, u32(size_of(uu)))
-	mp := Material_Params{} // terrain is matte: no spec/emissive
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp)))
 
 	bind_pipeline(r, r.frame_pass, r.terrain_pipeline)
 	binds := [2]sdl.GPUBufferBinding{{buffer = m.vbuf}, {buffer = ti.buf}}
 	sdl.BindGPUVertexBuffers(r.frame_pass, 0, &binds[0], 2)
 	ib := sdl.GPUBufferBinding{buffer = m.ibuf}
 	sdl.BindGPUIndexBuffer(r.frame_pass, ib, ._16BIT)
-	// Vertex-stage height sampler (set 0). CLAMP (hdr_sampler) — NOT the tiling mesh_sampler:
+	// Vertex-stage height sampler (set 0). CLAMP (clamp_sampler) — NOT the tiling mesh_sampler:
 	// patches that overshoot the worldspace bbox (the quadtree root is power-of-two) must read the
 	// edge height, not wrap to the far side of the map (which built cliffs on the north/east edges).
-	hb := sdl.GPUTextureSamplerBinding{texture = height.tex, sampler = r.hdr_sampler}
+	hb := sdl.GPUTextureSamplerBinding{texture = height.tex, sampler = r.clamp_sampler}
 	sdl.BindGPUVertexSamplers(r.frame_pass, 0, &hb, 1)
 	bind_terrain_textures(r, ground, index)
 	sdl.DrawGPUIndexedPrimitives(r.frame_pass, m.index_count, u32(ti.count), 0, 0, 0)
 }
 
 // bind_terrain_textures binds the shared terrain.frag samplers: the ground array (trilinear +
-// anisotropic), the flat-normal fallback, the CSM shadow array, and the per-cell index (nearest).
+// anisotropic) and the per-cell index (nearest/clamp).
 @(private)
 bind_terrain_textures :: proc(r: ^Renderer, ground, index: Texture) {
-	fb := [4]sdl.GPUTextureSamplerBinding {
+	fb := [2]sdl.GPUTextureSamplerBinding {
 		{texture = ground.tex, sampler = r.terrain_sampler},
-		{texture = r.flat_normal_tex, sampler = r.mesh_sampler},
-		{texture = r.shadow_tex, sampler = r.shadow_sampler},
-		{texture = index.tex, sampler = r.shadow_sampler},
+		{texture = index.tex, sampler = r.sampler},
 	}
-	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &fb[0], 4)
+	sdl.BindGPUFragmentSamplers(r.frame_pass, 0, &fb[0], 2)
 }
 
-// draw_terrain_near textures a streamed per-cell terrain mesh `m` (world-space verts, real normals)
+// draw_terrain_near textures a streamed per-cell terrain mesh `m` (world-space verts)
 // through the SHARED terrain.frag — the ground array + per-cell index + noise blend — so near terrain
 // blends like the distant tier instead of showing hard per-quadrant texture seams. One draw, no
 // instancing, no vertex height sampler (the mesh already holds real Z).
@@ -132,8 +126,6 @@ draw_terrain_near :: proc(r: ^Renderer, m: Mesh, ground, index: Texture, u: Terr
 	}
 	uu := u
 	sdl.PushGPUVertexUniformData(r.frame_cmd, 0, &uu, u32(size_of(uu)))
-	mp := Material_Params{}
-	sdl.PushGPUFragmentUniformData(r.frame_cmd, 1, &mp, u32(size_of(mp)))
 
 	bind_pipeline(r, r.frame_pass, r.terrain_near_pipeline)
 	vb := sdl.GPUBufferBinding{buffer = m.vbuf}
@@ -146,9 +138,9 @@ draw_terrain_near :: proc(r: ^Renderer, m: Mesh, ground, index: Texture, u: Terr
 
 @(private)
 make_terrain_near_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	// terrain_near.vert: 0 samplers + 1 uniform buffer (set 1). terrain.frag (shared): 4 samplers + 2 UBOs.
+	// terrain_near.vert: 0 samplers + 1 uniform buffer (set 1). terrain.frag (shared): 2 samplers.
 	vshader := create_shader(r.device, TERRAIN_NEAR_VERT_SPV, .VERTEX, 0, 1)
-	fshader := create_shader(r.device, TERRAIN_FRAG_SPV, .FRAGMENT, 4, 2)
+	fshader := create_shader(r.device, TERRAIN_FRAG_SPV, .FRAGMENT, 2, 0)
 	if vshader == nil || fshader == nil {
 		return nil
 	}
@@ -159,7 +151,7 @@ make_terrain_near_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 	}
 	attrs := mesh_vertex_attrs()
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -168,7 +160,7 @@ make_terrain_near_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 1,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 4,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
@@ -185,30 +177,28 @@ make_terrain_near_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 
 @(private)
 make_terrain_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
-	// terrain.vert: 1 sampler (set 0: height) + 1 uniform buffer (set 1). terrain.frag: 4 samplers
-	// (set 2: ground array + normal + shadow + index) + 2 uniform buffers (set 3: lighting + material).
+	// terrain.vert: 1 sampler (set 0: height) + 1 uniform buffer (set 1). terrain.frag: 2 samplers
+	// (set 2: ground array + index).
 	vshader := create_shader(r.device, TERRAIN_VERT_SPV, .VERTEX, 1, 1)
-	fshader := create_shader(r.device, TERRAIN_FRAG_SPV, .FRAGMENT, 4, 2)
+	fshader := create_shader(r.device, TERRAIN_FRAG_SPV, .FRAGMENT, 2, 0)
 	if vshader == nil || fshader == nil {
 		return nil
 	}
 	defer sdl.ReleaseGPUShader(r.device, vshader)
 	defer sdl.ReleaseGPUShader(r.device, fshader)
 
-	// Slot 0 = unit-patch vertex (Mesh_Vertex layout, loc 0-3); slot 1 = per-instance placement (loc 4).
+	// Slot 0 = unit-patch vertex (Mesh_Vertex layout, loc 0, 2); slot 1 = per-instance placement (loc 4).
 	buffers := [2]sdl.GPUVertexBufferDescription {
 		{slot = 0, pitch = u32(size_of(Mesh_Vertex)), input_rate = .VERTEX},
 		{slot = 1, pitch = u32(size_of(Terrain_Instance)), input_rate = .INSTANCE},
 	}
 	base := mesh_vertex_attrs()
-	attrs := [5]sdl.GPUVertexAttribute {
+	attrs := [3]sdl.GPUVertexAttribute {
 		base[0],
 		base[1],
-		base[2],
-		base[3],
 		{location = 4, buffer_slot = 1, format = .FLOAT4, offset = 0},
 	}
-	color_target := sdl.GPUColorTargetDescription{format = r.scene_format}
+	color_target := sdl.GPUColorTargetDescription{format = r.swapchain_format}
 	info := sdl.GPUGraphicsPipelineCreateInfo {
 		vertex_shader = vshader,
 		fragment_shader = fshader,
@@ -217,7 +207,7 @@ make_terrain_pipeline :: proc(r: ^Renderer) -> ^sdl.GPUGraphicsPipeline {
 			vertex_buffer_descriptions = &buffers[0],
 			num_vertex_buffers = 2,
 			vertex_attributes = &attrs[0],
-			num_vertex_attributes = 5,
+			num_vertex_attributes = len(attrs),
 		},
 		rasterizer_state = {fill_mode = .FILL, cull_mode = .NONE},
 		multisample_state = {sample_count = ._1},
