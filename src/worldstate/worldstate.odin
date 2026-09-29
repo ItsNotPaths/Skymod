@@ -79,6 +79,7 @@ Overlay :: struct {
 	anim_regs:       map[Form_ID][dynamic]Anim_Reg, // sender -> RegisterForAnimationEvent registrations on it
 	los_regs:        [dynamic]Los_Reg,             // RegisterForLOS and the single gain/lost registrations
 	projectiles:     [dynamic]Flight,              // projectiles that can still hit (projectiles.odin)
+	zones:           map[Form_ID]Zone,             // zone ref -> a volume made at runtime (zones.odin)
 	effects:         map[Form_ID]Active_Effect,    // effect handle -> a scripted magic effect on a target
 	next_effect:     u32,                          // the last effect handle's counter
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
@@ -181,6 +182,7 @@ Runtime :: struct {
 	ai:              AI_Link,               // script asks of the AI, and what it publishes
 	regen:           Regen_Turns,           // whose turn it is to regenerate outside the loaded cells (av_regen)
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
+	zone_waits:      map[[2]Form_ID]f32,    // {zone, actor inside it} -> seconds until the zone casts on it again; not saved
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)
 	effect_defs:     map[Form_ID]Effect_Def,   // form -> the effect content defined (effect_defs.odin)
@@ -276,6 +278,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.trespass_warnings)
 	delete(ws.arresting)
 	delete(ws.in_triggers)
+	delete(ws.zone_waits)
 	delete(ws.story_events)
 	delete(ws.barks)
 	destroy_ai_link(&ws.ai)
@@ -397,6 +400,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.anim_regs = make(map[Form_ID][dynamic]Anim_Reg)
 	o.los_regs = make([dynamic]Los_Reg)
 	o.projectiles = make([dynamic]Flight)
+	o.zones = make(map[Form_ID]Zone)
 	o.effects = make(map[Form_ID]Active_Effect)
 	o.effects_on = make(map[Form_ID][dynamic]Form_ID)
 }
@@ -511,6 +515,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.anim_regs)
 	delete(o.los_regs)
 	delete(o.projectiles)
+	delete(o.zones)
 	delete(o.effects)
 	for _, &list in o.effects_on {delete(list)}
 	delete(o.effects_on)

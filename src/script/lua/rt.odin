@@ -56,6 +56,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__faction", rt_faction},
 		{"__stolen_mark", rt_stolen_mark},
 		{"__resolve", rt_resolve},
+		{"__make_zone", rt_zone},
 	}
 	for h in hooks {
 		lua.pushlightuserdata(L, vm)
@@ -146,12 +147,6 @@ rt_faction :: proc "c" (L: ^lua.State) -> c.int {
 		defer lua.pop(L, 1)
 		return f64(lua.tonumber(L, -1))
 	}
-	form :: proc(L: ^lua.State, t: c.int, key: cstring) -> script.Form_ID {
-		lua.getfield(L, t, key)
-		defer lua.pop(L, 1)
-		f, _ := ref_form(L, -1)
-		return f
-	}
 	if lua.getfield(L, 2, "flags") == i32(lua.TTABLE) {
 		lua.pushnil(L)
 		for lua.next(L, -2) != 0 {
@@ -177,9 +172,9 @@ rt_faction :: proc "c" (L: ^lua.State) -> c.int {
 		lua.getfield(L, t, "attack_on_detect");f.crime.attack_on_detect = bool(lua.toboolean(L, -1));lua.pop(L, 1)
 	}
 	lua.pop(L, 1)
-	f.jail, f.follower_wait = form(L, 2, "jail"), form(L, 2, "follower_wait")
-	f.stolen_chest, f.player_chest = form(L, 2, "stolen_chest"), form(L, 2, "player_chest")
-	f.crime_group, f.jail_outfit = form(L, 2, "crime_group"), form(L, 2, "jail_outfit")
+	f.jail, f.follower_wait = field_ref(L, 2, "jail"), field_ref(L, 2, "follower_wait")
+	f.stolen_chest, f.player_chest = field_ref(L, 2, "stolen_chest"), field_ref(L, 2, "player_chest")
+	f.crime_group, f.jail_outfit = field_ref(L, 2, "crime_group"), field_ref(L, 2, "jail_outfit")
 	ranks := make([dynamic]gamedb.Faction_Rank)
 	if lua.getfield(L, 2, "ranks") == i32(lua.TTABLE) {
 		lua.pushnil(L)
@@ -196,7 +191,7 @@ rt_faction :: proc "c" (L: ^lua.State) -> c.int {
 		lua.pushnil(L)
 		for lua.next(L, -2) != 0 {
 			r := lua.gettop(L)
-			other := form(L, r, "faction")
+			other := field_ref(L, r, "faction")
 			lua.getfield(L, r, "reaction")
 			combat, ok := reflect.enum_from_name(esm.Combat_Reaction, strings.to_pascal_case(to_string(L, -1), context.temp_allocator))
 			lua.pop(L, 1)
@@ -409,6 +404,14 @@ field_str :: proc(L: ^lua.State, t: c.int, key: cstring) -> string {
 	lua.getfield(L, t, key)
 	defer lua.pop(L, 1)
 	return to_string(L, -1) if lua.type(L, -1) != .NIL else ""
+}
+
+@(private)
+field_ref :: proc(L: ^lua.State, t: c.int, key: cstring) -> script.Form_ID {
+	lua.getfield(L, t, key)
+	defer lua.pop(L, 1)
+	f, _ := ref_form(L, -1)
+	return f
 }
 
 @(private)
@@ -667,6 +670,35 @@ rt_info :: proc "c" (L: ^lua.State) -> c.int {
 
 // __now() is a steady clock in seconds, for timing handlers. libc's clock_gettime: time.tick_now on
 // Linux is a raw syscall, ~0.3 us, and every handler reads the clock twice.
+// __make_zone(def) is rt.zone's engine half: it makes the zone and returns its ref.
+@(private)
+rt_zone :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	z := worldstate.Zone {
+		left   = field_num(L, 1, "lifetime"),
+		caster = field_ref(L, 1, "caster"),
+		spell  = field_ref(L, 1, "spell"),
+		every  = field_num(L, 1, "every"),
+		burst  = field_num(L, 1, "burst"),
+	}
+	lua.getfield(L, 1, "shape")
+	if r := field_num(L, -1, "sphere"); r > 0 {
+		z.shape = {half = r, kind = .Sphere}
+	} else if lua.getfield(L, -1, "box") == i32(lua.TTABLE) {
+		for i in 0 ..< 3 {
+			lua.geti(L, -1, lua.Integer(i))
+			z.shape.half[i] = f32(lua.tonumber(L, -1)) / 2
+			lua.pop(L, 1)
+		}
+		z.shape.kind = .Box
+	}
+	lua.settop(L, 1)
+	id := worldstate.make_zone(vm.ctx.ws, vm.ctx.db, field_ref(L, 1, "form"), field_ref(L, 1, "at"), z, int(field_num(L, 1, "limit")))
+	push_ref(L, id)
+	return 1
+}
+
 // __resolve(ref) is the actor PlayerRef stands for; any other ref as it is.
 @(private)
 rt_resolve :: proc "c" (L: ^lua.State) -> c.int {

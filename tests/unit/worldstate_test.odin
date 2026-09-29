@@ -41,6 +41,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	// A runtime-created ref (0xFF space): separate from ref_deltas, with its own allocator + index.
 	new_id := ws.create_ref(&src, 0x000DEAD0, 0x0003CAFE, {10, 20, 30}, {0, 1, 0}, 1.5)
 	testing.expect_value(t, new_id, formid.CREATED_FORM_BASE)
+	src.zones[new_id] = ws.Zone{shape = {half = 64, kind = .Sphere}, left = 5, spell = 0x000BAD00, every = 0.3}
+	ws.set_alpha(&src, 0x000ABCDE, 0x0001A26F, 0.25)
 	// Coarse singletons.
 	ws.set_global(&src, 0x00000005, 42.5)
 	ws.start_clock(&src, 201, 7, 17, 8, 1)
@@ -119,6 +121,8 @@ test_worldstate_save_load :: proc(t: ^testing.T) {
 	testing.expect_value(t, dst.keyword_data[{0x0001C0C0, 0x000CEEEE}], 2)
 	testing.expect_value(t, dst.pending_moves[0x000A0001], ws.Pending_Move{0x000A0002, {0, 0, 50}})
 	testing.expect_value(t, dst.effects[fx].elapsed, 2)
+	testing.expect_value(t, dst.zones[new_id], src.zones[new_id])
+	testing.expect_value(t, ws.alpha(&dst, 0x000ABCDE), 0.25)
 	testing.expect_value(t, dst.next_effect, src.next_effect)
 	testing.expect_value(t, len(ws.effects_on(&dst, 0x000A0001)), 1)
 	testing.expect_value(t, dst.aliases[alias], 0x000ABCDE)

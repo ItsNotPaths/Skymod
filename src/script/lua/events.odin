@@ -392,7 +392,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	step(vm, .Attach, &at)
 	tick_transitions(vm, db, ws, t, attached)
 	step(vm, .Transitions, &at)
-	tick_triggers(vm, db, ws)
+	tick_triggers(vm, db, ws, dt)
 	step(vm, .Triggers, &at)
 	tick_los(vm, db, ws)
 	step(vm, .LOS, &at)

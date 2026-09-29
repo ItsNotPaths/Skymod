@@ -11,6 +11,7 @@ local now, info = __now, __info
 local effect_class, content_files, effect_def, spell_def, power_def = __effect_class, __content_files, __effect_def, __spell_def, __power_def
 local item_def = __item_def
 local av_part, global_value = __av_part, __global
+local resolve_ref, make_zone = __resolve, __make_zone
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -341,7 +342,7 @@ end
 -- else r. Refs are cached one per form, so a table keyed by rt.key(r) has one key per actor.
 local PLAYER = ref(0x14)
 local function key(r)
-  if rawequal(r, PLAYER) then return __resolve(r) end
+  if rawequal(r, PLAYER) then return resolve_ref(r) end
   return r
 end
 rt.key = key
@@ -1422,6 +1423,21 @@ end
 function rt.formula(name, src)
   if not game_loading then error("rt.formula outside OnGameLoaded", 2) end
   __formula(name, src)
+end
+
+-- rt.zone(def) makes a volume at a ref's place and returns its ref, which hears OnTriggerEnter and
+-- OnTriggerLeave like an authored trigger and goes when deleted or when its lifetime runs out:
+--   rt.zone { at = ref, shape = { sphere = radius } or { box = { x, y, z } }, lifetime = seconds,
+--             form = its base (for scripts, and the limit), limit = n (the oldest of this form and
+--             caster go), caster = ref, spell = ref, every = seconds, burst = radius }
+-- With a spell it casts on each actor inside that is hostile to the caster (every actor with no
+-- caster): on entry, then every `every` seconds; with no `every` it fires once, at the first such
+-- actor, on each within `burst`, and goes (a rune).
+function rt.zone(def)
+  if type(def.shape) ~= "table" or is_none(def.at) then error("rt.zone needs at and shape", 2) end
+  def.at, def.form = form_of(def.at), def.form and form_of(def.form)
+  def.caster, def.spell = def.caster and form_of(def.caster), def.spell and form_of(def.spell)
+  return make_zone(def)
 end
 
 -- rt.seed_spell(owner, spell) puts a spell on a race's or an NPC_'s records' list, for every actor

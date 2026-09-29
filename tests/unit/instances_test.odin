@@ -10,6 +10,7 @@ package unit_tests
 import "core:fmt"
 import "core:math"
 import "core:os"
+import "core:slice"
 import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
@@ -1524,7 +1525,7 @@ test_trigger_events :: proc(t: ^testing.T) {
 
 	at :: proc(f: ^Fixture, pos: [3]f32) {
 		worldstate.set_moved(&f.ws, f.ws.player, 0x100, {}, pos)
-		slua.tick_triggers(&f.vm, &f.db, &f.ws)
+		slua.tick_triggers(&f.vm, &f.db, &f.ws, 1.0 / 60)
 		slua.drain(&f.vm)
 	}
 	at(&f, {1000, 400, 0})
@@ -1545,6 +1546,53 @@ test_trigger_events :: proc(t: ^testing.T) {
 	worldstate.set_moved(&f.ws, NPC, CELL, {}, {1000, 200, 0})
 	at(&f, {1000, 400, 0})
 	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "enter;", __log); assert(__who === ref(0x800))`), "a loaded NPC enters too")
+}
+
+// rt.zone makes a sphere that casts its spell on each actor inside, on entry and then every
+// second, until its lifetime runs out. A once zone fires at the first actor in, on each within its
+// burst, and goes. A caster's zone hits only actors hostile to it.
+@(test)
+test_runtime_zones :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_runtime_zones", {})
+	defer fixture_destroy(&f)
+	CELL, MARK, NPC :: script.Form_ID(0x100), script.Form_ID(0x700), script.Form_ID(0x800)
+	SPELL, MGEF :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901)
+	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
+	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, duration = 60}}}
+	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
+	f.db.form_kinds[SPELL] = .Spell
+	f.db.ref_by_id = make(map[gamedb.Form_ID]gamedb.Ref, context.temp_allocator)
+	f.db.ref_by_id[MARK] = {form_id = MARK, cell_form_id = CELL, scale = 1}
+	f.ws.attached[CELL] = make([dynamic]script.Form_ID)
+	f.ws.ai.loaded[f.ws.player] = true
+	f.ws.ai.loaded[NPC] = true
+	worldstate.set_moved(&f.ws, f.ws.player, CELL, {}, {50, 0, 0})
+	worldstate.set_moved(&f.ws, NPC, CELL, {}, {300, 0, 0})
+	started_on :: proc(f: ^Fixture) -> []script.Form_ID { // who the effects started since the last look are on
+		out := make([dynamic]script.Form_ID, context.temp_allocator)
+		for h in f.ws.new_effects {append(&out, f.ws.effects[h].target)}
+		clear(&f.ws.new_effects)
+		return out[:]
+	}
+
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt')
+rt.zone { at = ref(0x700), shape = { sphere = 100 }, lifetime = 2.5, spell = ref(0x900), every = 1 }`), "rt.zone")
+	testing.expect_value(t, len(f.ws.zones), 1)
+	for _ in 0 ..< 4 {slua.tick_triggers(&f.vm, &f.db, &f.ws, 0.5)}
+	testing.expect(t, slice.equal(started_on(&f), []script.Form_ID{f.ws.player, f.ws.player}), "on entry and a second later; the NPC is outside")
+	slua.tick_triggers(&f.vm, &f.db, &f.ws, 1)
+	testing.expect_value(t, len(f.ws.zones), 0)
+
+	testing.expect(t, slua.do_string(&f.vm, `rt.zone { at = ref(0x700), shape = { box = { 200, 200, 200 } }, spell = ref(0x900), burst = 400, caster = ref(0x801) }`), "a caster's rune")
+	slua.tick_triggers(&f.vm, &f.db, &f.ws, 0.5)
+	testing.expect_value(t, len(started_on(&f)), 0) // nobody inside is hostile to the caster
+	testing.expect_value(t, len(f.ws.zones), 1)
+	testing.expect(t, slua.do_string(&f.vm, `rt.zone { at = ref(0x700), shape = { box = { 200, 200, 200 } }, spell = ref(0x900), burst = 400 }`), "a rune")
+	slua.tick_triggers(&f.vm, &f.db, &f.ws, 0.5)
+	testing.expect_value(t, len(f.ws.zones), 1)
+	burst := started_on(&f)
+	testing.expect(t, len(burst) == 2 && slice.contains(burst, f.ws.player) && slice.contains(burst, NPC), "the NPC is outside the box, inside the burst")
 }
 
 // A script makes factions at runtime: rt.faction gets or creates by name, the faction reads like a

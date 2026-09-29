@@ -209,6 +209,11 @@ Saved_Effect :: struct {
 	effect: Active_Effect,
 }
 
+Saved_Zone :: struct {
+	ref:  Form_ID,
+	zone: Zone,
+}
+
 Saved_Script :: struct {
 	form: Form_ID,
 	vars: []Script_Var,
@@ -388,6 +393,7 @@ Save_Body :: struct {
 	anim_regs:     []Saved_Anim_Reg,
 	los_regs:      []Los_Reg,
 	projectiles:   []Flight,
+	zones:         []Saved_Zone,
 	effects:       []Saved_Effect,
 	next_effect:   u32,
 	clock:         Game_Clock,
@@ -592,6 +598,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for ref, move in ws.pending_moves {append(&moves, Saved_Move{ref, move})}
 	effects := make([dynamic]Saved_Effect, 0, len(ws.effects), context.temp_allocator)
 	for h, e in ws.effects {append(&effects, Saved_Effect{h, e})}
+	zones := make([dynamic]Saved_Zone, 0, len(ws.zones), context.temp_allocator)
+	for ref, z in ws.zones {append(&zones, Saved_Zone{ref, z})}
 	anim_regs := make([dynamic]Saved_Anim_Reg, context.temp_allocator)
 	for sender, list in ws.anim_regs {
 		for r in list {append(&anim_regs, Saved_Anim_Reg{sender, r.form, r.event})}
@@ -672,6 +680,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		anim_regs     = anim_regs[:],
 		los_regs      = ws.los_regs[:],
 		projectiles   = ws.projectiles[:],
+		zones         = zones[:],
 		effects       = effects[:],
 		next_effect   = ws.next_effect,
 		clock         = ws.clock,
@@ -1057,6 +1066,14 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		fl.ref, fl.shooter, fl.weapon = ref, shooter, weapon
 		if rok && sok && wok {append(&ws.projectiles, fl)}
 	}
+	for s in body.zones {
+		z := s.zone
+		ref, rok := rf(remap, have_remap, s.ref)
+		caster, cok := rf(remap, have_remap, z.caster)
+		spell, sok := rf(remap, have_remap, z.spell)
+		z.caster, z.spell = caster, spell
+		if rok && cok && sok {ws.zones[ref] = z}
+	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
 		form, fok := rf(remap, have_remap, a.form)
@@ -1217,6 +1234,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for l in body.los_regs {add_slot(&seen, l.form);add_slot(&seen, l.viewer);add_slot(&seen, l.target)}
 	for f in body.projectiles {add_slot(&seen, f.ref);add_slot(&seen, f.shooter);add_slot(&seen, f.weapon)}
+	for s in body.zones {add_slot(&seen, s.ref);add_slot(&seen, s.zone.caster);add_slot(&seen, s.zone.spell)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
 	for sc in body.scripts {
 		add_slot(&seen, sc.form)

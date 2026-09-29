@@ -339,6 +339,7 @@ set_deleted :: proc(ws: ^World_State, form_id, cell: Form_ID) {
 	d := upsert(ws, form_id, cell)
 	d.live += {.Deleted}
 	append(&ws.gone_refs, form_id)
+	delete_key(&ws.zones, form_id)
 }
 
 // is_deleted reports whether a runtime Delete removed the ref.
