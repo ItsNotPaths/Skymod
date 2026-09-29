@@ -1803,7 +1803,7 @@ test_apply_effect :: proc(t: ^testing.T) {
 	testing.expect(t, slua.do_string(&f.vm, `assert(rt.call(ref(0x700), "DispelEffect", "Vampirism") == true); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 3)`), "next stage")
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 40)
 
-	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x700), "DispelEffect", "Vampirism"); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 1, -0.3)`), "a time that ran out")
+	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x700), "DispelEffect", "Vampirism"); rt.call(ref(0x700), "ApplyEffect", "Vampirism", 1, -1)`), "a time that ran out, even exactly -1")
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, ACTOR, "FrostResist"), 0) // ended, did not last
 
