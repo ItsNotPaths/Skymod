@@ -6,19 +6,12 @@ import "../audio"
 import "../collisions"
 import "../formid"
 import "../gamedb"
-import "../handoff"
 import "../models"
-import "../input"
 import smath "../math"
 import "../physics"
-import "../render"
 import "../script"
 import "../world"
 import "../worldstate"
-
-// ArrowIronProjectile (Skyrim.esm): what the dev shot fires.
-DEV_SHOT_PROJECTILE :: Form_ID(0x3BE11)
-DEV_SHOT_DAMAGE :: f32(50)
 
 // tick_projectiles launches the Weapon.Fire calls scripts made, then moves each flight one tick.
 tick_projectiles :: proc(g: ^Game) {
@@ -120,16 +113,4 @@ is_projectile :: proc(g: ^Game, form: Form_ID) -> bool {
 @(private = "file")
 live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
 	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form)) && !worldstate.is_dead(&g.sim.ws, &g.db, form)
-}
-
-// frame_dev_shot fires an iron arrow from the crosshair for DEV_SHOT_DAMAGE.
-frame_dev_shot :: proc(g: ^Game) {
-	if !input.fired(&g.imgr, "DevShoot") || g.fr.kb_cap {return}
-	ro, rd := camera_ray(g.cam, render.aspect(&g.r), {0, 0})
-	handoff.push(&g.commands, Cmd_Shoot{ro + rd * 48, rd})
-}
-
-dev_shoot :: proc(g: ^Game, c: Cmd_Shoot) {
-	cell := worldstate.ref_cell(&g.sim.ws, &g.db, g.sim.ws.player)
-	worldstate.launch(&g.sim.ws, &g.db, DEV_SHOT_PROJECTILE, cell, c.from, c.dir, g.sim.ws.player, 0, DEV_SHOT_DAMAGE)
 }

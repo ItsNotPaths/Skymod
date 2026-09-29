@@ -146,7 +146,6 @@ Sim_Command :: union {
 	Cmd_Shove,
 	Cmd_Disable,
 	Cmd_Spawn,
-	Cmd_Shoot,
 	Cmd_Carry,
 	Cmd_Release,
 	Cmd_Talk_Next,
@@ -160,7 +159,6 @@ Cmd_Drop :: struct {at: smath.Vec3} // drop-test ball
 Cmd_Shove :: struct {at: smath.Vec3} // kick the clutter near a point
 Cmd_Disable :: struct {ref, cell: Form_ID}
 Cmd_Spawn :: struct {base, cell: Form_ID, at: smath.Vec3} // a created copy of a base
-Cmd_Shoot :: struct {from, dir: smath.Vec3} // the dev shot
 Cmd_Carry :: struct {actor: Form_ID, at: smath.Vec3} // hold an actor's capsule centred on `at`
 Cmd_Release :: struct {actor: Form_ID}
 Cmd_Talk_Next :: struct {info: Form_ID, response: int} // skip the response showing when pressed
@@ -178,7 +176,6 @@ apply_commands :: proc(g: ^Game) {
 		case Cmd_Shove:   shove(g, v.at)
 		case Cmd_Disable: dev_disable(g, v)
 		case Cmd_Spawn:   dev_spawn(g, v)
-		case Cmd_Shoot:   dev_shoot(g, v)
 		case Cmd_Carry:   g.sim.carried = v
 		case Cmd_Release:
 			if g.sim.carried.actor == v.actor {g.sim.carried = {}}

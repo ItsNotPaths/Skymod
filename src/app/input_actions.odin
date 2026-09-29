@@ -55,7 +55,6 @@ DEFAULT_ACTIONS := [?]Default_Action {
 	{"DevDisable",    "gameplay", .Button, "x"},
 	{"DevSpawn",      "gameplay", .Button, "b"},
 	{"DevGrabActor",  "gameplay", .Button, "j"},
-	{"DevShoot",      "gameplay", .Button, "mouse1"},
 	{"DevMessageBox", "gameplay", .Button, "n"},
 }
 
