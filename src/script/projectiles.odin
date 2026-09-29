@@ -21,7 +21,12 @@ projectile_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
 	if e, ok := gamedb.enchantment_of(c.db, slot.enchantment); ok {
 		start_effects(c, slot.enchantment, e.effects, false, target, f.shooter)
 	}
-	append(&c.ws.hits, worldstate.Hit{target, f.shooter, f.weapon, worldstate.ref_base(c.ws, c.db, f.ref)})
+	queue_hit(c, f, target)
 	worldstate.strike(c.ws, target, f.shooter)
 	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
+}
+
+// queue_hit queues OnHit for what a flight struck, an actor or any other ref.
+queue_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
+	append(&c.ws.hits, worldstate.Hit{target, f.shooter, f.weapon, worldstate.ref_base(c.ws, c.db, f.ref)})
 }

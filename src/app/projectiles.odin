@@ -89,6 +89,7 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 			worldstate.mark_scene_dirty(&g.sim.ws, f.ref)
 			return false
 		}
+		if target != 0 {script.queue_hit(c, f^, target)}
 		embed(g, sp, r, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
 		return false
 	}
@@ -101,7 +102,6 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 EMBED_DEPTH :: f32(4)
 
 // (hole projectile-ricochet :tags (physics combat unclaimed) :sev polish) every projectile embeds where it lands; none ricochets, bounces, slides or breaks. Wanted: by angle, speed and surface material.
-// (hole projectile-object-hits :tags (combat script) :sev gap) a projectile that strikes a non-actor sends it no OnHit, so arrow targets and shoot-to-open puzzles never hear it.
 // (hole spent-projectile-cleanup :tags (world save) :sev polish) embedded darts and arrows stay as created refs forever; nothing removes them after a while.
 // embed stops a projectile with its origin at `pos`, pointing along dir: a still ref with no body.
 @(private = "file")
