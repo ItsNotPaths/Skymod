@@ -11,13 +11,14 @@ import "../gamedb"
 MGEF_NO_RECAST :: 0x0002_0000
 
 // effect_lua writes an MGEF as an effects/ file; false for one this part does not translate.
-effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (string, bool) {
+effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (text: string, ok: bool) {
 	info := mgef.info
 	#partial switch info.archetype {
 	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
 	case: return "", false
 	}
-	if len(mgef.conditions) > 0 {return "", false}
+	land := ""
+	if len(mgef.conditions) > 0 {land = land_lua(src, mgef.conditions) or_return}
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintfln(&b, "-- %s MGEF %s", src.files[u32(form >> 32)], src.edids[form])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
@@ -36,6 +37,7 @@ effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (
 	held := info.flags & esm.MGEF_RECOVER != 0 || src.lasting[form] == {.Lasting}
 	if !held && info.taper_duration > 0 && info.taper_weight != 0 {fmt.sbprintfln(&b, "  taper = \"%vs\",", info.taper_duration)}
 	write_terms(&b, effect_terms(info, held))
+	strings.write_string(&b, land)
 	write_scripts(&b, src, gamedb.form_scripts(&src.db, form))
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b), true

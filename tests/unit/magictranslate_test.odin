@@ -7,6 +7,7 @@ import "core:strings"
 import "core:testing"
 import "../../src/formats/esm"
 import "../../src/formula"
+import "../../src/gamedb"
 import "../../src/magictranslate"
 
 // quoted is the string after `key = "` in `text`.
@@ -80,4 +81,33 @@ test_magic_translate_terms :: proc(t: ^testing.T) {
 			}
 		}
 	}
+}
+
+// MGEF conditions become the land gate: an OR run binds tighter than AND, Subject reads the one hit
+// and Target the caster, an Is/Has function reads as a boolean, an AV parameter by its name, and a
+// form by its editor id.
+@(test)
+test_magic_translate_land :: proc(t: ^testing.T) {
+	src: magictranslate.Source
+	src.edids = make(map[gamedb.Form_ID]string, context.temp_allocator)
+	src.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	src.edids[0x13794] = "ActorTypeUndead"
+	src.db.form_by_edid["actortypeundead"] = 0x13794
+	undead, _ := esm.condition_function_by_name("IsUndead")
+	keyword, _ := esm.condition_function_by_name("HasKeyword")
+	percent, _ := esm.condition_function_by_name("GetActorValuePercent")
+	conds := []gamedb.Condition {
+		{function = undead, op = .Equal, value = 1, flags = {.Or}},
+		{function = keyword, op = .NotEqual, value = 0, param1 = 0x13794},
+		{function = percent, op = .Less, value = 0.2, param1 = 24, run_on = .Target},
+		{function = undead, op = .Equal, value = 0},
+	}
+	text, ok := magictranslate.land_lua(&src, conds)
+	testing.expect(t, ok, "every condition has a Lua form")
+	testing.expect_value(t, text, `  land = function(e)
+    return (e.target:IsUndead() or e.target:HasKeyword("ActorTypeUndead"))
+      and e.caster:GetActorValuePercent("Health") < 0.2
+      and not e.target:IsUndead()
+  end,
+`)
 }

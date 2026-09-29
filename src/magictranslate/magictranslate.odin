@@ -25,7 +25,7 @@ Stats :: struct {
 Source :: struct {
 	db:      gamedb.DB,
 	files:   map[u32]string, // global slot -> plugin file name, as given
-	edids:   map[Form_ID]string, // magic records' editor ids, as authored
+	edids:   map[Form_ID]string, // editor ids, as authored
 	wanted:  map[Form_ID]bool, // forms a plugin in `only` defines or overrides
 	lasting: map[Form_ID]Uses, // how each MGEF's users run it
 }
@@ -110,16 +110,20 @@ add_uses :: proc(src: ^Source, refs: []gamedb.Magic_Effect_Ref, lasting: bool) {
 	}
 }
 
-// Scan is one plugin's walk: it keeps magic editor ids, and marks forms it touches as wanted.
+// Scan is one plugin's walk: it keeps editor ids, and marks magic forms it touches as wanted.
 @(private)
 Scan :: struct {
 	src:    ^Source,
 	wanted: bool,
 }
 
-// MAGIC_TYPES are the records the translator writes, whose editor ids it keeps.
+// MAGIC_TYPES are the records the translator writes.
 @(private)
 MAGIC_TYPES := [?]string{"MGEF", "SPEL", "SCRL", "ENCH", "ALCH", "INGR", "SHOU"}
+
+// UNNAMED_TYPES have no editor id worth a decompress.
+@(private)
+UNNAMED_TYPES := [?]string{"NAVM", "LAND", "PGRE", "NAVI"}
 
 @(private)
 scan :: proc(src: ^Source, p: gamedb.Loaded_Plugin, wanted: bool) {
@@ -131,7 +135,7 @@ scan :: proc(src: ^Source, p: gamedb.Loaded_Plugin, wanted: bool) {
 @(private)
 scan_record :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	s := cast(^Scan)user
-	if !has(MAGIC_TYPES[:], rec.type) {return true}
+	if has(UNNAMED_TYPES[:], rec.type) {return true}
 	fl, backing, ok := esm.fields(rec)
 	if !ok {return true}
 	defer {delete(fl); delete(backing)}
@@ -139,8 +143,15 @@ scan_record :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> boo
 		if old, seen := s.src.edids[rec.form_id]; seen {delete(old)}
 		s.src.edids[rec.form_id] = strings.clone(edid)
 	}
-	if s.wanted {s.src.wanted[rec.form_id] = true}
+	if s.wanted && has(MAGIC_TYPES[:], rec.type) {s.src.wanted[rec.form_id] = true}
 	return true
+}
+
+// form_name names a form for Lua: its editor id when that finds it again, else form_ref.
+form_name :: proc(src: ^Source, form: Form_ID) -> string {
+	edid := src.edids[form]
+	if f, ok := gamedb.form_by_editor_id(&src.db, edid); ok && f == form {return edid}
+	return form_ref(src, form)
 }
 
 // form_ref writes a form as its file and local id, "Skyrim.esm:012FCD".
