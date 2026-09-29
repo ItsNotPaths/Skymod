@@ -102,7 +102,7 @@ test_magic_translate_land :: proc(t: ^testing.T) {
 		{function = percent, op = .Less, value = 0.2, param1 = 24, run_on = .Target},
 		{function = undead, op = .Equal, value = 0},
 	}
-	text, ok := magictranslate.land_lua(&src, conds)
+	text, ok := magictranslate.land_lua(&src, conds, nil)
 	testing.expect(t, ok, "every condition has a Lua form")
 	testing.expect_value(t, text, `  land = function(e)
     return (e.target:IsUndead() or e.target:HasKeyword("ActorTypeUndead"))

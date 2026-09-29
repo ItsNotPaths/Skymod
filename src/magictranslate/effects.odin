@@ -7,18 +7,14 @@ import "core:fmt"
 import "core:strings"
 import "../formats/esm"
 import "../gamedb"
+import "../worldstate"
 
 MGEF_NO_RECAST :: 0x0002_0000
 
-// effect_lua writes an MGEF as an effects/ file; false for one this part does not translate.
+// effect_lua writes an MGEF as an effects/ file; false when one of its conditions has no Lua form.
 effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (text: string, ok: bool) {
 	info := mgef.info
-	#partial switch info.archetype {
-	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
-	case: return "", false
-	}
-	land := ""
-	if len(mgef.conditions) > 0 {land = land_lua(src, mgef.conditions) or_return}
+	land := land_lua(src, mgef.conditions, dispels(src, form, info)) or_return
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintfln(&b, "-- %s MGEF %s", src.files[u32(form >> 32)], src.edids[form])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
@@ -34,13 +30,31 @@ effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (
 	if info.archetype == .Peak_Value_Modifier && mgef.related != 0 {
 		fmt.sbprintfln(&b, "  nostack = %q,", gamedb.keyword_editor_id(&src.db, mgef.related))
 	}
-	held := info.flags & esm.MGEF_RECOVER != 0 || src.lasting[form] == {.Lasting}
-	if !held && info.taper_duration > 0 && info.taper_weight != 0 {fmt.sbprintfln(&b, "  taper = \"%vs\",", info.taper_duration)}
-	write_terms(&b, effect_terms(info, held))
+	if info.taper_duration > 0 {fmt.sbprintfln(&b, "  taper = \"%vs\",", info.taper_duration)}
+	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
+	#partial switch info.archetype {
+	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
+		held := info.flags & esm.MGEF_RECOVER != 0 || src.lasting[form] == {.Lasting}
+		write_terms(&b, effect_terms(info, held))
+	case:
+		if class := worldstate.archetype_class(info.archetype); class != "" {append(&scripts, esm.Script_Attach{name = class})}
+	}
 	strings.write_string(&b, land)
-	write_scripts(&b, src, gamedb.form_scripts(&src.db, form))
+	append(&scripts, ..gamedb.form_scripts(&src.db, form))
+	write_scripts(&b, src, scripts[:])
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b), true
+}
+
+// dispels are the tags a Dispel With Keywords effect clears as it lands: its keywords.
+@(private)
+dispels :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> []string {
+	out := make([dynamic]string, context.temp_allocator)
+	if info.flags & esm.MGEF_DISPEL_WITH_KEYWORDS == 0 {return nil}
+	for kw in src.db.keywords[form] {
+		if edid := gamedb.keyword_editor_id(&src.db, kw); edid != "" {append(&out, fmt.tprintf("kw.%s", edid))}
+	}
+	return out[:]
 }
 
 // effect_tags: `hostile` from the Hostile flag, and a kw.<editor id> per keyword.

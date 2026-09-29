@@ -9,10 +9,26 @@ import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
-// land_lua writes a condition list as a land function; false when a condition has no Lua form.
-land_lua :: proc(src: ^Source, conds: []gamedb.Condition) -> (text: string, ok: bool) {
+// land_lua writes the land function: false from it when the conditions fail, then each dispel
+// (DispelTagged); "" for none. ok=false when a condition has no Lua form.
+land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string) -> (text: string, ok: bool) {
+	if len(conds) == 0 && len(dispels) == 0 {return "", true}
+	gate := gate_lua(src, conds) or_return
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprint(&b, "  land = function(e)\n    return ")
+	fmt.sbprintln(&b, "  land = function(e)")
+	switch {
+	case len(dispels) == 0: fmt.sbprintfln(&b, "    return %s", gate)
+	case len(conds) > 0:    fmt.sbprintfln(&b, "    if not (%s) then return false end", gate)
+	}
+	for d in dispels {fmt.sbprintfln(&b, "    e.target:DispelTagged(%q)", d)}
+	fmt.sbprintln(&b, "  end,")
+	return strings.to_string(b), true
+}
+
+// gate_lua writes a condition list as one Lua test: an AND of OR runs, one run a line.
+@(private)
+gate_lua :: proc(src: ^Source, conds: []gamedb.Condition) -> (text: string, ok: bool) {
+	b := strings.builder_make(context.temp_allocator)
 	group := make([dynamic]string, context.temp_allocator)
 	first := true
 	for c, i in conds {
@@ -25,7 +41,6 @@ land_lua :: proc(src: ^Source, conds: []gamedb.Condition) -> (text: string, ok: 
 		clear(&group)
 		first = false
 	}
-	fmt.sbprint(&b, "\n  end,\n")
 	return strings.to_string(b), true
 }
 
