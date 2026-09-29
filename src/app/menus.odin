@@ -257,8 +257,8 @@ item_card :: proc(g: ^Game, s: worldstate.Item_Stack) {
 		if imgui.Button("Read") && read_book(g, script.item_stack(&c, g.sim.ws.player, item), item) {
 			script.move_items(&c, {base = item, from = g.sim.ws.player, count = 1}) // a learned tome is used up
 		}
-	case is_drink(db, item):
-		if imgui.Button("Use") {script.drink(&c, g.sim.ws.player, item)}
+	case is_used(ws, db, item):
+		if imgui.Button("Use") {script.use_item(&c, g.sim.ws.player, item)}
 	case:
 		equip_buttons(g, item)
 	}
@@ -271,9 +271,9 @@ item_card :: proc(g: ^Game, s: worldstate.Item_Stack) {
 }
 
 @(private = "file")
-is_drink :: proc(db: ^gamedb.DB, item: Form_ID) -> bool {
-	p, ok := gamedb.potion_of(db, item)
-	return ok && !p.poison
+is_used :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, item: Form_ID) -> bool {
+	v, ok := worldstate.item_view(ws, db, item)
+	return ok && v.use == .Inventory && !v.poison
 }
 
 // equip_buttons equips or unequips an item or a spell: one button per hand for an either-hand form.
@@ -285,7 +285,7 @@ equip_buttons :: proc(g: ^Game, form: Form_ID) {
 		if imgui.Button("Unequip") {worldstate.unequip(ws, db, g.sim.ws.player, form)}
 		return
 	}
-	if _, either := gamedb.slots_of(db, form); !either {
+	if _, either := worldstate.item_slots(ws, db, form); !either {
 		if imgui.Button("Equip") {worldstate.equip(ws, db, g.sim.ws.player, form)}
 		return
 	}

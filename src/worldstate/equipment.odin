@@ -105,7 +105,7 @@ weapon_anim_type :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> i3
 
 @(private)
 put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Form_ID, hand: Maybe(gamedb.Slot), keep, announce: bool, outfit := false, sleep := false) -> bool {
-	slots, either := gamedb.slots_of(db, item)
+	slots, either := item_slots(ws, db, item)
 	if slots == {} {return false}
 	if either {slots = {pick_hand(slots, hand)}}
 	for w in eq.worn {

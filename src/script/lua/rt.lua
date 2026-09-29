@@ -9,6 +9,7 @@ local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local now, info = __now, __info
 local effect_class, content_files, effect_def, spell_def, power_def = __effect_class, __content_files, __effect_def, __spell_def, __power_def
+local item_def = __item_def
 local av_part, global_value = __av_part, __global
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
@@ -1241,8 +1242,8 @@ local function load_defs(folder, define)
   end
 end
 
--- rt.load_effects defines every effect the effects/ folders hold, then every spell and power the
--- spells/ and powers/ folders hold (they name effects), for the engine.
+-- rt.load_effects defines every effect the effects/ folders hold, then every spell, power and item
+-- the spells/, powers/ and items/ folders hold (they name effects and spells), for the engine.
 function rt.load_effects()
   lands = {}
   load_defs("effects", function(name, def)
@@ -1251,6 +1252,7 @@ function rt.load_effects()
   end)
   load_defs("spells", spell_def)
   load_defs("powers", power_def)
+  load_defs("items", item_def)
 end
 
 -- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):
@@ -1272,8 +1274,13 @@ function rt.spell(def) return def end
 --   cooldown_mult = "ShoutRecoveryMult"      -- an AV multiplying each cooldown
 function rt.power(def) return def end
 
--- (hole rt-consumable :tags (magic script) :sev gap) no rt.consumable: a potion, food, poison, ingredient or scroll is an item whose use applies effects (`applies` with m and d, as rt.spell) or casts a spell (a scroll aims like its spell). The item's weight, value and model stay with its record.
-function rt.consumable(def) return def end
+-- rt.item(def) says what using an item does, in an items/<name>.lua file that returns it:
+--   form = "Skyrim.esm:03EADE"               -- the item's record (model, name, weight, value): required
+--   use = "inventory" | "hand"               -- default: hand for a scroll, else inventory
+--   applies = { { "AlchRestoreHealth", m = 50 } }  -- inventory: used up, applied to the user
+--   casts = "Firebolt"                       -- hand: each cast of it uses one up, no Magicka
+--   tags = { "poison" }                      -- a poison coats the held weapon instead (weapon-poison)
+function rt.item(def) return def end
 
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is
 -- game state from then on, saved whole; change it through the Faction natives. def may hold:

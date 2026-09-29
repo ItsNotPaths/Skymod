@@ -48,6 +48,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__content_files", rt_content_files},
 		{"__spell_def", rt_spell_def},
 		{"__power_def", rt_power_def},
+		{"__item_def", rt_item_def},
 		{"__global", rt_global},
 		{"__effect_def", rt_effect_def},
 		{"__av_part", rt_av_part},
@@ -414,6 +415,24 @@ rt_power_def :: proc "c" (L: ^lua.State) -> c.int {
 	lua.pop(L, 1)
 	src.words = words[:]
 	worldstate.set_power_def(vm.ctx.ws, vm.ctx.db, src)
+	return 0
+}
+
+// __item_def(name, def) hands an rt.item definition to the engine (worldstate.set_item_def).
+@(private)
+rt_item_def :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	src := worldstate.Item_Def_Src{name = to_string(L, 1)}
+	src.form, src.use, src.casts = field_str(L, 2, "form"), field_str(L, 2, "use"), field_str(L, 2, "casts")
+	tags := make([dynamic]string, context.temp_allocator)
+	if lua.getfield(L, 2, "tags") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
+	}
+	lua.pop(L, 1)
+	src.tags, src.entries = tags[:], read_applies(L, 2)
+	worldstate.set_item_def(vm.ctx.ws, vm.ctx.db, src)
 	return 0
 }
 

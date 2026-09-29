@@ -40,13 +40,13 @@ n_base_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // EquipItem(akItem, abPreventRemoval=false, abSilent=false): an actor without the item is given one.
-// A leveled list does not work (CK wiki). A potion or food is drunk.
+// A leveled list does not work (CK wiki). An item used from the inventory (a potion, food) is used.
 // (hole ingredients :tags (magic player) :sev gap) an ingredient cannot be eaten and teaches no effect: EquipItem does nothing with INGR, Ingredient.LearnEffect/LearnNextEffect/LearnAllEffects are not natives, and no known-effect state exists.
 n_equip_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, _ := item_of(c, arg_form(c, args, 0))
 	if _, leveled := gamedb.leveled_list_of(c.db, base); leveled || base == 0 {return nil}
 	if worldstate.inv_count(c.ws, c.db, c.self, base) == 0 {move_items(c, {base = base, to = c.self, count = 1})}
-	if drink(c, c.self, base) {return nil}
+	if use_item(c, c.self, base) {return nil}
 	worldstate.equip(c.ws, c.db, c.self, base, keep = arg_bool(args, 1, false))
 	return nil
 }

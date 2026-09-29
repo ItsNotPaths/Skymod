@@ -16,18 +16,29 @@ import "../worldstate"
 
 // cast_hand casts the spell `caster` holds in `hand` at `target` (0 = nothing under the aim).
 // False when the hand holds no castable spell or the caster cannot pay.
-// (hole scrolls :tags magic :sev gap :needs (rt-consumable)) a scroll casts like a spell: it costs Magicka, is not used up and gives school XP; Spell.scroll is never read and Scroll.Cast has no native.
 // (hole item-charge :tags (magic combat) :sev gap :needs (spell-use)) a staff cannot cast (a WEAP, so spell_of misses), and no enchanted item has charge: ENCH charge_amount is unused, nothing drains it on use and RightItemCharge/LeftItemCharge read nothing.
 cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID) -> bool {
-	spell := worldstate.in_slot(c.ws, c.db, caster, hand)
+	held := worldstate.in_slot(c.ws, c.db, caster, hand)
+	spell := held
+	item, is_item := worldstate.item_view(c.ws, c.db, held)
+	used_up := is_item && item.use == .Hand // a scroll: one per cast, no Magicka, no XP
+	if used_up {
+		if worldstate.inv_count(c.ws, c.db, caster, held) == 0 {return false}
+		spell = item.casts
+	}
 	v, ok := worldstate.spell_view(c.ws, c.db, spell)
-	if !ok || !v.castable {return false}
-	cost := v.cost
+	if !ok || !(v.castable || used_up) {return false}
+	cost := 0 if used_up else v.cost
 	if worldstate.av_current(c.ws, c.db, caster, "Magicka") < cost {return false}
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
 	hit := caster if v.self else target
 	if sp, record := gamedb.spell_of(c.db, spell); record && !v.defined {cast_sounds(c, spell, sp, caster, hit)}
 	start_spell(c, spell, hit, caster)
+	if used_up {
+		move_items(c, {base = held, from = caster, count = 1})
+		if worldstate.inv_count(c.ws, c.db, caster, held) == 0 {worldstate.unequip(c.ws, c.db, caster, held)}
+		return true
+	}
 	// (hole spell-cast-event :tags (magic script) :sev gap) OnSpellCast is never sent (12 vanilla scripts handle it, 6 compare akSpell to a property).
 	worldstate.queue_story_event(c.ws, {type = worldstate.STORY_CAST, ref1 = caster, ref2 = hit, location1 = worldstate.ref_location(c.ws, c.db, caster), form = spell})
 	if school, trains := spell_school(c.ws, c.db, spell); trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}

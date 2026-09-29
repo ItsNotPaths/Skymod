@@ -1732,3 +1732,51 @@ test_rt_power :: proc(t: ^testing.T) {
 	testing.expect(t, script.use_power(c, CASTER, WHISPER, 1, 0) && script.use_power(c, CASTER, WHISPER, 1, 0), "a lesser power has no cooldown")
 	testing.expect_value(t, len(f.ws.effects), 6)
 }
+
+// rt.item: a mug used from the inventory is used up and its effect's land gives random gold; a
+// scroll held in a hand casts its spell with no Magicka, one per cast, and leaves the hand when the
+// last is gone.
+@(test)
+test_rt_item :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_rt_item", {})
+	defer fixture_destroy(&f)
+	files := [][2]string {
+		{"effects/luckygold.lua", `local rt = require('skymod.rt')
+return rt.effect { land = function(e) e.target:AddItem("Gold001", rt.static("Utility", "RandomInt", 10, 50)) end }`},
+		{"effects/burn.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } } }`},
+		{"spells/firebolt.lua", `return require('skymod.rt').spell { use = "charged", shape = "missile", cost = 50, applies = { { "Burn", m = 10 } } }`},
+		{"items/luckymug.lua", `return require('skymod.rt').item { form = "LuckyMug", use = "inventory", applies = { { "LuckyGold" } } }`},
+		{"items/firescroll.lua", `return require('skymod.rt').item { form = "FireScroll", use = "hand", casts = "Firebolt" }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	MUG, SCROLL :: gamedb.Form_ID(0x5000), gamedb.Form_ID(0x5001)
+	ACTOR, TARGET :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	f.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	f.db.form_by_edid["luckymug"] = MUG
+	f.db.form_by_edid["firescroll"] = SCROLL
+	f.db.form_by_edid["gold001"] = formid.GOLD
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load")
+
+	worldstate.inv_add(&f.ws, ACTOR, MUG, 2)
+	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x700), "EquipItem", ref(0x5000))`), "use the mug")
+	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, ACTOR, MUG), 1)
+	gold := worldstate.inv_count(&f.ws, &f.db, ACTOR, formid.GOLD)
+	testing.expectf(t, gold >= 10 && gold <= 50, "gold %d", gold)
+
+	worldstate.inv_add(&f.ws, ACTOR, SCROLL, 1)
+	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
+	testing.expect(t, worldstate.equip(&f.ws, &f.db, ACTOR, SCROLL, gamedb.Slot.RightHand), "a hand item equips")
+	c := &f.vm.ctx
+	testing.expect(t, script.cast_hand(c, ACTOR, .RightHand, TARGET), "the scroll casts with no Magicka")
+	slua.tick_effects(&f.vm, &f.ws, 1)
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 90)
+	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, ACTOR, SCROLL), 0)
+	testing.expect_value(t, worldstate.in_slot(&f.ws, &f.db, ACTOR, .RightHand), 0)
+	testing.expect(t, !script.cast_hand(c, ACTOR, .RightHand, TARGET), "nothing left to cast")
+}

@@ -32,6 +32,7 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "DispelAllSpells", n_dispel_all_spells)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
+	register(reg, "Scroll", "Cast", n_spell_cast)
 	register(reg, "ActiveMagicEffect", "Dispel", n_effect_dispel)
 	register(reg, "ActiveMagicEffect", "SetActive", n_effect_set_active)
 	register(reg, "ActiveMagicEffect", "GetBaseObject", n_effect_base)
@@ -195,14 +196,15 @@ start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
 }
 
 // (hole weapon-poison :tags (magic combat) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
-// drink uses up one of `actor`'s potions or food and starts its effects on it (EquipItem, the
-// inventory menu): OnItemRemoved, then OnObjectEquipped. False for a poison, which goes on a weapon.
-drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
-	p, ok := gamedb.potion_of(c.db, item)
-	if !ok || p.poison || worldstate.inv_count(c.ws, c.db, actor, item) == 0 {return false}
+// use_item uses up one of `actor`'s items used from the inventory (a potion, food, rt.item) and
+// starts its effects on it (EquipItem, the inventory menu): OnItemRemoved, then OnObjectEquipped.
+// False for a poison, which goes on a weapon, and for an item held to use.
+use_item :: proc(c: ^Call, actor, item: Form_ID) -> bool {
+	v, ok := worldstate.item_view(c.ws, c.db, item)
+	if !ok || v.use != .Inventory || v.poison || worldstate.inv_count(c.ws, c.db, actor, item) == 0 {return false}
 	move_items(c, {base = item, from = actor, count = 1})
 	append(&c.ws.equip_changes, worldstate.Equip_Change{actor, item, true})
-	start_effects(c, item, p.effects, false, actor, actor)
+	start_effects(c, item, v.entries, false, actor, actor)
 	return true
 }
 
