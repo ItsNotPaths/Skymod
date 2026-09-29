@@ -108,7 +108,7 @@ parse_duration :: proc(s: string) -> (f32, bool) {
 
 // Spell_View is what casting reads of a spell, from its definition or its record.
 Spell_View :: struct {
-	castable: bool, // a hand can cast it: not an ability
+	castable: bool, // a hand can cast it: not an ability or a power
 	passive:  bool, // an ability or a constant effect: its effects last until removed
 	self:     bool, // its shape hits the caster
 	cost:     f32,
@@ -118,9 +118,11 @@ Spell_View :: struct {
 
 spell_view :: proc(ws: ^World_State, db: ^gamedb.DB, spell: Form_ID) -> (v: Spell_View, ok: bool) {
 	if d, has := ws.spell_defs[spell]; has {
-		entries := make([]gamedb.Magic_Effect_Ref, len(d.entries), context.temp_allocator)
-		for e, i in d.entries {entries[i] = {effect = e.effect, magnitude = e.m, duration = e.d, area = u32(e.area)}}
-		return {castable = true, self = d.shape == "self", cost = d.cost, entries = entries, defined = true}, true
+		return {castable = true, self = d.shape == "self", cost = d.cost, entries = entry_refs(d.entries[:]), defined = true}, true
+	}
+	if d, has := ws.power_defs[spell]; has { // Spell.Cast: its first word, with no cooldown
+		entries := entry_refs(d.words[0].entries[:]) if len(d.words) > 0 else nil
+		return {self = d.shape == "self", entries = entries, defined = true}, true
 	}
 	sp := gamedb.spell_of(db, spell) or_return
 	passive := sp.info.type == .Ability || sp.info.cast_type == .Constant_Effect

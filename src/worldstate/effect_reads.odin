@@ -133,6 +133,7 @@ form_by_name :: proc(ws: ^World_State, db: ^gamedb.DB, text: string) -> (f: Form
 		return gamedb.form_from_file(db, u32(v), file)
 	}
 	if f, ok = defined_by_name(ws.spell_defs, "spell", text); ok {return}
+	if f, ok = defined_by_name(ws.power_defs, "power", text); ok {return}
 	if f, ok = defined_by_name(ws.effect_defs, "effect", text); ok {return}
 	return gamedb.form_by_editor_id(db, text)
 }

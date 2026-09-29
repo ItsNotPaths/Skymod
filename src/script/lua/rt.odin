@@ -47,6 +47,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__effect_class", rt_effect_class},
 		{"__content_files", rt_content_files},
 		{"__spell_def", rt_spell_def},
+		{"__power_def", rt_power_def},
 		{"__global", rt_global},
 		{"__effect_def", rt_effect_def},
 		{"__av_part", rt_av_part},
@@ -69,9 +70,9 @@ setup_rt :: proc(vm: ^VM) -> bool {
 rt_actor_value :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
-	kind, ok := reflect.enum_from_name(gamedb.AV_Kind, strings.to_pascal_case(to_string(L, 3), context.temp_allocator))
+	kind, ok := gamedb.av_kind_named(to_string(L, 3))
 	if !ok {
-		log.warnf("script: rt.actor_value(%q): no kind %q (static, latched, pool)", to_string(L, 1), to_string(L, 3))
+		log.warnf("script: rt.actor_value(%q): no kind %q (static, latched, pool, timer, stopwatch, gametimer, gamestopwatch)", to_string(L, 1), to_string(L, 3))
 		return 0
 	}
 	worldstate.av_create(vm.ctx.ws, to_string(L, 1), f32(lua.tonumber(L, 2)), kind)
@@ -343,40 +344,76 @@ rt_spell_def :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	src := worldstate.Spell_Def_Src{name = to_string(L, 1)}
-	str :: proc(L: ^lua.State, t: c.int, key: cstring) -> string {
-		lua.getfield(L, t, key)
-		defer lua.pop(L, 1)
-		return to_string(L, -1) if lua.type(L, -1) != .NIL else ""
-	}
-	num :: proc(L: ^lua.State, t: c.int, key: cstring) -> f32 {
-		lua.getfield(L, t, key)
-		defer lua.pop(L, 1)
-		return f32(lua.tonumber(L, -1))
-	}
-	src.form, src.display, src.use, src.shape = str(L, 2, "form"), str(L, 2, "name"), str(L, 2, "use"), str(L, 2, "shape")
-	src.cost = num(L, 2, "cost")
+	src.form, src.display, src.use, src.shape = field_str(L, 2, "form"), field_str(L, 2, "name"), field_str(L, 2, "use"), field_str(L, 2, "shape")
+	src.cost = field_num(L, 2, "cost")
 	tags := make([dynamic]string, context.temp_allocator)
 	if lua.getfield(L, 2, "tags") == i32(lua.TTABLE) {
 		lua.pushnil(L)
 		for lua.next(L, -2) != 0 {append(&tags, to_string(L, -1)); lua.pop(L, 1)}
 	}
 	lua.pop(L, 1)
+	src.tags, src.entries = tags[:], read_applies(L, 2)
+	worldstate.set_spell_def(vm.ctx.ws, vm.ctx.db, src)
+	return 0
+}
+
+// read_applies reads the table at `t`'s `applies`: { { "EffectName", m =, d =, area =, hits = }, ... }.
+@(private)
+read_applies :: proc(L: ^lua.State, t: c.int) -> []worldstate.Spell_Entry_Src {
 	entries := make([dynamic]worldstate.Spell_Entry_Src, context.temp_allocator)
-	if lua.getfield(L, 2, "applies") == i32(lua.TTABLE) {
+	if lua.getfield(L, t, "applies") == i32(lua.TTABLE) {
 		lua.pushnil(L)
 		for lua.next(L, -2) != 0 {
-			t := lua.gettop(L)
-			lua.geti(L, t, 0)
-			e := worldstate.Spell_Entry_Src{effect = to_string(L, -1)}
+			e := lua.gettop(L)
+			lua.geti(L, e, 0)
+			entry := worldstate.Spell_Entry_Src{effect = to_string(L, -1)}
 			lua.pop(L, 1)
-			e.m, e.area, e.d, e.hits = num(L, t, "m"), num(L, t, "area"), str(L, t, "d"), str(L, t, "hits")
-			append(&entries, e)
+			entry.m, entry.area, entry.d, entry.hits = field_num(L, e, "m"), field_num(L, e, "area"), field_str(L, e, "d"), field_str(L, e, "hits")
+			append(&entries, entry)
 			lua.pop(L, 1)
 		}
 	}
 	lua.pop(L, 1)
-	src.tags, src.entries = tags[:], entries[:]
-	worldstate.set_spell_def(vm.ctx.ws, vm.ctx.db, src)
+	return entries[:]
+}
+
+@(private)
+field_str :: proc(L: ^lua.State, t: c.int, key: cstring) -> string {
+	lua.getfield(L, t, key)
+	defer lua.pop(L, 1)
+	return to_string(L, -1) if lua.type(L, -1) != .NIL else ""
+}
+
+@(private)
+field_num :: proc(L: ^lua.State, t: c.int, key: cstring) -> f32 {
+	lua.getfield(L, t, key)
+	defer lua.pop(L, 1)
+	return f32(lua.tonumber(L, -1))
+}
+
+// __power_def(name, def) hands an rt.power definition to the engine (worldstate.set_power_def). A
+// power without `words` is one word: its own `applies` and `cooldown`.
+@(private)
+rt_power_def :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	src := worldstate.Power_Def_Src{name = to_string(L, 1)}
+	src.form, src.display, src.shape, src.mult = field_str(L, 2, "form"), field_str(L, 2, "name"), field_str(L, 2, "shape"), field_str(L, 2, "cooldown_mult")
+	src.cooldown = field_str(L, 2, "cooldown_av")
+	words := make([dynamic]worldstate.Power_Word_Src, context.temp_allocator)
+	if lua.getfield(L, 2, "words") == i32(lua.TTABLE) {
+		lua.pushnil(L)
+		for lua.next(L, -2) != 0 {
+			w := lua.gettop(L)
+			append(&words, worldstate.Power_Word_Src{entries = read_applies(L, w), cooldown = field_str(L, w, "cooldown")})
+			lua.pop(L, 1)
+		}
+	} else {
+		append(&words, worldstate.Power_Word_Src{entries = read_applies(L, 2), cooldown = field_str(L, 2, "cooldown")})
+	}
+	lua.pop(L, 1)
+	src.words = words[:]
+	worldstate.set_power_def(vm.ctx.ws, vm.ctx.db, src)
 	return 0
 }
 

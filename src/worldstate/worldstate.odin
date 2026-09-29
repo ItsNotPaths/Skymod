@@ -185,6 +185,7 @@ Runtime :: struct {
 	effect_defs:     map[Form_ID]Effect_Def,   // form -> the effect content defined (effect_defs.odin)
 	land_hook:       Land_Hook,                // runs an effect's Lua land; the VM sets it
 	spell_defs:      map[Form_ID]Spell_Def,    // form -> the spell content defined (spell_defs.odin)
+	power_defs:      map[Form_ID]Power_Def,    // form -> the power or shout content defined (power_defs.odin)
 	tags:            map[Form_ID][]string,     // form -> the tags content gave it (tags.odin)
 	summing:         [dynamic]AV_Sum,          // the actor values av_live is summing, innermost last
 	loop_warned:     map[string]bool,          // actor values whose read loop was warned about (av_live)
@@ -286,6 +287,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.effect_terms)
 	delete(ws.summing)
 	delete(ws.loop_warned)
+	for _, &d in ws.power_defs {free_power_def(&d)}
+	delete(ws.power_defs)
 	for _, &d in ws.spell_defs {free_spell_def(&d)}
 	delete(ws.spell_defs)
 	for _, &d in ws.effect_defs {free_effect_def(&d)}

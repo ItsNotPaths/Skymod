@@ -59,10 +59,30 @@ free_av_names :: proc "contextless" () {
 // capacity, and effects move it. Latched: the amount is damage below the capacity, so it rides with it
 // (Health at 80/100 fortified +50 reads 130/150; a skill fortified +20 reads 20 over its level).
 // Pool: the amount is its own stock under the capacity, a soft cap only training checks (a mod's).
+// The clocks move by themselves, as script clocks do: a timer counts down, a stopwatch up, in real
+// seconds or game hours (a cooldown is a timer: ready at 0).
 AV_Kind :: enum u8 {
 	Static,
 	Latched,
 	Pool,
+	Timer,
+	Stopwatch,
+	Game_Timer,
+	Game_Stopwatch,
+}
+
+// av_kind_named is a kind by the name content writes it with, the script clock field names too.
+av_kind_named :: proc(name: string) -> (AV_Kind, bool) {
+	switch name {
+	case "static":        return .Static, true
+	case "latched":       return .Latched, true
+	case "pool":          return .Pool, true
+	case "timer":         return .Timer, true
+	case "stopwatch":     return .Stopwatch, true
+	case "gametimer":     return .Game_Timer, true
+	case "gamestopwatch": return .Game_Stopwatch, true
+	}
+	return .Static, false
 }
 
 // SKILL_CAP is the cap training stops at (a pool's capacity) until something raises it.

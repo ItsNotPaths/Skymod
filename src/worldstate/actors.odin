@@ -169,6 +169,7 @@ Actor_Value :: struct {
 	permanent: f32,        // ModActorValue, ForceActorValue
 	damage:    f32,        // DamageActorValue; never above 0
 	cap:       Maybe(f32), // a pool's capacity; none = gamedb.SKILL_CAP
+	since:     f64,        // a clock's: its clock's time when base was written (clock_now)
 	pause:     f32,        // seconds before regen restores damage again (not saved)
 }
 
@@ -207,10 +208,15 @@ av_train_cap :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: strin
 	return av_parts(ws, actor, av).cap.? or_else gamedb.SKILL_CAP
 }
 
-// av_current is an AV's value: a pool's own stock, else its capacity plus damage.
+// av_current is an AV's value: a clock's written value moved by the time since, a pool's own
+// stock, else its capacity plus damage.
 av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	p := av_parts(ws, actor, av)
-	if av_kind(ws, av) == .Pool {return av_base(ws, db, actor, av) + p.permanent + p.damage}
+	kind := av_kind(ws, av)
+	if sign, game, clock := clock_of(kind); clock {
+		return av_base(ws, db, actor, av) + f32(sign * (clock_now(ws, game) - p.since))
+	}
+	if kind == .Pool {return av_base(ws, db, actor, av) + p.permanent + p.damage}
 	return av_max(ws, db, actor, av) + p.damage
 }
 
@@ -251,14 +257,39 @@ av_gain :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, ga
 	}
 }
 
-// av_set_base is SetActorValue: the base changes, the modifiers stay.
+// av_set_base is SetActorValue: the base changes, the modifiers stay. A clock starts from `value`.
 av_set_base :: proc(ws: ^World_State, actor: Form_ID, av: string, value: f32) {
-	av_upsert(ws, actor, av).base = value
+	p := av_upsert(ws, actor, av)
+	p.base = value
+	if _, game, clock := clock_of(av_kind(ws, av)); clock {p.since = clock_now(ws, game)}
 }
 
-// av_mod is ModActorValue: the max moves with the permanent modifier.
+// av_mod is ModActorValue: the max moves with the permanent modifier. A clock moves by `delta`.
 av_mod :: proc(ws: ^World_State, actor: Form_ID, av: string, delta: f32) {
-	av_upsert(ws, actor, av).permanent += delta
+	p := av_upsert(ws, actor, av)
+	if sign, game, clock := clock_of(av_kind(ws, av)); clock {
+		now := clock_now(ws, game)
+		p.base = (p.base.? or_else 0) + f32(sign * (now - p.since)) + delta
+		p.since = now
+		return
+	}
+	p.permanent += delta
+}
+
+// clock_of is a clock kind's direction and clock; clock false for the others.
+clock_of :: proc(kind: gamedb.AV_Kind) -> (sign: f64, game, clock: bool) {
+	#partial switch kind {
+	case .Timer:          return -1, false, true
+	case .Stopwatch:      return 1, false, true
+	case .Game_Timer:     return -1, true, true
+	case .Game_Stopwatch: return 1, true, true
+	}
+	return
+}
+
+// clock_now is the real clock in seconds of play, or the game clock in hours.
+clock_now :: proc(ws: ^World_State, game: bool) -> f64 {
+	return ws.clock.hours if game else ws.clock.played
 }
 
 // av_force is ForceActorValue: the permanent modifier takes what makes the current value `value`.

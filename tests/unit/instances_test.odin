@@ -1689,3 +1689,46 @@ test_rt_spell :: proc(t: ^testing.T) {
 	testing.expect(t, ok && s == "Destruction", "a defined spell trains its first effect's school")
 	testing.expect(t, slua.do_string(&f.vm, `rt.call(ref(0x701), "AddSpell", "Nightfire"); assert(rt.call(ref(0x701), "HasSpell", "nightfire") == true)`), "a spell named by its name, like an editor id")
 }
+
+// An rt.power's words are its variants; each sets its cooldown on a timer AV: a shout's on the
+// shared Voice in real seconds times ShoutRecoveryMult, a power's own in game hours, a lesser
+// power none. Cooling down, it cannot be used.
+@(test)
+test_rt_power :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_rt_power", {})
+	defer fixture_destroy(&f)
+	files := [][2]string {
+		{"effects/push.lua", `return require('skymod.rt').effect { av = { Stamina = { amount = "-m" } } }`},
+		{"powers/force.lua", `return require('skymod.rt').power { shape = "cone", cooldown_av = "Voice", cooldown_mult = "ShoutRecoveryMult",
+			words = { { applies = { { "Push", m = 1 } }, cooldown = "5s" }, { applies = { { "Push", m = 2 } }, cooldown = "10s" } } }`},
+		{"powers/blessing.lua", `return require('skymod.rt').power { shape = "self", applies = { { "Push", m = 3 } }, cooldown = "24h" }`},
+		{"powers/whisper.lua", `return require('skymod.rt').power { shape = "self", applies = { { "Push", m = 4 } } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	slua.set_script_dirs(&f.vm, {f.dir})
+	testing.expect(t, slua.do_string(&f.vm, `require('skymod.rt').load_effects()`), "load")
+
+	TARGET, CASTER :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
+	FORCE, BLESSING, WHISPER := formid.lua_form("power", "force"), formid.lua_form("power", "blessing"), formid.lua_form("power", "whisper")
+	c := &f.vm.ctx
+	worldstate.av_set_base(&f.ws, CASTER, "ShoutRecoveryMult", 0.5)
+
+	testing.expect(t, script.use_power(c, CASTER, FORCE, 5, TARGET), "a shout, more words than it has: its last")
+	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, CASTER, "Voice"), 5) // 10 s x 0.5
+	testing.expect(t, !script.use_power(c, CASTER, FORCE, 1, TARGET), "cooling down")
+	f.ws.clock.played += 5
+	testing.expect(t, script.use_power(c, CASTER, FORCE, 1, TARGET), "cooled down")
+
+	testing.expect(t, script.use_power(c, CASTER, BLESSING, 1, 0), "a power")
+	f.ws.clock.played += 1000
+	testing.expect(t, !script.use_power(c, CASTER, BLESSING, 1, 0), "real time does not reach a game-hours cooldown")
+	f.ws.clock.hours += 24
+	testing.expect(t, script.use_power(c, CASTER, BLESSING, 1, 0), "a day later")
+	testing.expect(t, script.use_power(c, CASTER, WHISPER, 1, 0) && script.use_power(c, CASTER, WHISPER, 1, 0), "a lesser power has no cooldown")
+	testing.expect_value(t, len(f.ws.effects), 6)
+}

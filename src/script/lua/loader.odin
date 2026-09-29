@@ -21,9 +21,10 @@ Script_Layer :: struct {
 Content :: enum u8 {
 	Effects, // effects/: rt.effect
 	Spells,  // spells/: rt.spell
+	Powers,  // powers/: rt.power
 }
 
-CONTENT_DIRS := [Content]string{.Effects = "effects", .Spells = "spells"}
+CONTENT_DIRS := [Content]string{.Effects = "effects", .Spells = "spells", .Powers = "powers"}
 
 // set_script_dirs indexes the scripts under `dirs`, given lowest priority first, and the definition
 // files in each one's content folders. Calling it again replaces the index; classes rt already
@@ -68,7 +69,7 @@ index_layers :: proc(index: ^map[string][dynamic]Script_Layer, dir: string) {
 
 @(private)
 free_script_index :: proc(vm: ^VM) {
-	for index in ([]^map[string][dynamic]Script_Layer{&vm.scripts, &vm.content[.Effects], &vm.content[.Spells]}) {
+	for index in ([]^map[string][dynamic]Script_Layer{&vm.scripts, &vm.content[.Effects], &vm.content[.Spells], &vm.content[.Powers]}) {
 		for name, layers in index {
 			for l in layers {delete(l.path)}
 			delete(layers)

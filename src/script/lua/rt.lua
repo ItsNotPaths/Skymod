@@ -8,7 +8,7 @@ local native, method, has_method, none_value = __native, __method, __has_method,
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local now, info = __now, __info
-local effect_class, content_files, effect_def, spell_def = __effect_class, __content_files, __effect_def, __spell_def
+local effect_class, content_files, effect_def, spell_def, power_def = __effect_class, __content_files, __effect_def, __spell_def, __power_def
 local av_part, global_value = __av_part, __global
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
@@ -1175,8 +1175,9 @@ function rt.start_end()
   for i = 0, #s.fresh - 1 do send_now(s.fresh[i], "OnInit") end
 end
 
--- rt.actor_value(name, {default = v, kind = "static" | "latched" | "pool"}) creates a mod actor
--- value, or gets it when it exists. The kind defaults to static.
+-- rt.actor_value(name, {default = v, kind = "static" | "latched" | "pool" | "timer" | "stopwatch" |
+-- "gametimer" | "gamestopwatch"}) creates a mod actor value, or gets it when it exists. The kind
+-- defaults to static; a clock kind moves by itself, like the script clock fields.
 function rt.actor_value(name, opts)
   if not game_loading then error("rt.actor_value outside OnGameLoaded", 2) end
   opts = opts or {}
@@ -1240,8 +1241,8 @@ local function load_defs(folder, define)
   end
 end
 
--- rt.load_effects defines every effect the effects/ folders hold, then every spell the spells/
--- folders hold (spells name effects), for the engine.
+-- rt.load_effects defines every effect the effects/ folders hold, then every spell and power the
+-- spells/ and powers/ folders hold (they name effects), for the engine.
 function rt.load_effects()
   lands = {}
   load_defs("effects", function(name, def)
@@ -1249,6 +1250,7 @@ function rt.load_effects()
     effect_def(name, def)
   end)
   load_defs("spells", spell_def)
+  load_defs("powers", power_def)
 end
 
 -- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):
@@ -1261,7 +1263,13 @@ end
 -- (ticks) or seconds. A <name>.patch.lua returns a function that edits the definition from below.
 function rt.spell(def) return def end
 
--- (hole rt-power :tags (magic script) :sev gap) no rt.power: lesser powers, powers and shouts, one kind (user, 2026-09-28): a cooldown time instead of a Magicka cost (a lesser power's is 0, a power's a day, a shout's its recovery), with the same shape and applies as rt.spell; a shout's words pick its variant. Activation is ours to design, not vanilla's.
+-- rt.power(def) is a lesser power, a power or a shout, in a powers/<name>.lua file that returns it:
+--   form, name, shape                        -- as rt.spell
+--   applies = {...}, cooldown = "24h"        -- one word; "24h" game hours, "15s" real seconds,
+--                                            -- none for a lesser power
+--   words = { { applies = {...}, cooldown = "15s" }, ... }  -- a shout's words, in order
+--   cooldown_av = "Voice"                    -- the timer AV its cooldowns run on (default: its name)
+--   cooldown_mult = "ShoutRecoveryMult"      -- an AV multiplying each cooldown
 function rt.power(def) return def end
 
 -- (hole rt-consumable :tags (magic script) :sev gap) no rt.consumable: a potion, food, poison, ingredient or scroll is an item whose use applies effects (`applies` with m and d, as rt.spell) or casts a spell (a scroll aims like its spell). The item's weight, value and model stay with its record.
