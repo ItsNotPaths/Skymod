@@ -1171,12 +1171,12 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
--- (hole av-scales :tags (magic mods) :sev gap :needs (magic-tags)) an actor value cannot say what it does to magic. Wanted: rt.actor_value(name, { scale = "-min(v, target.ResistCap)", tags = { "magic.fire" }, from = "target" | "caster", of = "m" | "d" | "radius" | "cost" ... }), also on engine AVs (FireResist gets its scale here, not a new AV); several matching scales multiply.
+-- (hole av-scales :tags (magic mods) :sev gap) an actor value cannot say what it does to magic. Wanted: rt.actor_value(name, { scale = "-min(v, target.ResistCap)", tags = { "magic.fire", "status" }, from = "target" | "caster", of = "m" | "d" | "radius" | "cost" | { "m", "d" } ... }), or `scales = { {...}, {...} }` for several on one AV; also on engine AVs (FireResist gets its scale here, not a new AV) and on perk names (v = the rank). A tag list matches when all its tags match (worldstate.has_tag); several matching scales multiply, so scaling m and d of a rate effect compounds (x1.2 each = x1.44 total; user 2026-09-28).
 
--- (hole rt-effect :tags (magic script) :sev gap :needs (magic-tags)) no rt.effect: an effect is data, AV formulas in t, m, d (`Health = { amount = "-m * min(t, d)" }`), tunables (a bare name in its formulas, `radius`, is a formula.Read with no object; fixed unless a scale names it), `when`, tags, `meta = { nostack = group }`, or `script = name` for a moment; it keeps a form ID so HasMagicEffect and akEffect == Prop work. Today effects are archetype classes with __effect (load_effect).
+-- (hole rt-effect :tags (magic script) :sev gap) no rt.effect: an effect is data, AV formulas in t, m, d (`Health = { amount = "-m * min(t, d)" }`), tunables (a bare name in its formulas, `radius`, is a formula.Read with no object; fixed unless a scale names it), `when`, tags, `meta = { nostack = group }`, or `script = name` for a moment; it keeps a form ID so HasMagicEffect and akEffect == Prop work. Today effects are archetype classes with __effect (load_effect).
 function rt.effect(def) return def end
 
--- (hole rt-spell :tags (magic script) :sev gap :needs (rt-effect)) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`.
+-- (hole rt-spell :tags (magic script) :sev gap :needs (rt-effect)) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`. Its `use` lands on each effect as a tag (use.charged), so a scale can match casts only.
 function rt.spell(def) return def end
 
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is

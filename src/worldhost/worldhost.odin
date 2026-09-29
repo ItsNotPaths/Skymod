@@ -36,6 +36,7 @@ world :: proc(d: ^Data) -> plugin.World {
 		setting       = setting,
 		game_hours    = game_hours,
 		record        = record,
+		has_tag       = has_tag,
 	}
 }
 
@@ -104,6 +105,13 @@ hostile :: proc "c" (data: rawptr, a, b: Form_ID) -> bool {
 	d := (^Data)(data)
 	context = d.ctx
 	return worldstate.hostile(d.ws, d.db, a, b)
+}
+
+@(private = "file")
+has_tag :: proc "c" (data: rawptr, form: Form_ID, pattern: cstring) -> bool {
+	d := (^Data)(data)
+	context = d.ctx
+	return worldstate.has_tag(d.ws, d.db, form, string(pattern))
 }
 
 @(private = "file")

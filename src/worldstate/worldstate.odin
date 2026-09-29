@@ -182,6 +182,7 @@ Runtime :: struct {
 	in_triggers:     map[[2]Form_ID]bool,   // {trigger volume, actor inside it} (script tick_triggers)
 	effect_classes:  map[string]Effect_Class, // script class (lower case) -> its __effect formulas, compiled when it loads
 	effect_terms:    map[Form_ID][]Effect_Term, // MGEF -> its classes' terms, until a class loads (effects.odin)
+	tags:            map[Form_ID][]string,     // form -> the tags content gave it (tags.odin)
 	summing:         [dynamic]AV_Sum,          // the actor values av_live is summing, innermost last
 	loop_warned:     map[string]bool,          // actor values whose read loop was warned about (av_live)
 	// The cells attached to the player's scene (the active scene's full-detail cells; the warm
@@ -282,6 +283,8 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.effect_terms)
 	delete(ws.summing)
 	delete(ws.loop_warned)
+	for _, t in ws.tags {free_tags(t)}
+	delete(ws.tags)
 	for _, &refs in ws.attached {
 		delete(refs)
 	}

@@ -25,6 +25,7 @@ World :: struct {
 	setting:       proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32, // a GMST
 	game_hours:    proc "c" (data: rawptr) -> f64, // since day 0
 	record:        proc "c" (data: rawptr, form: Form_ID, kind: Record_Kind, out: rawptr) -> bool, // see records.odin
+	has_tag:       proc "c" (data: rawptr, form: Form_ID, pattern: cstring) -> bool, // "magic" matches magic.fire; kw.<editor id> is a keyword
 }
 
 // Ref is what the world says of one ref.
