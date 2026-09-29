@@ -15,6 +15,7 @@ register_stores :: proc(reg: ^Registry) {
 
 	// Actor life-state.
 	register(reg, "Actor", "Kill", n_actor_kill)
+	register(reg, "Actor", "Resurrect", n_resurrect)
 	register(reg, "Actor", "IsDead", n_actor_is_dead)
 
 	// Spawning.
@@ -44,6 +45,17 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 // (hole kill-essential :tags combat :sev polish) Kill does not read IsEssential (worldstate.actor_flag); unsourced whether Skyrim refuses, or sends the actor to bleedout.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
 	kill(c, c.self, arg_form(c, args, 0))
+	return nil
+}
+
+// Resurrect: a dead actor lives again at full Health and picks its package anew. Its inventory stays.
+n_resurrect :: proc(c: ^Call, args: []Value) -> Value {
+	if !worldstate.is_dead(c.ws, c.db, c.self) {return nil}
+	worldstate.set_dead(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), false)
+	delete_key(&c.ws.killers, c.self)
+	worldstate.av_restore(c.ws, c.self, "Health", max(f32))
+	c.ws.ai.evaluate[c.self] = true
+	worldstate.mark_scene_dirty(c.ws, c.self)
 	return nil
 }
 

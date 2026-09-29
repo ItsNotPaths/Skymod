@@ -75,6 +75,7 @@ Saved_Delta :: struct {
 	locked:   bool,
 	dead:     bool,
 	lock_level: u8,
+	alpha:    f32,
 }
 
 // Saved_Created is one Created_Ref flattened for CBOR (the runtime-spawned 0xFF refs). next_created
@@ -416,6 +417,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 			locked   = d.locked,
 			dead     = d.dead,
 			lock_level = d.lock_level,
+			alpha    = d.alpha,
 		}
 		i += 1
 	}
@@ -768,6 +770,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		e.locked = d.locked
 		e.dead = d.dead
 		e.lock_level = d.lock_level
+		e.alpha = d.alpha
 	}
 	// Created refs: restore the exact FormIDs + the allocator cursor (don't re-mint via create_ref,
 	// which would hand out fresh ids). Clamp next_created to the floor for saves predating the field.

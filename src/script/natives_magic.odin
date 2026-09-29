@@ -15,7 +15,6 @@ import "../magic"
 import "../worldstate"
 
 // (hole soul-gems :tags magic :sev gap :needs (other-archetypes)) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
-// (hole magic-natives :tags (magic script) :sev gap) not natives: Actor.Resurrect, Actor.DoCombatSpellApply (26 calls), Actor.SetAlpha (144: invisibility effects), ObjectReference.InterruptCast (11) and KnockAreaEffect (27). Reanimation and quests that revive an actor do nothing.
 register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "AddSpell", n_add_spell)
 	register(reg, "Actor", "RemoveSpell", n_remove_spell)
@@ -35,6 +34,10 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "DispelTagged", n_dispel_tagged)
 	register(reg, "Spell", "Cast", n_spell_cast)
 	register(reg, "Spell", "RemoteCast", n_spell_remote_cast)
+	register(reg, "Actor", "DoCombatSpellApply", n_combat_spell_apply)
+	register(reg, "Actor", "SetAlpha", n_set_alpha)
+	register(reg, "ObjectReference", "InterruptCast", n_interrupt_cast)
+	register(reg, "ObjectReference", "KnockAreaEffect", n_knock_area_effect)
 	register(reg, "Scroll", "Cast", n_spell_cast)
 	register(reg, "ActiveMagicEffect", "Dispel", n_effect_dispel)
 	register(reg, "ActiveMagicEffect", "SetActive", n_effect_set_active)
@@ -224,6 +227,28 @@ n_effect_set_active :: proc(c: ^Call, args: []Value) -> Value {
 n_effect_base :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].effect)}
 n_effect_target :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].target)}
 n_effect_caster :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].caster)}
+
+// DoCombatSpellApply(akSpell, akTarget): the spell lands on the target as a hit from this actor, with
+// no cast and no cost.
+n_combat_spell_apply :: proc(c: ^Call, args: []Value) -> Value {
+	target := arg_form(c, args, 1)
+	if target == 0 {return nil}
+	start_spell(c, arg_form(c, args, 0), target, c.self)
+	worldstate.strike(c.ws, target, c.self)
+	return nil
+}
+
+// SetAlpha(afTargetAlpha, abFade)
+n_set_alpha :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.set_alpha(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), clamp(arg_f32(args, 0, 1), 0, 1))
+	return nil
+}
+
+// (hole interrupt-cast :tags magic :sev polish :needs (spell-use)) InterruptCast stops nothing: casting is instant, so no charge or held cast is under way.
+n_interrupt_cast :: proc(c: ^Call, args: []Value) -> Value {return nil}
+
+// (hole actor-knockdown :tags (combat physics unclaimed) :sev gap :needs (actor-ragdoll)) KnockAreaEffect (29 calls) and PushActorAway (10, not a native yet) knock no one down: no actor ragdolls.
+n_knock_area_effect :: proc(c: ^Call, args: []Value) -> Value {return nil}
 
 // start_spell starts a spell's effects. An ability or a constant effect lasts until removed; any
 // other lasts its authored duration.

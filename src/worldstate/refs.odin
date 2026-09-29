@@ -25,6 +25,7 @@ Ref_Field :: enum u8 {
 	Harvested, // flora picked; a cell reset grows it back. The bit is the whole state
 	Lock_Level, // SetLockLevel: the lock's level
 	Destroyed, // SetDestroyed: at its last destruction stage. The bit is the whole state
+	Alpha,     // SetAlpha: how opaque an actor draws
 }
 
 // (hole combat-damage :tags combat :sev blocker) no hit command on the combat seam: the stand-in fights but no swing lands; only DamageActorValue kills at 0 Health, and essential actors never bleed out. Wanted: a Host command a brain calls to land a hit, with a built-in that applies the weapon's damage.
@@ -46,6 +47,7 @@ Ref_Delta :: struct {
 	locked:   bool, // Locked: lock-state (level/key reserved for the lock subsystem)
 	dead:     bool, // Dead: actor life-state (Actor.Kill / IsDead)
 	lock_level: u8, // Lock_Level: 0 Novice .. 100 Master, 255 key only
+	alpha:    f32,  // Alpha: 0 unseen .. 1 opaque
 }
 
 // Created_Ref is a runtime-spawned reference with NO ESM baseline — the overlay stores its WHOLE
@@ -240,6 +242,19 @@ set_lock_level :: proc(ws: ^World_State, form_id, cell: Form_ID, level: u8) {
 	d := upsert(ws, form_id, cell)
 	d.live += {.Lock_Level}
 	d.lock_level = level
+}
+
+set_alpha :: proc(ws: ^World_State, form_id, cell: Form_ID, alpha: f32) {
+	d := upsert(ws, form_id, cell)
+	d.live += {.Alpha}
+	d.alpha = alpha
+}
+
+// (hole actor-alpha-render :tags (render unclaimed) :sev gap) SetAlpha is state only: nothing draws an actor see-through (invisibility effects set it, 148 calls), and abFade does not fade.
+// alpha is how opaque SetAlpha left an actor: 1 when no script set it.
+alpha :: proc(ws: ^World_State, form: Form_ID) -> f32 {
+	if d, ok := get(ws, form); ok && .Alpha in d.live {return d.alpha}
+	return 1
 }
 
 // lock_level is GetLockLevel: a script's SetLockLevel, else the ref's XLOC; 0 with neither.

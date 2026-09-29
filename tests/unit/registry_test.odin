@@ -403,7 +403,7 @@ test_method_class_dispatch :: proc(t: ^testing.T) {
 	testing.expect_value(t, cm, "Quest")
 }
 
-// A-tier stores: globals, actor Kill/IsDead, PlaceAtMe.
+// A-tier stores: globals, actor Kill/IsDead/Resurrect, SetAlpha, PlaceAtMe.
 @(test)
 test_registry_stores :: proc(t: ^testing.T) {
 	reg: script.Registry
@@ -427,6 +427,17 @@ test_registry_stores :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Actor", "IsDead", &ac, nil).(bool), false)
 	script.call(&reg, "Actor", "Kill", &ac, {script.Form_ID(0)})
 	testing.expect_value(t, script.call(&reg, "Actor", "IsDead", &ac, nil).(bool), true)
+	// Resurrect: alive again at full Health.
+	worldstate.av_damage(&ws, &db, actor, "Health", 30)
+	script.call(&reg, "Actor", "Resurrect", &ac, nil)
+	testing.expect_value(t, script.call(&reg, "Actor", "IsDead", &ac, nil).(bool), false)
+	testing.expect_value(t, worldstate.av_current(&ws, &db, actor, "Health"), worldstate.av_max(&ws, &db, actor, "Health"))
+	testing.expect(t, actor not_in ws.killers, "the killer is forgotten")
+
+	// SetAlpha is saved ref state; 1 before any.
+	testing.expect_value(t, worldstate.alpha(&ws, actor), 1)
+	script.call(&reg, "Actor", "SetAlpha", &ac, {f32(0.1), false})
+	testing.expect_value(t, worldstate.alpha(&ws, actor), 0.1)
 
 	// PlaceAtMe mints a created ref of the base form and returns its (0xFF-space) FormID.
 	placer := script.Form_ID(0x0003_0000)
