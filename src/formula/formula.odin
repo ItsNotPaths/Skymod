@@ -42,6 +42,7 @@ FUNCTIONS := [?]Function{{"min", 2}, {"max", 2}, {"clamp", 3}, {"floor", 1}, {"c
 MAX_STACK :: 32
 
 // compile turns `src` into a formula over `vars`. On failure `err` says why and nothing is allocated.
+// (hole formula-reads :tags magic :sev gap) a formula knows only its fixed variables and arithmetic. Magic wants comparisons that give 1 or 0 (`320 + (caster.SuperFear >= 1) * 880`), dotted reads resolved when evaluated (caster.X and target.X for AVs and Level, global.X, condition functions by name such as HasPerk(caster, X)), and tunables inferred from the names a formula uses.
 compile :: proc(src: string, vars: []string, allocator := context.allocator) -> (f: Formula, err: string) {
 	p := Parser{src = src, vars = vars}
 	p.code = make([dynamic]Instr, context.temp_allocator)

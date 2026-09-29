@@ -12,6 +12,7 @@ import "../../worldstate"
 // tick_triggers sends OnTriggerEnter / OnTriggerLeave(actor) for each enabled trigger in the
 // attached cells that an actor's height went into or out of since the last tick. A trigger that
 // detaches or is disabled, or an actor that unloads, is forgotten without an event.
+// (hole runtime-zones :tags (magic world script) :sev gap) only placed refs with an authored XPRM are zones; a script cannot make one. Wanted: rt.zone { at, shape, lifetime, every = cast on who is inside each interval (hazards, Wall of Flames), once = cast on the first to enter then vanish (runes) }, saved, tested here like authored triggers.
 tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	actors := make([dynamic]script.Form_ID, context.temp_allocator)
 	for actor in ws.ai.loaded {append(&actors, actor)}

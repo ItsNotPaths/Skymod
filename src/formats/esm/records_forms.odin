@@ -8,7 +8,7 @@ package esm
 
 // Records the base game ships that nothing here decodes into their content.
 //
-// (hole arma-records :tags records :sev blocker) ARMA is never decoded — ARMO has stats and slots but no per-race mesh, so worn armour cannot be drawn.
+// (hole arma-records :tags records :sev gap) ARMA is never decoded: ARMO has stats and slots but no per-race model list. Drawing worn armour is skinned-pipeline.
 // (hole weather-select :tags (records world unclaimed) :sev gap) no weather system: REGN and CLMT are never decoded, and nothing picks, times or blends a weather (WTHR is read), so there is no regional climate.
 
 // --- keywords -------------------------------------------------------------------------
@@ -277,6 +277,7 @@ Cast_Type :: enum u32 {
 	Constant_Effect = 0,
 	Fire_And_Forget = 1,
 	Concentration   = 2,
+	Scroll          = 3, // every SCRL but 2 (build/out/wsM/corpus.txt)
 }
 
 Delivery :: enum u32 {
@@ -507,7 +508,7 @@ MGEF_DISPEL_WITH_KEYWORDS :: 0x0000_0100 // applying it dispels the spells whose
 MGEF_NO_DURATION :: 0x0000_0200
 MGEF_NO_MAGNITUDE :: 0x0000_0400
 MGEF_NO_AREA :: 0x0000_0800
-MGEF_PAINLESS :: 0x0000_4000
+MGEF_PAINLESS :: 0x0400_0000
 
 // AV_NONE is the "no actor value" sentinel MGEF stores for the skill / resistance / affected
 // value slots (an i32 −1).

@@ -28,6 +28,7 @@ import "../ai"
 import "../audio"
 import "../combat"
 import "../condfn"
+import "../magic"
 import "../conditions"
 import "../detection"
 import "../formid"
@@ -292,9 +293,10 @@ frame_diag :: proc(g: ^Game) {
 		log.infof("prof.tick: total=%.2f%s (avg/%d ticks)", total, prof_parts(tp.ms, 0.005), tp.ticks)
 		log.infof("prof.events:%s (avg/%d ticks)", prof_parts(tp.events, 0.005), tp.ticks)
 		log.infof(
-			"prof.seams: detection=%.2f (%s) combat=%.2f (%s) sight=%.2f (%s) conditions=%.2f (%s)",
+			"prof.seams: detection=%.2f (%s) combat=%.2f (%s) sight=%.2f (%s) conditions=%.2f (%s) magic (%s)",
 			tp.ms[.Detection], plugin.owner(&g.plugins, detection.SEAM), tp.ms[.Combat], plugin.owner(&g.plugins, combat.SEAM),
 			tp.sight * inv, plugin.owner(&g.plugins, sight.SEAM), tp.conditions * inv, plugin.owner(&g.plugins, condfn.SEAM),
+			plugin.owner(&g.plugins, magic.SEAM),
 		)
 	}
 	g.prof = {}

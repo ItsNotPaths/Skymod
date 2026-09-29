@@ -5,15 +5,14 @@ package worldstate
 // Magic comes first for magic (spells, powers, shouts, scrolls, enchantments), then the effect's own
 // resist; they multiply. A Poison spell is resisted by PoisonResist instead. The player caps each
 // resistance at fPlayerMaxResistance; anyone else at 100, immune. A weakness (below 0) strengthens.
-// (hole spell-absorption :tags magic :sev gap) Spell Absorption (AbsorbChance, checked before Resist Magic; the spell is nullified and its cost restores the target's Magicka) is not rolled.
 // (hole disease-resistance :tags magic :sev gap) a Disease spell is not resisted: DiseaseResist is a chance to not catch it (UESP, unconfirmed), not a magnitude cut.
-// (hole resist-paralysis-duration :tags magic :sev polish :needs (other-archetypes)) Resist Magic also shortens Paralysis (UESP Skyrim:Resist_Magic); only magnitudes are cut.
 
 import "../formats/esm"
 import "../formid"
 import "../gamedb"
 
 // resisted is magnitude `m` of `effect` from `source` after `target`'s resistances.
+// (hole resist-rules :tags magic :sev gap :needs (effect-scales magic-tags)) resistance is code, and it differs from vanilla (build/out/wsM/mechanics.md): it cuts only magnitude (Resist Magic should follow the power, so it shortens Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, and worn armour enchantments are resisted. Wanted: FireResist and the rest as AV scales on tags, and this proc gone.
 resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_ID, m: f32) -> f32 {
 	mgef, _ := gamedb.magic_effect_of(db, effect)
 	if mgef.info.flags & esm.MGEF_HOSTILE == 0 {return m}

@@ -1171,6 +1171,14 @@ function rt.actor_value(name, opts)
   __actor_value(name, opts.default or 0.0, opts.kind or "static")
 end
 
+-- (hole av-scales :tags (magic mods) :sev gap :needs (formula-reads magic-tags)) an actor value cannot say what it does to magic. Wanted: rt.actor_value(name, { scale = "-min(v, target.ResistCap)", tags = { "magic.fire" }, from = "target" | "caster", of = "m" | "d" | "radius" | "cost" ... }), also on engine AVs (FireResist gets its scale here, not a new AV); several matching scales multiply.
+
+-- (hole rt-effect :tags (magic script) :sev gap :needs (formula-reads magic-tags)) no rt.effect: an effect is data, AV formulas in t, m, d (`Health = { amount = "-m * min(t, d)" }`), `when`, tags, `meta = { nostack = group }`, or `script = name` for a moment; it keeps a form ID so HasMagicEffect and akEffect == Prop work. Today effects are archetype classes with __effect (load_effect).
+function rt.effect(def) return def end
+
+-- (hole rt-spell :tags (magic script) :sev gap :needs (rt-effect)) no rt.spell: `use`, `shape`, `applies = { { Effect, m = 8, d = "3s", hits = "direct", fx = {...} } }`, tags and spell-side fx (effects stay pure data); durations as "3s" (ticks as "20tk", stored as seconds); a form ID for Spell.Cast and `as Spell`.
+function rt.spell(def) return def end
+
 -- rt.faction(name, def) makes a faction at runtime, or gets the one called `name` unchanged. It is
 -- game state from then on, saved whole; change it through the Faction natives. def may hold:
 --   flags = {"track_crime", "ignore_trespass", ...}

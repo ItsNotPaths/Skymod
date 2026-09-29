@@ -5,7 +5,7 @@ package worldstate
 // and different spells add. Sources: UESP Skyrim:Alchemy_Effects (one potion effect, the strongest),
 // CK Magic Effect (keyword dispel; the PVM keyword rule is marked "?" there). A spell replacing its
 // own running copy is unsourced for Skyrim.
-// (hole stacking-rules-data :tags (magic mods) :sev wish) the stacking rules are code; a mod cannot change them. Make them data (per archetype, per source kind) a mod can replace.
+// (hole stacking-meta :tags (magic mods) :sev gap :needs (rt-effect)) the stacking rules are code, and two differ from vanilla (mechanics.md): the timed-potion rule also ends Weakness potions and lingering poisons, which vanilla stacks through data (Peak Value Modifier keywords), and a recast replaces its copy whoever cast it, where vanilla restarts only the same caster's, one per hand for a Value Modifier. Wanted: sources add by default, the same caster restarts, `meta = { nostack = group }` keeps the strongest in a group across AVs, and No Recast (0x20000) is honoured.
 
 import "core:slice"
 import "../formats/esm"

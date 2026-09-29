@@ -9,6 +9,7 @@ WORD_UNLOCKED :: 2
 
 // teach_word / unlock_word are Game.TeachWord / Game.UnlockWord: taught is not unlocked.
 teach_word :: proc(ws: ^World_State, actor, word: Form_ID) {delta_upsert(&ws.words, actor)[word] |= WORD_TAUGHT}
+// (hole word-unlock :tags (magic ui player) :sev gap) nothing spends DragonSouls to unlock a word; only Game.UnlockWord unlocks one.
 // Unlocking a word is a story event (NVPE).
 unlock_word :: proc(ws: ^World_State, actor, word: Form_ID) {
 	delta_upsert(&ws.words, actor)[word] |= WORD_UNLOCKED

@@ -378,6 +378,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	step(vm, .Regen, &at)
 	sync_refs(vm)
 	step(vm, .Refs, &at)
+	// (hole effect-wait-time :tags magic :sev polish) effects run on dt, not play_seconds like regen, so a potion outlasts a long wait; unsourced whether Skyrim runs them out.
 	tick_effects(vm, ws, dt)
 	step(vm, .Effects, &at)
 	for cell in loaded {attach_cell(vm, db, cell)}

@@ -35,6 +35,7 @@ Effect_Motion :: enum u8 {
 
 // start_effect adds an effect on `target` and returns its handle; the VM gives it its script and
 // sends OnEffectStart (slua.sync_refs).
+// (hole effect-apply-event :tags (magic script) :sev gap) OnMagicEffectApply is never sent: a target's scripts do not hear an effect land (mg06armillaryscript waits on it).
 start_effect :: proc(ws: ^World_State, e: Active_Effect) -> Form_ID {
 	ws.next_effect += 1
 	h := formid.effect_handle(ws.next_effect)
@@ -78,6 +79,7 @@ advance_effect :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID, dt: f32) ->
 }
 
 // av_live is what the running effects on `actor` hold on `av`'s capacity now.
+// (hole av-recursion-cap :tags magic :sev gap :needs (formula-reads)) once formulas read AVs, a capacity term that reads an AV it feeds (Fortify Health by 10% of Health, or two mods reading each other) recurses without end. Wanted: a stack of the AVs being summed and a setting (iEffectRecursionDepth, default 1); a read past it returns the AV without the terms still being summed, and warns once naming the effects.
 av_live :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
 	sum: f64
 	for h in effects_on(ws, actor) {
@@ -152,7 +154,7 @@ effect_classes :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> []s
 
 // archetype_class is the class that plays an archetype: a pure-formula script in the core scripts
 // mod (src/script/effects), which a mod replaces like any script. "" for one no class plays.
-// (hole other-archetypes :tags magic :sev gap) only Value Modifier, Peak Value Modifier, Dual Value Modifier and Absorb have a class; summon, paralysis, invisibility, cloak, bound weapon, calm/frenzy and the rest start an effect that does nothing.
+// (hole other-archetypes :tags magic :sev gap) only Value Modifier, Peak Value Modifier, Dual Value Modifier and Absorb have a class. The status archetypes (Paralysis, Invisibility, Calm, Frenzy, Demoralize, Rally, Turn Undead, Banish) should write their AV with the level cap as m; the moment ones (Summon, Stagger, Soul Trap, Reanimate, Bound Weapon, Light, Telekinesis, Detect Life, Slow Time, Etherealize, Disarm, Dispel, the Cures, Werewolf, Vampire Lord) need core wrapper scripts; Cloak is a script casting its spell each second on actors within m.
 archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	#partial switch a {
 	case .Value_Modifier:      return "archetypevaluemodifier"

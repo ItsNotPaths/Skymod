@@ -5,14 +5,17 @@ package script
 // its handle (worldstate.Active_Effect).
 // (hole brew-enchant-perks :tags (magic player) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).
 // (hole effect-fx :tags (magic vfx unclaimed) :sev gap :needs (particles)) an effect's art, shaders and light (its MGEF's hit art, casting art) do not show.
-// (hole effect-sounds :tags (magic audio) :sev gap :needs (spell-casting)) an effect's charge, ready, cast-loop and draw/sheathe sounds do not play: casting is instant. Release and on-hit play (casting.odin).
+// (hole effect-sounds :tags (magic audio unclaimed) :sev gap :needs (cast-animation concentration)) an effect's charge, ready, cast-loop and draw/sheathe sounds do not play: casting is instant. Release and on-hit play (casting.odin).
 
 import "core:slice"
 import "../conditions"
 import "../formid"
 import "../gamedb"
+import "../magic"
 import "../worldstate"
 
+// (hole soul-gems :tags magic :sev gap :needs (other-archetypes)) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
+// (hole magic-natives :tags (magic script) :sev gap) not natives: Actor.Resurrect, Actor.DoCombatSpellApply (26 calls), Actor.SetAlpha (144: invisibility effects), ObjectReference.InterruptCast (11) and KnockAreaEffect (27). Reanimation and quests that revive an actor do nothing.
 register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "AddSpell", n_add_spell)
 	register(reg, "Actor", "RemoveSpell", n_remove_spell)
@@ -43,6 +46,7 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "ActiveMagicEffect", "UnregisterForAnimationEvent", n_unregister_anim_event)
 }
 
+// (hole disease-effects :tags magic :sev gap) a caught disease does nothing: AddSpell and sync_constant_effects start abilities only, so a Disease spell sits in the list with GetDisease 1 and no penalty; no hit passes one on.
 // AddSpell: the actor learns the spell; an ability starts. False when it already knew it.
 n_add_spell :: proc(c: ^Call, args: []Value) -> Value {
 	spell := arg_form(args, 0)
@@ -126,6 +130,7 @@ is_constant_enchantment :: proc(db: ^gamedb.DB, form: Form_ID) -> bool {
 	return ok && e.info.cast_type == .Constant_Effect
 }
 
+// (hole death-dispel :tags magic :sev gap) a death ends no effect: vanilla dispels every effect on a dying actor unless its MGEF has No Death Dispel (0x10000000); OnEffectFinish then reaches soul trap and ash pile scripts with the dead target still valid.
 // DispelAllSpells ends every effect with a duration; abilities stay.
 n_dispel_all_spells :: proc(c: ^Call, args: []Value) -> Value {
 	for h in worldstate.effects_on(c.ws, c.self) {
@@ -178,6 +183,7 @@ start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
 	start_effects(c, spell, sp.effects, sp.info.type == .Ability || sp.info.cast_type == .Constant_Effect, target, caster)
 }
 
+// (hole weapon-poison :tags (magic combat) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
 // drink uses up one of `actor`'s potions or food and starts its effects on it (EquipItem, the
 // inventory menu): OnItemRemoved, then OnObjectEquipped. False for a poison, which goes on a weapon.
 drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
@@ -195,10 +201,12 @@ drink :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // target. A spell's magnitude and duration go through the caster's Mod Spell perks and the
 // target's Mod Incoming Spell perks, then resistance (worldstate.resisted); effects stack by
 // worldstate.stack_effect. A timed effect goes on for its MGEF's taper after its duration.
-// (hole concentration-conditions :tags magic :sev polish :needs (spell-casting)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
+// (hole concentration-conditions :tags magic :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
 start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_Ref, lasts: bool, target, caster: Form_ID) {
 	if target == 0 {return}
+	hit := magic.Hit{source, caster, target, true}
+	if !hit_lands(c, hit) {return}
 	ctx := condition_context(c, target, caster)
 	_, is_spell := gamedb.spell_of(c.db, source)
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
@@ -207,6 +215,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		if !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else mgef.info.taper_duration
 		magnitude, duration := e.magnitude, f32(e.duration)
+		// (hole spell-perk-sources :tags magic :sev gap :needs (effect-scales)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it).
 		if is_spell {
 			magnitude = perk_value(c, .Mod_Spell_Magnitude, caster, magnitude, source, target)
 			magnitude = perk_value(c, .Mod_Incoming_Spell_Magnitude, target, magnitude, source)
@@ -214,6 +223,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 			duration = perk_value(c, .Mod_Incoming_Spell_Duration, target, duration, source)
 		}
 		m := worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
+		m, duration = effect_numbers(c, hit, e.effect, m, duration)
 		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)
 		if worldstate.stack_effect(c.ws, c.db, eff) {append(&starting, eff)}
