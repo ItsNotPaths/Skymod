@@ -12,6 +12,7 @@ local effect_class, content_files, effect_def, spell_def, power_def = __effect_c
 local item_def = __item_def
 local av_part, global_value = __av_part, __global
 local resolve_ref, make_zone, spawn_hazard = __resolve, __make_zone, __spawn_hazard
+local method_kind, condition = __method_kind, __condition
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -854,6 +855,16 @@ local function caller(k)
   return m
 end
 
+local conditions = {} -- name -> ref:name(...) for a condition function
+local function condition_caller(k)
+  local m = conditions[k]
+  if not m then
+    m = function(self, ...) return condition(self, k, ...) end
+    conditions[k] = m
+  end
+  return m
+end
+
 local function no_name(recv, k) error("no field or function '" .. tostring(k) .. "' on " .. tostring(recv), 3) end
 
 Instance.__index = function(inst, k)
@@ -916,7 +927,10 @@ Ref.__index = function(r, k)
   local owner = field_owner(r, k)
   if owner then return owner[k] end
   if engine_prop(r, k) then return rt.get(r, k) end
-  if resolve(r, low(k)) or has_method(r, k) then return caller(k) end
+  if resolve(r, low(k)) then return caller(k) end
+  local kind = method_kind(r, k)
+  if kind == "condition" then return condition_caller(k) end
+  if kind then return caller(k) end
   no_name(r, k)
 end
 Ref.__newindex = function(r, k, v)

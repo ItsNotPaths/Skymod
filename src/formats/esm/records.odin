@@ -8,6 +8,7 @@ package esm
 
 import "core:encoding/endian"
 import "core:math"
+import "core:strings"
 
 // CELL DATA flags (first byte). 0x01 = interior cell.
 CELL_INTERIOR :: 0x01
@@ -373,6 +374,14 @@ Condition :: struct {
 // condition_function is a function's name and parameter kinds; an unknown index has no name.
 condition_function :: proc(function: u16) -> Condition_Function {
 	return CONDITION_FUNCTIONS[function] if int(function) < CONDITION_FUNCTION_COUNT else {}
+}
+
+// condition_function_by_name is the index of the function called `name`, any case.
+condition_function_by_name :: proc(name: string) -> (u16, bool) {
+	for f, i in CONDITION_FUNCTIONS {
+		if f.name != "" && strings.equal_fold(f.name, name) {return u16(i), true}
+	}
+	return 0, false
 }
 
 // condition_param_is_form reports whether parameter `i` (0 or 1) of `c` holds a form ID.

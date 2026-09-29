@@ -58,11 +58,8 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	case: return "unknown subject: use caster, target or global"
 	}
 	if !r.call {return bind_av(db, r)}
-	fn := -1
-	for f, i in esm.CONDITION_FUNCTIONS {
-		if f.name != "" && strings.equal_fold(f.name, r.name) {fn = i}
-	}
-	if fn < 0 {return "unknown function"}
+	fn, found := esm.condition_function_by_name(r.name)
+	if !found {return "unknown function"}
 	r.bound[1] = u64(fn + 1)
 	n := 0
 	for kind, i in esm.CONDITION_FUNCTIONS[fn].params {
@@ -74,7 +71,7 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 		case .None:
 		case .String: return "a function taking a string cannot be called from a formula"
 		case .Number:
-			v, ok := param_number(arg)
+			v, ok := condition_number(arg)
 			if !ok {return "expected a number or an actor value name"}
 			r.bound[2 + i] = v
 		case .Form, .Ref:
@@ -114,9 +111,9 @@ bind_av :: proc(db: ^gamedb.DB, r: ^formula.Read) -> string {
 	return ""
 }
 
-// param_number reads a number parameter: a number, or an actor value's index (GetActorValuePercent).
-@(private)
-param_number :: proc(text: string) -> (v: u64, ok: bool) {
+// condition_number reads a condition function's number parameter: a number, or an actor value's
+// index by its name (GetActorValuePercent).
+condition_number :: proc(text: string) -> (v: u64, ok: bool) {
 	if v, ok := strconv.parse_i64(text); ok {return u64(v), true}
 	name := gamedb.actor_value_name(text) or_return
 	for av, i in gamedb.AV_NAMES {

@@ -1788,6 +1788,23 @@ return rt.effect {
 	}
 }
 
+// A ref reaches a condition function by name when no native implements it, a declared stub
+// included: Is/Has ones answer booleans, the rest numbers, and a number parameter takes an AV name.
+@(test)
+test_ref_condition_functions :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_ref_conditions", {})
+	defer fixture_destroy(&f)
+	worldstate.av_set_base(&f.ws, 0x700, "Health", 100)
+	testing.expect(t, slua.do_string(&f.vm, `
+require('skymod.rt')
+local a = ref(0x700)
+assert(a:IsUndead() == false, "IsUndead is a boolean")
+assert(a:IsHostileToActor(ref(0x701)) == false, "a condition beats the declared stub")
+assert(a:GetActorValuePercent("Health") == 1, tostring(a:GetActorValuePercent("Health")))
+`), "condition calls")
+}
+
 // An rt.spell file names every effect it applies; Spell.Cast reaches it by its Lua form. Each effect
 // gates itself in its land (here by the hour, through e.global), and a duration may be in ticks.
 @(test)
