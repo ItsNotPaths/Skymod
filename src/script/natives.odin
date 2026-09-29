@@ -353,7 +353,7 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 // n_message_show queues a box MESG (worldstate.ask). The box pauses the world before the next tick,
 // so the script reads the pick there with Answer (docs/script-rewrite.md "Menus that pause the world").
 //
-// (hole show-answer :tags (script ui) :sev gap) converted code that reads Show's result gets 0, the first button: the 36 functions that branch on it need the split (Show, then Answer in OnTick).
+// (hole show-answer :tags (script ui) :sev gap) converted code that reads Show's result gets 0, the first button: 44 functions read it (build/out/show_readers_se.tsv less the 3 patches that use Answer) and need the split (Show, then Answer in OnTick).
 n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 	m, ok := gamedb.message_of(c.db, c.self)
 	if !ok {

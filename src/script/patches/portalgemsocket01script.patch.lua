@@ -2,7 +2,8 @@
 -- pex: waitingforplacement.onactivate 640a641d
 -- Placing or taking a gem played PlaceX or TakeX and waited for "Done" in BusyState before
 -- lighting the portal (or giving the gem back). Now the event finishes it; `moving_gem` is the
--- gem in the socket's hands and `placing` says which way.
+-- gem in the socket's hands and `placing` says which way. With several gems it asks which, and
+-- OnTick in BusyState places the answer.
 local rt = require('skymod.rt')
 
 local COLORS = { "Blue", "Green", "Orange", "Purple", "White" } -- LinkCustom01..05 in this order
@@ -10,6 +11,7 @@ local COLORS = { "Blue", "Green", "Orange", "Purple", "White" } -- LinkCustom01.
 return function(C)
 	C.__vars.moving_gem = rt.form("Form")
 	C.__vars.placing = rt.bool(false)
+	C.__vars.asking = rt.bool(false)
 	local Placement, Pickup, Busy = rt.state(C, "WaitingForPlacement"), rt.state(C, "WaitingForPickup"), rt.state(C, "BusyState")
 
 	local function player() return rt.static("Game", "GetPlayer") end
@@ -41,7 +43,15 @@ return function(C)
 			end
 			return -- as Papyrus: no single gem matched, the socket stays busy
 		end
-		self.MessageOption = self.PortalGemPlaceMessage:Show()
+		self.asking = true
+		self.PortalGemPlaceMessage:Show()
+	end
+
+	function Busy:OnTick()
+		if not self.asking then return end
+		self.MessageOption = self.PortalGemPlaceMessage:Answer()
+		if self.MessageOption < 0 then return self.PortalGemPlaceMessage:Show() end
+		self.asking = false
 		if self.MessageOption >= 0 and self.MessageOption <= 4 then return place(self, self.MessageOption) end
 		if self.MessageOption == 5 then self:GotoState("WaitingForPlacement") end
 	end
