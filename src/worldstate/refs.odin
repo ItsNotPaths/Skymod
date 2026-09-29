@@ -288,6 +288,11 @@ Death :: struct {
 	actor, killer: Form_ID,
 }
 
+// Spell_Cast is an actor casting a spell, scroll or power, for OnSpellCast.
+Spell_Cast :: struct {
+	caster, spell: Form_ID,
+}
+
 // is_dead reads the Dead delta, else the placement's "Starts Dead" flag.
 is_dead :: proc(ws: ^World_State, db: ^gamedb.DB, form_id: Form_ID) -> bool {
 	if d, ok := get(ws, form_id); ok && .Dead in d.live {return d.dead}

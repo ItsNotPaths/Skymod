@@ -35,12 +35,12 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	hit := caster if v.self else target
 	if sp, record := gamedb.spell_of(c.db, spell); record && !v.defined {cast_sounds(c, spell, sp, caster, hit)}
 	start_spell(c, spell, hit, caster)
+	append(&c.ws.casts, worldstate.Spell_Cast{caster, held})
 	if used_up {
 		move_items(c, {base = held, from = caster, count = 1})
 		if worldstate.inv_count(c.ws, c.db, caster, held) == 0 {worldstate.unequip(c.ws, c.db, caster, held)}
 		return true
 	}
-	// (hole spell-cast-event :tags (magic script) :sev gap) OnSpellCast is never sent (12 vanilla scripts handle it, 6 compare akSpell to a property).
 	worldstate.queue_story_event(c.ws, {type = worldstate.STORY_CAST, ref1 = caster, ref2 = hit, location1 = worldstate.ref_location(c.ws, c.db, caster), form = spell})
 	if school, trains := spell_school(c.ws, c.db, spell); trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}
 	return true
@@ -53,6 +53,7 @@ use_power :: proc(c: ^Call, caster, power: Form_ID, words: int, target: Form_ID)
 	entries := worldstate.power_word(c.ws, c.db, caster, power, words) or_return
 	hit := caster if c.ws.power_defs[power].shape == "self" else target
 	start_effects(c, power, entries, false, hit, caster)
+	append(&c.ws.casts, worldstate.Spell_Cast{caster, power})
 	return true
 }
 

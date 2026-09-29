@@ -193,6 +193,13 @@ tick_hits :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.hits)
 }
 
+// tick_casts sends OnSpellCast(akSpell) to each caster: a hand cast (the scroll for a scroll) or a
+// power. A script's Spell.Cast sends none.
+tick_casts :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	for c in ws.casts {send(vm, c.caster, "OnSpellCast", c.spell)}
+	clear(&ws.casts)
+}
+
 // tick_los checks each LOS registration and sends OnGainLOS / OnLostLOS to the registering form
 // alone when what it watches changes. A single registration ends with its event.
 tick_los :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
@@ -394,6 +401,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	step(vm, .Updates, &at)
 	tick_items(vm, db, ws)
 	tick_hits(vm, ws)
+	tick_casts(vm, ws)
 	tick_deaths(vm, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)

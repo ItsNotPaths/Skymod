@@ -165,6 +165,7 @@ Runtime :: struct {
 	level_ups:       [dynamic]Level_Up,     // level-ups since the VM last looked: OnLevelUp
 	deaths:          [dynamic]Death,        // deaths since the VM last looked: OnDying, OnDeath
 	hits:            [dynamic]Hit,          // hits since the VM last looked: OnHit
+	casts:           [dynamic]Spell_Cast,   // casts since the VM last looked: OnSpellCast
 	struck:          map[Form_ID]Form_ID,   // victim -> who last hit it, until its combat looks (projectiles.odin); not saved
 	alarmed:         map[Form_ID]Form_ID,   // actor -> whom it fights or confronts, as the AI set it (GetAlarmed); not saved
 	trespass_warnings: map[[2]Form_ID]Trespass_Warning, // {warner, trespasser} -> its warnings so far (crime.odin); not saved
@@ -235,6 +236,7 @@ init :: proc(ws: ^World_State) {
 	ws.level_ups = make([dynamic]Level_Up)
 	ws.deaths = make([dynamic]Death)
 	ws.hits = make([dynamic]Hit)
+	ws.casts = make([dynamic]Spell_Cast)
 	ws.struck = make(map[Form_ID]Form_ID)
 	ws.alarmed = make(map[Form_ID]Form_ID)
 	ws.trespass_warnings = make(map[[2]Form_ID]Trespass_Warning)
@@ -268,6 +270,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.level_ups)
 	delete(ws.deaths)
 	delete(ws.hits)
+	delete(ws.casts)
 	delete(ws.struck)
 	delete(ws.alarmed)
 	delete(ws.trespass_warnings)

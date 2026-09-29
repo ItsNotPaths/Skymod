@@ -176,8 +176,8 @@ attach_created :: proc(vm: ^VM, db: ^gamedb.DB, id: script.Form_ID) -> int {
 // PlaceAtMe returns a ref whose OnInit has run. Quests reset since start their scripts again. It
 // drops the scripts of refs deleted since: they
 // leave the tick schedule, and their registrations and saved members go. Effects started or ended
-// since get their instance and OnEffectStart, or OnEffectFinish. Stages set since run their
-// fragments last.
+// since get their instance, OnMagicEffectApply on the target and OnEffectStart, or OnEffectFinish.
+// Stages set since run their fragments last.
 sync_refs :: proc(vm: ^VM) {
 	defer run_quest_steps(vm)
 	ws := vm.ctx.ws
@@ -187,6 +187,7 @@ sync_refs :: proc(vm: ^VM) {
 		for h in started {
 			e := ws.effects[h]
 			attach_effect(vm, h)
+			send(vm, e.target, "OnMagicEffectApply", e.caster, e.effect)
 			send_own(vm, h, "OnEffectStart", e.target, e.caster)
 		}
 		ended := slice.clone(ws.ended_effects[:], context.temp_allocator)

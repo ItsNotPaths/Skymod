@@ -38,8 +38,7 @@ Effect_Motion :: enum u8 {
 }
 
 // start_effect adds an effect on `target` and returns its handle; the VM gives it its script and
-// sends OnEffectStart (slua.sync_refs).
-// (hole effect-apply-event :tags (magic script) :sev gap) OnMagicEffectApply is never sent: a target's scripts do not hear an effect land (mg06armillaryscript waits on it).
+// sends OnMagicEffectApply and OnEffectStart (slua.sync_refs).
 start_effect :: proc(ws: ^World_State, e: Active_Effect) -> Form_ID {
 	ws.next_effect += 1
 	h := formid.effect_handle(ws.next_effect)

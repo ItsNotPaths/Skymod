@@ -141,6 +141,7 @@ C.__fn["oneffectstart"] = function(self, target, caster)
   __fx[#__fx] = "start:" .. tostring(target === self:GetTargetActor())
 end
 C.__fn["oneffectfinish"] = function(self) __fx[#__fx] = "finish"; self.vars["::state"] = "fading" end
+C.__fn["onmagiceffectapply"] = function(self, caster, effect) __fx[#__fx] = "apply" end
 C.__states["fading"] = {}
 C.__states["fading"]["ontick"] = function(self) __fx[#__fx] = "tick"; self.vars["::state"] = "" end
 return C
@@ -1044,8 +1045,8 @@ assert(__inits_at_return == 1, "OnInit ran inside PlaceAtMe")`)
 	for id in f.ws.created {testing.expect(t, id not_in f.ws.script_state, "its saved state goes")}
 }
 
-// A spell's scripted effect gets an instance on its target: OnEffectStart, its duration, then
-// OnEffectFinish. The instance stays while its state ticks, then leaves.
+// A spell's scripted effect gets an instance on its target, which hears OnMagicEffectApply, then
+// OnEffectStart, its duration, then OnEffectFinish. The instance stays while its state ticks, then leaves.
 @(test)
 test_effect_lifecycle :: proc(t: ^testing.T) {
 	f: Fixture
@@ -1069,7 +1070,7 @@ test_effect_lifecycle :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.effects), 1)
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, len(f.ws.effects), 0)
-	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "start:true,finish,tick", got)`), "start, finish, one tick, gone")
+	testing.expect(t, slua.do_string(&f.vm, `local got = table.concat(__fx, ","); assert(got == "apply,start:true,finish,tick", got)`), "apply, start, finish, one tick, gone")
 
 	terms := f.ws.effect_classes["glow"].terms
 	testing.expect_value(t, len(terms), 1) // a bad formula and an unknown knob drop their terms
@@ -1719,6 +1720,7 @@ test_rt_power :: proc(t: ^testing.T) {
 	worldstate.av_set_base(&f.ws, CASTER, "ShoutRecoveryMult", 0.5)
 
 	testing.expect(t, script.use_power(c, CASTER, FORCE, 5, TARGET), "a shout, more words than it has: its last")
+	testing.expect(t, len(f.ws.casts) == 1 && f.ws.casts[0] == {CASTER, FORCE}, "OnSpellCast names the power")
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, CASTER, "Voice"), 5) // 10 s x 0.5
 	testing.expect(t, !script.use_power(c, CASTER, FORCE, 1, TARGET), "cooling down")
 	f.ws.clock.played += 5
@@ -1774,6 +1776,7 @@ return rt.effect { land = function(e) e.target:AddItem("Gold001", rt.static("Uti
 	testing.expect(t, worldstate.equip(&f.ws, &f.db, ACTOR, SCROLL, gamedb.Slot.RightHand), "a hand item equips")
 	c := &f.vm.ctx
 	testing.expect(t, script.cast_hand(c, ACTOR, .RightHand, TARGET), "the scroll casts with no Magicka")
+	testing.expect(t, len(f.ws.casts) == 1 && f.ws.casts[0] == {ACTOR, SCROLL}, "OnSpellCast names the scroll")
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 90)
 	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, ACTOR, SCROLL), 0)
