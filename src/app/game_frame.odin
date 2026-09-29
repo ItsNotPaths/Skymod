@@ -642,6 +642,10 @@ player_follow :: proc(g: ^Game) {
 	if player_moved(g) {traversal_finish_load(g, player_restore(g))}
 }
 
+// (hole world-reload :tags (world player mods) :sev gap) nothing re-seats the world around the controlled actor: after a possess (or a mod swapping the player actor) traversal's place, the streaming window, the weather and the camera stay where the old actor was until a door crossing. Wanted: one reload primitive, callable any time by the engine and by mods through the script API, that parks the sim and rebuilds place, window and scenes from ws.player's ref, as player_follow does for a moved ref; then weather and the rest key off what it seats.
+// request_reload asks for the world to be re-seated around ws.player.
+request_reload :: proc(g: ^Game) {}
+
 // cross_door takes the player through a load door. Main runs it with the sim parked: the load
 // builds scenes with the renderer and draws its own frames.
 cross_door :: proc(g: ^Game, hit: Door_Hit) {

@@ -68,6 +68,7 @@ console_cmd_possess :: proc "c" (L: ^lua.State) -> c.int {
 	text := "possess: not an actor"
 	if is_actor_ref(g, form) {
 		g.sim.ws.player = form
+		request_reload(g)
 		text = fmt.tprintf("possess: %s", worldstate.display_name(&g.sim.ws, &g.db, form))
 	}
 	lua.getglobal(L, "print")
