@@ -1582,9 +1582,9 @@ BURN_LUA :: `local rt = require('skymod.rt')
 return rt.effect {
   tags = { "magic.fire" },
   d = "m",
-  taken = "target.Health * 0.5",
+  taken = "target.av.Health.value * 0.5",
   av = { Health = { amount = "-taken * min(t, d) / d" } },
-  when = "target.Health > 0 and GetDistance(target, caster) >= 0",
+  when = "target.av.Health.value > 0 and target:GetDistance(caster) >= 0",
   script = { "Moment", label = "hi" },
 }
 `
@@ -1599,7 +1599,7 @@ test_rt_effect :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
 	os.make_directory_all(effects)
-	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.when = "target.Health > 1000" end`}}) {
+	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.when = "target.av.Health.value > 1000" end`}}) {
 		p, _ := filepath.join({effects, file[0]}, context.temp_allocator)
 		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write effect")
 	}

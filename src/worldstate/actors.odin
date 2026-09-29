@@ -214,6 +214,13 @@ av_current :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string)
 	return av_max(ws, db, actor, av) + p.damage
 }
 
+// av_amount is an AV's amount: a pool's own stock, else its value less its capacity (a latched
+// AV's damage).
+av_amount :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string) -> f32 {
+	if av_kind(ws, av) == .Pool {return av_current(ws, db, actor, av)}
+	return av_current(ws, db, actor, av) - av_max(ws, db, actor, av)
+}
+
 // av_kind is an actor value's kind: the engine's, or what the mod that created it said.
 av_kind :: proc(ws: ^World_State, av: string) -> gamedb.AV_Kind {
 	if m, ok := mod_av(ws, av); ok {return m.kind}

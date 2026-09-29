@@ -1,10 +1,10 @@
 package worldstate
 
-// What an effect formula may read (formula.Read): caster.X and target.X (an engine actor value, a
-// perk's rank by its editor id, Level, or a mod's actor value),
-// global.X (a GLOB by editor id), and condition functions by name, `HasPerk(caster, X)`. A call's
-// first argument may name its subject (caster or target; target when left out); its form arguments
-// are editor ids or "File.esm:012FCD", a ref argument may be caster or target, and a trailing one
+// What an effect formula may read (formula.Read), by the naming rule (ws.md Workstream M, Naming):
+// <actor>.av.<Name>.value, .capacity or .amount for caster and target (an engine actor value, a
+// perk's rank by its editor id, Level, or a mod's actor value), global.<Name> (a GLOB by editor
+// id), and <actor>:Fn(args), a condition function run on that actor. A call's form argument is a
+// quoted editor id or "File.esm:012FCD", a bare caster or target is that actor, and a trailing one
 // left out is 0. A defined effect's formulas read its tunables by bare name (effect_defs.odin).
 
 import "core:strconv"
@@ -32,61 +32,84 @@ ARG_CASTER :: max(u64)
 @(private)
 ARG_TARGET :: max(u64) - 1
 
-// A call's bound: [0] its subject, [1] 1 + the function's index, [2] and [3] its parameters.
+// AV_Part is which part of an actor value a read wants (bound[3]).
+@(private)
+AV_Part :: enum u64 {
+	Value,
+	Capacity,
+	Amount,
+}
+
+// An AV read's bound: [0] its actor, [2] the perk it names, [3] its part. A call's: [0] its
+// subject, [1] 1 + the function's index, [2] and [3] its parameters.
 @(private)
 effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 	db := cast(^gamedb.DB)data
-	if r.object == "" && !r.call {return "unknown variable"} // a definition's tunables: def_bind
-	if r.object != "" {
-		switch r.object {
-		case "caster", "target":
-			r.bound[0] = u64(Read_Kind.Caster if r.object == "caster" else Read_Kind.Target)
-			if _, engine := gamedb.actor_value_name(r.name); engine {break}
-			if f, ok := gamedb.form_by_editor_id(db, r.name); ok {
-				if _, perk := gamedb.perk_of(db, f); perk {r.bound[2] = u64(f)}
-			}
-		case "global":
-			g, ok := gamedb.global_by_editor_id(db, r.name)
-			if !ok {return "unknown global"}
-			r.bound = {u64(Read_Kind.Global), u64(g), 0, 0}
-		case: return "unknown subject: use caster, target or global"
-		}
+	switch r.object {
+	case "": return "unknown variable" // a definition's tunables: def_bind
+	case "global":
+		g, ok := gamedb.global_by_editor_id(db, r.name)
+		if r.call || !ok {return "unknown global"}
+		r.bound = {u64(Read_Kind.Global), u64(g), 0, 0}
 		return ""
+	case "caster": r.bound[0] = u64(Read_Kind.Caster)
+	case "target": r.bound[0] = u64(Read_Kind.Target)
+	case: return "unknown subject: use caster, target or global"
 	}
+	if !r.call {return bind_av(db, r)}
 	fn := -1
 	for f, i in esm.CONDITION_FUNCTIONS {
 		if f.name != "" && strings.equal_fold(f.name, r.name) {fn = i}
 	}
 	if fn < 0 {return "unknown function"}
-	args := r.args
-	if len(args) > 0 && (args[0] == "caster" || args[0] == "target") {
-		r.bound[0] = u64(Read_Kind.Caster if args[0] == "caster" else Read_Kind.Target)
-		args = args[1:]
-	}
 	r.bound[1] = u64(fn + 1)
 	n := 0
 	for kind, i in esm.CONDITION_FUNCTIONS[fn].params {
 		if kind == .None {break}
 		n += 1
-		if i >= len(args) {continue} // a left-out parameter is 0
+		if i >= len(r.args) {continue} // a left-out parameter is 0
+		arg, quoted := r.args[i], i in r.quoted
 		switch kind {
 		case .None:
 		case .String: return "a function taking a string cannot be called from a formula"
 		case .Number:
-			v, ok := param_number(args[i])
+			v, ok := param_number(arg)
 			if !ok {return "expected a number or an actor value name"}
 			r.bound[2 + i] = v
 		case .Form, .Ref:
-			if kind == .Ref && (args[i] == "caster" || args[i] == "target") {
-				r.bound[2 + i] = ARG_CASTER if args[i] == "caster" else ARG_TARGET
-				continue
+			switch {
+			case quoted:
+				f, ok := form_arg(db, arg)
+				if !ok {return "unknown form"}
+				r.bound[2 + i] = u64(f)
+			case kind == .Ref && (arg == "caster" || arg == "target"):
+				r.bound[2 + i] = ARG_CASTER if arg == "caster" else ARG_TARGET
+			case: return "a form argument is a quoted editor id, or caster or target"
 			}
-			f, ok := form_arg(db, args[i])
-			if !ok {return "unknown form"}
-			r.bound[2 + i] = u64(f)
 		}
 	}
-	if len(args) > n {return "too many arguments"}
+	if len(r.args) > n {return "too many arguments"}
+	return ""
+}
+
+// bind_av checks av.<Name>.<part> and leaves the actor value's name in r.name.
+@(private)
+bind_av :: proc(db: ^gamedb.DB, r: ^formula.Read) -> string {
+	ns, _, rest := strings.partition(r.name, ".")
+	av, _, part := strings.partition(rest, ".")
+	switch part {
+	case "value":    r.bound[3] = u64(AV_Part.Value)
+	case "capacity": r.bound[3] = u64(AV_Part.Capacity)
+	case "amount":   r.bound[3] = u64(AV_Part.Amount)
+	case:            ns = ""
+	}
+	if ns != "av" || av == "" {return "read an actor value as <actor>.av.<Name>.value, .capacity or .amount"}
+	if _, engine := gamedb.actor_value_name(av); !engine {
+		if f, ok := gamedb.form_by_editor_id(db, av); ok {
+			if _, perk := gamedb.perk_of(db, f); perk {r.bound[2] = u64(f)}
+		}
+	}
+	r.name = av
 	return ""
 }
 
@@ -142,8 +165,18 @@ effect_read :: proc(data: rawptr, r: formula.Read) -> f64 {
 		c := gamedb.Condition{function = u16(r.bound[1] - 1), param1 = param(x, r.bound[2]), param2 = param(x, r.bound[3]), param3 = -1}
 		return f64(condition_call(x.ws, x.db, c, subject, other))
 	}
-	if r.bound[2] != 0 {return f64(perk_rank(x.ws, x.db, subject, Form_ID(r.bound[2])))}
+	part := AV_Part(r.bound[3])
+	if perk := Form_ID(r.bound[2]); perk != 0 {
+		if part == .Capacity {return f64(gamedb.perk_ranks(x.db, perk))}
+		return f64(perk_rank(x.ws, x.db, subject, perk))
+	}
 	if r.name == "Level" {return f64(actor_level(x.ws, x.db, subject))}
 	av, ok := av_name(x.ws, r.name) // a mod's AV may not exist in this game: 0
-	return f64(av_current(x.ws, x.db, subject, av)) if ok else 0
+	if !ok {return 0}
+	switch part {
+	case .Value:    return f64(av_current(x.ws, x.db, subject, av))
+	case .Capacity: return f64(av_max(x.ws, x.db, subject, av))
+	case .Amount:   return f64(av_amount(x.ws, x.db, subject, av))
+	}
+	return 0
 }

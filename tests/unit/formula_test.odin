@@ -69,7 +69,7 @@ test_formula_varies :: proc(t: ^testing.T) {
 	}
 }
 
-// A bare name that is not a variable, a dotted name or an outside call is a read: the binder sees it once, the reader on each eval.
+// A bare name that is not a variable, a path or a call on a subject is a read: the binder sees it once, the reader on each eval.
 @(test)
 test_formula_reads :: proc(t: ^testing.T) {
 	bind :: proc(data: rawptr, r: ^formula.Read) -> string {
@@ -78,19 +78,21 @@ test_formula_reads :: proc(t: ^testing.T) {
 		return ""
 	}
 	read :: proc(data: rawptr, r: formula.Read) -> f64 {
-		if r.object == "caster" && r.name == "SuperFear" {return 1}
+		if r.object == "caster" && r.name == "av.SuperFear.value" {return 1}
 		if r.object == "" && !r.call && r.name == "radius" {return 1000}
-		if r.name == "HasPerk" && r.args[0] == "caster" && r.args[1] == "Skyrim.esm:0153CF" {return f64(r.bound[0])}
+		if r.object == "caster" && r.call && r.name == "HasPerk" && r.args[0] == "Skyrim.esm:0153CF" && 0 in r.quoted {return f64(r.bound[0])}
 		return 0
 	}
-	f, err := formula.compile(`320 + (caster.SuperFear >= 1) * 880 + HasPerk(caster, "Skyrim.esm:0153CF") + radius`, {"m"}, context.temp_allocator, {bind = bind})
+	f, err := formula.compile(`320 + (caster.av.SuperFear.value >= 1) * 880 + caster:HasPerk("Skyrim.esm:0153CF") + radius`, {"m"}, context.temp_allocator, {bind = bind})
 	testing.expect_value(t, err, "")
-	testing.expect_value(t, formula.eval(f, {0}, {read = read}), 2202)
+	testing.expect_value(t, formula.eval(f, {0}, {read = read}), 2201)
 	testing.expect_value(t, formula.eval(f, {0}), 320) // no reader: a read is 0
 	testing.expect(t, formula.varies(f, 0, {0}), "a read may change")
 
 	_, err = formula.compile("nobody.Health", {}, context.temp_allocator, {bind = bind})
 	testing.expect_value(t, err, "unknown subject")
-	_, err = formula.compile("f(1 + 2)", {}, context.temp_allocator, {bind = bind})
-	testing.expect(t, err != "", "an outside call takes no expressions")
+	_, err = formula.compile("target:f(1 + 2)", {}, context.temp_allocator, {bind = bind})
+	testing.expect(t, err != "", "a call takes no expressions")
+	_, err = formula.compile("HasPerk(caster)", {}, context.temp_allocator, {bind = bind})
+	testing.expect(t, err != "", "a call names its subject")
 }

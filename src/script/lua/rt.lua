@@ -1181,11 +1181,11 @@ end
 --   tags = { "magic.fire", "kw.MagicDamageFire" }
 --   av = { Health = { capacity = "formula", amount = "formula" } }, caster = { Magicka = {...} }
 --   m = "formula", d = "m"                  -- numbers worked out once as it lands, from the spell's
---   radius = 320, taken = "target.Health * 0.3"  -- tunables, also once as it lands (at most 8)
+--   radius = 320, taken = "target.av.Health.value * 0.3"  -- tunables, also once as it lands (at most 8)
 --   when = "formula"                        -- checked once as it lands; 0 and it does not start
 --   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties; it switches
 --                                              -- the effect on and off with self:SetActive(bool)
--- AV formulas see t, m, d, the tunables and reads (caster.X, target.X, global.X, functions). A
+-- AV formulas see t, m, d, the tunables and reads by the naming rule (target.av.Health.value, global.GameHour, target:IsSneaking()). A
 -- <name>.patch.lua returns a function that edits the definition from below it.
 -- (hole effect-action-scripts :tags magic :sev gap) no core moment scripts with parameters: about 50 of Apocalypse's 159 effect scripts only cast a spell at someone on an event, dispel, interrupt, kill below a threshold or push (build/out/wsM/apoc/scripts.md). Wanted: CastOn, DispelOn, KillBelow and the like, so such an effect is data.
 function rt.effect(def) return def end

@@ -4,9 +4,9 @@ package formula
 // (progression math, zone levels, effects). Numbers, the formula's variables, + - * / ^ (^ binds
 // right and above unary -), comparisons < <= > >= == != and `and`, `or` (1 or 0), parentheses, and
 // min, max, clamp, floor, ceil, round, abs, sqrt, and select(x, a, b): a when x > 0, else b.
-// With a Binder, a name that is not a variable (radius), a dotted name (caster.Health) or a call to
-// an unknown function (HasPerk(caster, X)) is a Read: the binder checks it once, and the Reader
-// answers it on each eval.
+// With a Binder, a name that is not a variable (radius), a path (target.av.Health.value) or a call
+// on a subject (caster:HasPerk("IntenseFlames")) is a Read: the binder checks it once, and the
+// Reader answers it on each eval.
 
 import "core:math"
 import "core:strconv"
@@ -26,10 +26,11 @@ Instr :: struct {
 
 // Read is a value the formula asks its caller for.
 Read :: struct {
-	object: string, // before the dot: `caster` in caster.Health; "" for a bare name or a call
-	name:   string,
+	object: string, // before the first dot or the colon: `target` in target.av.Health.value; "" for a bare name
+	name:   string, // the rest of a path (av.Health.value), or the function a call names
 	call:   bool,
 	args:   []string, // a call's arguments as written; a quoted one without its quotes
+	quoted: bit_set[0 ..< 8], // which arguments were quoted
 	bound:  [4]u64, // the binder's own data
 }
 
@@ -91,7 +92,7 @@ compile :: proc(src: string, vars: []string, allocator := context.allocator, bin
 	copy(f.code, p.code[:])
 	f.reads = make([]Read, len(p.reads), allocator)
 	for r, i in p.reads {
-		f.reads[i] = {object = strings.clone(r.object, allocator), name = strings.clone(r.name, allocator), call = r.call, args = make([]string, len(r.args), allocator), bound = r.bound}
+		f.reads[i] = {object = strings.clone(r.object, allocator), name = strings.clone(r.name, allocator), call = r.call, quoted = r.quoted, args = make([]string, len(r.args), allocator), bound = r.bound}
 		for a, j in r.args {f.reads[i].args[j] = strings.clone(a, allocator)}
 	}
 	return f, ""
@@ -280,7 +281,7 @@ next :: proc(p: ^Parser) {
 	case strings.index_byte("<>=!", c) >= 0 && p.pos + 1 < len(p.src) && p.src[p.pos + 1] == '=':
 		p.pos += 2
 		p.tok = {.Op, p.src[start:p.pos]}
-	case strings.index_byte("+-*/^(),<>", c) >= 0:
+	case strings.index_byte("+-*/^(),<>:", c) >= 0:
 		p.pos += 1
 		p.tok = {.Op, p.src[start:p.pos]}
 	case:
@@ -360,6 +361,10 @@ primary :: proc(p: ^Parser) {
 			call(p, t.text)
 			return
 		}
+		if p.tok.kind == .Op && p.tok.text == ":" {
+			method(p, t.text)
+			return
+		}
 		for v, i in p.vars {
 			if v == t.text {append(&p.code, Instr{op = .Var, index = i}); return}
 		}
@@ -385,10 +390,7 @@ call :: proc(p: ^Parser, name: string) {
 	for fn, i in FUNCTIONS {
 		if fn.name == name {fi = i}
 	}
-	if fi < 0 {
-		outside_call(p, name)
-		return
-	}
+	if fi < 0 {p.err = "unknown function; call others on a subject, target:Fn()"; return}
 	next(p) // (
 	for arg in 0 ..< FUNCTIONS[fi].arity {
 		if arg > 0 {expect(p, ",")}
@@ -405,21 +407,27 @@ expect :: proc(p: ^Parser, text: string) {
 	next(p)
 }
 
-// outside_call parses a call to a function the binder knows. Its arguments are single names,
-// numbers or quoted strings, not expressions.
+// method parses subject:Fn(args), a call the binder knows. Its arguments are single names (context
+// values), numbers or quoted strings (forms), not expressions.
 @(private)
-outside_call :: proc(p: ^Parser, name: string) {
+method :: proc(p: ^Parser, subject: string) {
 	if p.binder.bind == nil {p.err = "unknown function"; return}
+	next(p) // :
+	if p.tok.kind != .Name {p.err = "expected a function after the colon"; return}
+	r := Read{object = subject, name = p.tok.text, call = true}
+	next(p)
+	expect(p, "(")
 	args := make([dynamic]string, context.temp_allocator)
-	next(p) // (
 	for p.err == "" && !(p.tok.kind == .Op && p.tok.text == ")") {
 		if len(args) > 0 {expect(p, ",")}
 		if p.tok.kind == .Op || p.tok.kind == .End {p.err = "expected a name, number or quoted string"; return}
+		if p.tok.kind == .String && len(args) < 8 {r.quoted += {len(args)}}
 		append(&args, p.tok.text)
 		next(p)
 	}
 	expect(p, ")")
-	read(p, Read{name = name, call = true, args = args[:]})
+	r.args = args[:]
+	read(p, r)
 }
 
 @(private)

@@ -28,11 +28,12 @@ test_effect_reads :: proc(t: ^testing.T) {
 	defer worldstate.destroy(&ws)
 
 	worldstate.set_effect_class(&ws, &db, "archetypevaluemodifier", {
-		{av = "Health", knob = .Capacity, src = "0.1 * target.Health"},
-		{av = "Magicka", knob = .Capacity, src = "m * HasPerk(caster, TestPerk) + (caster.Stamina >= 50)"},
-		{av = "CarryWeight", knob = .Capacity, src = "10 * target.Armsman00"},
-		{av = "Stamina", knob = .Capacity, src = "nobody.Health"}, // dropped: unknown subject
-		{av = "Stamina", knob = .Capacity, src = "HasPerk(caster, NoSuchPerk)"}, // dropped: unknown form
+		{av = "Health", knob = .Capacity, src = "0.1 * target.av.Health.value"},
+		{av = "Magicka", knob = .Capacity, src = "m * caster:HasPerk(\"TestPerk\") + (caster.av.Stamina.value >= 50)"},
+		{av = "CarryWeight", knob = .Capacity, src = "10 * target.av.Armsman00.value + target.av.Armsman00.capacity"},
+		{av = "Stamina", knob = .Capacity, src = "nobody.av.Health.value"}, // dropped: unknown subject
+		{av = "Stamina", knob = .Capacity, src = "caster:HasPerk(\"NoSuchPerk\")"}, // dropped: unknown form
+		{av = "Stamina", knob = .Capacity, src = "target.Health"}, // dropped: not av.<Name>.<part>
 	}, true, true)
 	testing.expect_value(t, len(ws.effect_classes["archetypevaluemodifier"].terms), 3)
 
@@ -45,6 +46,6 @@ test_effect_reads :: proc(t: ^testing.T) {
 	testing.expect_value(t, worldstate.av_max(&ws, &db, TARGET, "Magicka"), 6)
 	worldstate.perk_add(&ws, TARGET, RANK1)
 	worldstate.perk_add(&ws, TARGET, RANK2)
-	testing.expect_value(t, worldstate.av_current(&ws, &db, TARGET, "CarryWeight"), 20)
+	testing.expect_value(t, worldstate.av_current(&ws, &db, TARGET, "CarryWeight"), 22) // rank 2, a chain of 2
 	testing.expect_value(t, len(ws.summing), 0)
 }
