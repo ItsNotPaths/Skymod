@@ -9,7 +9,7 @@ import "../plugin"
 Form_ID :: plugin.Form_ID
 
 SEAM :: "skymod_graphics"
-VERSION :: u32(2)
+VERSION :: u32(3)
 
 Camera :: struct {
 	pos:        [3]f32,
@@ -57,7 +57,9 @@ Visual :: struct {
 	form:     Form_ID, // the EFSH, ARTO, IPDS or IMAD record
 	ref:      Form_ID, // the ref or actor it plays on; 0 = the screen
 	facing:   Form_ID, // Art: the ref it faces (a beam's target)
+	flags:    u32,     // Art: its visual effect's (Visual_Effect.flags): face target, attach to camera, inherit rotation
 	node:     cstring, // Impact: the node it plays at; "" = the root
+	pos:      [3]f32,  // Impact with ref 0: where it lands
 	strength: f32,     // Imod
 	cross:    bool,    // Imod: the cross-fade modifier; at most one is not fading out
 	fade:     f32,     // Imod: seconds it ramps in after it starts and out before it ends
@@ -65,12 +67,21 @@ Visual :: struct {
 	left:     f32,     // seconds until it ends; 0 = until it is gone from the frame
 }
 
-// Host is what main answers; each proc gets `data` back.
+// Host is what main answers; each proc gets `data` back. It reads no sim state: graphics runs while
+// the sim ticks.
 Host :: struct {
 	data:       rawptr,
 	refs:       proc "c" (data: rawptr, out: [^]Ref, cap: int) -> int, // the count; written only when it fits in cap
 	model_path: proc "c" (data: rawptr, model: u32) -> cstring, // under meshes\
 	read_file:  proc "c" (data: rawptr, path: cstring, out: [^]u8, cap: int) -> int, // the size, -1 = missing; written only when it fits in cap
+	record:     proc "c" (data: rawptr, form: Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool, // see record
+}
+
+// record fills `out` with the record view of `form` (plugin/records.odin: the visual records, and
+// any other); false when it has none. Spans in it last until the frame ends.
+record :: proc "contextless" (h: ^Host, form: Form_ID, kind: plugin.Record_Kind, out: ^$T) -> bool {
+	out.size = u32(size_of(T))
+	return h.record(h.data, form, kind, out)
 }
 
 // (hole render-inputs-snapshot :tags (threading render unclaimed) :sev gap) the frame carries no game hour, weather and its transition (ws.weather), lighting template or interior lighting, which day-night and sky need. Wanted: the sim publishes these in the snapshot and main passes them here, never ws.clock or g.trav.

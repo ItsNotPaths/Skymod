@@ -2,6 +2,7 @@ package unit_tests
 
 import "core:os"
 import "core:testing"
+import "../../src/formats/esm"
 import "../../src/gamedb"
 import "../../src/worldstate"
 
@@ -53,8 +54,8 @@ test_effect_visuals :: proc(t: ^testing.T) {
 	fx.art[.Hit_Shader] = FROST_SHADER
 	fx.art[.Imod] = FROST_IMOD
 	db.magic_effects[FROST] = fx
-	db.imod_durations = make(map[gamedb.Form_ID]f32, context.temp_allocator)
-	db.imod_durations[FROST_IMOD] = 3
+	db.imods = make(map[gamedb.Form_ID]gamedb.Imod, context.temp_allocator)
+	db.imods[FROST_IMOD] = {info = {animatable = true, duration = 3}}
 	ws: worldstate.World_State
 	worldstate.init(&ws)
 	defer worldstate.destroy(&ws)
@@ -77,4 +78,25 @@ test_effect_visuals :: proc(t: ^testing.T) {
 	ws.clock.played = 3
 	worldstate.expire_visuals(&ws)
 	testing.expect_value(t, len(ws.visuals), 1) // the IMAD played out; the shader lasts with the effect
+}
+
+// EFSH DATA decodes by xEdit's field order; a short older block leaves the later fields zero.
+@(test)
+test_effect_shader_data :: proc(t: ^testing.T) {
+	d: [400]u8
+	put :: proc(d: []u8, at: int, v: u32) {(^u32le)(&d[at])^ = u32le(v)}
+	put(d[:], 56, 0x0005_4192) // edge color 146, 65, 5
+	put(d[:], 132, transmute(u32)f32(0.4)) // particle lifetime
+	put(d[:], 316, 0x00FF_0000) // fill color key 3: blue
+	put(d[:], 384, esm.EFSH_LIGHTING)
+	put(d[:], 392, transmute(u32)f32(2)) // fill texture scale v
+	e := esm.effect_shader_data(d[:])
+	testing.expect_value(t, e.edge.color, [4]u8{146, 65, 5, 0})
+	testing.expect_value(t, e.particle.lifetime, 0.4)
+	testing.expect_value(t, e.fill.color_keys[2], [4]u8{0, 0, 255, 0})
+	testing.expect_value(t, e.flags, u32(esm.EFSH_LIGHTING))
+	testing.expect_value(t, e.fill.scale[1], 2)
+	short := esm.effect_shader_data(d[:344])
+	testing.expect_value(t, short.flags, 0)
+	testing.expect_value(t, short.particle.lifetime, 0.4)
 }

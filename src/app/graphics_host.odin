@@ -12,6 +12,7 @@ import "../plugin"
 import "../render"
 import "../vfs"
 import "../world"
+import "../worldhost"
 import "../worldstate"
 
 @(private = "file")
@@ -35,7 +36,7 @@ draw_graphics :: proc(g: ^Game) {
 		visuals[i].node = cstring_temp(text(&g.snap, v.node))
 	}
 	f := graphics.Frame {
-		host = {&d, host_refs, host_model_path, host_read_file},
+		host = {&d, host_refs, host_model_path, host_read_file, host_record},
 		table = &g.graphics,
 		device = g.r.device,
 		cmd = g.r.frame_cmd,
@@ -81,6 +82,8 @@ view_visuals :: proc(g: ^Game, s: ^Snapshot) {
 				form = v.form,
 				ref = v.ref,
 				facing = v.facing,
+				flags = v.flags,
+				pos = v.pos,
 				strength = v.strength,
 				cross = v.cross,
 				fade = v.fade,
@@ -134,6 +137,13 @@ host_read_file :: proc "c" (data: rawptr, path: cstring, out: [^]u8, cap: int) -
 	if !ok {return -1}
 	if len(bytes) <= cap {mem.copy(out, raw_data(bytes), len(bytes))}
 	return len(bytes)
+}
+
+@(private = "file")
+host_record :: proc "c" (data: rawptr, form: graphics.Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool {
+	d := (^Host_Data)(data)
+	wd := worldhost.Data{ctx = d.ctx, db = &d.g.db}
+	return worldhost.record(&wd, form, kind, out)
 }
 
 @(private = "file")

@@ -21,7 +21,7 @@ register_visuals :: proc(reg: ^Registry) {
 	register(reg, "VisualEffect", "Play", proc(c: ^Call, args: []Value) -> Value {
 		ve := c.db.visual_effects[c.self]
 		secs := arg_f32(args, 1, -1)
-		play_on(c, .Art, ve.art, args, secs, facing = visual_ref(c, args, 2))
+		play_on(c, .Art, ve.art, args, secs, facing = visual_ref(c, args, 2), flags = ve.flags)
 		play_on(c, .Shader, ve.shader, args, secs)
 		return nil
 	})
@@ -66,11 +66,11 @@ register_visuals :: proc(reg: ^Registry) {
 
 // play_on plays `form` on the ref in args[0] for `secs` seconds, or until stopped when secs <= 0.
 @(private = "file")
-play_on :: proc(c: ^Call, kind: worldstate.Visual_Kind, form: Form_ID, args: []Value, secs: f32, facing: Form_ID = 0) {
+play_on :: proc(c: ^Call, kind: worldstate.Visual_Kind, form: Form_ID, args: []Value, secs: f32, facing: Form_ID = 0, flags: u32 = 0) {
 	ref := visual_ref(c, args, 0)
 	if form == 0 || ref == 0 {return}
 	until := c.ws.clock.played + f64(secs) if secs > 0 else 0
-	worldstate.play_visual(c.ws, {kind = kind, form = form, ref = ref, facing = facing, until = until})
+	worldstate.play_visual(c.ws, {kind = kind, form = form, ref = ref, facing = facing, flags = flags, until = until})
 }
 
 @(private = "file")

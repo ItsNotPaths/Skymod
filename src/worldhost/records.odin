@@ -8,7 +8,8 @@ import "core:reflect"
 import "../gamedb"
 import "../plugin"
 
-@(private)
+// record answers World.record. It reads only the db, so a host off the sim thread (graphics) may
+// call it with no world state.
 record :: proc "c" (data: rawptr, form: Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool {
 	d := (^Data)(data)
 	context = d.ctx
@@ -62,6 +63,12 @@ record :: proc "c" (data: rawptr, form: Form_ID, kind: plugin.Record_Kind, out: 
 	case .Music_Track:      return put(out, view_music_track(db, form))
 	case .Base_Sounds:      return put(out, view_base_sounds(db, form))
 	case .Acoustic_Space:   return put(out, view_acoustic_space(db, form))
+	case .Effect_Shader:    return put(out, view_effect_shader(db, form))
+	case .Art_Object:       return put(out, view_art_object(db, form))
+	case .Impact:           return put(out, view_impact(db, form))
+	case .Impact_Set:       return put(out, view_impact_set(db, form))
+	case .Image_Space_Modifier: return put(out, view_imod(db, form))
+	case .Visual_Effect:    return put(out, view_visual_effect(db, form))
 	}
 	return false
 }

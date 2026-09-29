@@ -62,6 +62,13 @@ Record_Kind :: enum u16 {
 	Music_Track, // MUST
 	Base_Sounds, // a DOOR, CONT, ACTI, FLOR or item base's use and done sounds
 	Acoustic_Space, // ASPC: its ambient loop
+	// visuals (records_visuals.odin)
+	Effect_Shader, // EFSH
+	Art_Object, // ARTO
+	Impact, // IPCT
+	Impact_Set, // IPDS
+	Image_Space_Modifier, // IMAD
+	Visual_Effect, // RFCT
 }
 
 Header :: struct {
