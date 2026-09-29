@@ -33,12 +33,12 @@ register_crime :: proc(reg: ^Registry) {
 }
 
 n_get_reaction :: proc(c: ^Call, args: []Value) -> Value {
-	r, _ := worldstate.relation(c.ws, c.db, c.self, arg_form(args, 0))
+	r, _ := worldstate.relation(c.ws, c.db, c.self, arg_form(c, args, 0))
 	return r.modifier
 }
 
 n_set_reaction :: proc(c: ^Call, args: []Value) -> Value {
-	other := arg_form(args, 0)
+	other := arg_form(c, args, 0)
 	r, _ := worldstate.relation(c.ws, c.db, c.self, other)
 	r.modifier = arg_i32(args, 1, 0)
 	worldstate.set_relation(c.ws, c.self, other, r)
@@ -46,7 +46,7 @@ n_set_reaction :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_mod_reaction :: proc(c: ^Call, args: []Value) -> Value {
-	other := arg_form(args, 0)
+	other := arg_form(c, args, 0)
 	r, _ := worldstate.relation(c.ws, c.db, c.self, other)
 	r.modifier += arg_i32(args, 1, 0)
 	worldstate.set_relation(c.ws, c.self, other, r)
@@ -55,13 +55,13 @@ n_mod_reaction :: proc(c: ^Call, args: []Value) -> Value {
 
 // SetEnemy(akOther, abSelfIsNeutralToOther = false, abOtherIsNeutralToSelf = false)
 n_set_enemy :: proc(c: ^Call, args: []Value) -> Value {
-	set_combat_both(c, arg_form(args, 0), .Neutral if arg_bool(args, 1, false) else .Enemy, .Neutral if arg_bool(args, 2, false) else .Enemy)
+	set_combat_both(c, arg_form(c, args, 0), .Neutral if arg_bool(args, 1, false) else .Enemy, .Neutral if arg_bool(args, 2, false) else .Enemy)
 	return nil
 }
 
 // SetAlly(akOther, abSelfIsFriendToOther = false, abOtherIsFriendToSelf = false)
 n_set_ally :: proc(c: ^Call, args: []Value) -> Value {
-	set_combat_both(c, arg_form(args, 0), .Friend if arg_bool(args, 1, false) else .Ally, .Friend if arg_bool(args, 2, false) else .Ally)
+	set_combat_both(c, arg_form(c, args, 0), .Friend if arg_bool(args, 1, false) else .Ally, .Friend if arg_bool(args, 2, false) else .Ally)
 	return nil
 }
 
@@ -173,7 +173,7 @@ n_send_assault_alarm :: proc(c: ^Call, args: []Value) -> Value {
 
 // SendStealAlarm(akThief): akThief stole this ref (an item or a container) from its owner.
 n_send_steal_alarm :: proc(c: ^Call, args: []Value) -> Value {
-	thief := arg_form(args, 0)
+	thief := arg_form(c, args, 0)
 	victim := worldstate.robbed(c.ws, c.db, thief, c.self)
 	if victim == 0 {victim = worldstate.owner(c.ws, c.db, c.self)}
 	value, _ := gamedb.value_of(c.db, worldstate.ref_base(c.ws, c.db, c.self))

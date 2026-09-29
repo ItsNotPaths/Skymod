@@ -107,7 +107,7 @@ n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
 	if c.self == c.ws.player {return nil}
 	was := worldstate.ref_cell(c.ws, c.db, c.self)
 	worldstate.reset_ref_state(c.ws, c.self, true)
-	if target := arg_form(args, 0); target != 0 {move_to(c, c.self, target, {})}
+	if target := arg_form(c, args, 0); target != 0 {move_to(c, c.self, target, {})}
 	append(&c.ws.rebuild_cells, was)
 	if now := worldstate.ref_cell(c.ws, c.db, c.self); now != was {append(&c.ws.rebuild_cells, now)}
 	return nil

@@ -70,7 +70,7 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Game", "GetPlayer", n_get_player)
 	register(reg, "Game", "ForceFirstPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = 0; return nil})
 	register(reg, "Game", "ForceThirdPerson", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.dist = max(c.ws.camera.dist, worldstate.THIRD_MIN); return nil})
-	register(reg, "Game", "SetCameraTarget", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.target = arg_form(args, 0); return nil})
+	register(reg, "Game", "SetCameraTarget", proc(c: ^Call, args: []Value) -> Value {c.ws.camera.target = arg_form(c, args, 0); return nil})
 	register(reg, "Game", "GetFormFromFile", n_get_form_from_file)
 	register(reg, "Debug", "Trace", n_trace)
 	register(reg, "Debug", "Notification", n_notification)
@@ -163,12 +163,12 @@ n_unregister_for_update_game_time :: proc(c: ^Call, args: []Value) -> Value {
 
 // RegisterForAnimationEvent(akSender, asEventName): true, as nothing here can fail to register.
 n_register_anim_event :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.register_anim_event(c.ws, arg_form(args, 0), c.self, arg_str(args, 1))
+	worldstate.register_anim_event(c.ws, arg_form(c, args, 0), c.self, arg_str(args, 1))
 	return true
 }
 
 n_unregister_anim_event :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.unregister_anim_event(c.ws, arg_form(args, 0), c.self, arg_str(args, 1))
+	worldstate.unregister_anim_event(c.ws, arg_form(c, args, 0), c.self, arg_str(args, 1))
 	return nil
 }
 
@@ -177,12 +177,12 @@ n_register_single_los_gain :: proc(c: ^Call, args: []Value) -> Value {return reg
 n_register_single_los_lost :: proc(c: ^Call, args: []Value) -> Value {return register_los(c, args, .Lost)}
 
 register_los :: proc(c: ^Call, args: []Value, mode: worldstate.Los_Mode) -> Value {
-	worldstate.register_los(c.ws, c.self, arg_form(args, 0), arg_form(args, 1), mode)
+	worldstate.register_los(c.ws, c.self, arg_form(c, args, 0), arg_form(c, args, 1), mode)
 	return nil
 }
 
 n_unregister_los :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.unregister_los(c.ws, c.self, arg_form(args, 0), arg_form(args, 1))
+	worldstate.unregister_los(c.ws, c.self, arg_form(c, args, 0), arg_form(c, args, 1))
 	return nil
 }
 
@@ -190,7 +190,7 @@ n_unregister_los :: proc(c: ^Call, args: []Value) -> Value {
 // will run: false when blocked, unless abDefaultProcessingOnly ignores the block.
 n_activate :: proc(c: ^Call, args: []Value) -> Value {
 	default_only := arg_bool(args, 1, false)
-	worldstate.request_activation(c.ws, c.self, arg_form(args, 0), default_only)
+	worldstate.request_activation(c.ws, c.self, arg_form(c, args, 0), default_only)
 	return default_only || !worldstate.activation_blocked(c.ws, c.self)
 }
 
@@ -242,7 +242,7 @@ n_delete_when_able :: proc(c: ^Call, args: []Value) -> Value {
 
 // MoveTo(akTarget, afXOffset, afYOffset, afZOffset, abMatchRotation).
 n_move_to :: proc(c: ^Call, args: []Value) -> Value {
-	move_to(c, c.self, arg_form(args, 0), move_offset(args), arg_bool(args, 4, true))
+	move_to(c, c.self, arg_form(c, args, 0), move_offset(args), arg_bool(args, 4, true))
 	return nil
 }
 
@@ -267,7 +267,7 @@ move_offset :: proc(args: []Value) -> smath.Vec3 {
 // when a cell detach unloads both (settle_moves; the converted Wait(5) loop is replaced by
 // objectreference.patch.lua, script-api.md section 5).
 n_move_to_when_unloaded :: proc(c: ^Call, args: []Value) -> Value {
-	move := worldstate.Pending_Move{arg_form(args, 0), move_offset(args)}
+	move := worldstate.Pending_Move{arg_form(c, args, 0), move_offset(args)}
 	if both_unloaded(c, c.self, move.target) {
 		move_to(c, c.self, move.target, move.offset)
 	} else {
@@ -402,11 +402,13 @@ arg_i32 :: proc(args: []Value, i: int, fallback: i32) -> i32 {
 }
 
 @(private)
-arg_form :: proc(args: []Value, i: int) -> Form_ID {
-	if i < len(args) {
-		if f, ok := args[i].(Form_ID); ok {
-			return f
-		}
+arg_form :: proc(c: ^Call, args: []Value, i: int) -> Form_ID {
+	if i >= len(args) {return 0}
+	#partial switch v in args[i] {
+	case Form_ID: return v
+	case string: // a form named by editor id or "File.esm:012FCD" (ws.md Workstream M, Naming)
+		f, _ := worldstate.form_by_name(c.db, v)
+		return f
 	}
 	return 0
 }

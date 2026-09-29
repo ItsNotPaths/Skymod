@@ -9,7 +9,7 @@ register_projectiles :: proc(reg: ^Registry) {
 
 // Fire(akSource, akAmmo): the app launches it from the source's ProjectileNode.
 n_weapon_fire :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.request_fire(c.ws, arg_form(args, 0), c.self, arg_form(args, 1))
+	worldstate.request_fire(c.ws, arg_form(c, args, 0), c.self, arg_form(c, args, 1))
 	return nil
 }
 

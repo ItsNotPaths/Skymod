@@ -49,7 +49,7 @@ LANDING_VARS := LANDING_VARS_ARRAY[:]
 set_effect_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Effect_Def_Src) -> (Form_ID, bool) {
 	form := formid.lua_form(src.name)
 	if src.form != "" {
-		f, ok := form_arg(db, src.form)
+		f, ok := form_by_name(db, src.form)
 		if !ok {
 			log.warnf("rt.effect %s: no form %q", src.name, src.form)
 			return 0, false

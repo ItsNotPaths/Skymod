@@ -116,7 +116,7 @@ n_alias_get :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_alias_force :: proc(c: ^Call, args: []Value) -> Value {
-	enter_alias(c, c.self, arg_form(args, 0))
+	enter_alias(c, c.self, arg_form(c, args, 0))
 	return nil
 }
 

@@ -38,7 +38,7 @@ n_move_to_package_location :: proc(c: ^Call, args: []Value) -> Value {
 
 // PathTo(to, speed) starts a walk to `to` and returns; IsPathingTo(to) is its guard (script-api.md).
 n_path_to :: proc(c: ^Call, args: []Value) -> Value {
-	to := arg_form(args, 0)
+	to := arg_form(c, args, 0)
 	if to == 0 {return false}
 	c.ws.ai.paths[c.self] = {to, arg_f32(args, 1, 0.5)}
 	return true
@@ -46,7 +46,7 @@ n_path_to :: proc(c: ^Call, args: []Value) -> Value {
 
 n_is_pathing_to :: proc(c: ^Call, args: []Value) -> Value {
 	o, ok := c.ws.ai.paths[c.self]
-	return ok && o.to == arg_form(args, 0)
+	return ok && o.to == arg_form(c, args, 0)
 }
 
 // PathToReference never blocks (script-api.md): it is PathTo, and reports the order taken.
@@ -67,7 +67,7 @@ n_set_restrained :: proc(c: ^Call, args: []Value) -> Value {
 // KeepOffsetFromActor(akTarget, afOffsetX, Y, Z, afOffsetAngleX, Y, Z, afCatchUpRadius = 20,
 // afFollowRadius = 5): the actor holds a place beside the target until cleared. Only the Z angle turns it.
 n_keep_offset_from_actor :: proc(c: ^Call, args: []Value) -> Value {
-	target := arg_form(args, 0)
+	target := arg_form(c, args, 0)
 	if target == 0 {return nil}
 	c.ws.ai.offsets[c.self] = {
 		target   = target,

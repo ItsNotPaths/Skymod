@@ -28,14 +28,14 @@ register_equip :: proc(reg: ^Registry) {
 
 // Actor.SetOutfit(akOutfit, abSleepOutfit=false): the actor changes into it now if it wears that kind.
 n_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
-	if outfit := arg_form(args, 0); outfit != 0 {worldstate.set_outfit(c.ws, c.db, c.self, outfit, arg_bool(args, 1, false))}
+	if outfit := arg_form(c, args, 0); outfit != 0 {worldstate.set_outfit(c.ws, c.db, c.self, outfit, arg_bool(args, 1, false))}
 	return nil
 }
 
 // ActorBase.SetOutfit(akOutfit, abSleepOutfit=false): the base's default outfit; actors already
 // dressed keep theirs until they reset.
 n_base_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
-	if outfit := arg_form(args, 0); outfit != 0 {(&c.ws.sleep_outfits if arg_bool(args, 1, false) else &c.ws.outfits)[c.self] = outfit}
+	if outfit := arg_form(c, args, 0); outfit != 0 {(&c.ws.sleep_outfits if arg_bool(args, 1, false) else &c.ws.outfits)[c.self] = outfit}
 	return nil
 }
 
@@ -43,7 +43,7 @@ n_base_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
 // A leveled list does not work (CK wiki). A potion or food is drunk.
 // (hole ingredients :tags (magic player) :sev gap) an ingredient cannot be eaten and teaches no effect: EquipItem does nothing with INGR, Ingredient.LearnEffect/LearnNextEffect/LearnAllEffects are not natives, and no known-effect state exists.
 n_equip_item :: proc(c: ^Call, args: []Value) -> Value {
-	base, _ := item_of(c, arg_form(args, 0))
+	base, _ := item_of(c, arg_form(c, args, 0))
 	if _, leveled := gamedb.leveled_list_of(c.db, base); leveled || base == 0 {return nil}
 	if worldstate.inv_count(c.ws, c.db, c.self, base) == 0 {move_items(c, {base = base, to = c.self, count = 1})}
 	if drink(c, c.self, base) {return nil}
@@ -52,14 +52,14 @@ n_equip_item :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_unequip_item :: proc(c: ^Call, args: []Value) -> Value {
-	base, _ := item_of(c, arg_form(args, 0))
+	base, _ := item_of(c, arg_form(c, args, 0))
 	worldstate.unequip(c.ws, c.db, c.self, base)
 	return nil
 }
 
 // IsEquipped(akItem): a form list asks for any of its members.
 n_is_equipped :: proc(c: ^Call, args: []Value) -> Value {
-	item := arg_form(args, 0)
+	item := arg_form(c, args, 0)
 	authored, is_list := gamedb.form_list_of(c.db, item)
 	if !is_list {return worldstate.is_equipped(c.ws, c.db, c.self, item)}
 	for f in authored {if worldstate.is_equipped(c.ws, c.db, c.self, f) {return true}}
@@ -97,12 +97,12 @@ armor_in_slot :: proc(c: ^Call, slot: i32) -> Form_ID {
 n_equip_spell :: proc(c: ^Call, args: []Value) -> Value {
 	h, ok := hand_arg(args, 1)
 	if !ok {return nil}
-	worldstate.equip(c.ws, c.db, c.self, arg_form(args, 0), h)
+	worldstate.equip(c.ws, c.db, c.self, arg_form(c, args, 0), h)
 	return nil
 }
 
 n_unequip_spell :: proc(c: ^Call, args: []Value) -> Value {
-	spell := arg_form(args, 0)
+	spell := arg_form(c, args, 0)
 	if h, ok := hand_arg(args, 1); ok && held(c, h) == spell {worldstate.unequip(c.ws, c.db, c.self, spell)}
 	return nil
 }
@@ -115,12 +115,12 @@ n_get_equipped_spell :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_equip_shout :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.equip(c.ws, c.db, c.self, arg_form(args, 0), .Voice)
+	worldstate.equip(c.ws, c.db, c.self, arg_form(c, args, 0), .Voice)
 	return nil
 }
 
 n_unequip_shout :: proc(c: ^Call, args: []Value) -> Value {
-	if shout := arg_form(args, 0); held(c, .Voice) == shout {worldstate.unequip(c.ws, c.db, c.self, shout)}
+	if shout := arg_form(c, args, 0); held(c, .Voice) == shout {worldstate.unequip(c.ws, c.db, c.self, shout)}
 	return nil
 }
 

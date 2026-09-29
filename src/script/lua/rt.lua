@@ -8,7 +8,7 @@ local native, method, has_method, none_value = __native, __method, __has_method,
 local is_engine_class = __is_engine_class
 local class_of, is_a, warn, script_layers = __class_of, __is_a, __warn, __script_layers
 local now, info = __now, __info
-local effect_class, effect_files, effect_def = __effect_class, __effect_files, __effect_def
+local effect_class, effect_files, effect_def, av_part = __effect_class, __effect_files, __effect_def, __av_part
 local None = None
 local lower, format, fmod = string.lower, string.format, math.fmod
 local load_effect
@@ -890,7 +890,15 @@ local function engine_prop(r, k)
 end
 
 local Ref = debug.getregistry()["skymod.ref"]
+-- ref.av.<Name>.value, .capacity or .amount: the naming rule's actor value read.
+local function av_of(r)
+  return setmetatable({}, { __index = function(_, name)
+    return setmetatable({}, { __index = function(_, part) return av_part(r, name, part) end })
+  end })
+end
+
 Ref.__index = function(r, k)
+  if k == "av" then return av_of(r) end
   local owner = field_owner(r, k)
   if owner then return owner[k] end
   if engine_prop(r, k) then return rt.get(r, k) end

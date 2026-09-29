@@ -27,7 +27,7 @@ register_forms :: proc(reg: ^Registry) {
 }
 
 n_has_keyword :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.has_keyword(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.has_keyword(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_actor_get_race :: proc(c: ^Call, args: []Value) -> Value {
@@ -62,16 +62,16 @@ n_list_get_at :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_list_has_form :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.list_has(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.list_has(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_list_add_form :: proc(c: ^Call, args: []Value) -> Value {
-	if form := arg_form(args, 0); form != 0 {worldstate.add_to_list(c.ws, c.self, form)}
+	if form := arg_form(c, args, 0); form != 0 {worldstate.add_to_list(c.ws, c.self, form)}
 	return nil
 }
 
 n_list_remove_added_form :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.remove_from_list(c.ws, c.self, arg_form(args, 0))
+	worldstate.remove_from_list(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -81,15 +81,15 @@ n_list_revert :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_location_is_child :: proc(c: ^Call, args: []Value) -> Value {
-	return gamedb.location_is_child(c.db, c.self, arg_form(args, 0))
+	return gamedb.location_is_child(c.db, c.self, arg_form(c, args, 0))
 }
 
 n_location_get_keyword_data :: proc(c: ^Call, args: []Value) -> Value {
-	return c.ws.keyword_data[{c.self, arg_form(args, 0)}]
+	return c.ws.keyword_data[{c.self, arg_form(c, args, 0)}]
 }
 
 n_location_set_keyword_data :: proc(c: ^Call, args: []Value) -> Value {
-	c.ws.keyword_data[{c.self, arg_form(args, 0)}] = arg_f32(args, 1, 0)
+	c.ws.keyword_data[{c.self, arg_form(c, args, 0)}] = arg_f32(args, 1, 0)
 	return nil
 }
 

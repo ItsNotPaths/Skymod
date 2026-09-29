@@ -57,11 +57,11 @@ n_get_angle_y :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(
 n_get_angle_z :: proc(c: ^Call, args: []Value) -> Value {return math.to_degrees(worldstate.ref_rot(c.ws, c.db, c.self).z)}
 
 n_get_distance :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.ref_distance(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.ref_distance(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_has_los :: proc(c: ^Call, args: []Value) -> Value {
-	return sighthost.has_los(c.ws, c.db, c.self, arg_form(args, 0))
+	return sighthost.has_los(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 // n_get_sight_level is ours, not Papyrus: Actor.GetSightLevel(akTarget, aiMode) is how much this
@@ -70,16 +70,16 @@ n_has_los :: proc(c: ^Call, args: []Value) -> Value {
 n_get_sight_level :: proc(c: ^Call, args: []Value) -> Value {
 	mode := arg_i32(args, 1, 0)
 	if mode < 0 || mode > i32(max(sighthost.Mode)) {return f32(0)}
-	return sighthost.level(c.ws, c.db, c.self, arg_form(args, 0), sighthost.Mode(mode))
+	return sighthost.level(c.ws, c.db, c.self, arg_form(c, args, 0), sighthost.Mode(mode))
 }
 
 n_is_detected_by :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.detected(c.ws, arg_form(args, 0), c.self)
+	return worldstate.detected(c.ws, arg_form(c, args, 0), c.self)
 }
 
 // n_get_linked_ref follows the link on the keyword's channel; no keyword is the default link.
 n_get_linked_ref :: proc(c: ^Call, args: []Value) -> Value {
-	ref, _ := gamedb.linked_ref(c.db, c.self, arg_form(args, 0))
+	ref, _ := gamedb.linked_ref(c.db, c.self, arg_form(c, args, 0))
 	return form_or_none(ref)
 }
 

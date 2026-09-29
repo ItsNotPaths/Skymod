@@ -90,7 +90,7 @@ register_query :: proc(reg: ^Registry) {
 
 // FormList.Find: the index of the form, authored members first; -1 when absent.
 n_list_find :: proc(c: ^Call, args: []Value) -> Value {
-	form := arg_form(args, 0)
+	form := arg_form(c, args, 0)
 	authored, _ := gamedb.form_list_of(c.db, c.self)
 	for f, i in authored {
 		if f == form {return i32(i)}
@@ -124,9 +124,9 @@ n_get_gold_value :: proc(c: ^Call, args: []Value) -> Value {
 // PlaceActorAtMe(akActorToPlace, aiLevelMod = 4, akZone = None) is PlaceAtMe for an actor. A leveled
 // actor rolls at once, at the zone's level (akZone, else the caller's) times aiLevelMod.
 n_place_actor_at_me :: proc(c: ^Call, args: []Value) -> Value {
-	actor := place_at_me(c, arg_form(args, 0))
+	actor := place_at_me(c, arg_form(c, args, 0))
 	if actor == 0 || worldstate.pick_list(c.ws, c.db, actor) == 0 {return form_or_none(actor)}
-	zone := arg_form(args, 2)
+	zone := arg_form(c, args, 2)
 	if zone == 0 {zone = gamedb.zone_of(c.db, c.self)}
 	worldstate.roll_pick(c.ws, c.db, actor, f32(worldstate.encounter_level(c.ws, c.db, zone, arg_i32(args, 1, 4))))
 	return actor
@@ -135,15 +135,15 @@ n_place_actor_at_me :: proc(c: ^Call, args: []Value) -> Value {
 // ── actors ───────────────────────────────────────────────────────────────────────
 
 n_has_magic_effect :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.has_effect(c.ws, c.self, arg_form(args, 0))
+	return worldstate.has_effect(c.ws, c.self, arg_form(c, args, 0))
 }
 
 n_has_effect_keyword :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.has_effect_keyword(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.has_effect_keyword(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_worn_has_keyword :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.worn_has_keyword(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.worn_has_keyword(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_is_over_encumbered :: proc(c: ^Call, args: []Value) -> Value {
@@ -159,11 +159,11 @@ n_get_killer :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_has_parent_relationship :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.rel_is_parent(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.rel_is_parent(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_has_family_relationship :: proc(c: ^Call, args: []Value) -> Value {
-	return gamedb.association_is_family(c.db, worldstate.rel_association(c.ws, c.db, c.self, arg_form(args, 0)))
+	return gamedb.association_is_family(c.db, worldstate.rel_association(c.ws, c.db, c.self, arg_form(c, args, 0)))
 }
 
 n_get_highest_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
@@ -219,7 +219,7 @@ n_get_editor_location :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_heading_angle :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.heading_angle(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.heading_angle(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_get_width :: proc(c: ^Call, args: []Value) -> Value {return ref_size(c, c.self).x}
@@ -239,7 +239,7 @@ ref_size :: proc(c: ^Call, ref: Form_ID) -> [3]f32 {
 }
 
 n_ref_has_ref_type :: proc(c: ^Call, args: []Value) -> Value {
-	return gamedb.has_ref_type(c.db, c.self, arg_form(args, 0))
+	return gamedb.has_ref_type(c.db, c.self, arg_form(c, args, 0))
 }
 
 // IsDeleted: a script's Delete, or a plugin that deleted the placement.
@@ -272,7 +272,7 @@ n_get_voice_type :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_is_activate_child :: proc(c: ^Call, args: []Value) -> Value {
-	return gamedb.is_activate_child(c.db, c.self, arg_form(args, 0))
+	return gamedb.is_activate_child(c.db, c.self, arg_form(c, args, 0))
 }
 
 n_get_all_items_count :: proc(c: ^Call, args: []Value) -> Value {
@@ -298,7 +298,7 @@ n_get_faction_owner :: proc(c: ^Call, args: []Value) -> Value {
 
 // SetActorOwner(akActorBase) and SetFactionOwner(akFaction): None clears the owner.
 n_set_owner :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_owner(c.ws, c.self, arg_form(args, 0))
+	worldstate.set_owner(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -310,21 +310,21 @@ n_cell_is_interior :: proc(c: ^Call, args: []Value) -> Value {
 // ── locations ────────────────────────────────────────────────────────────────────
 
 n_get_ref_type_alive_count :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.ref_type_count(c.ws, c.db, c.self, arg_form(args, 0), false)
+	return worldstate.ref_type_count(c.ws, c.db, c.self, arg_form(c, args, 0), false)
 }
 
 n_get_ref_type_dead_count :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.ref_type_count(c.ws, c.db, c.self, arg_form(args, 0), true)
+	return worldstate.ref_type_count(c.ws, c.db, c.self, arg_form(c, args, 0), true)
 }
 
 n_location_has_ref_type :: proc(c: ^Call, args: []Value) -> Value {
-	return len(gamedb.location_special_refs(c.db, c.self, arg_form(args, 0))) > 0
+	return len(gamedb.location_special_refs(c.db, c.self, arg_form(c, args, 0))) > 0
 }
 
 // HasCommonParent(akOther, akFilter = None): a location above this one, with the keyword when one is
 // given, also holds the other.
 n_has_common_parent :: proc(c: ^Call, args: []Value) -> Value {
-	other, filter := arg_form(args, 0), arg_form(args, 1)
+	other, filter := arg_form(c, args, 0), arg_form(c, args, 1)
 	l, ok := gamedb.location_of(c.db, c.self)
 	for depth := 0; ok && l.parent != 0 && depth < gamedb.LOCATION_TREE_MAX_DEPTH; depth += 1 {
 		if (filter == 0 || gamedb.has_keyword(c.db, l.parent, filter)) && gamedb.location_within(c.db, other, l.parent) {return true}

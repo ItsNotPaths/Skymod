@@ -161,9 +161,9 @@ event_of :: proc(c: ^Call, args: []Value) -> Story_Event {
 	return {
 		type      = worldstate.STORY_SCRIPT,
 		keyword   = c.self,
-		location1 = arg_form(args, 0),
-		ref1      = arg_form(args, 1),
-		ref2      = arg_form(args, 2),
+		location1 = arg_form(c, args, 0),
+		ref1      = arg_form(c, args, 1),
+		ref2      = arg_form(c, args, 2),
 		value1    = max(arg_i32(args, 3, 0), 0), // a negative value arrives as 0 (CK wiki)
 		value2    = max(arg_i32(args, 4, 0), 0),
 	}

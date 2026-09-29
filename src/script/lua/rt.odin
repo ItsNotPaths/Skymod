@@ -47,6 +47,7 @@ setup_rt :: proc(vm: ^VM) -> bool {
 		{"__effect_class", rt_effect_class},
 		{"__effect_files", rt_effect_files},
 		{"__effect_def", rt_effect_def},
+		{"__av_part", rt_av_part},
 		{"__seed_spell", rt_seed_spell},
 		{"__faction", rt_faction},
 		{"__stolen_mark", rt_stolen_mark},
@@ -294,6 +295,18 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 		}
 		lua.pop(L, 1)
 	}
+}
+
+// __av_part(ref, name, part) reads ref.av.<name>.<part> (worldstate.av_part).
+@(private)
+rt_av_part :: proc "c" (L: ^lua.State) -> c.int {
+	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
+	context = vm.host_context
+	form, _ := ref_form(L, 1)
+	part, ok := reflect.enum_from_name(worldstate.AV_Part, strings.to_pascal_case(to_string(L, 3), context.temp_allocator))
+	if !ok {return c.int(lua.L_error(L, "read an actor value as .av.<Name>.value, .capacity or .amount"))}
+	lua.pushnumber(L, lua.Number(worldstate.av_part(vm.ctx.ws, vm.ctx.db, worldstate.resolve(vm.ctx.ws, form), to_string(L, 2), part)))
+	return 1
 }
 
 // __effect_def(name, def) hands an rt.effect definition to the engine (worldstate.set_effect_def).

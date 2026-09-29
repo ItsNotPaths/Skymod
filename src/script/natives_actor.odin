@@ -163,20 +163,20 @@ av_arg :: proc(c: ^Call, args: []Value) -> (string, bool) {
 // ── faction membership + rank ──────────────────────────────────────────────────
 
 n_is_in_faction :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.in_faction(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.in_faction(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 // SetFactionRank(akFaction, aiRank) — also the "add to faction" verb (there is no AddToFaction native;
 // setting a rank makes the actor a member).
 n_set_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.faction_set_rank(c.ws, c.self, arg_form(args, 0), arg_i32(args, 1, 0))
+	worldstate.faction_set_rank(c.ws, c.self, arg_form(c, args, 0), arg_i32(args, 1, 0))
 	return nil
 }
 
 // ModFactionRank(akFaction, aiRankMod) — adjust the rank (adding the actor at rank aiRankMod if not
 // already a member, i.e. from a base of 0).
 n_mod_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
-	faction := arg_form(args, 0)
+	faction := arg_form(c, args, 0)
 	cur, _ := worldstate.faction_rank(c.ws, c.db, c.self, faction)
 	worldstate.faction_set_rank(c.ws, c.self, faction, cur + arg_i32(args, 1, 0))
 	return nil
@@ -184,14 +184,14 @@ n_mod_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
 
 // GetFactionRank -> rank, or -1 if not in the faction.
 n_get_faction_rank :: proc(c: ^Call, args: []Value) -> Value {
-	if r, ok := worldstate.faction_rank(c.ws, c.db, c.self, arg_form(args, 0)); ok {
+	if r, ok := worldstate.faction_rank(c.ws, c.db, c.self, arg_form(c, args, 0)); ok {
 		return r
 	}
 	return i32(-1)
 }
 
 n_remove_from_faction :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.faction_remove(c.ws, c.self, arg_form(args, 0))
+	worldstate.faction_remove(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -206,7 +206,7 @@ n_get_crime_faction :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_set_crime_faction :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_crime_faction(c.ws, c.self, arg_form(args, 0))
+	worldstate.set_crime_faction(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -240,11 +240,11 @@ n_is_allowed_to_fly :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_get_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.rel_rank(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.rel_rank(c.ws, c.db, c.self, arg_form(c, args, 0))
 }
 
 n_set_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.rel_set(c.ws, c.db, c.self, arg_form(args, 0), arg_i32(args, 1, 0))
+	worldstate.rel_set(c.ws, c.db, c.self, arg_form(c, args, 0), arg_i32(args, 1, 0))
 	return nil
 }
 
@@ -252,7 +252,7 @@ n_set_rel_rank :: proc(c: ^Call, args: []Value) -> Value {
 
 // AddPerk: the perk's abilities start and its quest entries set their stages.
 n_add_perk :: proc(c: ^Call, args: []Value) -> Value {
-	perk := arg_form(args, 0)
+	perk := arg_form(c, args, 0)
 	worldstate.perk_add(c.ws, c.self, perk)
 	p, _ := gamedb.perk_of(c.db, perk)
 	for e in p.entries {
@@ -263,11 +263,11 @@ n_add_perk :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_remove_perk :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.perk_remove(c.ws, c.self, arg_form(args, 0))
+	worldstate.perk_remove(c.ws, c.self, arg_form(c, args, 0))
 	sync_constant_effects(c, c.self)
 	return nil
 }
 
 n_has_perk :: proc(c: ^Call, args: []Value) -> Value {
-	return worldstate.perk_has(c.ws, c.db, c.self, arg_form(args, 0))
+	return worldstate.perk_has(c.ws, c.db, c.self, arg_form(c, args, 0))
 }

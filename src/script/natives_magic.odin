@@ -50,7 +50,7 @@ register_magic :: proc(reg: ^Registry) {
 // (hole disease-effects :tags magic :sev gap) a caught disease does nothing: AddSpell and sync_constant_effects start abilities only, so a Disease spell sits in the list with GetDisease 1 and no penalty; no hit passes one on.
 // AddSpell: the actor learns the spell; an ability starts. False when it already knew it.
 n_add_spell :: proc(c: ^Call, args: []Value) -> Value {
-	spell := arg_form(args, 0)
+	spell := arg_form(c, args, 0)
 	if !worldstate.give_spell(c.ws, c.db, c.self, spell) {return false}
 	if is_ability(c.db, spell) {start_spell(c, spell, c.self, c.self)}
 	return true
@@ -58,7 +58,7 @@ n_add_spell :: proc(c: ^Call, args: []Value) -> Value {
 
 // RemoveSpell: the actor forgets the spell and its effects end. False when it did not know it.
 n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
-	spell := arg_form(args, 0)
+	spell := arg_form(c, args, 0)
 	if !worldstate.remove_spell(c.ws, c.db, c.self, spell) {return false}
 	for h in spell_effects(c.ws, c.self, spell) {worldstate.end_effect(c.ws, h)}
 	return true
@@ -66,19 +66,19 @@ n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
 
 // DispelSpell ends the spell's effects; the actor still knows it. True when it had any.
 n_dispel_spell :: proc(c: ^Call, args: []Value) -> Value {
-	effects := spell_effects(c.ws, c.self, arg_form(args, 0))
+	effects := spell_effects(c.ws, c.self, arg_form(c, args, 0))
 	for h in effects {worldstate.end_effect(c.ws, h)}
 	return len(effects) > 0
 }
 
-n_has_spell :: proc(c: ^Call, args: []Value) -> Value {return worldstate.has_spell(c.ws, c.db, c.self, arg_form(args, 0))}
-n_add_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.give_spell(c.ws, c.db, c.self, arg_form(args, 0))}
-n_remove_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.remove_spell(c.ws, c.db, c.self, arg_form(args, 0))}
+n_has_spell :: proc(c: ^Call, args: []Value) -> Value {return worldstate.has_spell(c.ws, c.db, c.self, arg_form(c, args, 0))}
+n_add_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.give_spell(c.ws, c.db, c.self, arg_form(c, args, 0))}
+n_remove_shout :: proc(c: ^Call, args: []Value) -> Value {return worldstate.remove_spell(c.ws, c.db, c.self, arg_form(c, args, 0))}
 
 // The player's words of power: taught is not unlocked (Game.TeachWord / UnlockWord).
-n_teach_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.teach_word(c.ws, c.ws.player, arg_form(args, 0)); return nil}
-n_unlock_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.unlock_word(c.ws, c.ws.player, arg_form(args, 0)); return nil}
-n_is_word_unlocked :: proc(c: ^Call, args: []Value) -> Value {return worldstate.word_unlocked(c.ws, c.ws.player, arg_form(args, 0))}
+n_teach_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.teach_word(c.ws, c.ws.player, arg_form(c, args, 0)); return nil}
+n_unlock_word :: proc(c: ^Call, args: []Value) -> Value {worldstate.unlock_word(c.ws, c.ws.player, arg_form(c, args, 0)); return nil}
+n_is_word_unlocked :: proc(c: ^Call, args: []Value) -> Value {return worldstate.word_unlocked(c.ws, c.ws.player, arg_form(c, args, 0))}
 
 n_set_beast_form :: proc(c: ^Call, args: []Value) -> Value {c.ws.beast_form = arg_bool(args, 0, false); return nil}
 n_vampirism_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_in_set(&c.ws.vampires, c.self, arg_bool(args, 0, false)); return nil}
@@ -156,8 +156,8 @@ recheck_effect :: proc(c: ^Call, h: Form_ID) {
 // An ability does nothing: it applies only from a spell list (CK wiki, Spell).
 n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
 	if is_ability(c.db, c.self) {return nil}
-	source := arg_form(args, 0)
-	target := arg_form(args, 1)
+	source := arg_form(c, args, 0)
+	target := arg_form(c, args, 1)
 	start_spell(c, c.self, target if target != 0 else source, source)
 	return nil
 }
@@ -165,7 +165,7 @@ n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
 // RemoteCast(akSource, akBlameActor, akTarget): the blamed actor is the caster.
 n_spell_remote_cast :: proc(c: ^Call, args: []Value) -> Value {
 	if is_ability(c.db, c.self) {return nil}
-	source, blame, target := arg_form(args, 0), arg_form(args, 1), arg_form(args, 2)
+	source, blame, target := arg_form(c, args, 0), arg_form(c, args, 1), arg_form(c, args, 2)
 	start_spell(c, c.self, target if target != 0 else source, blame if blame != 0 else source)
 	return nil
 }

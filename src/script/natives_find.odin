@@ -55,7 +55,7 @@ find :: proc(c: ^Call, args: []Value, match: Match, random: bool) -> Value {
 	at := 0 if match == is_actor else 1
 	s := Search {
 		match  = match,
-		want   = arg_form(args, 0),
+		want   = arg_form(c, args, 0),
 		center = {arg_f32(args, at, 0), arg_f32(args, at + 1, 0), arg_f32(args, at + 2, 0)},
 		radius = arg_f32(args, at + 3, 0),
 		random = random,

@@ -1573,7 +1573,11 @@ MOMENT_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Moment", nil)
 C.__vars = { ["::label_var"] = { type = "String", default = nil } }
 C.__autoprop["label"] = "::label_var"
-C.__fn["oneffectstart"] = function(self) __moment = self.vars["::label_var"] end
+C.__fn["oneffectstart"] = function(self)
+  local t = self:GetTargetActor()
+  __moment = self.vars["::label_var"]
+  __read = { hp = t.av.Health.capacity, perk = t:HasPerk("MomentPerk") }
+end
 function C:OnTick() self:SetActive(__on ~= false) end
 return C
 `
@@ -1614,6 +1618,10 @@ test_rt_effect :: proc(t: ^testing.T) {
 	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
 	f.db.form_kinds[SPELL] = .Spell
 	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
+	PERK :: gamedb.Form_ID(0x950)
+	f.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	f.db.form_by_edid["momentperk"] = PERK
+	worldstate.perk_add(&f.ws, TARGET, PERK)
 
 	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.call(ref(0x900), "Cast", ref(0x701), ref(0x700))`), "Cast")
 	testing.expect_value(t, len(f.ws.effects), 1)
@@ -1626,6 +1634,7 @@ test_rt_effect :: proc(t: ^testing.T) {
 		slua.tick_end(&f.vm, 1)
 	}
 	testing.expect(t, slua.do_string(&f.vm, `assert(__moment == "hi", tostring(__moment))`), "the moment script got its property")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__read.hp == 100 and __read.perk == true, tostring(__read.hp))`), ".av read, and a perk named by editor id")
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 62.5) // off from the tick after the switch: 3 s of 4
 	testing.expect(t, f.ws.effects[h].inactive, "its script switched it off")
 }

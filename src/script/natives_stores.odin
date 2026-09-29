@@ -43,7 +43,7 @@ n_glob_set :: proc(c: ^Call, args: []Value) -> Value {
 // boss locations and the KILL story event. A dead actor does not die again.
 // (hole kill-essential :tags combat :sev polish) Kill does not read IsEssential (worldstate.actor_flag); unsourced whether Skyrim refuses, or sends the actor to bleedout.
 n_actor_kill :: proc(c: ^Call, args: []Value) -> Value {
-	kill(c, c.self, arg_form(args, 0))
+	kill(c, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -83,7 +83,7 @@ n_actor_is_dead :: proc(c: ^Call, args: []Value) -> Value {
 // hint with no bearing on our overlay (created refs already persist). abInitiallyDisabled writes a
 // Disabled delta on the new ref so the streamer skips it until Enable.
 n_place_at_me :: proc(c: ^Call, args: []Value) -> Value {
-	return form_or_none(place_at_me(c, arg_form(args, 0), max(1, int(arg_i32(args, 1, 1))), arg_bool(args, 3, false)))
+	return form_or_none(place_at_me(c, arg_form(c, args, 0), max(1, int(arg_i32(args, 1, 1))), arg_bool(args, 3, false)))
 }
 
 // place_at_me mints `count` refs of `base` where the caller stands and returns the last; 0 for no base.

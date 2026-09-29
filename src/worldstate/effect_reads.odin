@@ -32,8 +32,7 @@ ARG_CASTER :: max(u64)
 @(private)
 ARG_TARGET :: max(u64) - 1
 
-// AV_Part is which part of an actor value a read wants (bound[3]).
-@(private)
+// AV_Part is which part of an actor value a read wants (a formula read's bound[3]).
 AV_Part :: enum u64 {
 	Value,
 	Capacity,
@@ -79,7 +78,7 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 		case .Form, .Ref:
 			switch {
 			case quoted:
-				f, ok := form_arg(db, arg)
+				f, ok := form_by_name(db, arg)
 				if !ok {return "unknown form"}
 				r.bound[2 + i] = u64(f)
 			case kind == .Ref && (arg == "caster" || arg == "target"):
@@ -124,9 +123,8 @@ param_number :: proc(text: string) -> (v: u64, ok: bool) {
 	return 0, false
 }
 
-// form_arg is the form an argument names: "File.esm:012FCD", or an editor id.
-@(private)
-form_arg :: proc(db: ^gamedb.DB, text: string) -> (f: Form_ID, ok: bool) {
+// form_by_name is the form a string names: "File.esm:012FCD", or an editor id.
+form_by_name :: proc(db: ^gamedb.DB, text: string) -> (f: Form_ID, ok: bool) {
 	if file, colon, local := strings.partition(text, ":"); colon != "" {
 		v := strconv.parse_u64(local, 16) or_return
 		return gamedb.form_from_file(db, u32(v), file)
@@ -166,17 +164,31 @@ effect_read :: proc(data: rawptr, r: formula.Read) -> f64 {
 		return f64(condition_call(x.ws, x.db, c, subject, other))
 	}
 	part := AV_Part(r.bound[3])
-	if perk := Form_ID(r.bound[2]); perk != 0 {
-		if part == .Capacity {return f64(gamedb.perk_ranks(x.db, perk))}
-		return f64(perk_rank(x.ws, x.db, subject, perk))
+	if perk := Form_ID(r.bound[2]); perk != 0 {return f64(perk_part(x.ws, x.db, subject, perk, part))}
+	return f64(av_part(x.ws, x.db, subject, r.name, part))
+}
+
+// av_part reads a part of `actor`'s actor value `name` (the naming rule's <actor>.av.<Name>.<part>):
+// an engine or mod actor value, Level, or a perk by its editor id. An unknown name reads 0.
+av_part :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, name: string, part: AV_Part) -> f32 {
+	if name == "Level" {return f32(actor_level(ws, db, actor))}
+	if av, ok := av_name(ws, name); ok {
+		switch part {
+		case .Value:    return av_current(ws, db, actor, av)
+		case .Capacity: return av_max(ws, db, actor, av)
+		case .Amount:   return av_amount(ws, db, actor, av)
+		}
 	}
-	if r.name == "Level" {return f64(actor_level(x.ws, x.db, subject))}
-	av, ok := av_name(x.ws, r.name) // a mod's AV may not exist in this game: 0
-	if !ok {return 0}
-	switch part {
-	case .Value:    return f64(av_current(x.ws, x.db, subject, av))
-	case .Capacity: return f64(av_max(x.ws, x.db, subject, av))
-	case .Amount:   return f64(av_amount(x.ws, x.db, subject, av))
+	if f, ok := gamedb.form_by_editor_id(db, name); ok {
+		if _, perk := gamedb.perk_of(db, f); perk {return perk_part(ws, db, actor, f, part)}
 	}
 	return 0
+}
+
+// perk_part is a perk read as an actor value: its value and amount the ranks held, its capacity
+// the ranks its chain has.
+@(private)
+perk_part :: proc(ws: ^World_State, db: ^gamedb.DB, actor, perk: Form_ID, part: AV_Part) -> f32 {
+	if part == .Capacity {return f32(gamedb.perk_ranks(db, perk))}
+	return f32(perk_rank(ws, db, actor, perk))
 }

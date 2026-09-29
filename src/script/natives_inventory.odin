@@ -29,7 +29,7 @@ register_inventory :: proc(reg: ^Registry) {
 // WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13). While the courier talks
 // to the player it waits, as the script's IsInDialogueWithPlayer loop did (tick_courier).
 n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
-	r := worldstate.Courier_Remove{arg_form(args, 0), arg_form(args, 1), arg_form(args, 2), arg_form(args, 4), arg_bool(args, 3, false)}
+	r := worldstate.Courier_Remove{arg_form(c, args, 0), arg_form(c, args, 1), arg_form(c, args, 2), arg_form(c, args, 4), arg_bool(args, 3, false)}
 	if r.courier != 0 && c.ws.talking == r.courier {
 		append(&c.ws.courier_waits, r)
 	} else {
@@ -65,7 +65,7 @@ courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
 // AddItem(akItemToAdd, aiCount=1, …). A ref comes whole, out of the container or the world it was
 // in. A leveled list adds what it rolls at the container's zone level.
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
-	base, ref := item_of(c, arg_form(args, 0))
+	base, ref := item_of(c, arg_form(c, args, 0))
 	count := max(1, arg_i32(args, 1, 1))
 	if ref == 0 {
 		give_items(c, c.self, base, count)
@@ -112,19 +112,19 @@ report_theft :: proc(c: ^Call, by, from, base: Form_ID, count: i32) -> Form_ID {
 // RemoveItem(akItemToRemove, aiCount=1, abSilent=false, akOtherContainer=None). With no other
 // container the items are destroyed.
 n_remove_item :: proc(c: ^Call, args: []Value) -> Value {
-	base, ref := item_of(c, arg_form(args, 0))
-	move_items(c, {base = base, ref = ref, from = c.self, to = arg_form(args, 3), count = max(1, arg_i32(args, 1, 1))})
+	base, ref := item_of(c, arg_form(c, args, 0))
+	move_items(c, {base = base, ref = ref, from = c.self, to = arg_form(c, args, 3), count = max(1, arg_i32(args, 1, 1))})
 	return nil
 }
 
 n_get_item_count :: proc(c: ^Call, args: []Value) -> Value {
-	base, _ := item_of(c, arg_form(args, 0))
+	base, _ := item_of(c, arg_form(c, args, 0))
 	return worldstate.inv_count(c.ws, c.db, c.self, base)
 }
 
 // RemoveAllItems(akTransferTo=None, …): one move per item type, in form order.
 n_remove_all_items :: proc(c: ^Call, args: []Value) -> Value {
-	to := arg_form(args, 0)
+	to := arg_form(c, args, 0)
 	for base in worldstate.inv_items(c.ws, c.db, c.self) {
 		move_items(c, {base = base, from = c.self, to = to, count = worldstate.inv_count(c.ws, c.db, c.self, base)})
 	}
@@ -132,12 +132,12 @@ n_remove_all_items :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_add_inventory_event_filter :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.add_item_filter(c.ws, c.self, arg_form(args, 0))
+	worldstate.add_item_filter(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
 n_remove_inventory_event_filter :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.remove_item_filter(c.ws, c.self, arg_form(args, 0))
+	worldstate.remove_item_filter(c.ws, c.self, arg_form(c, args, 0))
 	return nil
 }
 
@@ -231,7 +231,7 @@ queue_item_event :: proc(c: ^Call, m: worldstate.Item_Move) {
 // DropObject(akObject, aiCount=1): the items leave `self` into the world beside it. A ref it
 // carries of that item drops whole, as itself; otherwise a new ref holds the count.
 n_drop_object :: proc(c: ^Call, args: []Value) -> Value {
-	base, ref := item_of(c, arg_form(args, 0))
+	base, ref := item_of(c, arg_form(c, args, 0))
 	if dropped := drop_object(c, c.self, base, ref, max(1, arg_i32(args, 1, 1))); dropped != 0 {return dropped}
 	return nil
 }
