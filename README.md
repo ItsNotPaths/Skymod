@@ -89,10 +89,7 @@ magic
   cast and enchantment visuals                            *
 
 render and ui
-  bindings in settings.txt, prompts for every device
-  rebind screen                                           *
-  sky, weather, day/night, particles, skinned meshes      *
-  inventory, barter, crafting, dialogue, console          *
+  lua based ui framework        *
 ```
 
 ## Requirements
