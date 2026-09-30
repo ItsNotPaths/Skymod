@@ -149,6 +149,7 @@ Runtime :: struct {
 	// through the same path as the player's Activate key, and clears the list.
 	activations:     [dynamic]Activation,
 	fires:           [dynamic]Fire, // Weapon.Fire calls for the app to launch
+	swings:          [dynamic]Swing, // weapon swings for the app to land
 	// Items scripts moved since the last tick; the tick sends their inventory events.
 	item_moves:      [dynamic]Item_Move,
 	// Refs created and deleted since the VM last looked. It gives the new ones their scripts
@@ -246,6 +247,7 @@ init :: proc(ws: ^World_State) {
 	ws.scene_dirty = make([dynamic]Form_ID)
 	ws.activations = make([dynamic]Activation)
 	ws.fires = make([dynamic]Fire)
+	ws.swings = make([dynamic]Swing)
 	ws.item_moves = make([dynamic]Item_Move)
 	ws.new_refs = make([dynamic]Form_ID)
 	ws.gone_refs = make([dynamic]Form_ID)
@@ -281,6 +283,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.scene_dirty)
 	delete(ws.activations)
 	delete(ws.fires)
+	delete(ws.swings)
 	delete(ws.item_moves)
 	delete(ws.new_refs)
 	delete(ws.gone_refs)

@@ -12,7 +12,7 @@ import "../formid"
 import "../formula"
 import "../gamedb"
 
-// (hole skill-use-xp :tags (player combat) :sev gap :needs (combat-damage crafting-screen barter persuasion)) only casts, AdvanceSkill and IncrementSkill give skill XP: hits, blocks and armor (combat), smithing, alchemy and enchanting (crafting), trade and pickpocketing (barter), sneaking and persuasion call advance_skill (Lockpicking XP is lockpicking) when their systems exist.
+// (hole skill-use-xp :tags (player combat) :sev gap :needs (crafting-screen barter persuasion)) only casts, AdvanceSkill and IncrementSkill give skill XP: hits, blocks and armor (combat), smithing, alchemy and enchanting (crafting), trade and pickpocketing (barter), sneaking and persuasion call advance_skill (Lockpicking XP is lockpicking) when their systems exist.
 
 Level_State :: struct {
 	level:       i32, // 0 = the records' level

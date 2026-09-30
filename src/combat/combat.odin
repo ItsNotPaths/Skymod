@@ -11,7 +11,7 @@ import "../plugin"
 Form_ID :: plugin.Form_ID
 
 SEAM :: "skymod_combat"
-VERSION :: u32(2)
+VERSION :: u32(3)
 
 State :: enum u8 {
 	None,
@@ -25,6 +25,7 @@ Fight :: struct {
 	state:  State,
 	target: Form_ID, // whom it warns, fights or flees
 	warned: f32, // seconds the target has spent inside the warn/attack radius
+	swing:  f32, // seconds until it may swing again
 }
 
 Fighter :: struct {
@@ -45,6 +46,7 @@ Host :: struct {
 	data:  rawptr,
 	aggro: proc "c" (data: rawptr, actor: Form_ID) -> Aggro,
 	set:   proc "c" (data: rawptr, actor: Form_ID, f: Fight), // applied after tick returns
+	swing: proc "c" (data: rawptr, actor: Form_ID, kind: Attack_Kind), // swings its weapon; the host lands it on what is in reach
 }
 
 Input :: struct {
@@ -63,12 +65,17 @@ Table :: struct {
 BUILTIN :: Table{tick_builtin, damage_builtin}
 
 COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
+SWING_EVERY :: f32(1.5) // seconds between a stand-in fighter's swings (guess)
 FAR :: f32(1e9) // the distance to an actor not loaded
 
-// (hole hit-model :tags (combat unclaimed) :sev gap :needs (combat-damage)) the built-in hit is flat weapon damage in reach: no swing arc, block, power attack, stagger or sneak multiplier.
-// (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (combat-damage actor-states)) the brain is a stand-in: close, swing in reach, flee on low confidence, and it can only answer a State and a target. Wanted: real tactics (block, dodge, ranged, spells, groups) from someone who knows combat AI; its actions (a swing, a block, a mod's dodge roll) are actor states it asks the actor-state model for, a new Fight field under a new VERSION.
+// (hole hit-model :tags (combat unclaimed) :sev gap ) the built-in hit is flat weapon damage in reach: no swing arc, block, power attack, stagger or sneak multiplier.
+// (hole combat-brain :tags (ai combat unclaimed) :sev gap :needs (actor-states)) the brain is a stand-in: close, swing in reach, flee on low confidence, and it can only answer a State and a target. Wanted: real tactics (block, dodge, ranged, spells, groups) from someone who knows combat AI; its actions (a swing, a block, a mod's dodge roll) are actor states it asks the actor-state model for, a new Fight field under a new VERSION.
 tick_builtin :: proc "c" (inp: ^Input) {
-	for f in plugin.items(inp.fighters) {inp.host.set(inp.host.data, f.actor, next(inp, f))}
+	for f in plugin.items(inp.fighters) {
+		c := next(inp, f)
+		if c.state == .Combat {swing(inp, f.actor, &c)}
+		inp.host.set(inp.host.data, f.actor, c)
+	}
 }
 
 // next is the fighter's fight this tick. An actor that was hit turns on whoever hit it. Otherwise
@@ -83,8 +90,9 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 	me, _ := find(actors, f.actor)
 	if me.dead {return {}}
 	c = f.fight
+	c.swing = max(c.swing - inp.dt, 0)
 	if f.struck_by != 0 {
-		if by, ok := find(actors, f.struck_by); !ok || !by.dead {return {engage(h, f.actor), f.struck_by, 0}}
+		if by, ok := find(actors, f.struck_by); !ok || !by.dead {return {engage(h, f.actor), f.struck_by, 0, c.swing}}
 	}
 	aggro := h.aggro(h.data, f.actor)
 	if c.state == .Combat || c.state == .Flee {
@@ -103,13 +111,24 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 		if seen && d < attack_d && attacks_on_sight(h, me.id, other.id) {attack, attack_d = other.id, d}
 		if d < near_d {near, near_d = other.id, d}
 	}
-	if attack != 0 {return {engage(h, me.id), attack, 0}}
+	if attack != 0 {return {engage(h, me.id), attack, 0, c.swing}}
 	if !aggro.on || near == 0 || near_d > reach {return {}}
 	if near != c.target {c.target, c.warned = near, 0}
 	if near_d <= aggro.warn_attack {c.warned += inp.dt} else {c.warned = 0}
 	c.state = .Warn
 	if near_d <= aggro.attack || c.warned >= h.world.setting(h.world.data, "fWarningTimer", 5) {c.state = engage(h, me.id)}
 	return c
+}
+
+// swing: a fighter whose target is inside fCombatDistance swings once its last swing is past.
+@(private = "file")
+swing :: proc "contextless" (inp: ^Input, actor: Form_ID, c: ^Fight) {
+	h := inp.host
+	me, _ := find(plugin.items(inp.actors), actor)
+	target, ok := find(plugin.items(inp.actors), c.target)
+	if !ok || c.swing > 0 || distance_xy(me, target) > h.world.setting(h.world.data, "fCombatDistance", 141) {return}
+	h.swing(h.data, actor, {})
+	c.swing = SWING_EVERY
 }
 
 // engage is Combat, or Flee for a Cowardly actor.

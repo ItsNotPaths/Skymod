@@ -2,6 +2,7 @@ package worldstate
 
 import "core:math"
 import "core:math/linalg"
+import "../combat"
 import "../gamedb"
 
 // Flight is a projectile in the air: its created ref (a PROJ base), who shot it, the weapon whose
@@ -49,6 +50,16 @@ Fire :: struct {
 
 request_fire :: proc(ws: ^World_State, source, weapon, ammo: Form_ID) {
 	append(&ws.fires, Fire{source, weapon, ammo})
+}
+
+// Swing is an actor swinging its weapon; the app lands it on what is in reach.
+Swing :: struct {
+	attacker: Form_ID,
+	kind:     combat.Attack_Kind,
+}
+
+request_swing :: proc(ws: ^World_State, attacker: Form_ID, kind: combat.Attack_Kind) {
+	append(&ws.swings, Swing{attacker, kind})
 }
 
 // launch creates a projectile's ref at pos, pointing along dir, and starts its flight.

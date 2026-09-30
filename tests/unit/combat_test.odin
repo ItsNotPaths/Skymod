@@ -17,6 +17,8 @@ Fake_Combat :: struct {
 	confidence: f32,
 	aggro:      combat.Aggro,
 	sets:       [dynamic]combat.Fighter,
+	swings:     int,
+	distance:   f32, // how far the player stands; 0 = 300
 }
 
 fake_combat_host :: proc(h: ^Fake_Combat) -> combat.Host {
@@ -37,6 +39,7 @@ fake_combat_host :: proc(h: ^Fake_Combat) -> combat.Host {
 			context = h.ctx
 			append(&h.sets, combat.Fighter{actor = actor, fight = f})
 		},
+		proc "c" (data: rawptr, actor: combat.Form_ID, kind: combat.Attack_Kind) {(^Fake_Combat)(data).swings += 1},
 	}
 }
 
@@ -44,7 +47,7 @@ fake_combat_host :: proc(h: ^Fake_Combat) -> combat.Host {
 fight :: proc(t: ^testing.T, table: ^combat.Table, h: ^Fake_Combat, f: combat.Fighter) -> combat.Fight {
 	h.ctx = context
 	h.sets = make([dynamic]combat.Fighter, context.temp_allocator)
-	actors := []plugin.Actor{{id = 0xA1, space = 1}, {id = 0x14, space = 1, pos = {300, 0, 0}}}
+	actors := []plugin.Actor{{id = 0xA1, space = 1}, {id = 0x14, space = 1, pos = {h.distance if h.distance > 0 else 300, 0, 0}}}
 	fighters := []combat.Fighter{f}
 	inp := combat.Input{fake_combat_host(h), table, 1 / 60.0, plugin.span(actors), plugin.span(fighters)}
 	table.tick(&inp)
@@ -60,7 +63,13 @@ test_combat_brain :: proc(t: ^testing.T) {
 	h.confidence = 0
 	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1, struck_by = 0x14}).state, combat.State.Flee) // a coward runs
 	h = {confidence = 2, detected = true, hostile = true, aggression = 1}
-	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1}), combat.Fight{.Combat, 0x14, 0}) // attacks a hostile it sees
+	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1}), combat.Fight{.Combat, 0x14, 0, 0}) // attacks a hostile it sees
+	testing.expect_value(t, h.swings, 0) // 300 units off: out of reach
+	h.distance = 100
+	f := fight(t, &table, &h, {actor = 0xA1})
+	testing.expect(t, h.swings == 1 && f.swing == combat.SWING_EVERY, "in reach, it swings")
+	fight(t, &table, &h, {actor = 0xA1, fight = f})
+	testing.expect_value(t, h.swings, 1) // not again until SWING_EVERY is past
 	h = {confidence = 2, aggro = {on = true, warn = 500}}
 	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1}).state, combat.State.Warn) // inside its warn radius
 	h.aggro = {}

@@ -29,7 +29,6 @@ Ref_Field :: enum u8 {
 	Held,      // an item ref a holder has (items.odin): not in the world. The bit is the whole state
 }
 
-// (hole combat-damage :tags combat :sev blocker) no hit command on the combat seam: the stand-in fights but no swing lands; no melee hit reaches script.land_attack. Wanted: a Host command a brain calls to land a hit, with a built-in that takes the reach (WEAP DNAM reach x fCombatDistance 141, not decoded) and cone test, calls land_attack and makes a noise (worldstate.make_noise).
 
 // Ref_Delta is a sparse override of one ESM ref — the in-RAM equivalent of a ChangeForm. `live`
 // says which fields are valid (so we patch/serialise only those). The Moved transform is held as
@@ -170,7 +169,7 @@ set_activation_blocked :: proc(ws: ^World_State, form_id, cell: Form_ID, blocked
 	}
 }
 
-// (hole destruction-stages :tags (combat world) :sev gap :needs combat-damage) damage never moves a ref through its DEST stages: only SetDestroyed marks one destroyed, GetCurrentDestructionStage and GetDestructionStage do not read it, and nothing swaps in the destroyed model or explodes.
+// (hole destruction-stages :tags (combat world) :sev gap) damage never moves a ref through its DEST stages: only SetDestroyed marks one destroyed, GetCurrentDestructionStage and GetDestructionStage do not read it, and nothing swaps in the destroyed model or explodes.
 // set_destroyed records SetDestroyed and ClearDestruction.
 set_destroyed :: proc(ws: ^World_State, form_id, cell: Form_ID, destroyed: bool) {
 	if destroyed {

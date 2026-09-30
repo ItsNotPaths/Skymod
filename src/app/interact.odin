@@ -128,7 +128,7 @@ tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := tgt.form if tgt.present else 0
 	// (hole shouts :tags (magic input player) :sev gap) nothing uses the Voice slot: no Shout action, no shout cooldown or Voice recovery (ShoutRecoveryMult, Get/SetVoiceRecoveryTime), no once-a-day limit on powers, no GetCurrentShoutVariation.
-	// (hole player-melee :tags (combat player input) :sev gap :needs (combat-damage)) a weapon or fists in a hand does nothing when its button goes down: the player cannot attack.
+	// (hole player-melee :tags (combat player input) :sev gap ) a weapon or fists in a hand does nothing when its button goes down: the player cannot attack.
 	if in_.cast_left && !was.cast_left {script.cast_hand(&c, g.sim.ws.player, .LeftHand, target)}
 	if in_.cast_right && !was.cast_right {script.cast_hand(&c, g.sim.ws.player, .RightHand, target)}
 }

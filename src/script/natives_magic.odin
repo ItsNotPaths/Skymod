@@ -129,7 +129,7 @@ n_lycanthropy_changed :: proc(c: ^Call, args: []Value) -> Value {worldstate.set_
 // sync_constant_effects starts `actor`'s constant effects that are not running and ends the ones
 // whose source it no longer has: the abilities in its spell list and its perks' ability entries,
 // and the constant-effect enchantments of what it wears. After a mod update, on load or attach, and when its gear changes.
-// (hole weapon-enchantments :tags (magic combat) :sev gap :needs (combat-damage)) a melee weapon's enchantment (a Contact effect on hit) never applies; projectile hits and worn constant effects do.
+// (hole weapon-enchantments :tags (magic combat) :sev gap ) a melee weapon's enchantment (a Contact effect on hit) never applies; projectile hits and worn constant effects do.
 // (hole twin-enchantments :tags magic :sev polish) two worn items carrying the same ENCH form run it once; Skyrim adds enchantments.
 // (hole list-effects :tags magic :sev polish) a race, NPC or perk list cannot name an effect, only an ability spell: an effect given by a list would need its own source, so the sync here does not end one a script applied with ApplyEffect.
 sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {

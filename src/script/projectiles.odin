@@ -13,19 +13,14 @@ n_weapon_fire :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// projectile_hit is a flight striking a live actor: its damage, the weapon's enchantment, OnHit.
+// projectile_hit is a flight striking a live actor: the weapon hit, the weapon's enchantment, OnHit.
 projectile_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
-	worldstate.report_crime(c.ws, c.db, f.shooter, target, .Assault, 0)
-	sneak := !worldstate.awareness(c.ws, target, f.shooter).detected
-	land_attack(c, f.shooter, target, f.weapon, {.Sneak} if sneak else {}, f.damage)
+	weapon_hit(c, f.shooter, target, f.weapon, {}, f.damage)
 	slot, _ := gamedb.equip_slot_of(c.db, f.weapon)
 	if e, ok := gamedb.enchantment_of(c.db, slot.enchantment); ok {
 		start_effects(c, slot.enchantment, e.effects, false, target, f.shooter)
 	}
 	queue_hit(c, f, target)
-	worldstate.strike(c.ws, target, f.shooter)
-	worldstate.make_noise(c.ws, c.db, f.shooter, target, worldstate.sound_level(c.db, .Normal))
-	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
 }
 
 // queue_hit queues OnHit for what a flight struck, an actor or any other ref.

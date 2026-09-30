@@ -181,6 +181,7 @@ game_tick :: proc(g: ^Game) {
 	tick_actor_bodies(g) // laps its own parts
 	t = time.tick_now()
 	tick_projectiles(g)
+	tick_swings(g)
 	lap(g, .Projectiles, &t)
 	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
 	lap(g, .Window, &t)

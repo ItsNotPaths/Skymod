@@ -145,7 +145,7 @@ activate_sound :: proc(a: ^Audio, v: ^vfs.VFS, db: ^gamedb.DB, ws: ^worldstate.W
 	play_descriptor(a, v, db, gamedb.base_sound(db, worldstate.ref_base(ws, db, ref), done), worldstate.ref_pos(ws, db, ref), ws, ref)
 }
 
-// (hole impact-sounds :tags (audio combat) :sev gap :needs (havok-materials)) a hit makes no sound: IPDS (220) and IPCT (515) are not decoded, and no hit knows the surface that picks the row. Melee hits wait on combat-damage.
+// (hole impact-sounds :tags (audio combat) :sev gap :needs (havok-materials)) a hit makes no sound: IPDS (220) and IPCT (515) are not decoded, and no hit knows the surface that picks the row.
 impact_sound :: proc(db: ^gamedb.DB, source, target: formid.Form_ID, pos: [3]f32) {}
 
 // (hole anim-sounds :tags (audio animation unclaimed) :sev gap :needs (hkx-porter)) no animation plays a sound: SoundPlay/SoundStop/SoundPlayAt annotations (727 SNDR names over 800 SE clips; 90 of 183 dragon clips), weaponSwing (the WEAP attack sound) and FootLeft/FootRight (FSTS/FSTP footstep sets, by gait and ground material; not decoded) have no animation to fire them.

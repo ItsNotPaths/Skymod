@@ -1,7 +1,7 @@
 package ai
 
 // The host side of the combat seam (src/combat): each loaded actor's fight, and the mover goal
-// that carries it out. No attacks land yet.
+// that carries it out. A swing is queued for the app to land (worldstate.request_swing).
 
 
 import "base:runtime"
@@ -55,7 +55,7 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 	wd := worldhost.Data{context, ws, db}
 	view := worldhost.world(&wd)
 	inp := combat.Input {
-		host     = {&view, &h, combat_aggro, combat_set},
+		host     = {&view, &h, combat_aggro, combat_set, combat_swing},
 		table    = t,
 		dt       = dt,
 		actors   = plugin.span(actors),
@@ -85,6 +85,13 @@ combat_set :: proc "c" (data: rawptr, actor: Form_ID, f: combat.Fight) {
 	h := (^Combat_Host)(data)
 	context = h.ctx
 	append(&h.sets, combat.Fighter{actor = actor, fight = f})
+}
+
+@(private = "file")
+combat_swing :: proc "c" (data: rawptr, actor: Form_ID, kind: combat.Attack_Kind) {
+	h := (^Combat_Host)(data)
+	context = h.ctx
+	worldstate.request_swing(h.ws, actor, kind)
 }
 
 // combat_goal aims the mover for a combat state: at the target, away from it, or nowhere.

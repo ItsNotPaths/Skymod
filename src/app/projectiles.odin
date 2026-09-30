@@ -110,7 +110,7 @@ is_projectile :: proc(g: ^Game, form: Form_ID) -> bool {
 	return ok
 }
 
-@(private = "file")
+@(private)
 live_actor :: proc(g: ^Game, form: Form_ID) -> bool {
 	return form != 0 && gamedb.is_actor(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, form)) && !worldstate.is_dead(&g.sim.ws, &g.db, form)
 }

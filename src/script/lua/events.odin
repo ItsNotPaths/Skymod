@@ -19,7 +19,7 @@ import "../../worldstate"
 import "../../formats/esm"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) only a projectile sends OnHit (8 script classes set a stage from it): melee and spells make no hit.
+// (hole hit-death-events :tags combat :sev gap ) only a projectile sends OnHit (8 script classes set a stage from it): melee and spells make no hit.
 
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {

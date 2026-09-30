@@ -15,7 +15,7 @@ import smath "../math"
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
 // read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
-// (hole combat-reads :tags combat :sev gap :needs (combat-damage)) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
+// (hole combat-reads :tags combat :sev gap ) no read for Start/EndDeferredKill, SetCriticalStage, AttachAshPile, SetActorCause, AllowBleedoutDialogue.
 // (hole ai-reads :tags ai :sev gap) no read for SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
