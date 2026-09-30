@@ -32,6 +32,18 @@ strike :: proc(ws: ^World_State, victim, attacker: Form_ID) {
 	if attacker != 0 && attacker != victim {ws.struck[victim] = attacker}
 }
 
+// (hole friend-hit-reset :tags combat :sev polish) unsourced: whether a friend's count of hits ever resets; it never does.
+// friend_hit counts a hit by `attacker` on a friend that is not fighting it (a faction ally or
+// friend, or a relationship rank above acquaintance): true while the friend lets it go, for
+// iFriendHitCombatAllowed hits. GetFriendHit reads the count.
+friend_hit :: proc(ws: ^World_State, db: ^gamedb.DB, victim, attacker: Form_ID) -> bool {
+	if ws.ai.fighting[victim] == attacker {return false}
+	if faction_relation(ws, db, victim, attacker) < .Ally && rel_rank(ws, db, victim, attacker) < 1 {return false}
+	n := ws.friend_hits[{victim, attacker}] + 1
+	ws.friend_hits[{victim, attacker}] = n
+	return n <= gamedb.setting_int(db, "iFriendHitCombatAllowed", 4)
+}
+
 // take_struck is who last hit `victim`, once.
 take_struck :: proc(ws: ^World_State, victim: Form_ID) -> (Form_ID, bool) {
 	by, ok := ws.struck[victim]

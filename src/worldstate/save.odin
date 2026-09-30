@@ -389,6 +389,7 @@ Save_Body :: struct {
 	faction_defs:  []Saved_Faction_Def,
 	crime_victims: []Saved_Alias,   // alias = the victim, form = the offender
 	days_jailed:   []Saved_Count,
+	friend_hits:   []Saved_Rel,     // a = the victim, b = the attacker, rank = the hits
 	unreported:    []Form_ID,
 	pending_moves: []Saved_Move,
 	anim_regs:     []Saved_Anim_Reg,
@@ -585,6 +586,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k in ws.crime_victims {append(&crime_victims, Saved_Alias{alias = k[0], form = k[1]})}
 	days_jailed := make([dynamic]Saved_Count, 0, len(ws.days_jailed), context.temp_allocator)
 	for a, n in ws.days_jailed {append(&days_jailed, Saved_Count{a, n})}
+	friend_hits := make([dynamic]Saved_Rel, 0, len(ws.friend_hits), context.temp_allocator)
+	for k, n in ws.friend_hits {append(&friend_hits, Saved_Rel{k[0], k[1], n})}
 	jailed := make([dynamic]Saved_Jailed, 0, len(ws.jailed), context.temp_allocator)
 	for a, j in ws.jailed {append(&jailed, Saved_Jailed{a, j})}
 	bounties := make([dynamic]Saved_Bounty, 0, len(ws.wanted) + len(ws.known_bounties), context.temp_allocator)
@@ -681,6 +684,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		faction_defs  = faction_defs[:],
 		crime_victims = crime_victims[:],
 		days_jailed   = days_jailed[:],
+		friend_hits   = friend_hits[:],
 		unreported    = save_set(ws.unreported),
 		pending_moves = moves[:],
 		anim_regs     = anim_regs[:],
@@ -970,6 +974,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	for r in body.days_jailed {
 		if a, ok := rf(remap, have_remap, r.form); ok {ws.days_jailed[a] = r.count}
 	}
+	for r in body.friend_hits {
+		v, vok := rf(remap, have_remap, r.a)
+		a, aok := rf(remap, have_remap, r.b)
+		if vok && aok {ws.friend_hits[{v, a}] = r.rank}
+	}
 	for r in body.jailed {
 		a, aok := rf(remap, have_remap, r.actor)
 		f, fok := rf(remap, have_remap, r.jailed.faction)
@@ -1255,6 +1264,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for d in body.faction_defs {add_slot(&seen, d.jail);add_slot(&seen, d.follower_wait);add_slot(&seen, d.stolen_chest);add_slot(&seen, d.player_chest);add_slot(&seen, d.crime_group);add_slot(&seen, d.jail_outfit)}
 	for r in body.crime_victims {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.days_jailed {add_slot(&seen, r.form)}
+	for r in body.friend_hits {add_slot(&seen, r.a);add_slot(&seen, r.b)}
 	for r in body.jailed {add_slot(&seen, r.actor);add_slot(&seen, r.jailed.faction);add_slot(&seen, r.jailed.cell);add_slot(&seen, r.jailed.outfit)}
 	for r in body.relations {add_slot(&seen, r.from);add_slot(&seen, r.relation.faction)}
 	for r in body.rolled {add_slot(&seen, r.owner);add_slot(&seen, r.item)}

@@ -13,10 +13,11 @@ combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
 // (hole combat-hit-spells :tags (combat magic) :sev gap :needs (perk-translator)) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
 // weapon_hit is a weapon hit landing on a live actor, melee or ranged (`projectile` its PROJ): an
-// assault, the damage (a sneak attack when the target had not detected the attacker), the weapon's
+// assault unless a friend lets it go, the damage (a sneak attack when the target had not detected the attacker), the weapon's
 // enchantment, OnHit, a noise and the target's grunt.
 weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32, projectile: Form_ID = 0) {
-	worldstate.report_crime(c.ws, c.db, attacker, target, .Assault, 0)
+	forgiven := worldstate.friend_hit(c.ws, c.db, target, attacker)
+	if !forgiven {worldstate.report_crime(c.ws, c.db, attacker, target, .Assault, 0)}
 	kind := kind
 	if !worldstate.awareness(c.ws, target, attacker).detected {kind += {.Sneak}}
 	land_attack(c, attacker, target, weapon, kind, base)
@@ -25,9 +26,9 @@ weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Att
 		start_effects(c, slot.enchantment, e.effects, false, target, attacker)
 	}
 	append(&c.ws.hits, worldstate.Hit{target, attacker, weapon, projectile, kind})
-	worldstate.strike(c.ws, target, attacker)
+	if !forgiven {worldstate.strike(c.ws, target, attacker)}
 	worldstate.make_noise(c.ws, c.db, attacker, target, worldstate.sound_level(c.db, .Normal))
-	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
+	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, to = attacker, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
 }
 
 // land_attack is everything a landed weapon hit does to its target. The hit hooks (perks, as Lua)

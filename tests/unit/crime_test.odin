@@ -389,3 +389,28 @@ test_crime_victims_and_groups :: proc(t: ^testing.T) {
 	ws.set_arresting(&s, CRIME_GUARD, CRIME_THIEF)
 	testing.expect_value(t, ws.arrest_state(&s, CRIME_THIEF), i32(1))
 }
+
+// A friend lets iFriendHitCombatAllowed hits go, then the next is an assault; a stranger lets none.
+// A save keeps the count.
+@(test)
+test_friend_hits :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	s: ws.World_State
+	ws.init(&s)
+	defer ws.destroy(&s)
+	ws.rel_set(&s, &db, CRIME_CITIZEN, CRIME_THIEF, 1) // friends
+	for _ in 0 ..< 4 {testing.expect(t, ws.friend_hit(&s, &db, CRIME_CITIZEN, CRIME_THIEF), "a friend lets it go")}
+	testing.expect(t, !ws.friend_hit(&s, &db, CRIME_CITIZEN, CRIME_THIEF), "the fifth is not let go")
+	testing.expect(t, !ws.friend_hit(&s, &db, CRIME_GUARD, CRIME_THIEF), "a stranger lets none go")
+	testing.expect_value(t, len(s.friend_hits), 1)
+
+	path := "test_friend_hits.skysave"
+	defer os.remove(path)
+	testing.expect(t, ws.save_to_file(&s, path, ws.Save_Manifest{}), "save failed")
+	d: ws.World_State
+	ws.init(&d)
+	defer ws.destroy(&d)
+	_, ok := ws.load_from_file(&d, path)
+	testing.expect(t, ok, "load failed")
+	testing.expect_value(t, d.friend_hits[{CRIME_CITIZEN, CRIME_THIEF}], 5)
+}

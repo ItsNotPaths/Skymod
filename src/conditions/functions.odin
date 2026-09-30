@@ -89,7 +89,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	274 = fn_resting,
 	277 = fn_get_base_actor_value,
 	286 = fn_is_sneaking,
-	288 = fn_resting,
+	288 = fn_get_friend_hit,
 	289 = fn_is_in_combat,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
@@ -437,10 +437,15 @@ fn_get_combat_target_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on:
 	return yes(target != 0 && worldstate.has_keyword(ctx.ws, ctx.db, target, p1(c)))
 }
 
+// fn_get_friend_hit is how many of the target's hits the subject let go as a friend (a Hit line's
+// target is whoever hit the speaker).
+fn_get_friend_hit :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return f32(ctx.ws.friend_hits[{on, ctx.target}]), true
+}
+
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
-// (hole friend-hits :tags combat :sev gap) GetFriendHit reads 0: nothing counts the player's hits on a friend, so a friend never turns on the player after three.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsAttackType (16 uses in damage perk tabs, SE), IsSprinting (4) and IsBlocking (2) have no body, so they pass.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.

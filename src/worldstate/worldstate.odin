@@ -122,6 +122,7 @@ Overlay :: struct {
 	faction_relations: map[[2]Form_ID]gamedb.Faction_Relation, // {faction, other} -> a script's relation (factions.odin)
 	script_factions: map[Form_ID]Script_Faction,  // the factions scripts made (factions.odin)
 	crime_victims:   map[[2]Form_ID]bool,          // {victim, offender}: a crime it has not paid for (IsActorAVictim; crime.odin)
+	friend_hits:     map[[2]Form_ID]i32,           // {victim, attacker}: hits a friend let go (friend_hit)
 	days_jailed:     map[Form_ID]i32,              // actor -> days it has served in all (GetDaysInJail; crime.odin)
 	wanted:          map[[2]Form_ID]Wanted,        // {offender, crime faction} -> the faction-wide bounty (crime.odin)
 	known_bounties:  map[[2]Form_ID]Known_Bounty,  // {knower, offender} -> a bounty only the knower holds (crime.odin)
@@ -425,6 +426,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.faction_relations = make(map[[2]Form_ID]gamedb.Faction_Relation)
 	o.script_factions = make(map[Form_ID]Script_Faction)
 	o.crime_victims = make(map[[2]Form_ID]bool)
+	o.friend_hits = make(map[[2]Form_ID]i32)
 	o.days_jailed = make(map[Form_ID]i32)
 	o.known_bounties = make(map[[2]Form_ID]Known_Bounty)
 	o.killers = make(map[Form_ID]Form_ID)
@@ -537,6 +539,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	for _, s in o.script_factions {delete(s.name);free_ranks(s.data.ranks)}
 	delete(o.script_factions)
 	delete(o.crime_victims)
+	delete(o.friend_hits)
 	delete(o.days_jailed)
 	delete(o.known_bounties)
 	delete(o.killers)
