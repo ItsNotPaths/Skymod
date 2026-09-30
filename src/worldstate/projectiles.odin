@@ -96,6 +96,15 @@ request_swing :: proc(ws: ^World_State, attacker: Form_ID, kind: combat.Attack_K
 	append(&ws.swings, Swing{attacker, kind, hand})
 }
 
+// Spell_Launch is a spell cast at a target; the app gives it its body (the magicphys seam).
+Spell_Launch :: struct {
+	spell, caster, target: Form_ID,
+}
+
+request_launch :: proc(ws: ^World_State, spell, caster, target: Form_ID) {
+	append(&ws.launches, Spell_Launch{spell, caster, target})
+}
+
 // launch creates a projectile's ref at pos, pointing along dir, and starts its flight.
 launch :: proc(ws: ^World_State, db: ^gamedb.DB, proj, cell: Form_ID, pos, dir: [3]f32, shooter, weapon: Form_ID, damage: f32) {
 	p, ok := gamedb.projectile_of(db, proj)

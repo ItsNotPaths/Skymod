@@ -154,6 +154,7 @@ Runtime :: struct {
 	activations:     [dynamic]Activation,
 	fires:           [dynamic]Fire, // Weapon.Fire calls for the app to launch
 	swings:          [dynamic]Swing, // weapon swings for the app to land
+	launches:        [dynamic]Spell_Launch, // spells cast at a target, for the app to give bodies
 	critical:        map[Form_ID]Critical, // SetCriticalStage and AttachAshPile (not saved: a death in progress)
 	destruction_changes: [dynamic]Destruction_Change, // stages refs entered since the last tick, for their event
 	// Items scripts moved since the last tick; the tick sends their inventory events.
@@ -254,6 +255,7 @@ init :: proc(ws: ^World_State) {
 	ws.activations = make([dynamic]Activation)
 	ws.fires = make([dynamic]Fire)
 	ws.swings = make([dynamic]Swing)
+	ws.launches = make([dynamic]Spell_Launch)
 	ws.critical = make(map[Form_ID]Critical)
 	ws.destruction_changes = make([dynamic]Destruction_Change)
 	ws.item_moves = make([dynamic]Item_Move)
@@ -292,6 +294,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.activations)
 	delete(ws.fires)
 	delete(ws.swings)
+	delete(ws.launches)
 	delete(ws.critical)
 	delete(ws.destruction_changes)
 	delete(ws.item_moves)

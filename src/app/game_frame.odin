@@ -182,6 +182,7 @@ game_tick :: proc(g: ^Game) {
 	t = time.tick_now()
 	tick_projectiles(g)
 	tick_swings(g)
+	tick_magicphys(g)
 	lap(g, .Projectiles, &t)
 	if !inside(&g.sim.trav) {world.window_update(&g.sim.ext, &g.db, player_feet(g))}
 	lap(g, .Window, &t)

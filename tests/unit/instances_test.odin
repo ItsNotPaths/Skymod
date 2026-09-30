@@ -331,6 +331,13 @@ fixture_init :: proc(t: ^testing.T, f: ^Fixture, name: string, files: [][2]strin
 }
 
 @(private = "file")
+// land_casts lands the casts at a target the way the built-in magicphys does: at once.
+land_casts :: proc(f: ^Fixture) {
+	c := script.Call{ws = &f.ws, db = &f.db}
+	for l in f.ws.launches {script.start_spell(&c, l.spell, l.target, l.caster)}
+	clear(&f.ws.launches)
+}
+
 fixture_destroy :: proc(f: ^Fixture) {
 	slua.destroy(&f.vm)
 	worldstate.destroy(&f.ws)
@@ -1865,6 +1872,7 @@ test_rt_spell :: proc(t: ^testing.T) {
 	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
 	cast_it := fmt.tprintf("rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x700))", SPELL)
 	testing.expect(t, slua.do_string(&f.vm, strings.concatenate({"rt = require('skymod.rt'); ", cast_it}, context.temp_allocator)), "Cast at night")
+	land_casts(&f)
 	testing.expect_value(t, len(f.ws.effects), 2)
 	for h in worldstate.effects_on(&f.ws, TARGET) {
 		if e := f.ws.effects[h]; e.effect == formid.lua_form("effect", "Dread") {testing.expect(t, abs(e.duration - 20.0 / 60) < 1e-6, "20 ticks")}
@@ -1875,6 +1883,7 @@ test_rt_spell :: proc(t: ^testing.T) {
 	f.ws.globals[formid.GAME_HOUR] = 12
 	before := len(f.ws.effects)
 	testing.expect(t, slua.do_string(&f.vm, cast_it), "Cast by day")
+	land_casts(&f)
 	testing.expect_value(t, len(f.ws.effects), before) // both effects gate themselves out
 	s, ok := script.spell_school(&f.ws, &f.db, SPELL)
 	testing.expect(t, ok && s == "Destruction", "a defined spell trains its first effect's school")
@@ -1966,6 +1975,7 @@ return rt.effect { hooks = { magichit = function(e) e.target:AddItem("Gold001", 
 	testing.expect(t, worldstate.equip(&f.ws, &f.db, ACTOR, SCROLL, gamedb.Slot.RightHand), "a hand item equips")
 	c := &f.vm.ctx
 	testing.expect(t, script.cast_hand(c, ACTOR, .RightHand, TARGET), "the scroll casts with no Magicka")
+	land_casts(&f)
 	testing.expect(t, len(f.ws.casts) == 1 && f.ws.casts[0] == {ACTOR, SCROLL}, "OnSpellCast names the scroll")
 	slua.tick_effects(&f.vm, &f.ws, 1)
 	testing.expect_value(t, worldstate.av_current(&f.ws, &f.db, TARGET, "Health"), 90)
@@ -2074,6 +2084,7 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	cast_at :: proc(t: ^testing.T, f: ^Fixture, spell: gamedb.Form_ID) {
 		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x700))", spell)
 		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+		land_casts(f)
 	}
 	cast_at(t, &f, FIREBOLT)
 	cast_at(t, &f, PLAIN)
@@ -2171,6 +2182,7 @@ test_resist_hook :: proc(t: ^testing.T) {
 		form := formid.lua_form("spell", spell)
 		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x%X))", form, target)
 		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+		land_casts(f)
 		hs := script.spell_effects(&f.ws, target, form)
 		if len(hs) == 0 {return -1}
 		return f.ws.effects[hs[0]].magnitude
@@ -2221,6 +2233,7 @@ test_rt_stacking :: proc(t: ^testing.T) {
 	cast_by :: proc(t: ^testing.T, f: ^Fixture, spell: string, caster: gamedb.Form_ID) {
 		src := fmt.tprintf("rt = require('skymod.rt'); rt.call(ref(0x%X), \"Cast\", ref(0x%X), ref(0x700))", formid.lua_form("spell", spell), caster)
 		testing.expect(t, slua.do_string(&f.vm, src), "Cast")
+		land_casts(f)
 	}
 	running :: proc(f: ^Fixture, effect: string) -> (n: int) {
 		for h in worldstate.effects_on(&f.ws, TARGET) {

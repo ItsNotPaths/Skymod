@@ -41,6 +41,7 @@ import "../weather"
 import "../handoff"
 import "../input"
 import "../installer"
+import "../magicphys"
 import smath "../math"
 import "../mods"
 import "../physics"
@@ -613,6 +614,8 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	plugin.apply(&g.plugins, magic.SEAM, magic.VERSION, &script.magic_table)
 	g.sim.weather = weather.BUILTIN
 	plugin.apply(&g.plugins, weather.SEAM, weather.VERSION, &g.sim.weather)
+	g.sim.magicphys = magicphys.BUILTIN
+	plugin.apply(&g.plugins, magicphys.SEAM, magicphys.VERSION, &g.sim.magicphys)
 	g.graphics = GRAPHICS_BUILTIN
 	plugin.apply(&g.plugins, graphics.SEAM, graphics.VERSION, &g.graphics)
 	script.init(&g.sreg)
@@ -695,6 +698,7 @@ game_teardown :: proc(g: ^Game) {
 	delete(g.sim.actor_bodies)
 	ai.destroy(&g.sim.agents)
 	actor_snapshot_destroy(&g.sim.actors)
+	spell_bodies_destroy(&g.sim.spell_bodies)
 	plugin.destroy(&g.plugins)
 	render.release_mesh(&g.r, g.actor_mesh)
 	delete(g.sim.drops)

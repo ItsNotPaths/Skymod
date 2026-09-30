@@ -193,19 +193,19 @@ recheck_effect :: proc(c: ^Call, h: Form_ID) {
 	e.inactive = !conditions.all(&ctx, items[e.item].conditions)
 }
 
-// Cast(akSource, akTarget): the spell hits at once, with no projectile. No target hits the source.
+// Cast(akSource, akTarget): no target hits the source.
 // An ability does nothing: it applies only from a spell list (CK wiki, Spell).
 n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
 	if is_ability(c.db, c.self) {return nil}
 	source := arg_form(c, args, 0)
 	target := arg_form(c, args, 1)
-	start_spell(c, c.self, target if target != 0 else source, source)
+	cast_spell(c, c.self, target if target != 0 else source, source)
 	return nil
 }
 
 // tick_ai_casts lands the spells packages cast (UseMagic) since the last tick.
 tick_ai_casts :: proc(c: ^Call) {
-	for o in c.ws.ai.casts {start_spell(c, o.spell, o.target, o.caster)}
+	for o in c.ws.ai.casts {cast_spell(c, o.spell, o.target, o.caster)}
 	clear(&c.ws.ai.casts)
 }
 
@@ -213,7 +213,7 @@ tick_ai_casts :: proc(c: ^Call) {
 n_spell_remote_cast :: proc(c: ^Call, args: []Value) -> Value {
 	if is_ability(c.db, c.self) {return nil}
 	source, blame, target := arg_form(c, args, 0), arg_form(c, args, 1), arg_form(c, args, 2)
-	start_spell(c, c.self, target if target != 0 else source, blame if blame != 0 else source)
+	cast_spell(c, c.self, target if target != 0 else source, blame if blame != 0 else source)
 	return nil
 }
 
@@ -254,6 +254,18 @@ n_interrupt_cast :: proc(c: ^Call, args: []Value) -> Value {return nil}
 
 // (hole actor-knockdown :tags (combat physics unclaimed) :sev gap :needs (actor-ragdoll)) KnockAreaEffect (29 calls) and PushActorAway (10, not a native yet) knock no one down: no actor ragdolls.
 n_knock_area_effect :: proc(c: ^Call, args: []Value) -> Value {return nil}
+
+// cast_spell sends a spell from `caster` at `target`: a self spell starts at once, any other goes to
+// the magicphys seam for its body.
+cast_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
+	v, ok := worldstate.spell_view(c.ws, c.db, spell)
+	if !ok {return}
+	if v.self || target == caster {
+		start_spell(c, spell, target, caster)
+	} else {
+		worldstate.request_launch(c.ws, spell, caster, target)
+	}
+}
 
 // start_spell starts a spell's effects. An ability or a constant effect lasts until removed; any
 // other lasts its authored duration.

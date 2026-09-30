@@ -1,10 +1,9 @@
 package script
 
-// Casting: an actor uses the spell in one of its hands. Rudimentary for now: the spell lands at
-// once, its cost is paid up front, a Self spell hits the caster and any other hits `target`.
+// Casting: an actor uses the spell in one of its hands. Rudimentary for now: its cost is paid up
+// front, a Self spell hits the caster and any other goes to `target` through cast_spell.
 // (hole cast-animation :tags (magic animation unclaimed) :sev gap :needs (animation)) casting is instant: no charge and release from the cast clip.
 // (hole spell-use :tags (magic unclaimed) :sev gap :needs (actor-states)) one way to use a spell: pay its SPIT cost at once. Wanted: charged (a charge time, then release), held (drain while held) and item_charge (an enchanted weapon or staff spends its charge), costs as named AVs. Leaning (proposed 2026-09-30, not confirmed): a caster asks once for a Cast state (hand, spell); the state owns the timing, a charged spell releasing itself when charged (AI) or on button-up (player; early is a cancel), a held one draining until asked to leave; ai.proc_use_magic then asks for that state instead of an instant cast, CastTimeMin/Max (inputs 4, 5) as the hold time.
-// (hole spell-shapes :tags (magic combat) :sev gap) a spell hits `target` at once: no shape. Wanted: self, touch, ray, stream, missile, lobber, cone and sphere, an on_hit shape after a missile, line of sight for area, `hits = "direct"` entries that only the struck actor gets (62 of 227 area spells mix areas), and shape classes a mod defines. Shelved (user, 2026-09-28): data-driven and mod-definable, but not Lua scripts. Vanilla composes a shape from delivery x PROJ type x EXPL x area (first effects of castables: self 147, missile 109, missile+explosion 72, flame 87, touch 52, place 47, beam 52, cone 28, lobber 9).
 // (hole concentration :tags (magic unclaimed) :sev gap :needs (spell-use spell-shapes)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags (magic unclaimed) :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
 // (hole cast-cost :tags magic :sev gap) the cost is the SPIT base through the cost hooks: no 1 - (skill/400)^0.65 skill multiplier.
@@ -37,7 +36,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
 	hit := caster if v.self else target
 	if sp, record := gamedb.spell_of(c.db, spell); record && !v.defined {cast_sounds(c, spell, sp, caster, hit)}
-	start_spell(c, spell, hit, caster)
+	cast_spell(c, spell, hit, caster)
 	append(&c.ws.casts, worldstate.Spell_Cast{caster, held})
 	worldstate.make_noise(c.ws, c.db, caster, caster, worldstate.sound_level(c.db, .Normal))
 	if used_up {
@@ -53,6 +52,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 // use_power uses `words` words of a defined power or shout at `target` (0 = nothing under the aim):
 // a self-shaped one hits `caster`. False while it cools down.
 // (hole shouts :tags (magic input player) :sev gap) nothing uses the Voice slot: no Shout action or hold to charge more words (user, 2026-09-28: tap for one, hold for more, up to the unlocked words), no SetVoiceRecoveryTime/GetVoiceRecoveryTime on the Voice timer AV, no GetCurrentShoutVariation, and record SHOUs and powers are not defined powers yet.
+// (hole power-bodies :tags magic :sev gap :needs (spell-shapes)) a power or shout lands on its target at once: it does not go through the magicphys seam, so a shout has no cone.
 use_power :: proc(c: ^Call, caster, power: Form_ID, words: int, target: Form_ID) -> bool {
 	entries := worldstate.power_word(c.ws, c.db, caster, power, words) or_return
 	hit := caster if c.ws.power_defs[power].shape == "self" else target
