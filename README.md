@@ -1,91 +1,153 @@
 # SkyMod
 
-SkyMod is a openMW like "engine" that runs Skyrim content from a copy that the
-user owns. At install time, it reads the game data and assets and converts them
-to open formats. At run time, it loads only those converted formats.
-The repository contains no Bethesda assets.
+An OpenMW-like engine for Skyrim content, from a copy the user owns.
 
-[Odin](https://odin-lang.org), [SDL3](https://github.com/libsdl-org/SDL), [Jolt](https://github.com/jrouwe/joltphysics), [Lua](https://github.com/lua/lua), [ffmpeg](https://git.ffmpeg.org/ffmpeg.git), [ba2]((https://github.com/Ryan-rsm-McKenzie/bsa-rs), 
+- Install time: reads game data and assets, converts them to open formats
+- Run time: loads only the converted formats
+- No Bethesda assets in the repo
+- Standard esp/esl/bsa mods work
 
-The installer transpiles Papyrus to Lua*, so the engine never runs Papyrus.
+Built on [Odin](https://odin-lang.org), [SDL3](https://github.com/libsdl-org/SDL),
+[Jolt](https://github.com/jrouwe/joltphysics), [Lua](https://github.com/lua/lua),
+[FFmpeg](https://git.ffmpeg.org/ffmpeg.git),
+[ba2](https://github.com/Ryan-rsm-McKenzie/bsa-rs).
 
-*The lua used in skymod is patched in 2 ways, it is 0 based like papyrus, and it 
-carries standard !=, +=, <= symbols on top of lua's. It is also falsy in ways that
-match skyrim/CE papyrus
+## Changes from vanilla
 
-Mods extend the engine at two levels:
+`*` = not done, needs a better solution, or unclaimed.
 
-- **Lua scripts.** A mod ships `.lua` files that replace a script, or
-  `.patch.lua` files that edit one. Mod priority sets the order.
-- **Native "plugins".** A mod ships a `.so` or `.dll` in its `native/` folder.
-  A plugin replaces or extends one engine *seam* (detection, combat, sight,
-  magic, graphics, and more). See `src/plugin` and the examples in
-  `tests/plugins`.
+```
+scripts
+  papyrus -> lua at install, no papyrus at run time
+  patched lua: 0-based, != += && ||, None falsy
+  Wait() loops -> per-tick timers, no script lag
+  455 hand rewrites of the costliest scripts
+  per-handler instruction budget, no runaway scripts
+  mods replace (.lua) or patch (.patch.lua) single functions
 
-(standard esp/esl/bsa mods also work just fine)
+actor values and factions
+  scripts create AVs by name (rt.actor_value)
+  AV kinds: static, latched, pool, timer, stopwatch, game-time clocks
+  AV parts: value, capacity, amount
+  perks and level are AVs; formulas read any AV
+  scripts create factions at runtime (rt.faction): ranks, crime, relations
+  script factions saved whole
+
+simulation
+  fixed 60 Hz tick, apart from framerate
+  sim thread; main thread only draws
+  menus pause the world
+  one game clock, no short-timer freeze
+  double-precision physics, no far-origin jitter
+  clutter settles and sleeps
+  no-collision flora is walk-through
+  time skip callers (sleep/wait, fast travel, jail)       *
+
+form and ref IDs
+  64-bit: slot << 32 | local
+  no 255-plugin or ESL limit
+  slot set once per plugin, never reused
+  mod order changes overrides, never identity
+  own slots for created refs, effects, script factions, lua forms
+  mod UUID (skymod/mod.txt) carries forms across installs
+
+saves
+  add or reorder mods mid-save
+  script state saved as diff from defaults
+  spell lists saved as deltas
+  mod actor values stored by name
+  compression (zstd)                                      *
+
+mods
+  built-in MO2-style manager, one folder per mod
+  plugin order from mod order
+  profiles, separators, locked base/DLC rows
+  lua defines forms by name (rt.effect, rt.spell)
+  native .so/.dll plugins replace engine seams
+  native plugins need user trust (path + SHA-256)
+  LE and SE in one engine
+  audio -> Opus at install; mods ship WAV or Ogg
+  asset cache eviction (built, off)                       *
+
+actors and combat
+  player is an actor like any NPC
+  combat damage seam: gear, armor, crits, sneak, difficulty
+  perks -> actor values + hit/armor hooks
+  item instances keep their own form ID
+  actor states (sit, sleep, sneak, swing)                 *
+  bash and block damage                                   *
+  item tempering                                          *
+  mounts, flight, bleedout                                *
+  animation                                               *
+
+magic
+  spells, powers, scrolls, enchantments -> data + lua
+  per-tick effect formulas, resist/stacking hooks
+  spell shapes: beam, spray, projectile, aura
+  absorption, wards, disease, soul gems, poison           *
+  shouts                                                  *
+  cast and enchantment visuals                            *
+
+render and ui
+  bindings in settings.txt, prompts for every device
+  rebind screen                                           *
+  sky, weather, day/night, particles, skinned meshes      *
+  inventory, barter, crafting, dialogue, console          *
+```
 
 ## Requirements
 
-- Odin, at the version in `.odin-version`. Another version can work, but the
-  build prints a warning.
-- A C/C++ toolchain, `cmake`, and `curl`.
-- A Rust toolchain (`cargo`, edition 2021) for the BSA packer in
-  `build/bsa_glue`.
-- A Vulkan desktop session to run the engine.
-- A Skyrim install, LE or SE, to run the engine. The unit tests do not need it.
+- Odin at `.odin-version` (others warn)
+- C/C++ toolchain, `cmake`, `curl`
+- Rust (`cargo`), for the BSA packer in `build/bsa_glue`
+- Vulkan
+- Skyrim LE or SE to run (not for unit tests)
 
 ## Build
 
 ```sh
-./download-deps.sh     # once: fetch and build the dependencies into vendor/
-./build/test.sh        # type-check every package, then run the unit tests
-./build/dev.sh --run   # debug build into build/out/, then run it
+./download-deps.sh     # once: dependencies into vendor/
+./build/test.sh        # type-check every package, run unit tests
+./build/dev.sh --run   # debug build into build/out/, run it
 ./release.sh           # static release build into ../skymod-release/
-(you can also ./quicktest.sh from the source dir to automate release.sh and launch)
+./quicktest.sh         # release.sh, then launch
 ```
 
-Before the first run, set the path to your Skyrim install in `settings.txt`.
-Use `source_game_se` or `source_game_le`. The engine finds the edition from the
-executable.
-
-The debug build writes a report of leaks and bad frees at exit. a clean run
-prints `[mem] clean`. The log is `skymod.log`, beside the binary. Pass
-`--persist-logs` to keep one log per run in `logs/`
+- Set your install in `settings.txt` (`source_game_se` or `source_game_le`)
+- Debug build reports leaks at exit; clean = `[mem] clean`
+- Log: `skymod.log` beside the binary; `--persist-logs` keeps one per run
 
 ## Layout
 
 ```
 src/
-  app/           the executable: boot, main loop, cell load, UI screens
-  formats/       parsers with no engine dependencies: esm, nif, bsa, pex, swf, dds, ...
-  installer/     finds the game install and converts assets
-  transpile/     Papyrus (pex) to Lua
-  vfs/ assetdb/  asset lookup and the runtime asset cache
-  gamedb/        the record database, read-only
-  worldstate/    the saved game state that changes: actors, quests, crime, clock
+  app/           executable: boot, main loop, cell load, UI screens
+  formats/       parsers, no engine deps: esm, nif, bsa, pex, swf, dds, ...
+  installer/     game detection, asset conversion
+  transpile/     papyrus (pex) -> lua
+  vfs/ assetdb/  asset lookup, runtime asset cache
+  gamedb/        record database, read-only
+  worldstate/    saved game state: actors, quests, crime, clock
   world/         cells, streaming, placement
-  script/        the Lua runtime and the natives that scripts call
-  ai/ nav/       AI packages, movement, and paths
+  script/        lua runtime, natives
+  ai/ nav/       AI packages, movement, paths
   conditions/    CTDA evaluation
-  plugin/        loads native plugins and gives them the seams
-  <seam>/        one package per seam: combat, detection, sight, magic,
-                 magicphys, weather, graphics, condfn
-  render/ ui/    GPU drawing and the UI system
+  plugin/        native plugin loader
+  <seam>/        combat, detection, sight, magic, magicphys, weather, graphics, condfn
+  render/ ui/    GPU drawing, UI
   platform/      SDL window, devices, timing
-tools/           dev tools: esmdump, nifdump, pexdump, pex2lua, scriptrun, ...
+tools/           esmdump, nifdump, pexdump, pex2lua, scriptrun, ...
 tests/
-  unit/          unit tests with synthetic fixtures only
-  plugins/       example native plugins for the seams
-  golden/        opt-in tests that need a local install (not committed)
-build/           build scripts and patches for the vendored dependencies
-vendor/          fetched by download-deps.sh (not committed)
+  unit/          synthetic fixtures only
+  plugins/       example native plugins
+  golden/        needs a local install (not committed)
+build/           build scripts, dependency patches
+vendor/          from download-deps.sh (not committed)
 ```
 
 ## Dependencies
 
-`download-deps.sh` fetches the dependencies into `vendor/`. The repository does
-not include them. Changes to a dependency are patch files in `build/`, for
-example `build/lua-01-zero-index.patch`.
+Fetched into `vendor/`, not committed. Our changes are patches in `build/`.
 
 | Dependency | License |
 |---|---|
@@ -93,18 +155,19 @@ example `build/lua-01-zero-index.patch`.
 | Dear ImGui, odin-imgui | MIT |
 | Jolt Physics, JoltC | MIT |
 | Lua 5.4 (patched) | MIT |
-| FFmpeg (audio decode only, LGPL build) | LGPL 2.1+ |
+| FFmpeg (audio decode, LGPL build) | LGPL 2.1+ |
 | ba2 (Rust crate) | 0BSD |
 | Kenney Input Prompts | CC0 |
 
 ## Credits
 
-The names and parameter types of the condition (CTDA) functions come from
+CTDA function names and parameter types come from
 [xEdit](https://github.com/TES5Edit/TES5Edit) (`wbDefinitionsTES5.pas`), by the
 xEdit team, under the Mozilla Public License 2.0.
 
 ## License
 
-GPL-3.0. See `LICENSE`. Native plugins link into the engine, they must also be GPL-3.0 for public safety
-Skyrim and its content are the property of Bethesda Softworks.
-This project is not affiliated with Bethesda.
+- GPL-3.0, see `LICENSE`
+- Native plugins link into the engine, so they must also be GPL-3.0
+- Skyrim and its content are the property of Bethesda Softworks
+- Not affiliated with Bethesda
