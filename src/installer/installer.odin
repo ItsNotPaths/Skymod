@@ -33,7 +33,7 @@ progress_read  :: converters.progress_read
 // Bump a part's version when its converter's output changes, so an older install re-runs that part.
 SCRIPTS_VERSION :: 4
 AUDIO_VERSION   :: 4
-MAGIC_VERSION   :: 5
+MAGIC_VERSION   :: 6
 
 // Part is a converted piece of the install. Each has its own key in the manifest; a part whose key
 // changed runs again alone, and the others keep their output.

@@ -304,7 +304,7 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 }
 
 // run_magic_hit is worldstate.Hooks.magic_hit: rt.magic_hit runs the magichit hooks and the
-// effect's Lua land, then its context gives back m, d and the tunables. def is nil for an effect
+// effect's own, then its context gives back m, d and the tunables. def is nil for an effect
 // with no definition.
 @(private)
 run_magic_hit :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect) -> bool {
@@ -325,7 +325,7 @@ run_magic_hit :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.
 	}
 	if lua.pcall(L, 8, 1, 0) != 0 {
 		log.errorf("lua: landing %X: %s", e.effect, to_string(L, -1))
-		return true // a broken land does not keep the effect from starting
+		return true // a broken hook does not keep the effect from starting
 	}
 	if !lua.istable(L, -1) {return false}
 	apply_part(L, "m", &e.magnitude)
@@ -427,7 +427,7 @@ run_armor_hit :: proc(data: rawptr, wearer, item: worldstate.Form_ID, rating: ^c
 }
 
 // apply_part makes `v` what the part `key` of the table on top of the stack says of it, from the
-// part's value when it has one (rt.magic_hit settles m and d before the effect's land).
+// part's value when it has one (rt.magic_hit settles m and d before the effect's own hooks).
 @(private = "file")
 apply_part :: proc(L: ^lua.State, key: cstring, v: ^f32) {
 	if lua.getfield(L, -1, key) != i32(lua.TTABLE) {
@@ -605,7 +605,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		switch {
 		case key == "form": src.form = to_string(L, -1)
 		case key == "resist": src.resist = to_string(L, -1)
-		case key == "land": // Lua keeps it (rt.magic_hit)
+		case key == "hooks": // Lua keeps them (rt.magic_hit)
 		case key == "stack": src.stack = to_string(L, -1)
 		case key == "nostack": src.nostack = to_string(L, -1)
 		case key == "taper": src.taper = to_string(L, -1)
@@ -615,7 +615,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		case key == "script": read_moments(L, &scripts)
 		case (key == "av" || key == "caster") && lua.istable(L, -1): read_avs(L, src.name, &terms, key == "caster")
 		case lua.type(L, -1) == .NUMBER: append(&defaults, worldstate.Tunable{key, f32(lua.tonumber(L, -1))})
-		case: log.warnf("rt.effect %s: %s: formulas go under av or caster, decisions in land", src.name, key)
+		case: log.warnf("rt.effect %s: %s: formulas go under av or caster, decisions in hooks", src.name, key)
 		}
 		lua.pop(L, 1)
 	}

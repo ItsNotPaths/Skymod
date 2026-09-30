@@ -1684,11 +1684,11 @@ BURN_LUA :: `local rt = require('skymod.rt')
 return rt.effect {
   tags = { "magic.fire" },
   av = { Health = { amount = "-taken * min(t, d) / d" } },
-  land = function(e)
+  hooks = { magichit = function(e)
     if e.target.av.Health.value <= 0 then return false end
     e.d.set = e.m.value
     e.taken = e.target.av.Health.value * 0.5
-  end,
+  end },
   script = { "Moment", label = "hi" },
 }
 `
@@ -1703,7 +1703,7 @@ test_rt_effect :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	effects, _ := filepath.join({f.dir, "effects"}, context.temp_allocator)
 	os.make_directory_all(effects)
-	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.land = function(e) return e.target.av.Health.value > 1000 end end`}}) {
+	for file in ([][2]string{{"burn.lua", BURN_LUA}, {"gated.lua", BURN_LUA}, {"gated.patch.lua", `return function(def) def.hooks.magichit = function(e) return e.target.av.Health.value > 1000 end end`}}) {
 		p, _ := filepath.join({effects, file[0]}, context.temp_allocator)
 		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write effect")
 	}
@@ -1840,7 +1840,7 @@ test_rt_spell :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture_init(t, &f, "skymod_instances_rt_spell", {})
 	defer fixture_destroy(&f)
-	NIGHT :: `land = function(e) return e.global.GameHour >= 20 end`
+	NIGHT :: `hooks = { hit = function(e) return e.global.GameHour >= 20 end }`
 	files := [][2]string {
 		{"effects/scorch.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } }, tags = { "school.destruction" }, ` + NIGHT + ` }`},
 		{"effects/dread.lua", `return require('skymod.rt').effect { av = { Confidence = { capacity = "-m" } }, ` + NIGHT + ` }`},
@@ -1935,7 +1935,7 @@ test_rt_item :: proc(t: ^testing.T) {
 	defer fixture_destroy(&f)
 	files := [][2]string {
 		{"effects/luckygold.lua", `local rt = require('skymod.rt')
-return rt.effect { land = function(e) e.target:AddItem("Gold001", rt.static("Utility", "RandomInt", 10, 50)) end }`},
+return rt.effect { hooks = { magichit = function(e) e.target:AddItem("Gold001", rt.static("Utility", "RandomInt", 10, 50)) end } }`},
 		{"effects/burn.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } } }`},
 		{"spells/firebolt.lua", `return require('skymod.rt').spell { use = "charged", shape = "missile", cost = 50, applies = { { "Burn", m = 10 } } }`},
 		{"items/luckymug.lua", `return require('skymod.rt').item { form = "LuckyMug", use = "inventory", applies = { { "LuckyGold" } } }`},
@@ -1985,7 +1985,7 @@ test_apply_effect :: proc(t: ^testing.T) {
 	os.make_directory_all(filepath.dir(p))
 	testing.expect(t, os.write_entire_file(p, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "10 + 10 * m" } } }`)) == nil, "write")
 	p2, _ := filepath.join({f.dir, "effects", "broken.lua"}, context.temp_allocator)
-	testing.expect(t, os.write_entire_file(p2, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "5" } }, land = function(e) e.d.set = e.m.value / 0 end }`)) == nil, "write")
+	testing.expect(t, os.write_entire_file(p2, transmute([]u8)string(`return require('skymod.rt').effect { av = { FrostResist = { capacity = "5" } }, hooks = { magichit = function(e) e.d.set = e.m.value / 0 end } }`)) == nil, "write")
 	slua.set_script_dirs(&f.vm, {f.dir})
 	testing.expect(t, slua.do_string(&f.vm, `rt = require('skymod.rt'); rt.load_effects()`), "load")
 
@@ -2028,6 +2028,10 @@ C.__fn["ongameloaded"] = function(self)
   rt.hook("Unseen", { meleehit = function(h) if not h.actor then return false end end })
   rt.hook("AssassinsBlade", { meleehit = function(h) if h.sneak then h.sneak_mult.mult = h.sneak_mult.mult * 2.5 end end })
   rt.hook("Juggernaut", { armorhit = function(a) a.rating.mult = a.rating.mult * 1.2 end })
+  rt.hook("Generic", {
+    action = function(c) if c.kind == "archcost" then return false end end,
+    hit = function(x) if x.kind == "archhit" then x.damage.mult = x.damage.mult * 3 end end,
+  })
   rt.hook("Dragonhide", { armorhit = function(a) if a.source then a.rating.set = 0 end end })
 end
 return C
@@ -2043,7 +2047,7 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	fixture_init(t, &f, "skymod_instances_hooks", {{"hooks.lua", HOOKS_LUA}})
 	defer fixture_destroy(&f)
 	files := [][2]string {
-		{"effects/scorch.lua", `return require('skymod.rt').effect { tags = { "magic.fire" }, av = { Health = { amount = "-m" } }, land = function(e) e.d.set = e.m.value end }`},
+		{"effects/scorch.lua", `return require('skymod.rt').effect { tags = { "magic.fire" }, av = { Health = { amount = "-m" } }, hooks = { magichit = function(e) e.d.set = e.m.value end } }`},
 		{"spells/firebolt.lua", `return require('skymod.rt').spell { cost = 20, applies = { { "Scorch", m = 5 } } }`},
 		{"spells/doom.lua", `return require('skymod.rt').spell { tags = { "forbidden" }, cost = 20, applies = { { "Scorch", m = 2000 } } }`},
 	}
@@ -2093,8 +2097,8 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	testing.expect(t, swung && stamina == 30, "the meleecost hook cuts a power attack's Stamina")
 	_, swung = worldstate.weapon_cost(&f.ws, CASTER, 0, {}, false, 0)
 	testing.expect(t, !swung, "the meleecost hook refuses a swing with nothing in hand")
-	_, swung = worldstate.weapon_cost(&f.ws, CASTER, 0, {}, true, 0)
-	testing.expect(t, swung, "a shot runs archcost, not meleecost")
+	_, swung = worldstate.weapon_cost(&f.ws, CASTER, PLAIN, {}, true, 0)
+	testing.expect(t, !swung, "a generic action hook refuses a shot by its kind")
 
 	h := f.ws.hooks
 	a := combat.attack(CASTER, TARGET, PLAIN, {.Sneak})
@@ -2104,7 +2108,7 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	testing.expect_value(t, a.sneak_mult, combat.Part{mult = 2.5})
 	a = combat.attack(CASTER, TARGET, PLAIN)
 	testing.expect(t, h.weapon_hit(h.data, &a, true), "the shot goes on")
-	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 1}) // archhit only
+	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 3}) // archhit, then the generic hit
 	a = combat.attack(0, TARGET, 0)
 	testing.expect(t, !h.weapon_hit(h.data, &a, false), "a hit hook stops the hit")
 	rating := combat.KEEP
@@ -2185,7 +2189,7 @@ test_rt_stacking :: proc(t: ^testing.T) {
 		{"effects/venom.lua", RT + `effect { stack = "add", av = { Health = { amount = "-m" } } }`},
 		{"effects/hex.lua", RT + `effect { stack = "keep", av = { Magicka = { amount = "-m" } } }`},
 		{"effects/rot.lua", RT + `effect { tags = { "disease.rattles" }, av = { Stamina = { capacity = "-m" } } }`},
-		{"effects/cure.lua", RT + `effect { land = function(e) e.target:DispelTagged("disease") end }`},
+		{"effects/cure.lua", RT + `effect { hooks = { magichit = function(e) e.target:DispelTagged("disease") end } }`},
 		{"effects/blessingarkay.lua", RT + `effect { nostack = "Blessing", av = { Health = { capacity = "m" } } }`},
 		{"effects/blessingkyne.lua", RT + `effect { nostack = "Blessing", av = { Stamina = { capacity = "m" } } }`},
 		{"spells/flames.lua", RT + `spell { applies = { { "Burn", m = 1, d = "9s" } } }`},

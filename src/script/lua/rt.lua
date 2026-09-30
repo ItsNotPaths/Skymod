@@ -1231,21 +1231,23 @@ end
 --   nostack = "Blessing"                    -- a group, across effects: only the strongest runs
 --   taper = "1s"                            -- a timed copy goes on this long after d (t runs past d)
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
---   land = function(e) ... end              -- once as it lands: return false and it does not start;
---                                           -- change the parts e.m and e.d as a hook does, and set
---                                           -- tunables (e.taken = ...). An effect
---                                           -- never starts another: a spell names all its effects
+--   hooks = { magichit = function(e) end }  -- its own hooks, as rt.hook's, for its own landing
+--                                           -- (magichit, or the generic hit), after every rt.hook:
+--                                           -- return false and it does not start; change the parts
+--                                           -- e.m and e.d, and set tunables (e.taken = ...). An
+--                                           -- effect never starts another: a spell names all its effects
 --   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties, or a list of
 --                                              -- them; it switches the effect with self:SetActive(bool)
 -- AV formulas are per tick, in t, m, d, the tunables and reads by the naming rule
--- (target.av.Health.value, global.GameHour, target:IsSneaking()). land gets the land hook's
--- magichit context (rt.hook). A <name>.patch.lua returns a function that edits the definition from below it.
+-- (target.av.Health.value, global.GameHour, target:IsSneaking()). Its magichit sees e.m and e.d
+-- as the rt.hook's left them, as their parts' values. A <name>.patch.lua returns a function that
+-- edits the definition from below it.
 function rt.effect(def) return def end
 
 -- rt.ref(name) is the form "File.esm:012FCD" or an editor id names, for a property that holds a form.
 rt.ref = __ref
 
-local lands = {} -- lower effect name -> its land (rt.load_effects)
+local own_hooks = {} -- lower effect name -> its own hooks, as a hook entry (rt.load_effects)
 
 -- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
@@ -1254,7 +1256,7 @@ rt.global = setmetatable({}, { __index = function(_, name) return global_value(n
 -- `name` (in any case) in its place; rt.hook(name, nil) removes it. Each kind runs at one engine
 -- moment:
 --   magiccost   a spell is cast (part cost, in Magicka)
---   magichit    an effect lands, from any source, before the effect's own land (effect; parts m, d)
+--   magichit    an effect lands, from any source, before the effect's own hooks (effect; parts m, d)
 --   meleecost   a melee swing starts (power, bash; part cost, in Stamina)
 --   archcost    a bow or crossbow shot starts (part cost, in Stamina)
 --   meleehit    a melee hit lands, before the combat seam's damage (power, sneak, bash; parts
@@ -1262,7 +1264,9 @@ rt.global = setmetatable({}, { __index = function(_, name) return global_value(n
 --               power_mult, sneak_mult)
 --   archhit     a shot lands: as meleehit
 --   armorhit    a hit meets one worn piece (part rating)
--- Every context has actor (who casts, attacks or wears), target (who it lands on; none for the
+--   action      generic: as any of magiccost, meleecost and archcost, after that kind's function
+--   hit         generic: as any of magichit, meleehit, archhit and armorhit, likewise
+-- Every context has kind (the moment's, for a generic hook), actor (who casts, attacks or wears), target (who it lands on; none for the
 -- costs and armorhit) and source (the spell, weapon or piece), and global. A part is
 -- { add = 0, mult = 1 }; a hook changes add and mult, or gives set, and the engine makes set, else
 -- (value + add) * mult, so hooks' order does not change it. value is the number before the hooks
@@ -1293,7 +1297,12 @@ end
 -- core hook's name replaces it there; nil removes it.
 local CORE_HOOKS = { { name = "Resist", magichit = resist } }
 
-local HOOK_KINDS = { "magiccost", "magichit", "meleecost", "archcost", "meleehit", "archhit", "armorhit" }
+-- GENERIC is the generic kind each kind also runs: action as any of them starts, hit as any lands.
+local GENERIC = {
+  magiccost = "action", meleecost = "action", archcost = "action",
+  magichit = "hit", meleehit = "hit", archhit = "hit", armorhit = "hit",
+}
+local HOOK_KINDS = { "magiccost", "magichit", "meleecost", "archcost", "meleehit", "archhit", "armorhit", "action", "hit" }
 
 hook_entry = function(name, def)
   local h = { name = name }
@@ -1332,16 +1341,24 @@ function rt.hook(name, def)
   if def then hooks[#hooks] = hook_entry(name, def) end
 end
 
--- run_hooks runs each hook's `kind` on ctx: false when one stops it. A broken hook warns once and
--- is passed over.
-local function run_hooks(kind, ctx)
-  for i = 0, #hooks - 1 do
-    local fn = hooks[i][kind]
+-- run_entry runs one hook's `kind`, then its generic kind, on ctx: false when one stops it. A
+-- broken one warns once and is passed over.
+local function run_entry(h, kind, ctx)
+  for _, fn in ipairs({ h[kind] or false, h[GENERIC[kind]] or false }) do
     if fn then
       local ok, res = pcall(fn, ctx)
-      if not ok then warn_once("hook " .. hooks[i].name, "hook " .. hooks[i].name .. ": " .. tostring(res)) end
+      if not ok then warn_once("hook " .. h.name, "hook " .. h.name .. ": " .. tostring(res)) end
       if ok and res == false then return false end
     end
+  end
+  return true
+end
+
+-- run_hooks runs every hook's `kind` on ctx, which learns its kind: false when one stops it.
+local function run_hooks(kind, ctx)
+  ctx.kind = kind
+  for i = 0, #hooks - 1 do
+    if not run_entry(hooks[i], kind, ctx) then return false end
   end
   return true
 end
@@ -1359,8 +1376,8 @@ function rt.magic_hit(lname, actor, target, source, effect, m, d, tunables)
   for k, v in pairs(tunables) do e[k] = v end
   if not run_hooks("magichit", e) then return false end
   e.m, e.d = part(settled(e.m)), part(settled(e.d))
-  local fn = lands[lname]
-  if fn and fn(e) == false then return false end
+  local own = own_hooks[lname]
+  if own and not run_entry(own, "magichit", e) then return false end
   return e
 end
 
@@ -1425,9 +1442,14 @@ end
 -- the spells/, powers/ and items/ folders hold (they name effects and spells), for the engine, and
 -- adds each perk the perks/ folders hold as the hook of its name.
 function rt.load_effects()
-  lands = {}
+  own_hooks = {}
   load_defs("effects", function(name, def)
-    lands[name] = def.land
+    if def.hooks then
+      for kind in pairs(def.hooks) do
+        if kind ~= "magichit" and kind ~= "hit" then warn("rt.effect " .. name .. ": hooks." .. kind .. " never runs; an effect's own hooks are magichit and hit") end
+      end
+      own_hooks[name] = hook_entry(name, def.hooks)
+    end
     effect_def(name, def)
   end)
   load_defs("spells", spell_def)

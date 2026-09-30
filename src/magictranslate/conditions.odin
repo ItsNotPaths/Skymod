@@ -1,6 +1,6 @@
 package magictranslate
 
-// MGEF conditions to Lua: the land gate. In an MGEF's conditions the subject is the one hit and the
+// MGEF conditions to Lua: the magichit gate. In an MGEF's conditions the subject is the one hit and the
 // target is the caster (edges.md 3), so Subject reads e.target and Target e.actor. An Is/Has
 // function answers a boolean in Lua, the rest a number (rt.odin __condition).
 
@@ -15,28 +15,30 @@ Who :: struct {
 	ctx, subject, target: string,
 }
 
-// MGEF_WHO: an effect's land, where Subject is the one hit and Target the caster.
+// MGEF_WHO: an effect's magichit, where Subject is the one hit and Target the caster.
 MGEF_WHO :: Who{"e", "e.target", "e.actor"}
 
-// land_lua writes the land function: false from it when the conditions fail, then each dispel
-// (DispelTagged); "" for none. ok=false when a condition has no Lua form.
+// land_lua writes an effect's own magichit hook: false from it when the conditions fail, then each
+// dispel (DispelTagged); "" for none. ok=false when a condition has no Lua form.
 land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string) -> (text: string, ok: bool) {
 	if len(conds) == 0 && len(dispels) == 0 {return "", true}
-	gate := gate_lua(src, conds, MGEF_WHO) or_return
+	gate := gate_lua(src, conds, MGEF_WHO, "\n        and ") or_return
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintln(&b, "  land = function(e)")
+	fmt.sbprintln(&b, "  hooks = {")
+	fmt.sbprintln(&b, "    magichit = function(e)")
 	switch {
-	case len(dispels) == 0: fmt.sbprintfln(&b, "    return %s", gate)
-	case len(conds) > 0:    fmt.sbprintfln(&b, "    if not (%s) then return false end", gate)
+	case len(dispels) == 0: fmt.sbprintfln(&b, "      return %s", gate)
+	case len(conds) > 0:    fmt.sbprintfln(&b, "      if not (%s) then return false end", gate)
 	}
-	for d in dispels {fmt.sbprintfln(&b, "    e.target:DispelTagged(%q)", d)}
-	fmt.sbprintln(&b, "  end,")
+	for d in dispels {fmt.sbprintfln(&b, "      e.target:DispelTagged(%q)", d)}
+	fmt.sbprintln(&b, "    end,")
+	fmt.sbprintln(&b, "  },")
 	return strings.to_string(b), true
 }
 
 // gate_lua writes a condition list as one Lua test: an AND of OR runs, joined by `and_`.
 @(private)
-gate_lua :: proc(src: ^Source, conds: []gamedb.Condition, who: Who, and_ := "\n      and ") -> (text: string, ok: bool) {
+gate_lua :: proc(src: ^Source, conds: []gamedb.Condition, who: Who, and_: string) -> (text: string, ok: bool) {
 	b := strings.builder_make(context.temp_allocator)
 	group := make([dynamic]string, context.temp_allocator)
 	first := true
