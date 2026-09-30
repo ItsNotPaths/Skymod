@@ -56,11 +56,6 @@ Atlas :: struct {
 	allocator:             runtime.Allocator,
 }
 
-// SS is the vertical super-sampling factor (sub-scanlines per output row). Horizontal coverage is
-// computed analytically per span, so 4 vertical samples already give clean edges at UI sizes.
-@(private)
-SS :: 4
-
 // PAD is the 1px transparent gutter around each packed glyph so LINEAR sampling at the glyph's edge
 // can't bleed in a neighbour. (No mip chain anymore — glyphs bake at display size, so 1px suffices.)
 @(private)
@@ -237,25 +232,6 @@ pick_font :: proc(names: []string, glyph_counts: []int) -> int {
 	return best
 }
 
-// rasterize_shape fills a DefineShape's contours (in twips; `scale` 1/20 → native px) as a SOLID
-// silhouette tinted by `fill` (straight RGBA) — reusing the glyph coverage rasterizer. For converting
-// flat vector menu graphics (e.g. the BGS logo) to a DDS. rgba owned by `allocator`; w/h are the
-// tight bitmap size, 0 if the shape is empty/degenerate.
-rasterize_shape :: proc(segs: []swf.Seg, scale: f32, fill: [4]u8, allocator := context.allocator) -> (rgba: []u8, w, h: int) {
-	cov, cw, ch, _, _ := raster_glyph(swf.Glyph{segs = segs}, scale)
-	if cw <= 0 || ch <= 0 {
-		return nil, 0, 0
-	}
-	out := make([]u8, cw * ch * 4, allocator)
-	for i in 0 ..< cw * ch {
-		out[i * 4 + 0] = fill[0]
-		out[i * 4 + 1] = fill[1]
-		out[i * 4 + 2] = fill[2]
-		out[i * 4 + 3] = u8(int(cov[i]) * int(fill[3]) / 255)
-	}
-	return out, cw, ch
-}
-
 // ── rasterization ─────────────────────────────────────────────────────────────────────────────
 
 // Edge is one flattened straight segment in atlas-pixel space (after Bézier subdivision).
@@ -350,7 +326,7 @@ raster_glyph :: proc(g: swf.Glyph, scale: f32) -> (cov: []u8, w, h: int, bearing
 		ex1 := e.x1 - f32(x0i)
 		ey0 := e.y0 - f32(y0i)
 		ey1 := e.y1 - f32(y0i)
-		scan_edge(acc, w, h, ex0, ey0, ex1, ey1)
+		swf.accumulate(acc, w, h, ex0, ey0, ex1, ey1)
 	}
 
 	cov = make([]u8, w * h, context.temp_allocator)
@@ -370,56 +346,4 @@ bezier_steps :: proc(x0, y0, cx, cy, x1, y1: f32) -> int {
 	d := math.hypot(cx - x0, cy - y0) + math.hypot(x1 - cx, y1 - cy)
 	n := int(d / 3) // ~3px per segment
 	return clamp(n, 2, 32)
-}
-
-// scan_edge accumulates one edge's contribution into the coverage buffer using non-zero winding with
-// analytic horizontal coverage and SS vertical sub-samples. The standard span approach: at each
-// sub-scanline an edge contributes a crossing (x, winding±1); we don't have all edges here, so
-// instead we accumulate signed horizontal coverage to the RIGHT of each crossing and rely on the
-// per-row prefix in scan finalize. To keep it simple and self-contained we use the classic
-// "signed area" trick per edge: add +dir coverage from the crossing x to the row's right edge,
-// scaled by 1/SS; overlapping opposite edges cancel, leaving filled spans. Coverage is clamped at
-// read time. This matches stb_truetype's v_subsample sweep at SS sub-rows.
-@(private)
-scan_edge :: proc(acc: []f32, w, h: int, x0, y0, x1, y1: f32) {
-	if y0 == y1 {
-		return
-	}
-	dir: f32 = 1
-	ax, ay, bx, by := x0, y0, x1, y1
-	if ay > by {
-		ax, ay, bx, by = bx, by, ax, ay
-		dir = -1
-	}
-	dxdy := (bx - ax) / (by - ay)
-	for row in 0 ..< h {
-		for s in 0 ..< SS {
-			yc := f32(row) + (f32(s) + 0.5) / f32(SS)
-			if yc < ay || yc >= by {
-				continue
-			}
-			xc := ax + (yc - ay) * dxdy
-			// Add signed coverage from xc to the right edge of the row, weight 1/SS.
-			add_span(acc, w, row, xc, dir / f32(SS))
-		}
-	}
-}
-
-// add_span adds `amt` coverage from x = `from` to the right edge of `row`, with the partial-pixel
-// cell at `from` weighted by its uncovered fraction (analytic horizontal AA).
-@(private)
-add_span :: proc(acc: []f32, w, row: int, from: f32, amt: f32) {
-	x := from
-	if x < 0 {
-		x = 0
-	}
-	if int(x) >= w {
-		return
-	}
-	col := int(x)
-	frac := 1 - (x - f32(col)) // covered fraction of the first cell
-	acc[row * w + col] += amt * frac
-	for c in col + 1 ..< w {
-		acc[row * w + c] += amt
-	}
 }

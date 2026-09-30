@@ -82,3 +82,12 @@ u16le :: proc(b: []u8, o: int) -> u16 {
 u32le :: proc(b: []u8, o: int) -> u32 {
 	return u32(b[o]) | u32(b[o + 1]) << 8 | u32(b[o + 2]) << 16 | u32(b[o + 3]) << 24
 }
+
+// r_align skips to the next byte boundary (byte reads after bit-packed fields need this).
+@(private)
+r_align :: proc(r: ^Reader) {
+	if r.bit_pos != 0 {
+		r.bit_pos = 0
+		r.byte_pos += 1
+	}
+}

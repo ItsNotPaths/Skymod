@@ -16,6 +16,7 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 import "../font"
 import "../formats/dds"
 import "../formats/swf"
@@ -112,9 +113,12 @@ baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 	assets := baseui_assets_dir(base, context.temp_allocator)
 	for a in UI_ASSETS {
 		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
-		if a.name != "" {
+		switch {
+		case a.name != "":
 			extract_swf_bitmap(v, a.swf, a.name, dest)
-		} else {
+		case a.path != "":
+			write_layout(v, assets, a.swf) // with every instance of that SWF; once per SWF
+		case:
 			extract_shape_by_look(v, a, dest)
 		}
 	}
@@ -163,35 +167,118 @@ make_reticle :: proc(dest: string) {
 	}
 }
 
-// extract_shape_by_look rasterizes the shape of `a.swf` whose fill and native px size match `a`, to
-// `dest` as DDS — once (skips if `dest` exists). Best-effort: a miss just logs.
+// extract_shape_by_look draws the shape of `a.swf` whose first solid fill and native px size match
+// `a`, to `dest` as DDS — once (skips if `dest` exists). Best-effort: a miss just logs.
 @(private = "file")
 extract_shape_by_look :: proc(v: ^vfs.VFS, a: UI_Asset, dest: string) {
 	if os.exists(dest) {
 		return
 	}
-	raw, ok := vfs.read(v, a.swf, context.temp_allocator)
+	mv, ok := read_movie(v, a.swf)
 	if !ok {
 		return
 	}
-	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-		if sh.fill != a.fill {
+	for id, c in mv.chars {
+		sh := c.(swf.Shape_Def) or_continue
+		if swf.shape_color(sh) != a.fill {
 			continue
 		}
-		fill := a.recolor if a.recolor[3] != 0 else a.fill
-		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, fill, context.temp_allocator)
-		if w != a.size.x || h != a.size.y {
+		img := swf.render_shape_image(&mv, id, 1, context.temp_allocator) or_continue
+		if img.w != a.size.x || img.h != a.size.y {
 			continue
 		}
-		ensure_parent_dir(dest)
-		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
-			log.errorf("ui: could not write %q", dest)
-		} else {
-			log.infof("ui: extracted shape %d → %s (%dx%d)", sh.id, filepath.base(dest), w, h)
+		if a.recolor[3] != 0 {
+			for i := 0; i < len(img.rgba); i += 4 {
+				img.rgba[i], img.rgba[i + 1], img.rgba[i + 2] = a.recolor[0], a.recolor[1], a.recolor[2]
+			}
 		}
+		write_dds(dest, img)
+		log.infof("ui: extracted shape %d → %s (%dx%d)", id, filepath.base(dest), img.w, img.h)
 		return
 	}
 	log.warnf("ui: no %dx%d shape with fill %v in %s", a.size.x, a.size.y, a.fill, a.swf)
+}
+
+// write_layout draws every INSTANCE row of `swf_path` and writes interface/<name>_layout.lua: the
+// stage size, each art file's stage rect, and every named instance's rect (with its animated box per
+// frame label). The layout file caches the whole set: art is redrawn only when it is missing.
+@(private = "file")
+write_layout :: proc(v: ^vfs.VFS, assets, swf_path: string) {
+	stem := filepath.stem(swf_path)
+	out, _ := filepath.join({assets, "interface", fmt.tprintf("%s_layout.lua", stem)}, context.temp_allocator)
+	if os.exists(out) {
+		return
+	}
+	mv, ok := read_movie(v, swf_path)
+	if !ok {
+		return
+	}
+	b := strings.builder_make(context.temp_allocator)
+	fmt.sbprintfln(&b, "-- Generated from %s: where its named instances sit on the stage, in px.", swf_path)
+	fmt.sbprintln(&b, "return {")
+	fmt.sbprintfln(&b, "  stage = { w = %.0f, h = %.0f },", (mv.stage.x1 - mv.stage.x0) / 20, (mv.stage.y1 - mv.stage.y0) / 20)
+	fmt.sbprintln(&b, "  art = {")
+	for a in UI_ASSETS {
+		if a.swf != swf_path || a.path == "" {
+			continue
+		}
+		img, rok := swf.render_instance(&mv, a.path, a.label, ART_SCALE, a.hide, context.temp_allocator)
+		if !rok {
+			log.warnf("ui: no instance %q in %s", a.path, swf_path)
+			continue
+		}
+		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
+		write_dds(dest, img)
+		fmt.sbprintfln(&b, "    [%q] = %s,", a.dest, lua_rect(img.rect))
+	}
+	fmt.sbprintln(&b, "  },")
+	fmt.sbprintln(&b, "  instances = {")
+	for e in swf.layout(&mv, context.temp_allocator) {
+		if swf.rect_empty(e.rect) {
+			continue
+		}
+		fmt.sbprintf(&b, "    [%q] = { rect = %s", e.path, lua_rect(e.rect))
+		if len(e.moving) > 0 {
+			fmt.sbprint(&b, ", moving = {")
+			for m in e.moving {
+				if !swf.rect_empty(m.rect) {
+					fmt.sbprintf(&b, " [%q] = %s,", m.label, lua_rect(m.rect))
+				}
+			}
+			fmt.sbprint(&b, " }")
+		}
+		fmt.sbprintln(&b, " },")
+	}
+	fmt.sbprintln(&b, "  },")
+	fmt.sbprintln(&b, "}")
+	ensure_parent_dir(out)
+	if os.write_entire_file(out, transmute([]u8)strings.to_string(b)) != nil {
+		log.errorf("ui: could not write %q", out)
+	} else {
+		log.infof("ui: wrote %s", filepath.base(out))
+	}
+}
+
+@(private = "file")
+lua_rect :: proc(r: swf.Rect) -> string {
+	return fmt.tprintf("{ x = %.2f, y = %.2f, w = %.2f, h = %.2f }", r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0)
+}
+
+@(private = "file")
+read_movie :: proc(v: ^vfs.VFS, swf_path: string) -> (swf.Movie, bool) {
+	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
+	if !ok {
+		return {}, false
+	}
+	return swf.parse_movie(raw, context.temp_allocator)
+}
+
+@(private = "file")
+write_dds :: proc(dest: string, img: swf.Image) {
+	ensure_parent_dir(dest)
+	if os.write_entire_file(dest, dds.write_rgba(img.rgba, u32(img.w), u32(img.h), context.temp_allocator)) != nil {
+		log.errorf("ui: could not write %q", dest)
+	}
 }
 
 // dump_swf_assets converts every flat-solid shape (silhouette in its fill colour) + every
@@ -207,17 +294,18 @@ dump_swf_assets :: proc(v: ^vfs.VFS, assets, swf_path, name: string) {
 	if !ok {
 		return
 	}
+	mv, mok := swf.parse_movie(raw, context.temp_allocator)
+	if !mok {
+		return
+	}
 	make_dirs(dir)
 	nshapes := 0
-	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, sh.fill, context.temp_allocator)
-		if w <= 0 || h <= 0 {
-			continue
-		}
-		dest, _ := filepath.join({dir, fmt.tprintf("shape_%d.dds", sh.id)}, context.temp_allocator)
-		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) == nil {
-			nshapes += 1
-		}
+	for id, c in mv.chars {
+		_ = c.(swf.Shape_Def) or_continue
+		img := swf.render_shape_image(&mv, id, 1, context.temp_allocator) or_continue
+		dest, _ := filepath.join({dir, fmt.tprintf("shape_%d.dds", id)}, context.temp_allocator)
+		write_dds(dest, img)
+		nshapes += 1
 	}
 	nbmp := 0
 	for bm in swf.extract_all_bitmaps(raw, context.temp_allocator) {

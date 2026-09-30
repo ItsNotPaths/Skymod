@@ -35,40 +35,32 @@ local GOLD      = "#d8bd76" -- locked accent
 local WHITE     = "#f6f6f6"
 local DIM       = "#d3ccb6" -- the smaller button+verb line
 
--- Meters (vanilla: health bottom centre, magicka bottom left, stamina bottom right).
-local METER_W, METER_H = 240, 20
-local METER_Y   = -48  -- from the bottom edge
-local METER_X   = 60   -- magicka/stamina inset from the side edges
-local HEALTH    = "#b3302b"
-local MAGICKA   = "#2f6fc4"
-local STAMINA   = "#3f9c4a"
-local FRAME     = "#9a9a9a"
-local LINGER    = 2.0  -- seconds a meter stays after it no longer needs showing
-local FADE      = 0.6  -- seconds it takes to fade out
+-- The vanilla stage layout and art, extracted from hudmenu.gfx by the installer (interface/
+-- hudmenu_layout.lua): stage rects in px for every named instance and for each art file.
+local LAYOUT = engine.layout("hudmenu") or {}
+local STAGE  = LAYOUT.stage or { w = 1280, h = 720 }
+local ART    = LAYOUT.art or {}
+local INST   = LAYOUT.instances or {}
+local ROOT   = "HUDMovieBaseInstance."
+local REF_EM = 64 -- the UI's text px at scale 1
 
--- Compass (vanilla: top centre). The strip spans COMPASS_FOV degrees of heading.
-local COMPASS_Y   = 20
-local COMPASS_W   = 366
-local COMPASS_H   = 30
+-- Meters fade out LINGER seconds after they stop being needed, over FADE seconds.
+local LINGER    = 2.0
+local FADE      = 0.6
+
+-- Compass: the letters travel across the compass mask; COMPASS_FOV degrees of heading span it.
 local COMPASS_FOV = 180
-local STRIP_W     = 290  -- the width the letters travel across (vanilla's CompassMask_mc)
 local CARDINALS = {
   { 0, "N" }, { 45, "NE" }, { 90, "E" }, { 135, "SE" },
   { 180, "S" }, { 225, "SW" }, { 270, "W" }, { 315, "NW" },
 }
-
 -- Sneak eye (vanilla: over the crosshair, the pupil round the dot). HIDDEN/DETECTED sits above it,
 -- clear of the activation prompt.
 local EYE_W, EYE_H = 64, 30
 local EYE_SHUT     = 0.25 -- the eye's height while nobody has noticed the player, of EYE_H
 
--- Enemy health (vanilla: under the compass, name below in #999999): a thin fill that shrinks to its
--- centre, over the trapezoid backdrop.
-local FOE_Y     = 90
-local FOE_W, FOE_H   = 258, 16 -- the backdrop's native size
-local FILL_W, FILL_H = 252, 7  -- vanilla's fill: a 32x7 shape stretched 7.89x
-local FILL_Y    = 2            -- the fill's top, inside the backdrop
-local FOE_SHOW  = 3.0  -- seconds the bar stays after the player's last hit, out of a fight
+-- Enemy health: seconds the bar stays after the player's last hit, out of a fight.
+local FOE_SHOW  = 3.0
 
 -- Notifications (vanilla: top left, fade out).
 local NOTE_LIFE = 4.0
@@ -93,66 +85,91 @@ local function frac(m)
   return m.cur / m.max
 end
 
-local function meter(m, color, a, props)
-  local t = {
-    size = { METER_W, METER_H },
-    value = frac(m),
-    fill = alpha(color, a),
-    bg = "interface/bar_bg.dds", bg_color = alpha("#ffffff", a),
-    frame = "interface/bar_frame.dds", frame_color = alpha(FRAME, a),
-    slice = 48,
-    inset = { 18, 5 },
-  }
-  for k, v in pairs(props) do t[k] = v end
-  return bar(t)
+-- The screen scale and x offset that fit the stage's height, centred.
+local function stage_fit()
+  local k = ui.vh / STAGE.h
+  return k, (ui.vw - STAGE.w * k) / 2
+end
+
+-- node props that put a node on stage rect `r`
+local function place(r)
+  local k, ox = stage_fit()
+  return { anchor = "top_left", offset = { ox + r.x * k, r.y * k }, size = { r.w * k, r.h * k } }
+end
+
+local function with(t, props)
+  for key, v in pairs(props) do t[key] = v end
+  return t
+end
+
+-- text scale for a vanilla font size in stage px
+local function text_scale(px)
+  local k = stage_fit()
+  return px * k / REF_EM
+end
+
+-- A vanilla meter: its "Empty" art (the chrome), then its "Full" art cropped to the filled part of
+-- the fill's box. The fill's box at "Empty" says where it grows from: gone (scaled to its centre),
+-- slid left (fills from the left) or slid right (from the right).
+local function meter_art(root, name, fill_path, value, a)
+  local empty, full = "interface/hud/" .. name .. "_empty.dds", "interface/hud/" .. name .. "_full.dds"
+  local er, fa = ART[empty], ART[full]
+  if not er or not fa then return end
+  local color = alpha("#ffffff", a)
+  root[#root] = image(with(place(er), { source = empty, color = color }))
+  local moving = INST[fill_path] and INST[fill_path].moving
+  local box = moving and moving.Full
+  if not box or value <= 0 then return end
+  local w = box.w * math.min(value, 1)
+  local x
+  if not moving.Empty then
+    x = box.x + (box.w - w) / 2
+  elseif moving.Empty.x < box.x then
+    x = box.x
+  else
+    x = box.x + box.w - w
+  end
+  local crop = { (x - fa.x) / fa.w, (x + w - fa.x) / fa.w }
+  root[#root] = image(with(place(fa), { source = full, crop = crop, color = color }))
 end
 
 -- The three player meters. Vanilla shows one while it is not full, and health also in combat.
 local function meters(root, h)
   local list = {
-    { "health",  h.health,  HEALTH,  "center", { anchor = "bottom",       offset = { 0, METER_Y } } },
-    { "magicka", h.magicka, MAGICKA, "right",  { anchor = "bottom_left",  offset = { METER_X, METER_Y } } },
-    { "stamina", h.stamina, STAMINA, "left",   { anchor = "bottom_right", offset = { -METER_X, METER_Y } } },
+    { "health",  h.health,  ROOT .. "Health.HealthMeter_mc.HealthLeft" },
+    { "magicka", h.magicka, ROOT .. "Magica.MagickaMeter_mc" },
+    { "stamina", h.stamina, ROOT .. "Stamina.StaminaMeter_mc" },
   }
   for _, e in ipairs(list) do
-    local key, m, color, from, props = e[0], e[1], e[2], e[3], e[4]
-    local a = visibility(key, frac(m) < 0.999 or (key == "health" and h.combat))
-    if a > 0 then
-      props.from = from
-      root[#root] = meter(m, color, a, props)
-    end
+    local name, m, fill_path = e[0], e[1], e[2]
+    local a = visibility(name, frac(m) < 0.999 or (name == "health" and h.combat))
+    if a > 0 then meter_art(root, name, fill_path, frac(m), a) end
   end
 end
 
--- The compass strip: the frame, the letters in view (faded toward the ends), the centre notch.
+-- The compass: the vanilla frame, and the letters in view across its mask (faded toward the ends).
 local function compass(root, heading)
-  root[#root] = image {
-    source = "interface/bar_bg.dds",
-    anchor = "top",
-    offset = { 0, COMPASS_Y },
-    size = { COMPASS_W, COMPASS_H },
-    slice = 48,
-  }
+  local frame = ART["interface/hud/compass.dds"]
+  local mask = INST[ROOT .. "CompassShoutMeterHolder.Compass.CompassMask_mc"]
+  if not frame or not mask then return end
+  root[#root] = image(with(place(frame), { source = "interface/hud/compass.dds" }))
+  local strip = mask.rect
   local half = COMPASS_FOV / 2
   for _, c in ipairs(CARDINALS) do
     local d = (c[0] - heading + 540) % 360 - 180 -- -180..180, + = to the right
     if math.abs(d) < half then
       local major = #c[1] == 1
-      root[#root] = text {
-        c[1],
-        anchor = "top",
-        offset = { d / half * STRIP_W / 2, COMPASS_Y + (major and 4 or 7) },
-        scale = major and 0.34 or 0.26,
-        color = alpha(major and "#ffffff" or "#bbbdbf", 1 - (math.abs(d) / half) ^ 4),
-      }
+      local x = strip.x + strip.w / 2 + d / half * strip.w / 2
+      root[#root] = container(with(place({ x = x - 20, y = frame.y, w = 40, h = frame.h }), {
+        text {
+          c[1],
+          anchor = "center",
+          scale = text_scale(major and 18 or 13),
+          color = alpha(major and "#ffffff" or "#bbbdbf", 1 - (math.abs(d) / half) ^ 4),
+        },
+      }))
     end
   end
-  root[#root] = image {
-    source = "interface/compass_notch.dds",
-    anchor = "top",
-    offset = { 0, COMPASS_Y + COMPASS_H - 12 },
-    size = { 18, 30 },
-  }
 end
 
 -- The sneak eye: opens as the most watchful actor notices the player.
@@ -174,23 +191,16 @@ local function sneak_eye(root, h)
   }
 end
 
--- The foe's health bar and name, while it fights the player or shortly after the player hit it.
+-- The foe's health bar (vanilla art, fill shrinking to its centre) and its name below it, while it
+-- fights the player or shortly after the player hit it.
 local function foe(root, f)
   if not f or not (f.fighting or f.age < FOE_SHOW) then return end
-  root[#root] = container {
-    anchor = "top",
-    offset = { 0, FOE_Y },
-    size = { FOE_W, FOE_H },
-    image { source = "interface/enemy_bar.dds", fill = "both" },
-    { _kind = "bar", anchor = "top", offset = { 0, FILL_Y }, size = { FILL_W, FILL_H }, value = frac(f.health), from = "center", color = HEALTH },
-  }
-  root[#root] = text {
-    f.name,
-    anchor = "top",
-    offset = { 0, FOE_Y + FOE_H + 4 },
-    scale = 0.31,
-    color = "#999999",
-  }
+  meter_art(root, "enemy", ROOT .. "EnemyHealth_mc", frac(f.health), 1)
+  local label = INST[ROOT .. "EnemyHealth_mc.BracketsInstance.RolloverNameInstance"]
+  if not label then return end
+  root[#root] = container(with(place(label.rect), {
+    text { f.name, anchor = "center", scale = text_scale(20), color = "#999999" },
+  }))
 end
 
 -- The newest notifications, oldest on top, each fading out at the end of its life.

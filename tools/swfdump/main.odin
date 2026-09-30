@@ -79,29 +79,37 @@ main :: proc() {
 		return
 	}
 
-	// --shapes <destdir>: rasterize every extractable (flat-solid) shape of the first SWF/GFX matching
-	// --name to <destdir>/shape_<id>.dds — for eyeballing which shape is which (frame, end-cap, …).
-	if idx, found := slice.linear_search(os.args, "--shapes"); found && idx + 1 < len(os.args) {
-		destdir := os.args[idx + 1]
-		flt := strings.to_lower(filter, context.temp_allocator)
-		for e in arc.entries {
-			lower := strings.to_lower(e.path, context.temp_allocator)
-			if !strings.has_suffix(lower, ".swf") && !strings.has_suffix(lower, ".gfx") {continue}
-			if filter != "" && !strings.contains(lower, flt) {continue}
-			raw, rok := bsa.extract(&arc, e, context.temp_allocator)
-			if !rok {continue}
-			n := 0
-			for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-				rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, sh.fill, context.temp_allocator)
-				if w <= 0 || h <= 0 {continue}
-				// Catalog line: id + size + fill is how a shape is re-identified across
-				// editions (SSE re-exported every UI SWF, so LE's IDs don't carry over).
-				fmt.printfln("  shape %4d  %4dx%-4d  fill #%02x%02x%02x%02x", sh.id, w, h, sh.fill[0], sh.fill[1], sh.fill[2], sh.fill[3])
-				out, _ := filepath.join({destdir, fmt.tprintf("shape_%d.dds", sh.id)}, context.temp_allocator)
-				if os.write_entire_file(out, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) == nil {n += 1}
+	// Movie modes, on the first SWF/GFX matching --name:
+	//   --shapes <destdir>           every shape as <destdir>/shape_<id>.dds, with its size + first solid fill
+	//   --layout                     every named instance's stage rect (px), and its animated box per label
+	//   --render <path> <label> <out.dds>   one instance as it sits on the stage, 2 px per stage px
+	shapes_i, want_shapes := slice.linear_search(os.args, "--shapes")
+	render_i, want_render := slice.linear_search(os.args, "--render")
+	if want_shapes || want_render || slice.contains(os.args, "--layout") {
+		mv, ok := first_movie(&arc, filter)
+		if !ok {
+			fmt.eprintln("no SWF/GFX matches --name")
+			os.exit(1)
+		}
+		switch {
+		case want_shapes && shapes_i + 1 < len(os.args):
+			dump_shapes(&mv, os.args[shapes_i + 1])
+		case want_render && render_i + 3 < len(os.args):
+			img, rok := swf.render_instance(&mv, os.args[render_i + 1], os.args[render_i + 2], 2, nil, context.temp_allocator)
+			if !rok {
+				fmt.eprintln("no such instance")
+				os.exit(1)
 			}
-			fmt.printfln("rasterized %d shapes from %s -> %s", n, e.path, destdir)
-			return
+			_ = os.write_entire_file(os.args[render_i + 3], dds.write_rgba(img.rgba, u32(img.w), u32(img.h), context.temp_allocator))
+			fmt.printfln("%dx%d, stage rect %v", img.w, img.h, img.rect)
+		case:
+			for e in swf.layout(&mv, context.temp_allocator) {
+				r := e.rect
+				fmt.printfln("%s  (%.1f,%.1f) %.1fx%.1f", e.path, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0)
+				for m in e.moving {
+					fmt.printfln("    %s: (%.1f,%.1f) %.1fx%.1f", m.label, m.rect.x0, m.rect.y0, m.rect.x1 - m.rect.x0, m.rect.y1 - m.rect.y0)
+				}
+			}
 		}
 		return
 	}
@@ -524,3 +532,31 @@ read_sbits :: proc(br: ^Bit_Reader, n: int) -> i32 {
 	return i32(v)
 }
 
+
+// first_movie parses the first SWF/GFX whose path contains `filter`.
+first_movie :: proc(arc: ^bsa.Archive, filter: string) -> (swf.Movie, bool) {
+	flt := strings.to_lower(filter, context.temp_allocator)
+	for e in arc.entries {
+		lower := strings.to_lower(e.path, context.temp_allocator)
+		if !strings.has_suffix(lower, ".swf") && !strings.has_suffix(lower, ".gfx") {continue}
+		if filter != "" && !strings.contains(lower, flt) {continue}
+		raw := bsa.extract(arc, e, context.temp_allocator) or_continue
+		return swf.parse_movie(raw, context.temp_allocator)
+	}
+	return {}, false
+}
+
+// dump_shapes writes every shape as DDS. The catalog line (id, size, first solid fill) is the key
+// baseui finds vanilla art by, since ids change between game builds.
+dump_shapes :: proc(mv: ^swf.Movie, destdir: string) {
+	n := 0
+	for id, c in mv.chars {
+		sh := c.(swf.Shape_Def) or_continue
+		img := swf.render_shape_image(mv, id, 1, context.temp_allocator) or_continue
+		col := swf.shape_color(sh)
+		fmt.printfln("  shape %d  %dx%d  fill #%02x%02x%02x%02x", id, img.w, img.h, col[0], col[1], col[2], col[3])
+		out, _ := filepath.join({destdir, fmt.tprintf("shape_%d.dds", id)}, context.temp_allocator)
+		if os.write_entire_file(out, dds.write_rgba(img.rgba, u32(img.w), u32(img.h), context.temp_allocator)) == nil {n += 1}
+	}
+	fmt.printfln("rendered %d shapes -> %s", n, destdir)
+}

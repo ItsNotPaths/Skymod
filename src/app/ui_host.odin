@@ -8,6 +8,7 @@ package main
 
 import "core:c"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:path/filepath"
 import "core:os"
@@ -83,6 +84,7 @@ install_engine_api :: proc(vm: ^ui.VM) {
 	ui.register_host(L, vm, "load_progress", engine_load_progress)
 	ui.register_host(L, vm, "activation", engine_activation)
 	ui.register_host(L, vm, "hud", engine_hud)
+	ui.register_host(L, vm, "layout", engine_layout)
 	ui.register_host(L, vm, "prompt", engine_prompt)
 	ui.register_host(L, vm, "play_sound", engine_play_sound)
 	ui.register_host(L, vm, "message_box", engine_message_box)
@@ -236,6 +238,25 @@ engine_hud :: proc "c" (L: ^lua.State) -> c.int {
 		lua.seti(L, -2, lua.Integer(i))
 	}
 	lua.setfield(L, -2, "notes")
+	return 1
+}
+
+// engine_layout(name) → the table interface/<name>_layout.lua returns (written by baseui from the
+// vanilla SWF, read through the VFS so a mod can replace it), or nil when it is missing or fails.
+@(private = "file")
+engine_layout :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	host := cast(^UI_Host)vm.user
+	name := string(lua.L_checkstring(L, 1))
+	path := fmt.tprintf("interface/%s_layout.lua", name)
+	src: []u8
+	ok := host.vf != nil
+	if ok {src, ok = vfs.read(host.vf, path, context.temp_allocator)}
+	if !ok || lua.L_dostring(L, strings.clone_to_cstring(string(src), context.temp_allocator)) != 0 {
+		log.warnf("ui: layout %q did not load", path)
+		lua.pushnil(L)
+	}
 	return 1
 }
 
