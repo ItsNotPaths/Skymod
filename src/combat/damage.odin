@@ -63,7 +63,6 @@ apply :: proc "contextless" (p: Part, v: f32) -> f32 {
 // (hole crit-rules :tags combat :sev polish) unsourced: a crit adds CRDT damage after skill and before the power and sneak multipliers, and CRDT's crit % mult is unread (IronSword's is 0 and it still crits with Bladesman, UESP); nothing says what it scales. The crit spell is not cast.
 // (hole bash-damage :tags (combat unclaimed) :sev gap :needs (hit-model)) a bash deals its weapon's damage: no bash formula (fShieldBashMin 0.05, fShieldBashMax 0.25, fShieldBashPCMax, fWeaponBashMax 0.25, all unsourced in shape) and no part for its perks (Mod_Bashing_Damage, 2 entries).
 // (hole ranged-sneak-mult :tags combat :sev polish) unsourced: a bow, crossbow or staff sneak attack's multiplier; Skyrim.esm has no fCombatSneak GMST for them, so 2 (UESP: ranged sneak attacks deal double).
-// (hole game-difficulty :tags (combat player save) :sev gap) no game difficulty: the save stores no level (user, 2026-09-29: it lives in the save), and fDiffMultHPByPC*/fDiffMultHPToPC* are not in Skyrim.esm (engine defaults; UESP: dealt 2, 1.5, 1, 0.75, 0.5, 0.25 and taken 0.5, 0.75, 1, 1.5, 2, 3 from Novice to Legendary).
 // (hole block-damage :tags (combat unclaimed) :sev gap :needs (combat-damage actor-states)) a block cuts nothing: fBlockMax 0.7, fBlockWeaponBase 0.3, fBlockWeaponScaling 0.2, fBlockSkillMult 2, fBlockPowerAttackMult 0.66, Mod_Percent_Blocked (8), and the stamina drain fStaminaBlockDmgMult 0.25. No actor has a block state.
 // (hole npc-damage-skill :tags combat :sev polish) unsourced: whether an NPC's weapon skill scales its damage with the player's fDamagePCSkillMin/Max; every actor uses them.
 // damage_builtin is the Health `a` takes: its weapon's damage scaled by the attacker's skill, plus a
@@ -78,7 +77,32 @@ damage_builtin :: proc "c" (w: ^plugin.World, a: Attack, base: f32) -> f32 {
 	}
 	if .Power in a.kind {hit *= apply(a.power_mult, 1 + setting(w, "fPowerAttackDefaultBonus", 1))}
 	if .Sneak in a.kind {hit *= apply(a.sneak_mult, sneak_mult(w, slot.weapon_type))}
-	return hit * (1 - armor_cut(w, a))
+	return hit * (1 - armor_cut(w, a)) * difficulty_mult(w, a)
+}
+
+// DIFFICULTY is, from Novice to Legendary, the GMST and its engine default (UESP) for a hit the
+// player deals, then one it takes. Only Update.esm has one of them (fDiffMultHPToPCL).
+@(private = "file", rodata)
+DIFFICULTY := [6]struct {
+	by, to:                 cstring,
+	by_default, to_default: f32,
+} {
+	{"fDiffMultHPByPCVE", "fDiffMultHPToPCVE", 2, 0.5},
+	{"fDiffMultHPByPCE", "fDiffMultHPToPCE", 1.5, 0.75},
+	{"fDiffMultHPByPCN", "fDiffMultHPToPCN", 1, 1},
+	{"fDiffMultHPByPCH", "fDiffMultHPToPCH", 0.75, 1.5},
+	{"fDiffMultHPByPCVH", "fDiffMultHPToPCVH", 0.5, 2},
+	{"fDiffMultHPByPCL", "fDiffMultHPToPCL", 0.25, 3},
+}
+
+// difficulty_mult scales a hit the player deals or takes by the game difficulty.
+@(private = "file")
+difficulty_mult :: proc "contextless" (w: ^plugin.World, a: Attack) -> f32 {
+	d := DIFFICULTY[clamp(int(w.difficulty(w.data)) + 2, 0, 5)]
+	m := f32(1)
+	if a.attacker == w.player {m *= setting(w, d.by, d.by_default)}
+	if a.target == w.player {m *= setting(w, d.to, d.to_default)}
+	return m
 }
 
 // weapon_damage is `base` times the weapon skill's factor: fDamagePCSkillMin (engine default 1) at

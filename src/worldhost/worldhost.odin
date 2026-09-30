@@ -37,6 +37,7 @@ world :: proc(d: ^Data) -> plugin.World {
 		game_hours    = game_hours,
 		record        = record,
 		has_tag       = has_tag,
+		difficulty    = difficulty,
 	}
 }
 
@@ -171,6 +172,11 @@ setting :: proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {
 	d := (^Data)(data)
 	context = d.ctx
 	return gamedb.setting_float(d.db, string(name), fallback)
+}
+
+@(private = "file")
+difficulty :: proc "c" (data: rawptr) -> i32 {
+	return i32((^Data)(data).ws.difficulty)
 }
 
 @(private = "file")

@@ -398,6 +398,7 @@ Save_Body :: struct {
 	next_effect:   u32,
 	visuals:       []Visual,
 	clock:         Game_Clock,
+	difficulty:    Difficulty,
 	weather:       Weather_State,
 	form_table:    []Saved_Slot, // the identity bridge for the slots these Form_IDs reference (§4.4)
 }
@@ -689,6 +690,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		next_effect   = ws.next_effect,
 		visuals       = visuals[:],
 		clock         = ws.clock,
+		difficulty    = ws.difficulty,
 		weather       = ws.weather,
 	}
 	// Embed the identity bridge for every stable slot these Form_IDs reference, so the save can be
@@ -1171,6 +1173,7 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		rel_upsert(ws, a)^[b] = r.rank
 	}
 	ws.clock = body.clock
+	ws.difficulty = body.difficulty
 	ws.weather = body.weather
 	for f in ([]^Form_ID{&ws.weather.current, &ws.weather.outgoing, &ws.weather.natural, &ws.weather.override, &ws.weather.request}) {
 		r, ok := rf(remap, have_remap, f^)

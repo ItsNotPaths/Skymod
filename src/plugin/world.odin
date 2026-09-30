@@ -26,6 +26,7 @@ World :: struct {
 	game_hours:    proc "c" (data: rawptr) -> f64, // since day 0
 	record:        proc "c" (data: rawptr, form: Form_ID, kind: Record_Kind, out: rawptr) -> bool, // see records.odin
 	has_tag:       proc "c" (data: rawptr, form: Form_ID, pattern: cstring) -> bool, // "magic" matches magic.fire; kw.<editor id> is a keyword
+	difficulty:    proc "c" (data: rawptr) -> i32, // Novice -2, Apprentice -1, Adept 0, Expert 1, Master 2, Legendary 3
 }
 
 // Ref is what the world says of one ref.

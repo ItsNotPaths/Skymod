@@ -1,9 +1,11 @@
 package unit_tests
 
 import "base:runtime"
+import "core:os"
 import "core:testing"
 import "../../src/combat"
 import "../../src/plugin"
+import "../../src/worldstate"
 
 // Fake_Combat answers every query the same way for every actor and keeps what the brain sets.
 Fake_Combat :: struct {
@@ -148,4 +150,29 @@ test_damage_gear :: proc(t: ^testing.T) {
 	testing.expect_value(t, damage(&w, sneak, 10), 37.5) // a one-handed sword: x3
 	sneak.sneak_mult = {mult = 2.5}
 	testing.expect_value(t, damage(&w, sneak, 10), 93.75)
+}
+
+// The game difficulty scales what the player deals and takes (engine defaults when no GMST), and it
+// lives in the save; a save without one reads Adept.
+@(test)
+test_damage_difficulty :: proc(t: ^testing.T) {
+	w: plugin.World
+	fake_gear_world(&w)
+	w.difficulty = proc "c" (data: rawptr) -> i32 {return 3} // Legendary
+	damage := combat.BUILTIN.damage
+	testing.expect_value(t, damage(&w, combat.attack(0xA1, 0xB1, 0xD1), 10), 12.5) // no player: none
+	testing.expect_value(t, damage(&w, combat.attack(0x14, 0xB1, 0), 10), 1) // fists 4 x 0.25
+	testing.expect_value(t, damage(&w, combat.attack(0xA1, 0x14, 0), 10), 12) // 4 x 3
+
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	testing.expect_value(t, ws.difficulty, worldstate.Difficulty.Adept)
+	worldstate.set_difficulty(&ws, .Master)
+	path := "test_difficulty.skysave"
+	defer os.remove(path)
+	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
+	ws.difficulty = .Novice
+	_, ok := worldstate.load_from_file(&ws, path)
+	testing.expect(t, ok && ws.difficulty == .Master, "the difficulty comes back")
 }

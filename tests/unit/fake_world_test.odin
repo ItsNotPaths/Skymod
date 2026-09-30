@@ -25,5 +25,6 @@ fake_world :: proc(data: rawptr) -> plugin.World {
 		setting = proc "c" (data: rawptr, name: cstring, fallback: f32) -> f32 {return fallback},
 		game_hours = proc "c" (data: rawptr) -> f64 {return 0},
 		record = proc "c" (data: rawptr, form: plugin.Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool {return false},
+		difficulty = proc "c" (data: rawptr) -> i32 {return 0},
 	}
 }

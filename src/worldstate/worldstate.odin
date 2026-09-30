@@ -85,6 +85,7 @@ Overlay :: struct {
 	visuals:         map[u32]Visual,               // visual handle -> an effect the graphics seam draws (visuals.odin)
 	effects_on:      map[Form_ID][dynamic]Form_ID, // target -> its effect handles (the reverse of effects; not saved)
 	clock:           Game_Clock,               // game time (clock.odin)
+	difficulty:      Difficulty,               // the game difficulty, saved with the game
 	weather:         Weather_State,            // the weather in force (weather.odin)
 	weathers_offered: [dynamic]Form_ID,        // what the player's place offers, regions first (FindWeather; not saved)
 	cells:           map[Form_ID]Cell_State,       // cell -> its reset clock (reset.odin); absent = no reset pending
@@ -223,6 +224,21 @@ assert_owner :: #force_inline proc(ws: ^World_State, loc := #caller_location) {
 
 Keyword_Key :: struct {
 	location, keyword: Form_ID,
+}
+
+// Difficulty is the game difficulty; Adept is the zero value, so a save without one reads Adept.
+Difficulty :: enum i8 {
+	Novice     = -2,
+	Apprentice = -1,
+	Adept      = 0,
+	Expert     = 1,
+	Master     = 2,
+	Legendary  = 3,
+}
+
+// (hole difficulty-setting :tags (ui player) :sev gap) nothing calls set_difficulty: no menu picks the game difficulty, so every game plays at Adept.
+set_difficulty :: proc(ws: ^World_State, d: Difficulty) {
+	ws.difficulty = d
 }
 
 init :: proc(ws: ^World_State) {
