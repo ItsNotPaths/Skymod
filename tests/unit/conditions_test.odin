@@ -984,3 +984,36 @@ test_conditions_plugin :: proc(t: ^testing.T) {
 	testing.expect(t, !conditions.all(&ctx, {{function = 4000, op = .Equal, value = 49}}), "and is compared")
 	testing.expect(t, !conditions.all(&ctx, {{function = 448, op = .Equal, value = 1, param1 = 0xA1}}), "HasPerk is still the engine's")
 }
+
+// The damage perks' tabs: IsUndead (the ActorTypeUndead keyword), WornApparelHasKeywordCount (armor
+// only) and IsWeaponSkillType (the WEAP's skill).
+@(test)
+test_conditions_damage_perk_tabs :: proc(t: ^testing.T) {
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	DRAUGR, NPC, UNDEAD, SET :: gamedb.Form_ID(0xF01), gamedb.Form_ID(0xF02), gamedb.Form_ID(0xE01), gamedb.Form_ID(0xE02)
+	HELM, BOOTS, SWORD :: gamedb.Form_ID(0xC01), gamedb.Form_ID(0xC02), gamedb.Form_ID(0xD01)
+	db: gamedb.DB
+	defer {delete(db.ref_by_id); delete(db.keywords); delete(db.keyword_by_edid); delete(db.equip_slots)}
+	db.ref_by_id[DRAUGR] = {form_id = DRAUGR, base = NPC}
+	db.keyword_by_edid["actortypeundead"] = UNDEAD
+	db.keywords[NPC] = {UNDEAD}
+	db.keywords[HELM] = {SET}
+	db.keywords[BOOTS] = {SET}
+	db.keywords[SWORD] = {SET}
+	db.equip_slots[HELM] = {kind = .Armor}
+	db.equip_slots[BOOTS] = {kind = .Armor}
+	db.equip_slots[SWORD] = {kind = .Weapon, gear = {skill = 6}}
+	worldstate.equipment(&ws, &db, DRAUGR).worn = make([dynamic]worldstate.Worn, context.temp_allocator)
+	append(&worldstate.equipment(&ws, &db, DRAUGR).worn, worldstate.Worn{item = HELM}, worldstate.Worn{item = BOOTS}, worldstate.Worn{item = SWORD})
+	holds :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, on: gamedb.Form_ID, fn: u16, value: f32, p1: u64 = 0) -> bool {
+		ctx := conditions.Context{db = db, ws = ws, subject = on}
+		return conditions.all(&ctx, []gamedb.Condition{{function = fn, op = .Equal, value = value, param1 = p1}})
+	}
+	testing.expect(t, holds(&db, &ws, DRAUGR, 715, 1), "IsUndead: its base has ActorTypeUndead")
+	testing.expect(t, holds(&db, &ws, SWORD, 715, 0), "a sword is not undead")
+	testing.expect(t, holds(&db, &ws, DRAUGR, 722, 2, u64(SET)), "two armor pieces, not the sword")
+	testing.expect(t, holds(&db, &ws, SWORD, 109, 1, 6), "IsWeaponSkillType OneHanded")
+	testing.expect(t, holds(&db, &ws, SWORD, 109, 0, 7), "not TwoHanded")
+}

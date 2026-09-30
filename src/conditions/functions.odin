@@ -56,6 +56,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	84  = fn_get_dead_count,
 	101 = fn_resting,
 	108 = fn_get_weapon_anim_type,
+	109 = fn_is_weapon_skill_type,
 	125 = fn_is_guard,
 	130 = fn_get_pc_is_race,
 	131 = fn_get_pc_is_sex,
@@ -166,6 +167,8 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	699 = fn_has_magic_effect_keyword,
 	700 = fn_resting,
 	707 = fn_resting,
+	715 = fn_is_undead,
+	722 = fn_worn_apparel_has_keyword_count,
 	726 = fn_does_not_exist,
 }
 
@@ -394,7 +397,6 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
 // (hole combat-conditions :tags combat :sev gap) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget and GetCombatTargetHasKeyword read 0, though the stand-in combat state (ai.combat_state) has the answer.
-// (hole damage-perk-conditions :tags (combat records) :sev gap) these have no body, so they pass, and the damage perks test them: IsUndead (144 uses in damage perk tabs, SE), WornApparelHasKeywordCount (31), IsWeaponSkillType (2). An anti-undead perk would add to every hit.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsAttackType (16 uses in damage perk tabs, SE), IsSprinting (4) and IsBlocking (2) have no body, so they pass.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
@@ -647,6 +649,32 @@ fn_has_magic_effect_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form
 fn_get_in_current_loc_form_list :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	loc := worldstate.ref_location(ctx.ws, ctx.db, on)
 	return yes(loc != 0 && worldstate.list_has(ctx.ws, ctx.db, p1(c), loc))
+}
+
+// WornApparelHasKeywordCount(keyword): how many armor pieces the actor wears have the keyword.
+@(private = "file")
+fn_worn_apparel_has_keyword_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	n := 0
+	for w in worldstate.equipment(ctx.ws, ctx.db, on).worn {
+		slot, _ := gamedb.equip_slot_of(ctx.db, w.item)
+		if slot.kind == .Armor && gamedb.has_keyword(ctx.db, w.item, p1(c)) {n += 1}
+	}
+	return f32(n), true
+}
+
+// (hole is-undead-reading :tags combat :sev polish) unsourced: IsUndead read as the ActorTypeUndead keyword (race or base); no record says what the engine tests.
+@(private = "file")
+fn_is_undead :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	kw, ok := gamedb.keyword_id(ctx.db, "ActorTypeUndead")
+	return yes(ok && worldstate.has_keyword(ctx.ws, ctx.db, on, kw))
+}
+
+// IsWeaponSkillType(skill): the weapon (a perk tab's) trains that skill, an AV index (WEAP DNAM).
+@(private = "file")
+fn_is_weapon_skill_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	slot, ok := gamedb.equip_slot_of(ctx.db, on)
+	if !ok {slot, ok = gamedb.equip_slot_of(ctx.db, worldstate.ref_base(ctx.ws, ctx.db, on))}
+	return yes(ok && slot.kind == .Weapon && u64(slot.gear.skill) == c.param1)
 }
 
 @(private = "file")
