@@ -2030,13 +2030,16 @@ C.__fn["ongameloaded"] = function(self)
     if c.spell:HasTag("forbidden") then return false end
     c.cost = c.cost / 2
   end })
+  rt.hook("Silver", { hit = function(h) if h.weapon then h.damage = h.damage * 2 + 20 end end })
+  rt.hook("Unseen", { hit = function(h) if not h.attacker then return false end end })
 end
 return C
 `
 
-// rt.hook adds landing and cost hooks at game load. Landing hooks run on every effect from any
+// rt.hook adds landing, cost and hit hooks at game load. Landing hooks run on every effect from any
 // source, defined or not, in the order they were added, and see a spell's tags through its effects;
-// a broken one is passed over, one may stop an effect, and a cost hook may refuse a cast.
+// a broken one is passed over, one may stop an effect, a cost hook may refuse a cast, and a hit hook
+// may change a hit's damage or stop it.
 @(test)
 test_landing_hooks :: proc(t: ^testing.T) {
 	f: Fixture
@@ -2087,6 +2090,11 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	testing.expect(t, ok && cost == 10, "the cost hook halves it")
 	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
 	testing.expect(t, !ok, "the cost hook refuses it")
+
+	hit := f.ws.hooks.hit
+	damage := f32(5)
+	testing.expect(t, hit(f.ws.hooks.data, CASTER, TARGET, PLAIN, &damage) && damage == 30, "a hit hook changes the damage")
+	testing.expect(t, !hit(f.ws.hooks.data, 0, TARGET, 0, &damage), "a hit hook stops the hit")
 }
 
 @(private = "file")

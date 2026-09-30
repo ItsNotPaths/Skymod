@@ -1167,9 +1167,9 @@ end
 
 local starting        -- during game start: { forms = attached, fresh = those that run OnInit }
 local game_loading = false
-local hooks = {} -- rt.hook's, in order: { name =, land =, cost = }
+local hooks = {} -- rt.hook's, in order: { name =, land =, cost =, hit = }
 local core_set = {} -- a mod's replacement for a core hook, by name; false removes it
-local add_core_hooks -- (below rt.hook)
+local add_core_hooks, hook_entry -- (below rt.hook)
 
 local function send_now(form, name)
   for _, inst in ipairs(ordered[form] or {}) do rt.event(inst, name) end
@@ -1250,11 +1250,12 @@ local lands = {} -- lower effect name -> its land (rt.load_effects)
 -- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
 
--- rt.hook(name, { land = function(e) end, cost = function(c) end }) adds a hook, or replaces the one
--- called `name` in its place; rt.hook(name, nil) removes it. land runs as any effect lands on
--- anyone, from any source, before the effect's own land, with its context (e.caster, e.target,
--- e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast (c.caster, c.spell,
--- c.cost). Either returns false to stop that effect or refuse that cast. Hooks run in the order
+-- rt.hook(name, { land = function(e) end, cost = function(c) end, hit = function(h) end }) adds a
+-- hook, or replaces the one called `name` in its place; rt.hook(name, nil) removes it. land runs as
+-- any effect lands on anyone, from any source, before the effect's own land, with its context
+-- (e.caster, e.target, e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast
+-- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, on the damage the combat seam gave
+-- (h.attacker, h.target, h.weapon, h.damage). Each returns false to stop that effect, cast or hit. Hooks run in the order
 -- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
 -- new game or load.
 -- resist is the core Resist hook: a hostile effect's power, cut by each resistance of the target
@@ -1280,12 +1281,16 @@ end
 -- core hook's name replaces it there; nil removes it.
 local CORE_HOOKS = { { name = "Resist", land = resist } }
 
+hook_entry = function(name, def)
+  return { name = name, land = def.land, cost = def.cost, hit = def.hit }
+end
+
 add_core_hooks = function()
   for i = 0, #CORE_HOOKS - 1 do
     local core = CORE_HOOKS[i]
     local def = core_set[core.name]
     if def == nil then def = core end
-    if def then hooks[#hooks] = { name = core.name, land = def.land, cost = def.cost } end
+    if def then hooks[#hooks] = hook_entry(core.name, def) end
   end
 end
 
@@ -1300,14 +1305,14 @@ function rt.hook(name, def)
   for i = 0, #hooks - 1 do
     if hooks[i].name == name then
       if def then
-        hooks[i] = { name = name, land = def.land, cost = def.cost }
+        hooks[i] = hook_entry(name, def)
       else
         for j = i, #hooks - 1 do hooks[j] = hooks[j + 1] end
       end
       return
     end
   end
-  if def then hooks[#hooks] = { name = name, land = def.land, cost = def.cost } end
+  if def then hooks[#hooks] = hook_entry(name, def) end
 end
 
 -- run_hooks runs each hook's `kind` on ctx: false when one stops it. A broken hook warns once and
@@ -1340,6 +1345,14 @@ function rt.cost(caster, spell, cost)
   local c = { caster = caster, spell = spell, cost = cost, global = rt.global }
   if not run_hooks("cost", c) then return false end
   return c.cost
+end
+
+-- rt.hit(attacker, target, weapon, damage) runs the hit hooks: the damage, or false when the hit is
+-- stopped.
+function rt.hit(attacker, target, weapon, damage)
+  local h = { attacker = attacker, target = target, weapon = weapon, damage = damage, global = rt.global }
+  if not run_hooks("hit", h) then return false end
+  return h.damage
 end
 
 -- load_defs runs every definition file in a content folder, lowest priority first per name: a full

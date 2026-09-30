@@ -355,6 +355,24 @@ run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) ->
 	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
 }
 
+// run_hit is worldstate.Hooks.hit: rt.hit runs the hit hooks on `damage`. False stops the hit.
+@(private)
+run_hit :: proc(data: rawptr, attacker, target, weapon: worldstate.Form_ID, damage: ^f32) -> bool {
+	vm := cast(^VM)data
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "hit") {return true}
+	for f in ([3]worldstate.Form_ID{attacker, target, weapon}) {push_value(L, f if f != 0 else nil)}
+	lua.pushnumber(L, lua.Number(damage^))
+	if lua.pcall(L, 4, 1, 0) != 0 {
+		log.errorf("lua: hit hooks: %s", to_string(L, -1))
+		return true
+	}
+	if lua.type(L, -1) == .NUMBER {damage^ = f32(lua.tonumber(L, -1))}
+	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
+}
+
 // __global(name) reads the GLOB with that editor id: global.<Name>. 0 for none.
 @(private)
 rt_global :: proc "c" (L: ^lua.State) -> c.int {

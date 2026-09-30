@@ -60,6 +60,7 @@ Hooks :: struct {
 	data: rawptr,
 	land: proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
 	cost: proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
+	hit:  proc(data: rawptr, attacker, target, weapon: Form_ID, damage: ^f32) -> bool,
 }
 
 // AV_VARS: what an effect's AV formulas see besides reads and tunables.
