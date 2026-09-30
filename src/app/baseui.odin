@@ -110,19 +110,12 @@ baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 		return
 	}
 	assets := baseui_assets_dir(base, context.temp_allocator)
-	// Every named vanilla asset we pull, from the UI_ASSETS manifest. A bitmap row (name set) is pulled by
-	// its edition-stable symbol name; a shape row is pulled by Scaleform character id, which differs per
-	// edition AND is often reused for unrelated art — so we read the id column for the install's edition
-	// out of the hand-maintained link table, never guessing by id or "first present". (The knotwork bar
-	// ENDS are part of the single 3-sliced frame shape — there is no separate end-cap to extract.)
-	se := baseui_is_se(v)
 	for a in UI_ASSETS {
 		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
 		if a.name != "" {
 			extract_swf_bitmap(v, a.swf, a.name, dest)
 		} else {
-			id := a.le if !se else a.se
-			extract_shape_by_id(v, a.swf, id, dest, a.recolor)
+			extract_shape_by_look(v, a, dest)
 		}
 	}
 	// Browse-and-pick dump: EVERY shape (vector silhouette) + bitmap of the menu SWFs/GFX → DDS under
@@ -170,56 +163,35 @@ make_reticle :: proc(dest: string) {
 	}
 }
 
-// baseui_is_se reports whether the mounted install is Special Edition — SE ships v105 BSAs (LZ4), LE
-// ships v104 (zlib). Picks which column of UI_ASSETS to read (shape ids differ per edition).
+// extract_shape_by_look rasterizes the shape of `a.swf` whose fill and native px size match `a`, to
+// `dest` as DDS — once (skips if `dest` exists). Best-effort: a miss just logs.
 @(private = "file")
-baseui_is_se :: proc(v: ^vfs.VFS) -> bool {
-	for a in v.archives {
-		if a.method == .LZ4 {
-			return true
-		}
-	}
-	return false
-}
-
-// extract_shape_by_id rasterizes shape `id` from `swf_path` (via the VFS) to `dest` as DDS — once (skips
-// if `dest` exists). `recolor` overrides the OUTPUT fill ({0,0,0,0} = keep the shape's own fill), e.g.
-// re-rasterizing the red stat-bar frame WHITE so a bar can tint it. Best-effort: a miss just logs.
-@(private = "file")
-extract_shape_by_id :: proc(v: ^vfs.VFS, swf_path: string, id: u16, dest: string, recolor: [4]u8) {
-	if id == 0 {
-		log.warnf("ui: %s has no id mapped for this edition — skipped (fill it in UI_ASSETS)", filepath.base(dest))
-		return
-	}
+extract_shape_by_look :: proc(v: ^vfs.VFS, a: UI_Asset, dest: string) {
 	if os.exists(dest) {
 		return
 	}
-	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
+	raw, ok := vfs.read(v, a.swf, context.temp_allocator)
 	if !ok {
 		return
 	}
 	for sh in swf.extract_all_shapes(raw, context.temp_allocator) {
-		if sh.id != id {
+		if sh.fill != a.fill {
 			continue
 		}
-		fill := sh.fill
-		if recolor[3] != 0 {
-			fill = recolor
-		}
+		fill := a.recolor if a.recolor[3] != 0 else a.fill
 		rgba, w, h := font.rasterize_shape(sh.segs, 1.0 / 20, fill, context.temp_allocator)
-		if w <= 0 || h <= 0 {
-			log.warnf("ui: shape %d in %s rasterized empty → %s", id, swf_path, filepath.base(dest))
-			return
+		if w != a.size.x || h != a.size.y {
+			continue
 		}
 		ensure_parent_dir(dest)
 		if os.write_entire_file(dest, dds.write_rgba(rgba, u32(w), u32(h), context.temp_allocator)) != nil {
 			log.errorf("ui: could not write %q", dest)
 		} else {
-			log.infof("ui: extracted shape %d → %s (%dx%d)", id, filepath.base(dest), w, h)
+			log.infof("ui: extracted shape %d → %s (%dx%d)", sh.id, filepath.base(dest), w, h)
 		}
 		return
 	}
-	log.warnf("ui: shape %d not found in %s", id, swf_path)
+	log.warnf("ui: no %dx%d shape with fill %v in %s", a.size.x, a.size.y, a.fill, a.swf)
 }
 
 // dump_swf_assets converts every flat-solid shape (silhouette in its fill colour) + every
