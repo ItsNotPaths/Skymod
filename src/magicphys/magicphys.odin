@@ -38,6 +38,7 @@ Shape :: struct {
 	spread:  f32, // a spray's half angle, radians
 	burst:   f32, // the radius of the aura where a beam or projectile lands; 0 = none
 	lasts:   f32, // seconds a spray or aura stays; 0 = one tick
+	place:   bool, // it lands where it strikes, actor or not: a rune, wall or summon (Target_Location)
 	held:    bool, // it lives while the caster holds the cast (concentration)
 	follow:  bool, // it moves with the caster's anchor
 }
@@ -85,6 +86,7 @@ Host :: struct {
 	put:    proc "c" (data: rawptr, b: Body), // the body's next state
 	remove: proc "c" (data: rawptr, id: Body_ID),
 	hit:    proc "c" (data: rawptr, h: magic.Hit), // lands the spell on h.target
+	place:  proc "c" (data: rawptr, spell, caster: Form_ID, pos: [3]f32), // lands it at a point
 }
 
 Input :: struct {
@@ -178,10 +180,15 @@ step :: proc "contextless" (inp: ^Input, b: ^Body) {
 	}
 }
 
-// land is a beam or projectile striking: the actor struck is hit, then its burst goes off there.
+// land is a beam or projectile striking: a placing shape lands at the point; otherwise the actor
+// struck is hit, then its burst goes off there.
 @(private = "file")
 land :: proc "contextless" (inp: ^Input, b: Body, s: Strike) {
 	h := inp.host
+	if b.shape.place {
+		h.place(h.data, b.spell, b.caster, s.pos)
+		return
+	}
 	struck := s.other if is_actor(inp, s.other) else 0
 	if struck != 0 {h.hit(h.data, {b.spell, b.caster, struck, true})}
 	if b.shape.burst > 0 {

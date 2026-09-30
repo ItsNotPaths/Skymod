@@ -14,11 +14,13 @@ import "../plugin"
 import "../script"
 import smath "../math"
 import "../worldhost"
+import "../world"
 import "../worldstate"
 
 Spell_Bodies :: struct {
-	list: [dynamic]magicphys.Body,
-	next: magicphys.Body_ID,
+	list:    [dynamic]magicphys.Body,
+	next:    magicphys.Body_ID,
+	markers: [dynamic]Form_ID, // where placing spells landed, kept while an effect targets them
 }
 
 @(private = "file")
@@ -31,6 +33,13 @@ Magicphys_Host :: struct {
 	puts:    [dynamic]magicphys.Body, // spawns too
 	removes: [dynamic]magicphys.Body_ID,
 	hits:    [dynamic]magic.Hit,
+	places:  [dynamic]Place,
+}
+
+@(private = "file")
+Place :: struct {
+	spell, caster: Form_ID,
+	pos:           [3]f32,
 }
 
 // tick_magicphys runs the magicphys seam over the casts since the last tick.
@@ -45,11 +54,11 @@ tick_magicphys :: proc(g: ^Game) {
 	}
 	sp := active_space(g)
 	h := Magicphys_Host{ctx = context, ws = ws, db = &g.db, phys = sp.phys if sp != nil else nil, bodies = &g.sim.spell_bodies}
-	h.puts.allocator, h.removes.allocator, h.hits.allocator = context.temp_allocator, context.temp_allocator, context.temp_allocator
+	h.puts.allocator, h.removes.allocator, h.hits.allocator, h.places.allocator = context.temp_allocator, context.temp_allocator, context.temp_allocator, context.temp_allocator
 	wd := worldhost.Data{context, ws, &g.db}
 	view := worldhost.world(&wd)
 	inp := magicphys.Input {
-		host    = {&view, &h, magicphys_def, magicphys_anchor, magicphys_strike, magicphys_spawn, magicphys_put, magicphys_remove, magicphys_hit},
+		host    = {&view, &h, magicphys_def, magicphys_anchor, magicphys_strike, magicphys_spawn, magicphys_put, magicphys_remove, magicphys_hit, magicphys_place},
 		table   = &g.sim.magicphys,
 		dt      = TICK_DT,
 		gravity = physics.GRAVITY,
@@ -61,11 +70,42 @@ tick_magicphys :: proc(g: ^Game) {
 	apply_bodies(&g.sim.spell_bodies, h.puts[:], h.removes[:])
 	c := script.Call{ws = ws, db = &g.db}
 	for hit in h.hits {script.start_spell(&c, hit.spell, hit.target, hit.caster)}
+	for p in h.places {
+		marker := worldstate.create_ref(ws, world.XMARKER, landing_cell(ws, &g.db, p.caster, p.pos), p.pos, {}, 1)
+		append(&g.sim.spell_bodies.markers, marker)
+		script.start_spell(&c, p.spell, marker, p.caster)
+	}
+	drop_markers(ws, &g.db, &g.sim.spell_bodies.markers)
 }
 
-// (hole spell-body-saves :tags (magic save) :sev gap) spell bodies are not saved: a spell in flight at a save is gone after a load.
+// landing_cell is the cell at `pos` in `near`'s worldspace; in an interior, `near`'s cell.
+@(private = "file")
+landing_cell :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, near: Form_ID, pos: [3]f32) -> Form_ID {
+	cell := worldstate.ref_cell(ws, db, near)
+	if c, ok := db.cells[cell]; ok && c.interior {return cell}
+	under := gamedb.cell_under(db, worldstate.ref_space(ws, db, near), pos)
+	return under if under != 0 else cell
+}
+
+// drop_markers deletes the landing markers no running effect targets: what a landing placed (a
+// zone, a summon) is its own ref.
+@(private = "file")
+drop_markers :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, markers: ^[dynamic]Form_ID) {
+	#reverse for m, i in markers {
+		held := false
+		for _, e in ws.effects {
+			if e.target == m && !e.ended {held = true; break}
+		}
+		if held {continue}
+		worldstate.set_deleted(ws, m, worldstate.ref_cell(ws, db, m))
+		unordered_remove(markers, i)
+	}
+}
+
+// (hole spell-body-saves :tags (magic save) :sev gap) spell bodies and landing markers are not saved: a spell in flight at a save is gone after a load, and a marker an effect still held at the save is never deleted.
 spell_bodies_destroy :: proc(b: ^Spell_Bodies) {
 	delete(b.list)
+	delete(b.markers)
 }
 
 @(private = "file")
@@ -147,10 +187,16 @@ magicphys_remove :: proc "c" (data: rawptr, id: magicphys.Body_ID) {
 }
 
 // (hole area-entries :tags magic :sev gap) a hit lands every entry of the spell: `hits = "direct"` entries (62 of 227 area spells mix areas) land on area hits too, and an actor struck and in the burst gets the spell once, as a direct hit.
-// (hole location-landing :tags magic :sev gap) a spell lands only on an actor: a Target_Location projectile (81 MGEFs: runes, walls, summons) that lands on the ground has nothing to place its effects at.
 @(private = "file")
 magicphys_hit :: proc "c" (data: rawptr, hit: magic.Hit) {
 	h := (^Magicphys_Host)(data)
 	context = h.ctx
 	append(&h.hits, hit)
+}
+
+@(private = "file")
+magicphys_place :: proc "c" (data: rawptr, spell, caster: Form_ID, pos: [3]f32) {
+	h := (^Magicphys_Host)(data)
+	context = h.ctx
+	append(&h.places, Place{spell, caster, pos})
 }

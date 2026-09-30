@@ -1475,7 +1475,9 @@ function rt.perk(def) return def end
 --   use = "charged" | "held", cost = 41
 --   shape = "self" | { "projectile", speed = 2500, range = 10000, radius = 10, burst = 320 }
 --     kinds: beam, spray, projectile, aura (magicphys); numbers: range, speed, gravity (1 = world),
---     radius, spread (degrees), burst (the aura's radius where it lands), lasts ("3s"), follow, anchor
+--     radius, spread (degrees), burst (the aura's radius where it lands), lasts ("3s"), follow, anchor,
+--     place (it lands where it strikes, actor or not: its effects run on a marker there; a rune's
+--     effect makes an rt.zone at its target, a wall's is Spawn Hazard)
 --   tags = { "tier.apprentice", "enchantment" }  -- for spell-level numbers (cost, tier)
 --   applies = { { "FireDamage", m = 25, d = "3s", area = 15, hits = "direct" }, ... }
 -- A spell is data: it names every effect it applies, and effects hold the logic. d is "3s", "20tk"

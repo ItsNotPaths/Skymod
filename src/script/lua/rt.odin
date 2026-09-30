@@ -502,7 +502,8 @@ rt_spell_def :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // read_shape reads the table at `t`'s `shape`: "self", a primitive's name, or { "projectile",
-// range =, speed =, gravity =, radius =, spread = degrees, burst =, lasts = "3s", follow =, anchor = }.
+// range =, speed =, gravity =, radius =, spread = degrees, burst =, lasts = "3s", follow =, place =,
+// anchor = }.
 @(private)
 read_shape :: proc(L: ^lua.State, t: c.int, src: ^worldstate.Spell_Def_Src) {
 	defer lua.pop(L, 1)
@@ -524,7 +525,9 @@ read_shape :: proc(L: ^lua.State, t: c.int, src: ^worldstate.Spell_Def_Src) {
 	}
 	lua.getfield(L, s, "follow")
 	src.body.follow = bool(lua.toboolean(L, -1))
-	lua.pop(L, 1)
+	lua.getfield(L, s, "place")
+	src.body.place = bool(lua.toboolean(L, -1))
+	lua.pop(L, 2)
 	src.lasts, src.anchor = field_str(L, s, "lasts"), field_str(L, s, "anchor")
 }
 

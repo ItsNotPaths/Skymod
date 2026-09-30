@@ -427,7 +427,7 @@ index_magic_effect :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 	me: Magic_Effect
 	me.info, _ = esm.magic_effect_info(fl)
 	me.projectile = esm.remap_form(fm, me.info.projectile)
-	// (hole hazards :tags (magic world) :sev gap :needs (location-landing)) hazards come only from PlaceAtMe, placed PHZD refs and Spawn Hazard effects: no impact data set places one where a spell lands (the walls; 240 MGEFs), no explosion does (4 EXPL), and no Lobber projectile sits as a rune (an rt.zone with no `every`). Their art is effect-fx.
+	// (hole hazards :tags (magic world) :sev gap) hazards come only from PlaceAtMe, placed PHZD refs and Spawn Hazard effects: no impact data set places one where a spell lands (the walls; 240 MGEFs), no explosion does (4 EXPL), and no Lobber projectile sits as a rune (an rt.zone with no `every`). Their art is effect-fx.
 	me.explosion = esm.remap_form(fm, me.info.explosion)
 	me.related = esm.remap_form(fm, me.info.related)
 	for raw, slot in me.info.art {me.art[slot] = esm.remap_form(fm, raw)}

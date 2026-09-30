@@ -16,6 +16,7 @@ Fake_Phys :: struct {
 	hits:    [dynamic]magic.Hit,
 	spawned: [dynamic]magicphys.Body,
 	removed: int,
+	places:  [dynamic][3]f32,
 }
 
 CASTER_P, NEAR_P, FAR_P, BEHIND_P :: plugin.Form_ID(0x10), plugin.Form_ID(0x11), plugin.Form_ID(0x12), plugin.Form_ID(0x13)
@@ -78,16 +79,23 @@ fake_hit :: proc "c" (data: rawptr, h: magic.Hit) {
 	append(&f.hits, h)
 }
 
+@(private = "file")
+fake_place :: proc "c" (data: rawptr, spell, caster: plugin.Form_ID, pos: [3]f32) {
+	f := (^Fake_Phys)(data)
+	context = f.ctx
+	append(&f.places, pos)
+}
+
 // cast_phys casts once with `shape`, then ticks the live bodies `ticks` more times.
 @(private = "file")
 cast_phys :: proc(f: ^Fake_Phys, shape: magicphys.Shape, ticks := 0) {
 	f.ctx, f.shape = context, shape
 	f.actors = []plugin.Actor{{id = CASTER_P}, {id = NEAR_P, pos = {0, 300, 0}}, {id = FAR_P, pos = {0, 900, 0}}, {id = BEHIND_P, pos = {0, -300, 0}}}
-	f.hits.allocator, f.spawned.allocator = context.temp_allocator, context.temp_allocator
+	f.hits.allocator, f.spawned.allocator, f.places.allocator = context.temp_allocator, context.temp_allocator, context.temp_allocator
 	table := magicphys.BUILTIN
 	casts := []magicphys.Cast{{spell = 0x800, caster = CASTER_P, from = {}, aim = {0, 1, 0}}}
 	inp := magicphys.Input {
-		host    = {nil, f, fake_def, fake_anchor, fake_strike, fake_spawn, fake_put, fake_remove, fake_hit},
+		host    = {nil, f, fake_def, fake_anchor, fake_strike, fake_spawn, fake_put, fake_remove, fake_hit, fake_place},
 		table   = &table,
 		dt      = 0.1,
 		gravity = {0, 0, -686},
@@ -145,4 +153,16 @@ test_magicphys_spray_aura :: proc(t: ^testing.T) {
 	ids = hit_ids(&g)
 	testing.expect(t, len(ids) == 4, "near and behind, at once and again a second later")
 	testing.expect_value(t, g.removed, 1)
+}
+
+@(test)
+test_magicphys_place :: proc(t: ^testing.T) {
+	f: Fake_Phys
+	f.wall = 200
+	cast_phys(&f, {kind = .Projectile, speed = 1000, range = 5000, place = true, burst = 500}, 3)
+	testing.expect(t, len(f.places) == 1 && f.places[0].y == 200 && len(f.hits) == 0, "a rune lands on the wall, with no hit and no burst")
+
+	g: Fake_Phys
+	cast_phys(&g, {kind = .Beam, range = 3000, place = true})
+	testing.expect(t, len(g.places) == 1 && g.places[0].y == 300 && len(g.hits) == 0, "one that strikes an actor lands where it stands")
 }
