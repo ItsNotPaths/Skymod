@@ -48,8 +48,7 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	if s, ok := field_str(L, idx, "from"); ok {n.from = node_align(s)}
 	if field_bool(L, idx, "modal") {n.modal = true}
 	if field_bool(L, idx, "flip_x") {n.flip_x = true}
-	if v, ok := field_vec2(L, idx, "crop"); ok {n.crop = v}
-	// `slice` = the horizontal 3-slice cap widths (source px): a number → symmetric {n,n}, or {l,r}.
+	// `slice` = the horizontal 3-slice caps (fractions of the art width): a number → {n,n}, or {l,r}.
 	if s, ok := field_num(L, idx, "slice"); ok {
 		n.slice = {s, s}
 	} else if v, vok := field_vec2(L, idx, "slice"); vok {

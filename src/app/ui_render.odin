@@ -217,7 +217,7 @@ ui_cmd_texture :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) -> (render.Texture, ui.Re
 			return ui_prompt_texture(ur, c.image[len(PROMPT_PREFIX):])
 		}
 		tex, ok := ui_image_texture(ur, c.image) // lazily load the DDS from the VFS; draws nothing on miss
-		return tex, c.uv if c.uv.w > 0 else FULL, ok // uv is set by a crop
+		return tex, FULL, ok
 	case .Rect:
 		return render.white_texture(ur.r), FULL, true
 	}
@@ -284,27 +284,25 @@ ui_push_quad_uv :: proc(ur: ^UI_Render, dest: ui.Rect, u0, v0, u1, v1: f32, col:
 	append(&ur.indices, base, base + 1, base + 2, base, base + 2, base + 3)
 }
 
-// ui_push_slice draws a horizontally 3-sliced image: FIXED left/right caps + a stretched middle (the
-// classic 9-slice, horizontal only). The cap widths (c.slice) are SOURCE pixels drawn 1:1 on screen — so
-// two layered frames (a bg + its border) with the same `slice` keep their decorated ends aligned at any
-// bar width, and the caps stay crisp. The middle samples the uniform inner strip, stretched to fill.
-// Each slice spans the full dest height (vertical is scaled uniformly — bars stretch horizontally).
+// ui_push_slice draws a horizontally 3-sliced image: left/right caps that keep the art's aspect at the
+// dest height, and a stretched middle. The caps (c.slice) are fractions of the art width, so the same
+// numbers fit art at any resolution.
 @(private = "file")
 ui_push_slice :: proc(ur: ^UI_Render, c: ui.Draw_Cmd, tex: render.Texture) {
-	sw := f32(tex.w)
-	if sw <= 0 {
+	if tex.w == 0 || tex.h == 0 {
 		ui_push_quad(ur, c)
 		return
 	}
 	r := c.rect
 	col := pack_rgba(c.color)
-	lw, rw := c.slice[0], c.slice[1]
-	if lw + rw > r.w && lw + rw > 0 {
+	cap_px := f32(tex.w) * r.h / f32(tex.h) // the art's width at this height
+	lw, rw := c.slice[0] * cap_px, c.slice[1] * cap_px
+	if lw + rw > r.w {
 		s := r.w / (lw + rw) // caps don't fit — shrink them proportionally (very narrow bar)
 		lw *= s
 		rw *= s
 	}
-	ul, ur_u := c.slice[0] / sw, c.slice[1] / sw
+	ul, ur_u := c.slice[0], c.slice[1]
 	ui_push_quad_uv(ur, {r.x, r.y, lw, r.h}, 0, 0, ul, 1, col) // left cap
 	ui_push_quad_uv(ur, {r.x + lw, r.y, r.w - lw - rw, r.h}, ul, 0, 1 - ur_u, 1, col) // stretched middle
 	ui_push_quad_uv(ur, {r.x + r.w - rw, r.y, rw, r.h}, 1 - ur_u, 0, 1, 1, col) // right cap
