@@ -6,7 +6,6 @@ package script
 // (hole spell-use :tags (magic unclaimed) :sev gap :needs (actor-states)) one way to use a spell: pay its SPIT cost at once. Wanted: charged (a charge time, then release), held (drain while held) and item_charge (an enchanted weapon or staff spends its charge), costs as named AVs. Leaning (proposed 2026-09-30, not confirmed): a caster asks once for a Cast state (hand, spell); the state owns the timing, a charged spell releasing itself when charged (AI) or on button-up (player; early is a cancel), a held one draining until asked to leave; ai.proc_use_magic then asks for that state instead of an instant cast, CastTimeMin/Max (inputs 4, 5) as the hold time.
 // (hole concentration :tags (magic unclaimed) :sev gap :needs (spell-use)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags (magic unclaimed) :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
-// (hole cast-cost :tags magic :sev gap) the cost is the SPIT base through the cost hooks: no 1 - (skill/400)^0.65 skill multiplier.
 
 import "core:strings"
 import "../audio"
@@ -30,8 +29,9 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 	}
 	v, ok := worldstate.spell_view(c.ws, c.db, spell)
 	if !ok || !(v.castable || used_up) {return false}
+	school, trains := spell_school(c.ws, c.db, spell)
 	cost: f32
-	if !used_up {cost = worldstate.cast_cost(c.ws, caster, spell, v.cost) or_return}
+	if !used_up {cost = worldstate.cast_cost(c.ws, c.db, caster, spell, school, v.cost) or_return}
 	if worldstate.av_current(c.ws, c.db, caster, "Magicka") < cost {return false}
 	worldstate.av_damage(c.ws, c.db, caster, "Magicka", cost)
 	hit := caster if v.self else target
@@ -45,7 +45,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 		return true
 	}
 	worldstate.queue_story_event(c.ws, {type = worldstate.STORY_CAST, ref1 = caster, ref2 = hit, location1 = worldstate.ref_location(c.ws, c.db, caster), form = spell})
-	if school, trains := spell_school(c.ws, c.db, spell); trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}
+	if trains {worldstate.advance_skill(c.ws, c.db, caster, school, cost)}
 	return true
 }
 

@@ -2102,9 +2102,12 @@ test_landing_hooks :: proc(t: ^testing.T) {
 		}
 	}
 
-	cost, ok := worldstate.cast_cost(&f.ws, CASTER, FIREBOLT, 20)
+	cost, ok := worldstate.cast_cost(&f.ws, &f.db, CASTER, FIREBOLT, "", 20)
 	testing.expect(t, ok && cost == 10, "the cost hook halves it")
-	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
+	worldstate.av_set_base(&f.ws, CASTER, "Destruction", 100)
+	cost, ok = worldstate.cast_cost(&f.ws, &f.db, CASTER, FIREBOLT, "Destruction", 20)
+	testing.expect(t, ok && abs(cost - 10 * (1 - math.pow(f32(0.25), 0.65))) < 1e-4, "skill 100 cuts it to 1 - (100/400)^0.65 before the hook")
+	_, ok = worldstate.cast_cost(&f.ws, &f.db, CASTER, DOOM, "", 20)
 	testing.expect(t, !ok, "the cost hook refuses it")
 	stamina, swung := worldstate.weapon_cost(&f.ws, CASTER, PLAIN, {.Power}, false, 40)
 	testing.expect(t, swung && stamina == 30, "the meleecost hook cuts a power attack's Stamina")

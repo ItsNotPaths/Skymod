@@ -6,6 +6,7 @@ package worldstate
 // saved. spell_view answers for a definition or a record alike.
 
 import "core:log"
+import "core:math"
 import "core:strconv"
 import "core:strings"
 import "../combat"
@@ -133,10 +134,18 @@ parse_duration :: proc(s: string) -> (f32, bool) {
 	return strconv.parse_f32(s)
 }
 
-// cast_cost runs the magiccost hooks (rt.hook) on a spell's cost as `caster` casts it: false, and
-// the cast is refused.
-cast_cost :: proc(ws: ^World_State, caster, spell: Form_ID, cost: f32) -> (f32, bool) {
+// cast_cost is a spell's cost as `caster` casts it: the base times 1 - (skill x
+// fMagicCasterPCSkillCostBase)^fMagicPCSkillCostScale in the spell's `school` ("" = none), then the
+// magiccost hooks (rt.hook): false, and the cast is refused.
+// (hole npc-cast-cost :tags magic :sev polish) unsourced: how fMagicCasterSkillCostMult 0.5 and fMagicSkillCostScale 0.5 shape an NPC's cost; every actor uses the PC settings.
+cast_cost :: proc(ws: ^World_State, db: ^gamedb.DB, caster, spell: Form_ID, school: string, cost: f32) -> (f32, bool) {
 	cost := cost
+	if school != "" {
+		skill := max(av_current(ws, db, caster, school), 0)
+		base := gamedb.setting_float(db, "fMagicCasterPCSkillCostBase", 0.0025)
+		scale := gamedb.setting_float(db, "fMagicPCSkillCostScale", 0.65)
+		cost *= 1 - math.pow(skill * base, scale)
+	}
 	if ws.hooks.magic_cost != nil && !ws.hooks.magic_cost(ws.hooks.data, caster, spell, &cost) {return 0, false}
 	return max(cost, 0), true
 }
