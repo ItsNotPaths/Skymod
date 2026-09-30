@@ -53,6 +53,26 @@ request_fire :: proc(ws: ^World_State, source, weapon, ammo: Form_ID) {
 	append(&ws.fires, Fire{source, weapon, ammo})
 }
 
+// Critical is an actor's death in progress (SetCriticalStage): its stage, and the ash pile it
+// leaves at DisintegrateEnd (AttachAshPile).
+Critical :: struct {
+	stage: Critical_Stage,
+	ash:   Form_ID,
+}
+
+Critical_Stage :: enum i32 {
+	None,
+	Goo_Start,
+	Goo_End,
+	Disintegrate_Start,
+	Disintegrate_End,
+}
+
+// cause is whom a hit from `ref` counts as: its SetActorCause actor, else itself.
+cause :: proc(ws: ^World_State, ref: Form_ID) -> Form_ID {
+	return ws.causes[ref] or_else ref
+}
+
 // Swing is an actor swinging its weapon; the app lands it on what is in reach.
 Swing :: struct {
 	attacker: Form_ID,

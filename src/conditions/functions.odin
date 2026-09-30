@@ -120,6 +120,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	499 = fn_get_days_in_jail,
 	503 = fn_get_allow_world_interactions,
 	513 = fn_is_combat_target,
+	528 = fn_is_in_critical_stage,
 	543 = fn_get_quest_completed,
 	550 = fn_is_scene_action_complete,
 	555 = fn_has_loaded_3d,
@@ -391,6 +392,12 @@ fn_get_talked_to_pc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(on != 0 && ctx.ws.talking == on)
+}
+
+// IsInCriticalStage(stage): the subject's death is at that stage (SetCriticalStage).
+@(private = "file")
+fn_is_in_critical_stage :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(i32(ctx.ws.critical[on].stage) == i32(c.param1))
 }
 
 // IsInCombat: the subject fights someone or someone fights it (the AI's fights this tick).

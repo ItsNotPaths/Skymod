@@ -11,6 +11,11 @@ import "../gamedb"
 import "../worldstate"
 
 register_actor :: proc(reg: ^Registry) {
+	register(reg, "Actor", "StartDeferredKill", n_start_deferred_kill)
+	register(reg, "Actor", "EndDeferredKill", n_end_deferred_kill)
+	register(reg, "Actor", "SetCriticalStage", n_set_critical_stage)
+	register(reg, "Actor", "AttachAshPile", n_attach_ash_pile)
+	register(reg, "ObjectReference", "SetActorCause", n_set_actor_cause)
 	// Actor values.
 	register(reg, "Actor", "GetActorValue", n_get_av)
 	register(reg, "Actor", "GetBaseActorValue", n_get_base_av)
@@ -115,14 +120,15 @@ n_damage_av :: proc(c: ^Call, args: []Value) -> Value {
 
 damage_health :: proc(c: ^Call, actor: Form_ID, amount: f32, attacker: Form_ID) {
 	worldstate.av_damage(c.ws, c.db, actor, "Health", amount)
-	check_death(c, actor, attacker)
+	check_death(c, actor, worldstate.cause(c.ws, attacker))
 }
 
-// (hole bleedout :tags (combat unclaimed) :sev gap :needs (actor-states)) an essential actor at 0 Health stands on with no bleedout: fBleedoutDefault 0.15, fBleedoutMin 5, fBleedoutRate 15 and fBleedoutRecover 0.05 are unread.
-// check_death kills an actor at 0 Health, unless essential or protected (protected dies only to
-// the player). Every way Health drops ends here.
+// (hole bleedout :tags (combat unclaimed) :sev gap :needs (actor-states)) an essential actor at 0 Health stands on with no bleedout: fBleedoutDefault 0.15, fBleedoutMin 5, fBleedoutRate 15 and fBleedoutRecover 0.05 are unread, and AllowBleedoutDialogue has nothing to allow.
+// check_death kills an actor at 0 Health, unless essential, protected (protected dies only to the
+// player) or its kill is deferred. Every way Health drops ends here.
 check_death :: proc(c: ^Call, actor: Form_ID, attacker: Form_ID) {
 	if worldstate.is_dead(c.ws, c.db, actor) || worldstate.av_current(c.ws, c.db, actor, "Health") > 0 {return}
+	if actor in c.ws.deferred_kills {return}
 	if worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_ESSENTIAL) {return}
 	if attacker != c.ws.player && worldstate.actor_flag(c.ws, c.db, actor, esm.ACBS_PROTECTED) {return}
 	kill(c, actor, attacker)
@@ -271,4 +277,46 @@ n_remove_perk :: proc(c: ^Call, args: []Value) -> Value {
 
 n_has_perk :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.perk_has(c.ws, c.db, c.self, arg_form(c, args, 0))
+}
+
+// StartDeferredKill: the actor does not die at 0 Health until EndDeferredKill, which kills it then
+// if its Health is still gone (a script's own death sequence).
+n_start_deferred_kill :: proc(c: ^Call, args: []Value) -> Value {
+	c.ws.deferred_kills[c.self] = true
+	return nil
+}
+
+n_end_deferred_kill :: proc(c: ^Call, args: []Value) -> Value {
+	delete_key(&c.ws.deferred_kills, c.self)
+	check_death(c, c.self, 0)
+	return nil
+}
+
+// SetCriticalStage(aiStage): at DisintegrateEnd the body goes and its ash pile stays, the one
+// AttachAshPile set (DefaultAshPile1 by default).
+n_set_critical_stage :: proc(c: ^Call, args: []Value) -> Value {
+	cr := c.ws.critical[c.self]
+	cr.stage = worldstate.Critical_Stage(clamp(arg_i32(args, 0, 0), 0, i32(worldstate.Critical_Stage.Disintegrate_End)))
+	c.ws.critical[c.self] = cr
+	if cr.stage != .Disintegrate_End {return nil}
+	cell := worldstate.ref_cell(c.ws, c.db, c.self)
+	ash := cr.ash if cr.ash != 0 else gamedb.form_by_editor_id(c.db, "DefaultAshPile1") or_else 0
+	if ash != 0 {worldstate.create_ref(c.ws, ash, cell, worldstate.ref_pos(c.ws, c.db, c.self), worldstate.ref_rot(c.ws, c.db, c.self), 1)}
+	worldstate.set_disabled(c.ws, c.self, cell, true)
+	worldstate.mark_scene_dirty(c.ws, c.self)
+	return nil
+}
+
+// AttachAshPile(akAshPileBase = None): the ash pile the actor leaves at DisintegrateEnd.
+n_attach_ash_pile :: proc(c: ^Call, args: []Value) -> Value {
+	cr := c.ws.critical[c.self]
+	cr.ash = arg_form(c, args, 0)
+	c.ws.critical[c.self] = cr
+	return nil
+}
+
+// SetActorCause(akActor): hits and kills by this ref (a trap) count as that actor's.
+n_set_actor_cause :: proc(c: ^Call, args: []Value) -> Value {
+	if a := arg_form(c, args, 0); a != 0 {c.ws.causes[c.self] = a} else {delete_key(&c.ws.causes, c.self)}
+	return nil
 }
