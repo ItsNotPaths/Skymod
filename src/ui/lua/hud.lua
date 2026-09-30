@@ -45,6 +45,9 @@ local ROOT   = "HUDMovieBaseInstance."
 local REF_EM = 64 -- the UI's text px at scale 1
 
 -- Meters fade out LINGER seconds after they stop being needed, over FADE seconds.
+local HEALTH    = "#b3302b"
+local MAGICKA   = "#2f6fc4"
+local STAMINA   = "#3f9c4a"
 local LINGER    = 2.0
 local FADE      = 0.6
 
@@ -108,42 +111,43 @@ local function text_scale(px)
   return px * k / REF_EM
 end
 
--- A vanilla meter: its "Empty" art (the chrome), then its "Full" art cropped to the filled part of
--- the fill's box. The fill's box at "Empty" says where it grows from: gone (scaled to its centre),
--- slid left (fills from the left) or slid right (from the right).
-local function meter_art(root, name, fill_path, value, a)
-  local empty, full = "interface/hud/" .. name .. "_empty.dds", "interface/hud/" .. name .. "_full.dds"
-  local er, fa = ART[empty], ART[full]
-  if not er or not fa then return end
-  local color = alpha("#ffffff", a)
-  root[#root] = image(with(place(er), { source = empty, color = color }))
+-- A meter: the bar primitive laid over the fill's vanilla box. The box at "Empty" says where the fill
+-- grows from: gone or shrunk in place (the centre), left at the left end, or left at the right end.
+local function meter(root, style, fill_path, value, color, a)
   local moving = INST[fill_path] and INST[fill_path].moving
   local box = moving and moving.Full
-  if not box or value <= 0 then return end
-  local w = box.w * math.min(value, 1)
-  local x
-  if not moving.Empty then
-    x = box.x + (box.w - w) / 2
-  elseif moving.Empty.x < box.x then
-    x = box.x
-  else
-    x = box.x + box.w - w
+  if not box then return end
+  local st = BAR_STYLES[style]
+  local window = st.size[1] - st.inset[1] - st.inset[3]
+  local r = {
+    x = box.x - st.inset[0],
+    y = box.y + box.h / 2 - st.inset[1] - window / 2,
+    w = box.w + st.inset[0] + st.inset[2],
+    h = st.size[1],
+  }
+  local from = "center"
+  local e = moving.Empty
+  if e then
+    local d = (e.x + e.w / 2) - (box.x + box.w / 2)
+    if d < -1 then from = "left" elseif d > 1 then from = "right" end
   end
-  local crop = { (x - fa.x) / fa.w, (x + w - fa.x) / fa.w }
-  root[#root] = image(with(place(fa), { source = full, crop = crop, color = color }))
+  root[#root] = bar(with(place(r), {
+    style = style, value = value, from = from,
+    fill = alpha(color, a), chrome_color = alpha("#ffffff", a),
+  }))
 end
 
 -- The three player meters. Vanilla shows one while it is not full, and health also in combat.
 local function meters(root, h)
   local list = {
-    { "health",  h.health,  ROOT .. "Health.HealthMeter_mc.HealthLeft" },
-    { "magicka", h.magicka, ROOT .. "Magica.MagickaMeter_mc" },
-    { "stamina", h.stamina, ROOT .. "Stamina.StaminaMeter_mc" },
+    { "health",  h.health,  ROOT .. "Health.HealthMeter_mc.HealthLeft", HEALTH },
+    { "magicka", h.magicka, ROOT .. "Magica.MagickaMeter_mc",           MAGICKA },
+    { "stamina", h.stamina, ROOT .. "Stamina.StaminaMeter_mc",          STAMINA },
   }
   for _, e in ipairs(list) do
-    local name, m, fill_path = e[0], e[1], e[2]
+    local name, m, fill_path, color = e[0], e[1], e[2], e[3]
     local a = visibility(name, frac(m) < 0.999 or (name == "health" and h.combat))
-    if a > 0 then meter_art(root, name, fill_path, frac(m), a) end
+    if a > 0 then meter(root, "stat", fill_path, frac(m), color, a) end
   end
 end
 
@@ -191,11 +195,11 @@ local function sneak_eye(root, h)
   }
 end
 
--- The foe's health bar (vanilla art, fill shrinking to its centre) and its name below it, while it
+-- The foe's health bar (shrinking to its centre) and its name below it, while it
 -- fights the player or shortly after the player hit it.
 local function foe(root, f)
   if not f or not (f.fighting or f.age < FOE_SHOW) then return end
-  meter_art(root, "enemy", ROOT .. "EnemyHealth_mc", frac(f.health), 1)
+  meter(root, "enemy", ROOT .. "EnemyHealth_mc", frac(f.health), HEALTH, 1)
   local label = INST[ROOT .. "EnemyHealth_mc.BracketsInstance.RolloverNameInstance"]
   if not label then return end
   root[#root] = container(with(place(label.rect), {

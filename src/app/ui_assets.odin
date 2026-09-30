@@ -34,27 +34,17 @@ UI_ASSETS := [?]UI_Asset{
 	// Credits header icon.
 	{dest = "interface/skyrimlogo.dds", swf = "interface/creditsmenu.swf", name = "SkyrimLogo"},
 
-	// ── Instances: the HUD chrome ("Empty" = a meter without its fill, "Full" = with it) ──
+	// ── Instances: the HUD chrome (a meter at "Empty" is its frame without the fill) ──
 	{dest = "interface/hud/compass.dds", swf = HUD_SWF, path = HUD_ROOT + "CompassShoutMeterHolder.Compass.CompassFrame"},
-	{dest = "interface/hud/health_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "Health.HealthMeter_mc", label = "Empty"},
-	{dest = "interface/hud/health_full.dds", swf = HUD_SWF, path = HUD_ROOT + "Health.HealthMeter_mc", label = "Full"},
-	{dest = "interface/hud/magicka_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "Magica.MagickaMeter_mc", label = "Empty"},
-	{dest = "interface/hud/magicka_full.dds", swf = HUD_SWF, path = HUD_ROOT + "Magica.MagickaMeter_mc", label = "Full"},
-	{dest = "interface/hud/stamina_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "Stamina.StaminaMeter_mc", label = "Empty"},
-	{dest = "interface/hud/stamina_full.dds", swf = HUD_SWF, path = HUD_ROOT + "Stamina.StaminaMeter_mc", label = "Full"},
-	// The enemy bar's "Empty" frame drops the whole bar, so its chrome is the part that never moves.
-	{dest = "interface/hud/enemy_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", still = true, hide = {"BracketsInstance"}},
-	{dest = "interface/hud/enemy_full.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", label = "Full", hide = {"BracketsInstance"}},
+	// The stat meter chrome (health, magicka and stamina share it); widget/bar.lua bakes its numbers.
+	{dest = "interface/hud/meter.dds", swf = HUD_SWF, path = HUD_ROOT + "Magica.MagickaMeter_mc", label = "Empty"},
+	// The enemy bar's "Empty" frame drops the whole bar, so its chrome is the part that never moves;
+	// widget/bar.lua bakes its numbers.
+	{dest = "interface/hud/enemy.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", still = true, hide = {"BracketsInstance"}},
 
 	// ── Shapes (by size + fill) ──
 	// Bethesda Game Studios logo.
 	{dest = "interface/bethesdalogo.dds", swf = "interface/startmenu.swf", size = {621, 292}, fill = {0xbb, 0xbd, 0xbf, 0xff}},
-	// The shout meter's deco FRAME (red border + knotwork ends, 3-sliced by the bar widget), re-coloured
-	// WHITE so a bar can tint it.
-	{dest = "interface/bar_frame.dds", swf = HUD_SWF, size = {358, 25}, fill = {0x99, 0, 0, 0xff}, recolor = {255, 255, 255, 255}},
-	// The compass frame's silhouette in its black, used as a plain bar background (its grey border
-	// would double the bar's own frame).
-	{dest = "interface/bar_bg.dds", swf = HUD_SWF, size = {366, 30}, fill = {1, 1, 1, 0xff}, recolor = {1, 1, 1, 0xff}},
 	// Sneak eye (the pupil is a hole), re-coloured WHITE so the HUD can tint it.
 	{dest = "interface/sneak_eye.dds", swf = HUD_SWF, size = {95, 44}, fill = {0x99, 0x33, 0, 0xff}, recolor = {255, 255, 255, 255}},
 }

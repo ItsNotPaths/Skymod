@@ -2,7 +2,7 @@
 --
 -- The SkyMod load screen — our Lua reimplementation of Skyrim's loadingmenu.swf, shipped as the
 -- built-in UI mod. We SKIP the spinning 3D model; the layout keeps the vanilla essentials:
---   • a progress bar across the bottom (the reusable `bar` widget: shader FILL + drawn FRAME),
+--   • a progress bar across the bottom (the reusable `bar` widget, the stat meter style),
 --   • the player LEVEL top-right (edittext id 1500 = "$LEVEL", ~size 16, #999999),
 --   • a rotating loading TIP snippet bottom-right (edittext id 2000 = 500x185, right-aligned).
 --
@@ -10,8 +10,6 @@
 -- into engine.load_progress().tip. Non-interactive: the engine's load loop drives it, pumping progress
 -- into the host each frame. Re-evaluated every frame (ui.screen), so the bar + tip update live.
 
-local TRACK  = "#000000cc" -- empty-bar background (vanilla shape_5000's black fill, semi-transparent)
-local BORDER = "#bbbdbf"   -- bar outline (vanilla shape_5000's grey outline — the "frame")
 local FILL   = "#c8a24b"   -- warm gold fill (the shader tints the sheen with it)
 
 ui.screen(function()
@@ -38,22 +36,13 @@ ui.screen(function()
       color = "#999999",
     },
 
-    -- Progress bar centred across the bottom: the vanilla stat-bar deco (black bg frame + red deco
-    -- frame — LE hudmenu shapes 416/395, SSE 467/446 — both 3-sliced so the decorated knotwork ends
-    -- stay fixed and the middle stretches to width) with our shader fill inside.
+    -- Progress bar centred across the bottom: the stat meter at its native height, stretched wide.
     bar {
       anchor = "bottom",
       offset = { 0, -60 },
-      size = { bar_w, 30 },
+      size = { bar_w, BAR_STYLES.stat.size[1] },
       value = p.frac or 0,
       fill = FILL,
-      bg = "interface/bar_bg.dds",     -- black background frame (stable path; LE 416 / SSE 467)
-      frame = "interface/bar_frame.dds", -- the decorated frame (shape 395), extracted WHITE
-      frame_color = "#ffffff",          -- tint the white frame to any RGBA (health=red, magicka=blue, …)
-      slice = 48,                       -- knotwork cap width (source px) kept fixed; middle stretches
-      -- fill inset {x,y}: x sits the fill just inside the knotwork (which ends ~30px in) so it neither
-      -- gaps nor bleeds into the cap; y insets it inside the top/bottom border.
-      inset = { 32, 8 },
     },
 
     -- Phase label, above the bar (the bar's top is ~90px up, so clear it), centred.

@@ -110,13 +110,16 @@ baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
 		return
 	}
 	assets := baseui_assets_dir(base, context.temp_allocator)
+	laid_out := make(map[string]bool, allocator = context.temp_allocator)
 	for a in UI_ASSETS {
 		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
 		switch {
 		case a.name != "":
 			extract_swf_bitmap(v, a.swf, a.name, dest)
-		case a.path != "":
-			write_layout(v, assets, a.swf) // with every instance of that SWF; once per SWF
+		case a.path != "" && !laid_out[a.swf]:
+			write_layout(v, assets, a.swf) // with every instance of that SWF
+			laid_out[a.swf] = true
+		case a.path != "": // written with its SWF above
 		case:
 			extract_shape_by_look(v, a, dest)
 		}
@@ -200,14 +203,11 @@ extract_shape_by_look :: proc(v: ^vfs.VFS, a: UI_Asset, dest: string) {
 
 // write_layout draws every INSTANCE row of `swf_path` and writes interface/<name>_layout.lua: the
 // stage size, each art file's stage rect, and every named instance's rect (with its animated box per
-// frame label). The layout file caches the whole set: art is redrawn only when it is missing.
+// frame label). Written every boot (a few ms), so a changed extractor never leaves stale art.
 @(private = "file")
 write_layout :: proc(v: ^vfs.VFS, assets, swf_path: string) {
 	stem := filepath.stem(swf_path)
 	out, _ := filepath.join({assets, "interface", fmt.tprintf("%s_layout.lua", stem)}, context.temp_allocator)
-	if os.exists(out) {
-		return
-	}
 	mv, ok := read_movie(v, swf_path)
 	if !ok {
 		return
