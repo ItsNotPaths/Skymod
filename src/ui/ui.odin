@@ -68,6 +68,7 @@ Node :: struct {
 	text:     string, // owned by the loader's allocator (free with destroy)
 	image:    string, // Image: art source name (resolved to a texture by the backend); owned
 	flip_x:   bool,   // Image: mirror horizontally (e.g. a bar's left end-cap reuses the right cap art)
+	crop:     [2]f32, // Image: draw only this horizontal part {u0,u1} (0..1), in place; {0,0} = all
 	slice:    [2]f32, // Image: horizontal 3-slice cap widths {left,right} in SOURCE px (0 = normal). Fixed
 	                  //   caps + a stretched middle, so a bar frame/track stretches to any width cleanly.
 	id:       string, // stable id for mod patches + focus tracking; owned
@@ -94,7 +95,7 @@ Cmd_Kind :: enum {
 Draw_Cmd :: struct {
 	kind:  Cmd_Kind,
 	rect:  Rect,
-	uv:    Rect, // Glyph: atlas uv (x,y = u0,v0; w,h = du,dv)
+	uv:    Rect, // Glyph: atlas uv (x,y = u0,v0; w,h = du,dv); Image: the cropped part (w 0 = all)
 	color: Color,
 	text:  string, // borrowed (Text)
 	image: string, // borrowed (Image source name)
@@ -291,7 +292,13 @@ emit :: proc(n: ^Node, out: ^[dynamic]Draw_Cmd, dim := false) {
 		// draw white, or the texture comes out fully transparent. A set color tints/fades it.
 		col := n.color if n.color[3] > 0 else Color{1, 1, 1, 1}
 		if dim {col.rgb *= DISABLED_DIM}
-		append(out, Draw_Cmd{kind = .Image, rect = n.screen, color = col, image = n.image, flip_x = n.flip_x, slice = n.slice})
+		cmd := Draw_Cmd{kind = .Image, rect = n.screen, color = col, image = n.image, flip_x = n.flip_x, slice = n.slice}
+		if n.crop != {} {
+			cmd.uv = Rect{n.crop[0], 0, n.crop[1] - n.crop[0], 1}
+			cmd.rect.x += n.crop[0] * n.screen.w
+			cmd.rect.w *= n.crop[1] - n.crop[0]
+		}
+		append(out, cmd)
 	}
 	for &c in n.children {
 		emit(&c, out, dim)
