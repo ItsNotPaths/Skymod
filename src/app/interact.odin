@@ -116,8 +116,8 @@ tick_interact :: proc(g: ^Game, tgt: Activation_Target) {
 	}
 }
 
-// tick_cast casts the spell in a hand when its button goes down, at what the crosshair is on, and
-// the Sneak button puts the player in or out of sneak mode.
+// tick_cast uses what is in a hand when its button goes down (use_hand: swing, fire or cast at what
+// the crosshair is on), and the Sneak button puts the player in or out of sneak mode.
 tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	if g.sim.input.in_menu {return}
 	in_, was := g.sim.input, g.sim.input_was
@@ -128,9 +128,8 @@ tick_cast :: proc(g: ^Game, tgt: Activation_Target) {
 	c := script.Call{ws = &g.sim.ws, db = &g.db, audio = &g.audio, vfs = &g.v}
 	target := tgt.form if tgt.present else 0
 	// (hole shouts :tags (magic input player) :sev gap) nothing uses the Voice slot: no Shout action, no shout cooldown or Voice recovery (ShoutRecoveryMult, Get/SetVoiceRecoveryTime), no once-a-day limit on powers, no GetCurrentShoutVariation.
-	// (hole player-melee :tags (combat player input) :sev gap ) a weapon or fists in a hand does nothing when its button goes down: the player cannot attack.
-	if in_.cast_left && !was.cast_left {script.cast_hand(&c, g.sim.ws.player, .LeftHand, target)}
-	if in_.cast_right && !was.cast_right {script.cast_hand(&c, g.sim.ws.player, .RightHand, target)}
+	if in_.cast_left && !was.cast_left {use_hand(g, &c, .LeftHand, target)}
+	if in_.cast_right && !was.cast_right {use_hand(g, &c, .RightHand, target)}
 }
 
 // (hole lock-keys :tags player :sev gap) a locked door or container opens like any other: nothing checks for its key.

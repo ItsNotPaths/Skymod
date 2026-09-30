@@ -57,10 +57,11 @@ request_fire :: proc(ws: ^World_State, source, weapon, ammo: Form_ID) {
 Swing :: struct {
 	attacker: Form_ID,
 	kind:     combat.Attack_Kind,
+	hand:     gamedb.Slot,
 }
 
-request_swing :: proc(ws: ^World_State, attacker: Form_ID, kind: combat.Attack_Kind) {
-	append(&ws.swings, Swing{attacker, kind})
+request_swing :: proc(ws: ^World_State, attacker: Form_ID, kind: combat.Attack_Kind, hand := gamedb.Slot.RightHand) {
+	append(&ws.swings, Swing{attacker, kind, hand})
 }
 
 // launch creates a projectile's ref at pos, pointing along dir, and starts its flight.
