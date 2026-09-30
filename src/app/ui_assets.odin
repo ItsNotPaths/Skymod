@@ -33,6 +33,8 @@ UI_ASSETS := [?]UI_Asset{
 	{dest = "interface/bar_bg.dds", swf = "interface/exported/hudmenu.gfx", size = {366, 30}, fill = {1, 1, 1, 0xff}},
 	// Compass centre notch, used as-is.
 	{dest = "interface/compass_notch.dds", swf = "interface/exported/hudmenu.gfx", size = {27, 45}, fill = {0xbb, 0xbd, 0xbf, 0xff}},
+	// Enemy health backdrop: the thin upside-down trapezoid, used as-is.
+	{dest = "interface/enemy_bar.dds", swf = "interface/exported/hudmenu.gfx", size = {258, 16}, fill = {0, 0, 0, 0xff}},
 	// Sneak eye (the pupil is a hole), re-rasterized WHITE so the HUD can tint it.
 	{dest = "interface/sneak_eye.dds", swf = "interface/exported/hudmenu.gfx", size = {95, 44}, fill = {0x99, 0x33, 0, 0xff}, recolor = {255, 255, 255, 255}},
 }

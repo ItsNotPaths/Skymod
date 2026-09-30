@@ -62,9 +62,12 @@ local CARDINALS = {
 local EYE_W, EYE_H = 64, 30
 local EYE_SHUT     = 0.25 -- the eye's height while nobody has noticed the player, of EYE_H
 
--- Enemy health (vanilla: under the compass, name below in #999999).
+-- Enemy health (vanilla: under the compass, name below in #999999): a thin fill that shrinks to its
+-- centre, over the trapezoid backdrop.
 local FOE_Y     = 90
-local FOE_W     = 300
+local FOE_W, FOE_H   = 258, 16 -- the backdrop's native size
+local FILL_W, FILL_H = 252, 7  -- vanilla's fill: a 32x7 shape stretched 7.89x
+local FILL_Y    = 2            -- the fill's top, inside the backdrop
 local FOE_SHOW  = 3.0  -- seconds the bar stays after the player's last hit, out of a fight
 
 -- Notifications (vanilla: top left, fade out).
@@ -174,11 +177,17 @@ end
 -- The foe's health bar and name, while it fights the player or shortly after the player hit it.
 local function foe(root, f)
   if not f or not (f.fighting or f.age < FOE_SHOW) then return end
-  root[#root] = meter(f.health, HEALTH, 1, { anchor = "top", offset = { 0, FOE_Y }, size = { FOE_W, METER_H }, from = "center" })
+  root[#root] = container {
+    anchor = "top",
+    offset = { 0, FOE_Y },
+    size = { FOE_W, FOE_H },
+    image { source = "interface/enemy_bar.dds", fill = "both" },
+    { _kind = "bar", anchor = "top", offset = { 0, FILL_Y }, size = { FILL_W, FILL_H }, value = frac(f.health), from = "center", color = HEALTH },
+  }
   root[#root] = text {
     f.name,
     anchor = "top",
-    offset = { 0, FOE_Y + METER_H + 6 },
+    offset = { 0, FOE_Y + FOE_H + 4 },
     scale = 0.31,
     color = "#999999",
   }
