@@ -1,7 +1,7 @@
 package script_lua
 
 // The script-visible ref system — decision #1 (refs) and #2 (None) of the locked
-// Phase-4 substrate (docs/script-runtime-decisions.md).
+// Phase-4 substrate (mydocs/script-runtime-decisions.md).
 //
 // A ref is a Lua FULL USERDATA wrapping the wide u64 Form_ID (the same identity as
 // overlay keys, the save form-table, and gamedb). It is NOT a plain integer: the

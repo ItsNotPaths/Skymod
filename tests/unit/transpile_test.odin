@@ -4,7 +4,7 @@ package unit_tests
 // carrying the cases that break a naive emitter — a relative jump landing one past the last
 // instruction, a self-cast, a void call, a parameter named after a Lua keyword. Real
 // correctness is proven by running tools/pex2lua over the user's own ~14k .pex and checking
-// every emitted file with `luac -p` (docs/papyrus-transpiler.md).
+// every emitted file with `luac -p` (mydocs/papyrus-transpiler.md).
 //
 // Writers are file-private, matching the convention in pex_test.odin and esm_test.odin.
 

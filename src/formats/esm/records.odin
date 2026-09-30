@@ -305,7 +305,7 @@ form_list_members :: proc(fields: []Field, allocator := context.allocator) -> []
 // One 32-byte block asking a question about the game state. Records use it to gate almost
 // everything: which recipe appears, which perk can be taken, which dialogue line is offered.
 // VERIFIED against Skyrim.esm — 83,759 conditions, every one exactly 32 bytes.
-// The full census and the plan for evaluating these live in docs/conditions.md.
+// The full census and the plan for evaluating these live in mydocs/conditions.md.
 
 // Condition_Op is the comparison a condition applies, from the top 3 bits of byte 0. Equality is
 // 84% of every condition in the base game.

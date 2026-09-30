@@ -1,7 +1,7 @@
 package script
 
 // Sound (a SOUN form), SoundCategory (SNCT) and MusicType (MUSC). Instance ids are audio handles. A wait on a sound
-// polls Sound.IsPlaying(id) (docs/script-api.md section 4). CreateDetectionEvent is a noise for detection.
+// polls Sound.IsPlaying(id) (mydocs/script-api.md section 4). CreateDetectionEvent is a noise for detection.
 
 import "../audio"
 import "../formid"

@@ -1,6 +1,6 @@
 package mods
 
-// A mod's identity sidecar (docs/mods.md "Two tiers"): mods/<name>/skymod/mod.txt carries the
+// A mod's identity sidecar (mydocs/mods.md "Two tiers"): mods/<name>/skymod/mod.txt carries the
 // author-stable UUID + metadata that make the mod's forms portable across installs — the save bridge
 // keys on it, and it names the mod's dependencies. `skymod/` is the shared per-mod metadata seam.
 // A mod WITHOUT a sidecar falls

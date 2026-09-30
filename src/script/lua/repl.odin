@@ -1,7 +1,7 @@
 package script_lua
 
 // The dev console REPL — the Phase-4 native-testing loop and the user's visual
-// verify surface (docs/script-runtime-decisions.md, "Console"). It evaluates typed
+// verify surface (mydocs/script-runtime-decisions.md, "Console"). It evaluates typed
 // lines on the SAME gameplay VM the transpiled scripts run on, so every registered
 // native is a console command the instant it lands: type `sel:Disable()` (or the CE
 // alias) and watch it apply through the worldstate overlay. Output (results, print,

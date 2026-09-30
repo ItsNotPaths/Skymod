@@ -44,7 +44,7 @@ echo "==> holes (swiss sync: ws.md)"
 (cd "$ROOT" && swiss sync)
 
 # src/transpile must stay liftable into its own repo: core:* and formats/pex, nothing else
-# (docs/papyrus-transpiler.md, "The detachable contract").
+# (mydocs/papyrus-transpiler.md, "The detachable contract").
 # The plugin seams see the world only through their Host (ws.md Workstream H): core:*, base:*,
 # formid and plugin, nothing else; plugin's record views also use formats/esm's fixed format types.
 echo "==> seam imports"

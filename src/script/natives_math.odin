@@ -1,6 +1,6 @@
 package script
 
-// Math.* — the pure, stateless callstatic natives (Wave 2 in docs/scripting-natives.md).
+// Math.* — the pure, stateless callstatic natives (Wave 2 in mydocs/scripting-natives.md).
 // No worldstate, no gamedb: each is a one-liner over core:math on the single float arg
 // (Papyrus Math takes/returns float, except Ceiling/Floor which return int). These are the
 // leaf primitives every transpiled utility script bottoms out on, so they're free to do now.

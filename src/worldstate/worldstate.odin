@@ -1,6 +1,6 @@
 package worldstate
 
-// World-state overlay (ROADMAP Phase 3c — the keystone; design in docs/saves.md §4.1). The
+// World-state overlay (ROADMAP Phase 3c — the keystone; design in mydocs/saves.md §4.1). The
 // MUTABLE, authoritative in-RAM world-delta layer that sits BETWEEN the immutable `gamedb`
 // baseline and the transient `world.Scene`. `gamedb` says where the ESM placed every ref; the
 // overlay stores only DIVERGENCE from that baseline (sparse — a fresh game has zero deltas and a
@@ -145,7 +145,7 @@ Overlay :: struct {
 // Runtime is per-session state: queues the tick drains and the attached cells. Never saved.
 Runtime :: struct {
 	next_visual:     u32, // the last visual handle; a load does not reset it, so a handle is never reused
-	// Deferred scene-apply queue (docs/script-runtime-decisions.md §3): writers that DON'T touch the
+	// Deferred scene-apply queue (mydocs/script-runtime-decisions.md §3): writers that DON'T touch the
 	// live scene themselves (script natives) append the form they changed here; the app drains it at
 	// one fixed frame point and re-applies each to the resident scene. The world's own *_ref verbs
 	// apply live at call time and DON'T enqueue. Ordered; a form may repeat (drain is idempotent).
@@ -655,7 +655,7 @@ list_added :: proc(ws: ^World_State, list: Form_ID) -> []Form_ID {
 	return nil
 }
 
-// ── quest store (docs/scripting-natives.md §B — the highest-leverage new store) ────────────────
+// ── quest store (mydocs/scripting-natives.md §B — the highest-leverage new store) ────────────────
 // The natives (script/natives_quest.odin) route every quest mutation through these typed procs so
 // worldstate owns the store's invariants (nested-map init, objective bit flips), mirroring the ref
 // verbs. Reads that need the whole struct take the non-creating pointer via quest_get.

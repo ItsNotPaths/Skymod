@@ -1,6 +1,6 @@
 package script
 
-// Actor store natives (docs/scripting-natives.md §B): actor values + faction/relationship ranks.
+// Actor store natives (mydocs/scripting-natives.md §B): actor values + faction/relationship ranks.
 // `self` is the actor. Relationships aren't indexed yet, so an unset relationship reads 0.
 
 import "core:log"

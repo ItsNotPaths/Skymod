@@ -14,7 +14,7 @@ import smath "../math"
 // (hole anim-natives :tags (animation unclaimed) :sev blocker) the script side rides this subsystem — a guard needs a testable "is this clip done", and whether PlayAnimation completes in one tick is an animation decision. Rewrite those scripts here, not before.
 
 // Stubbed writes that no native can read back, so no guard can test them. Each needs a paired
-// read (docs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
+// read (mydocs/script-rewrite.md step 2 item 2; the `bucket` column of natives-classified.tsv).
 // (hole ai-reads :tags ai :sev gap) no read for SetNotShowOnStealthMeter, SetAllowFlyingMountLandingRequests.
 // (hole physics-reads :tags physics :sev gap) no read for SetMotionType, StopTranslation (no IsTranslating), TetherToHorse, Add/RemoveHavokConstraints.
 // (hole cell-reads :tags world :sev gap) no read for Cell.SetPublic.
@@ -78,10 +78,10 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "Message", "Answer", n_message_answer)
 	register(reg, "Actor", "ShowGiftMenu", n_show_gift_menu)
 
-	// No handler runs inside a menu: a world-pausing menu stops the ticks (docs/script-api.md section 7).
+	// No handler runs inside a menu: a world-pausing menu stops the ticks (mydocs/script-api.md section 7).
 	register(reg, "Utility", "IsInMenuMode", n_is_in_menu_mode)
 
-	// Skymod facts a rewritten script waits on (docs/script-api.md section 4); not Papyrus natives.
+	// Skymod facts a rewritten script waits on (mydocs/script-api.md section 4); not Papyrus natives.
 	register(reg, "ObjectReference", "IsAnimRunning", n_is_anim_running)
 	register(reg, "Game", "IsVideoPlaying", n_is_video_playing)
 
@@ -365,7 +365,7 @@ n_notification :: proc(c: ^Call, args: []Value) -> Value {
 // ── Message ──────────────────────────────────────────────────────────────────
 
 // n_message_show queues a box MESG (worldstate.ask). The box pauses the world before the next tick,
-// so the script reads the pick there with Answer (docs/script-rewrite.md "Menus that pause the world").
+// so the script reads the pick there with Answer (mydocs/script-rewrite.md "Menus that pause the world").
 n_message_show :: proc(c: ^Call, args: []Value) -> Value {
 	m, ok := gamedb.message_of(c.db, c.self)
 	if !ok {

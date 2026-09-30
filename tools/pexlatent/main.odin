@@ -1,7 +1,7 @@
 package main
 
 // RE harness (not shipped): survey the compiled-Papyrus corpus for LATENT state —
-// the suspended-call-stack problem behind converted-script persistence (docs/mods.md
+// the suspended-call-stack problem behind converted-script persistence (mydocs/mods.md
 // open q. #6). Answers, empirically, whether an "intelligent transpiler" that splits
 // functions at wait points (CPS → timer continuations, state = plain data) is viable:
 //

@@ -44,7 +44,7 @@ Loaded_Plugin :: struct {
 // with delete(). Header masters are read into the temp allocator.
 // `slot_of` (case-folded filename → stable slot) decouples IDENTITY from load order: when supplied
 // (by the manager's form-table), a plugin's forms carry its stable slot instead of its load-order
-// index, so reordering mods never renumbers a form (saves stay portable — docs/mods.md "Two tiers").
+// index, so reordering mods never renumbers a form (saves stay portable — mydocs/mods.md "Two tiers").
 // nil ⇒ the placeholder behaviour (slot == load-order index) for the single-file/synthetic paths.
 // Override PRECEDENCE is unaffected either way — it's the position in the returned (load-order) slice.
 resolve_load_order :: proc(inputs: []Plugin_Input, allocator := context.allocator, slot_of: map[string]u32 = nil) -> []Loaded_Plugin {

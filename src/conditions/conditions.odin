@@ -8,7 +8,7 @@ package conditions
 //
 // The design mirrors src/script/registry.odin, which solves the same problem for Papyrus natives: a
 // large declared surface, a small implemented hot set, and a hard requirement never to brick on the
-// unknown. See docs/conditions.md for the census and the plan.
+// unknown. See mydocs/conditions.md for the census and the plan.
 //
 // AN UNKNOWN FUNCTION EVALUATES TRUE. Returning false would hide content the player should see,
 // and true is what the engine already does today, since nothing evaluated conditions at all before

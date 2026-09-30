@@ -1,6 +1,6 @@
 package unit_tests
 
-// Fixed-tick render interpolation (docs/short-term-plan.md §E). The sim runs at a constant
+// Fixed-tick render interpolation (mydocs/short-term-plan.md §E). The sim runs at a constant
 // TICK_DT and the frame draws between two ticks, so physics hands back each dynamic body's last
 // step (body_step) to blend at the frame's alpha — and the exact simulated value when asked for it.
 // These pin the endpoints (alpha 0 = where the step started, 1 = where it ended) and the

@@ -156,7 +156,7 @@ KEEPS_PLAYER_REF := []Native {
 }
 
 // native_fallbacks is what a stub answers where its type's zero would be wrong: Papyrus's
-// documented value, else the absent, quiet, done answer (docs/script-rewrite.md "Missing data").
+// documented value, else the absent, quiet, done answer (mydocs/script-rewrite.md "Missing data").
 native_fallbacks := []struct {
 	class, fn: string,
 	value:     Value,

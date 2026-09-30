@@ -2,7 +2,7 @@ package script_lua
 
 // Engine events into scripts. The engine sends an edge when it happens; the scripts run it when
 // game_tick drains the queue. Timers are the third kind: tick_updates counts OnUpdate registrations
-// down and sends the ones that come due (docs/script-rewrite.md "Events: edges, transitions, timers").
+// down and sends the ones that come due (mydocs/script-rewrite.md "Events: edges, transitions, timers").
 
 import "core:c"
 import "core:log"
@@ -131,7 +131,7 @@ count_down :: proc(vm: ^VM, timers: ^map[script.Form_ID]worldstate.Update_Timers
 }
 
 // tick_effects runs the effects' clocks (worldstate.advance_effect). An ended effect whose
-// OnEffectFinish went out, and whose instance's state no longer ticks, leaves (docs/script-api.md
+// OnEffectFinish went out, and whose instance's state no longer ticks, leaves (mydocs/script-api.md
 // section 3).
 tick_effects :: proc(vm: ^VM, ws: ^worldstate.World_State, dt: f32) {
 	gone := make([dynamic]script.Form_ID, context.temp_allocator)
@@ -377,7 +377,7 @@ item_passes :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, recipient: scri
 }
 
 // The script phase of a tick is tick_begin, then whatever the engine runs for scripts (the app's
-// activations), then tick_end (docs/script-api.md section 3).
+// activations), then tick_end (mydocs/script-api.md section 3).
 
 // tick_begin advances the script clocks, gives the refs of `loaded` cells their scripts (and OnInit),
 // then queues load/attach transitions against `attached`, due OnUpdate timers and moved items.

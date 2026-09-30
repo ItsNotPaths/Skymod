@@ -1,12 +1,12 @@
 package main
 
 // One frame of the game session (the body of run_game's old 900-line loop), split into
-// cohesive helpers per docs/run-game-refactor.md. game_frame is a FIXED SEQUENCE with real
+// cohesive helpers per mydocs/run-game-refactor.md. game_frame is a FIXED SEQUENCE with real
 // ordering constraints (scene select before locomotion so the capsule re-homes before it
 // moves; physics before draw; cull_begin before any draw pass) — keep
 // it linear, don't make it data-driven. Helpers share the per-frame Frame_State in g.fr.
 //
-// RATE. The frame runs at display rate; the SIMULATION does not (docs/shipped.md §E).
+// RATE. The frame runs at display rate; the SIMULATION does not (mydocs/shipped.md §E).
 // game_tick — scene select, locomotion, physics, traversal, scripts (on their own thread) — runs
 // the ticks the sim's clock has due, each a constant TICK_DT, and everything else (input, aiming,
 // streaming, picking, drawing) runs once per frame around it. What the frame draws is the newest
@@ -141,7 +141,7 @@ game_frame :: proc(g: ^Game) {
 	}
 	g.slowsnap = {g.prof.stream, g.prof.render, g.prof.acquire}
 
-	// POLICY (docs/memory.md): anything on context.temp_allocator lives for
+	// POLICY (mydocs/memory.md): anything on context.temp_allocator lives for
 	// exactly one frame — UI string formatting, draw lists, transient buffers.
 	// Wiped here, every frame.
 		free_all(context.temp_allocator)

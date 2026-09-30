@@ -1,6 +1,6 @@
 package mods
 
-// The mod profile (docs/mods.md layer 4) — the MO2-style mod layer. A profile is an ORDERED
+// The mod profile (mydocs/mods.md layer 4) — the MO2-style mod layer. A profile is an ORDERED
 // list of mods (top → bottom = priority; lower entries override higher), where each item is a
 // real mod (a folder under mods/), a user-created empty mod, or a named separator. Enabling a
 // mod = it's checked in the list. The plugin (load) order is DERIVED from this mod order (see

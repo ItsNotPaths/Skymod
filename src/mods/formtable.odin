@@ -1,6 +1,6 @@
 package mods
 
-// The form-table (docs/mods.md "Two tiers"; docs/saves.md §4.4) is the global, cross-profile map
+// The form-table (mydocs/mods.md "Two tiers"; mydocs/saves.md §4.4) is the global, cross-profile map
 // from a plugin's STABLE identity to an interned u32 `slot` — the high word of every Form_ID that
 // plugin defines. It decouples identity from load order: a slot is allocated once, monotonically,
 // on a plugin's first sighting and NEVER reused (tombstone), so reordering/adding mods changes

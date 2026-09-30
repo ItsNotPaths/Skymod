@@ -1,6 +1,6 @@
 package unit_tests
 
-// Mod-identity sidecar tests (docs/mods.md "Two tiers"). Writes a mods/<name>/skymod/mod.txt to a
+// Mod-identity sidecar tests (mydocs/mods.md "Two tiers"). Writes a mods/<name>/skymod/mod.txt to a
 // temp dir and asserts parse (uuid/name/version/requires), the "no uuid ⇒ not an identity" rule, the
 // content-hash fallback's determinism + order-independence, and a missing-file miss.
 

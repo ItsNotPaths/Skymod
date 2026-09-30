@@ -6,7 +6,7 @@ package unit_tests
 // The layout and the function identities were validated against the retail Skyrim.esm with
 // `esmdump --ctda`. The records that name their own answer: Arcane Blacksmith gates on actor value
 // index 10 (Smithing) >= 60, and Bladesman rank 1 on index 6 (One-Handed) >= 30 plus the Armsman
-// perk — the exact vanilla requirements. See docs/conditions.md.
+// perk — the exact vanilla requirements. See mydocs/conditions.md.
 
 import "core:testing"
 import "../../src/actorstate"

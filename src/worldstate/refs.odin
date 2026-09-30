@@ -97,7 +97,7 @@ get_created :: proc(ws: ^World_State, form_id: Form_ID) -> (Created_Ref, bool) {
 
 // upsert returns a (mutable) delta for `form_id`, creating one and indexing it under `cell` on
 // first sight — the shared primitive every mutation verb routes through (Layer 1 chokepoint;
-// docs/live-state.md §7.1). The returned pointer is valid until the next ref_deltas insert, so
+// mydocs/live-state.md §7.1). The returned pointer is valid until the next ref_deltas insert, so
 // each verb writes through it immediately and never retains it.
 @(private)
 upsert :: proc(ws: ^World_State, form_id, cell: Form_ID) -> ^Ref_Delta {

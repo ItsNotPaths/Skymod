@@ -70,7 +70,7 @@ fsig :: proc(f: Field) -> string {return f.type}
 // form's owning plugin in global space and `local` is its plugin-local form number (the
 // low 24 bits Skyrim uses, with room to spare). Wide on purpose — no 255-master wall, no
 // ESL FExxx special-casing. `slot` is allocated stably (the form-table, manager layer);
-// today slot == load-order index. See docs/mods.md.
+// today slot == load-order index. See mydocs/mods.md.
 Form_ID :: u64
 
 // INVALID_SLOT is a reserved slot for an UNRESOLVED master reference — a plugin whose declared

@@ -2,7 +2,7 @@ package script_lua
 
 // Transitions: OnCellAttach, OnLoad, OnCellLoad, OnUnload and OnCellDetach, derived each tick by
 // comparing the cells attached to the player's scene, and each ref's enable state, with the last
-// tick (docs/script-rewrite.md "Events: edges, transitions, timers").
+// tick (mydocs/script-rewrite.md "Events: edges, transitions, timers").
 
 import script ".."
 import "../../gamedb"

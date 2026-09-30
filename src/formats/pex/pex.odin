@@ -1,7 +1,7 @@
 package pex
 
 // PEX (compiled Papyrus) reader — Phase 4 scripting, the script registry's first
-// deliverable (see the phase4-scripting-plan memory + docs/saves.md lineage).
+// deliverable (see the phase4-scripting-plan memory + mydocs/saves.md lineage).
 // Target: Skyrim `.pex`, both editions — BIG-ENDIAN, magic 0xFA57C0DE, major 3,
 // game 1. The minor version does not identify the edition: LE's Misc.bsa is 3.1, LE's
 // DLC and all of SE are 3.2, and the layout is the same. (Fallout 4 `.pex` are
@@ -150,7 +150,7 @@ parse :: proc(data: []u8, allocator := context.allocator) -> (p: Pex, ok: bool) 
 	}
 
 	// Debug info — optional. We KEEP the per-instruction line table: it marks the original
-	// statement boundaries, which is the transpiler's best structuring hint (docs/papyrus-
+	// statement boundaries, which is the transpiler's best structuring hint (mydocs/papyrus-
 	// transpiler.md). Every authored function carries one; GotoState/GetState don't, because
 	// the compiler generates them.
 	lines: map[Debug_Key][]u16

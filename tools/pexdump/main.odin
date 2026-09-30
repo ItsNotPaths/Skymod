@@ -377,7 +377,7 @@ corpus_mode :: proc(path: string) {
 
 // ── argument defaults ────────────────────────────────────────────────────────
 // Emits skymod.params: for every function declared with a default argument, its parameters in
-// order with their default values (docs/script-api.md section 1), natives and script functions in
+// order with their default values (mydocs/script-api.md section 1), natives and script functions in
 // two tables. Read from the Creation Kit's .psc sources (the .pex does not keep defaults: the
 // compiler writes them into each call). Parameter names and literal defaults only.
 

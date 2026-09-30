@@ -372,7 +372,7 @@ Zone :: struct {
 // come from ACBS (flags/level/offsets) + DNAM (base attributes + skills); the linked forms
 // (race/class/voice/outfit, spells, packages) are remapped to global space; inventory reuses the
 // container CNTO shape. The player's base (0x00000007) is an Actor_Base like any other
-// (docs/script-runtime-decisions.md §5). Spawning/capsules/stat-calc are consumers.
+// (mydocs/script-runtime-decisions.md §5). Spawning/capsules/stat-calc are consumers.
 Actor_Base :: struct {
 	flags:         u32, // ACBS flags (esm.ACBS_* — essential/unique/protected/…)
 	level:         u16, // ACBS level (absolute, or ×1000 player-level mult if ACBS_PC_LEVEL_MULT)

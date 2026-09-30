@@ -1,6 +1,6 @@
 package unit_tests
 
-// Save identity-remap test (docs/saves.md §4.4.1): a save embeds a form-table bridge tagging the
+// Save identity-remap test (mydocs/saves.md §4.4.1): a save embeds a form-table bridge tagging the
 // stable slots its Form_IDs use; on load, a bridge that resolves those identities to DIFFERENT slots
 // (another install / a reorder) must rewrite every Form_ID's slot half — so a moved object is still
 // the right object. Also checks the drop rule: a saved identity that won't resolve is discarded.

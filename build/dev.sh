@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Debug build (ODIN_DEBUG on): bounds checks, debug symbols, and the
-# Tracking_Allocator leak / bad-free report at exit (docs/memory.md — prints
+# Tracking_Allocator leak / bad-free report at exit (mydocs/memory.md — prints
 # "[mem] clean" on a clean run). Output -> build/out/skymod (gitignored).
 # Pass --run to launch it after building; args after --run go to the binary
 # (e.g. ./build/dev.sh --run --persist-logs). Use ./release.sh for shipping.

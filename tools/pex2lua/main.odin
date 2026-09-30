@@ -11,7 +11,7 @@ package main
 //
 // The corpus harness: point it at SE's Skyrim - Misc.bsa (LE splits the same corpus over
 // Misc + the three DLC archives), then check every emitted file with
-// `luac -p`. Whole-corpus numbers live in docs/papyrus-transpiler.md.
+// `luac -p`. Whole-corpus numbers live in mydocs/papyrus-transpiler.md.
 //
 // No SDL — pure formats code, runs headless.
 

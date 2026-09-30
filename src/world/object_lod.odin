@@ -200,7 +200,7 @@ clear_object_lod :: proc(s: ^Scene) {
 }
 
 // draw_object_lod draws the baked distant-object quads, frustum-culled by quad AABB. Near transition
-// is the HYBRID SKIRT (docs/live-state none — object-lod-near-double-render): per-quad each cell is
+// is the HYBRID SKIRT (mydocs/live-state none — object-lod-near-double-render): per-quad each cell is
 // classified against the full-detail bubble (Chebyshev `full_radius` of the camera cell), and
 //   • quad fully INSIDE the bubble  → skipped entirely (those cells draw full meshes)
 //   • quad fully OUTSIDE the bubble → drawn whole (one instanced draw per model — the cheap far path)

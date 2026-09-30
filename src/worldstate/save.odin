@@ -1,6 +1,6 @@
 package worldstate
 
-// `.skysave` serialization (ROADMAP Phase 3d — docs/saves.md §4.2). The save FILE is just the
+// `.skysave` serialization (ROADMAP Phase 3d — mydocs/saves.md §4.2). The save FILE is just the
 // overlay (§4.1) on disk: load = deserialize → populate overlay; save = re-pack overlay. We use
 // CBOR (core:encoding/cbor) — tagged/self-describing, so adding/removing/reordering fields is
 // forward/backward-compatible for free (the §3.3 "single biggest upgrade" over Bethesda's
@@ -38,7 +38,7 @@ FORMAT_VERSION :: u32(3) // v3: stable identity slots + embedded form-table brid
 // Form_Bridge decouples the save from the mods/form-table package (which owns identity): the app
 // supplies these hooks over its Form_Table so the save can (identify) name the stable slots it
 // references and (resolve) map a saved identity back to THIS install's slot on load — the cross-
-// install portability remap (docs/saves.md §4.4/§4.4.1). nil ⇒ no bridge (same-install identity).
+// install portability remap (mydocs/saves.md §4.4/§4.4.1). nil ⇒ no bridge (same-install identity).
 Form_Bridge :: struct {
 	user:     rawptr,
 	identify: proc(user: rawptr, slot: u32) -> (uuid: string, filename: string, ok: bool),

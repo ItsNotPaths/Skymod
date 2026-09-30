@@ -41,7 +41,7 @@ main :: proc() {
 	loader_alloc := context.allocator
 
 	// Debug builds: wrap the heap allocator to catch leaks / double-frees (see
-	// docs/memory.md). The report is deferred FIRST so it runs LAST — after every
+	// mydocs/memory.md). The report is deferred FIRST so it runs LAST — after every
 	// other defer has freed — and prints to stderr directly (the logger is already
 	// torn down by then). Release builds (-o:speed, no ODIN_DEBUG) compile it out.
 	when ODIN_DEBUG {

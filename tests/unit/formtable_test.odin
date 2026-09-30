@@ -1,6 +1,6 @@
 package unit_tests
 
-// Form-table tests (docs/mods.md "Two tiers"; docs/saves.md §4.4). Hermetic: pure data ops plus one
+// Form-table tests (mydocs/mods.md "Two tiers"; mydocs/saves.md §4.4). Hermetic: pure data ops plus one
 // save/load round-trip to a /tmp file. Asserts the identity invariants the save-portability story
 // depends on — monotonic interning, the tombstone (re-add returns the SAME slot), official pins
 // (Skyrim.esm == 0), uuid-first resolve, and text persistence advancing next_user past loaded slots.

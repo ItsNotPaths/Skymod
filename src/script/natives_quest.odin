@@ -1,6 +1,6 @@
 package script
 
-// Quest.* — the quest-state store natives (docs/scripting-natives.md §B, the highest-leverage new
+// Quest.* — the quest-state store natives (mydocs/scripting-natives.md §B, the highest-leverage new
 // store: ~25k call sites reach these through the transpiled Quest.pex wrappers SetStage/GetStage/…).
 // `self` is the quest FormID. All state lives in the worldstate quest store (overlay only — the ESM
 // baseline quest state isn't indexed yet, so an untouched quest reads as stage 0 / stopped).

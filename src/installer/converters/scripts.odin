@@ -2,7 +2,7 @@ package converters
 
 // PEX -> Lua, once, at install. The engine never reads Papyrus: it loads the Lua this writes
 // to <content>/scripts, and mods ship their own Lua. The hand rewrites of latent functions ship
-// in the binary and are written beside it (docs/script-api.md section 10).
+// in the binary and are written beside it (mydocs/script-api.md section 10).
 
 import "core:fmt"
 import "core:hash"

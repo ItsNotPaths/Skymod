@@ -1,6 +1,6 @@
 package script
 
-// A-tier overlay natives (docs/scripting-natives.md §A) — the ones whose backing store already
+// A-tier overlay natives (mydocs/scripting-natives.md §A) — the ones whose backing store already
 // exists: GlobalVariable read/write over worldstate.globals, actor life-state over the new Dead
 // field, and PlaceAtMe over the created-ref space. Small, high-frequency, no new store.
 

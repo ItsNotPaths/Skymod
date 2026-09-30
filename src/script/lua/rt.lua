@@ -1,5 +1,5 @@
 -- skymod.rt: the runtime every converted Papyrus script requires. The contract it serves is the
--- `rt` table in docs/papyrus-transpiler.md. Positions are 0-based: the engine's Lua is patched.
+-- `rt` table in mydocs/papyrus-transpiler.md. Positions are 0-based: the engine's Lua is patched.
 --
 -- Receivers are one of three things: a ref (engine userdata wrapping a form), a script instance
 -- (a table per form and attached script), or None (the engine sentinel; nil counts as None).
@@ -181,7 +181,7 @@ local function defines(cls, lname)
 end
 
 -- ── field types ─────────────────────────────────────────────────────────────
--- Hand-written scripts declare `__vars` entries with these (docs/script-api.md section 2). Each
+-- Hand-written scripts declare `__vars` entries with these (mydocs/script-api.md section 2). Each
 -- returns the { type, default } shape the transpiler emits.
 
 local function field(t) return function(v) return { type = t, default = v } end end

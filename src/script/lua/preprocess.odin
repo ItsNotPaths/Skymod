@@ -1,6 +1,6 @@
 package script_lua
 
-// The CE-syntax console preprocessor (docs/script-runtime-decisions.md, "Console"): a THIN line
+// The CE-syntax console preprocessor (mydocs/script-runtime-decisions.md, "Console"): a THIN line
 // rewrite so muscle-memory Skyrim console input works on top of what is fundamentally a Lua REPL.
 // The rewrite only fires on unambiguous CE shapes; anything Lua-shaped (contains '(' or '=') passes
 // through untouched, so it never fights valid Lua. It is deliberately small and grows as verbs land.

@@ -4,7 +4,7 @@ package transpile
 // definitions folded into their reader.
 //
 // Every engine-facing operation goes through the `rt` table. The transpiler never decides
-// what `rt` does — see the contract table in docs/papyrus-transpiler.md.
+// what `rt` does — see the contract table in mydocs/papyrus-transpiler.md.
 
 
 import "core:strings"

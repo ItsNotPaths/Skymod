@@ -114,7 +114,7 @@ World :: struct {
 	obj_pair:  ^jolt.ObjectLayerPairFilter,
 	obj_vs_bp: ^jolt.ObjectVsBroadPhaseLayerFilter,
 
-	// Drawing between fixed ticks (docs/shipped.md §E): `prev` is the pre-step pose of every body
+	// Drawing between fixed ticks (mydocs/shipped.md §E): `prev` is the pre-step pose of every body
 	// awake over the last step; body_step hands it out with the live pose as the step's segment.
 	prev:      map[Body]Pose,
 	awake:     [dynamic]Body, // scratch for the active-body query

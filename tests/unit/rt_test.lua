@@ -113,7 +113,7 @@ assert(rt.aget(a, 3) == None, "out of range reads None")
 local objs = rt.array(2, "actor")
 assert(objs[0] == None and #objs == 2, "object slots hold None, not nil")
 
--- hand-written classes (docs/script-api.md): short forms, typed fields, clocks, OnTick
+-- hand-written classes (mydocs/script-api.md): short forms, typed fields, clocks, OnTick
 files.lever = [[
   local rt = require('skymod.rt')
   local C = rt.class("Lever", "ObjectReference")

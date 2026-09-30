@@ -2,7 +2,7 @@ package main
 
 // The game session: the Game struct (the long-lived state that used to be ~40 locals of
 // run_game), one-time game_setup, and the explicit ordered game_teardown. The per-frame
-// body lives in game_frame.odin. Split per docs/run-game-refactor.md.
+// body lives in game_frame.odin. Split per mydocs/run-game-refactor.md.
 //
 // TEARDOWN ORDER IS LOAD-BEARING. run_game used to encode it as a LIFO defer stack whose
 // correctness depended on declaration order; game_teardown states it explicitly instead.
@@ -98,7 +98,7 @@ Slow_Snap :: struct {
 	stream, render, acquire: f64,
 }
 
-// Fixed simulation tick (docs/shipped.md §E). Logic and physics advance in whole
+// Fixed simulation tick (mydocs/shipped.md §E). Logic and physics advance in whole
 // TICK_DT steps; rendering runs at whatever rate the display gives us and interpolates on
 // `alpha`. Jolt's solver is not timestep-independent, so a varying step made a 144 Hz machine
 // and a 60 Hz machine converge differently — the step has to be constant.
@@ -355,7 +355,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// a per-frame budget. Fly out of the window and watch cells stream in/out.
 	src := resolve_source(cfg)
 
-	// Mod profile (docs/mods.md layer 4): the MO2-style mod list, persisted per profile as
+	// Mod profile (mydocs/mods.md layer 4): the MO2-style mod list, persisted per profile as
 	// <base>/profiles/<name>/modlist.txt; the mods/ folder is shared across all profiles.
 	// Loaded, reconciled against the mod folders under <base>/mods (new folders enabled by
 	// default), and used to build the VFS overlay + the derived plugin load order. The
@@ -558,7 +558,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	// the player level, so the Tamriel load bar below shows a rotating tip and "Level N".
 	loadui_ready(g, gamedb.load_tips(&g.db), worldstate.player_level(&g.sim.ws, &g.db))
 	// Form-table bridge: the identity remap that lets a save survive a load-order/cross-install change
-	// (docs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
+	// (mydocs/saves.md §4.4). Loaded once for the session (the mod set is fixed after world build) and
 	// handed to every save/load below so slots resolve to THIS install's forms.
 	g.save_ft = load_form_table(base)
 	g.up.formtable = true

@@ -8,7 +8,7 @@ import "../formid"
 import "../formula"
 import "../gamedb"
 
-// Active_Effect is one scripted magic effect on a target (docs/script-api.md section 3). Its script
+// Active_Effect is one scripted magic effect on a target (mydocs/script-api.md section 3). Its script
 // instance keys on the effect handle, and its class's __effect terms change the target's actor
 // values. The instance lingers after the effect ends while its state still ticks.
 Active_Effect :: struct {

@@ -83,7 +83,7 @@ DEFAULTS := [?]Default {
 // only its overrides and inherits everything else from the `vanilla` root. set()/save()
 // write to THIS Config, so a profile's settings.txt stays sparse (just its deltas).
 // The root (base/settings.txt = the vanilla baseline) is parentless and backfilled
-// with every DEFAULT. See docs/mods.md + the input-system notes.
+// with every DEFAULT. See mydocs/mods.md + the input-system notes.
 Config :: struct {
 	path:   string,
 	keys:   [dynamic]string,

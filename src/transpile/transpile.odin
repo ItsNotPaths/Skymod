@@ -4,7 +4,7 @@ package transpile
 //
 // DETACHABLE BY RULE: this package imports core:* and formats/pex, nothing else. It does no
 // file IO, holds no globals, and never imports the script registry — emitted code targets the
-// `rt` contract written down in docs/papyrus-transpiler.md, not any Odin symbol.
+// `rt` contract written down in mydocs/papyrus-transpiler.md, not any Odin symbol.
 //
 // Tiers built here: T0 (one instruction, one statement; jumps become Lua `goto`) and T1 (the
 // local cleanups that need no control-flow analysis). T2 (temp inlining) and T3 (if/while

@@ -4,7 +4,7 @@ package main
 // records_scripts.odin). A raw walk, not a gamedb build, so it also covers the record types
 // the database does not index yet (INFO, SCEN, PACK).
 //
-// This is the step-4 survey from docs/records.md: the totals here are what a layout change has
+// This is the step-4 survey from mydocs/records.md: the totals here are what a layout change has
 // to keep matching, and `failed` must stay 0 on every plugin.
 
 import "core:fmt"

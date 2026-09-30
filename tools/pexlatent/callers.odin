@@ -1,7 +1,7 @@
 package main
 
 // --callers: per call to a closure function, what follows it in the caller. Decides whether the
-// caller still works once the callee sets a fact and returns early (docs/script-rewrite.md
+// caller still works once the callee sets a fact and returns early (mydocs/script-rewrite.md
 // "What the API must answer" item 1).
 //
 // State keys: "m:<declaring class>.<member or property>" and "n:<class>.<family>" for natives.

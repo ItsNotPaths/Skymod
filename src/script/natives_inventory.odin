@@ -1,6 +1,6 @@
 package script
 
-// Inventory natives (docs/scripting-natives.md §B). `self` is the container/actor. A holder keeps
+// Inventory natives (mydocs/scripting-natives.md §B). `self` is the container/actor. A holder keeps
 // plain items as counts of their base and items with data as units (worldstate/items.odin), which keep
 // their ID in the world and out of it. Not scene geometry → no mark_scene_dirty, except a world item.
 
@@ -26,7 +26,7 @@ register_inventory :: proc(reg: ^Registry) {
 
 // Courier.RemoveRef(courier, container, item, toPlayer, countGlobal): the courier's bag gives an
 // item back or drops it, and the global that gates the courier's dialogue counts one item fewer.
-// WICourierScript.removeRefFromContainer calls it (docs/s5/todo.md P13). While the courier talks
+// WICourierScript.removeRefFromContainer calls it (mydocs/s5/todo.md P13). While the courier talks
 // to the player it waits, as the script's IsInDialogueWithPlayer loop did (tick_courier).
 n_courier_remove_ref :: proc(c: ^Call, args: []Value) -> Value {
 	r := worldstate.Courier_Remove{arg_form(c, args, 0), arg_form(c, args, 1), arg_form(c, args, 2), arg_form(c, args, 4), arg_bool(args, 3, false)}

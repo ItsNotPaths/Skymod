@@ -171,7 +171,7 @@ load_race_bounds :: proc(db: ^gamedb.DB, v: ^vfs.VFS) {
 // MODS_DIRNAME is the folder under the exe dir (base) that holds installed mod folders (MO2-style).
 MODS_DIRNAME :: "mods"
 
-// FORM_TABLE_FILE is the persisted, cross-profile mod-identity → stable-slot map (docs/mods.md), kept
+// FORM_TABLE_FILE is the persisted, cross-profile mod-identity → stable-slot map (mydocs/mods.md), kept
 // beside the exe. Global (shared across profiles), atomic-written by the form-table.
 FORM_TABLE_FILE :: "form_table.txt"
 
@@ -198,7 +198,7 @@ load_form_table :: proc(base: string, allocator := context.allocator) -> mods.Fo
 
 // form_bridge builds a worldstate.Form_Bridge over a form-table: the save uses `identify` to name the
 // stable slots it references and `resolve` to map a saved identity back to this install's slot on load
-// (docs/saves.md §4.4). `ft` must outlive every save/load call that uses the returned bridge.
+// (mydocs/saves.md §4.4). `ft` must outlive every save/load call that uses the returned bridge.
 form_bridge :: proc(ft: ^mods.Form_Table) -> worldstate.Form_Bridge {
 	return {
 		user = ft,
@@ -422,7 +422,7 @@ load_gamedb_mods :: proc(src, base: string, profile: ^mods.Profile, v: ^vfs.VFS,
 		delete(inputs)
 	}
 
-	// The form-table interns each plugin's STABLE slot (identity ≠ load order — docs/mods.md). Load
+	// The form-table interns each plugin's STABLE slot (identity ≠ load order — mydocs/mods.md). Load
 	// the persisted global table, pin the official masters (Skyrim.esm==0), intern every plugin below,
 	// then save it back so a plugin keeps its slot across runs/reorders (the reorder-breaks-saves fix).
 	ft: mods.Form_Table

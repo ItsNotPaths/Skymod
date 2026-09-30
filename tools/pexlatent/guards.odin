@@ -10,7 +10,7 @@ import "core:strings"
 import "../../src/formats/pex"
 import "../../src/script"
 
-NATIVES_TSV :: "docs/natives-classified.tsv"
+NATIVES_TSV :: "mydocs/natives-classified.tsv"
 
 Guards :: struct {
 	on:      bool,

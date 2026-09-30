@@ -1,6 +1,6 @@
 package script
 
-// Magic effects, the script lifecycle only (docs/script-api.md section 3): a spell's scripted
+// Magic effects, the script lifecycle only (mydocs/script-api.md section 3): a spell's scripted
 // effects start on a target, run their duration and end. Each is an effect instance keyed by
 // its handle (worldstate.Active_Effect).
 // (hole brew-enchant-perks :tags (magic player unclaimed) :sev gap :needs (crafting-screen)) potions and enchantments take no perks: Mod Alchemy Effectiveness and Mod Enchantment Power scale them when brewed or enchanted, and nothing brews or enchants yet (UESP Skyrim:Alchemy_Effects).

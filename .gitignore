@@ -27,10 +27,11 @@ imgui.ini
 tests/golden/**
 !tests/golden/.gitkeep
 
-# design docs are local-only — only the root README is tracked
+# personal docs and notes are local-only; docs/ is public
 *.md
 !/README.md
-docs/
+!/docs/**
+mydocs/
 
 *.log
 /logs/

@@ -1,7 +1,7 @@
 package main
 
 // --shapes: per closure function, where its latent sites sit on the CFG and which clock
-// shape (docs/script-rewrite.md "Evaluation and clocks") could replace them mechanically.
+// shape (mydocs/script-rewrite.md "Evaluation and clocks") could replace them mechanically.
 
 import "core:fmt"
 import "core:os"
@@ -423,11 +423,11 @@ write_shapes_tsv :: proc(c: ^Corpus, path: string) {
 	}
 }
 
-// write_split_tsv lists the bodies the transpiler splits at install (docs/short-term-plan.md
+// write_split_tsv lists the bodies the transpiler splits at install (mydocs/short-term-plan.md
 // S6): the three mechanical shapes, in functions whose every caller goes on without them (none,
 // or each call site free at the strict level), never in an engine class. Run after the callers
 // report when --callers is given, and after write_shapes_tsv, which counts the callers.
-// With `every`, it lists every latent body instead, for the hand rewrites (docs/s5/todo.md).
+// With `every`, it lists every latent body instead, for the hand rewrites (mydocs/s5/todo.md).
 write_split_tsv :: proc(c: ^Corpus, path: string, every := false) {
 	b := strings.builder_make()
 	defer strings.builder_destroy(&b)

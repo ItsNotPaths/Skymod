@@ -13,7 +13,7 @@ Objective_Flag :: enum u8 {
 
 Objective_State :: distinct bit_set[Objective_Flag;u8]
 
-// Quest_State is a quest's runtime divergence from its ESM baseline (docs/scripting-natives.md §B):
+// Quest_State is a quest's runtime divergence from its ESM baseline (mydocs/scripting-natives.md §B):
 // the current stage (INDX u16 — see the string-label design note), the set of stages that have run
 // (IsStageDone), per-objective flags, and run-state. A fresh game has no entry for any quest (its
 // baseline start-game-enabled state drives it); the store only records what a script has touched.

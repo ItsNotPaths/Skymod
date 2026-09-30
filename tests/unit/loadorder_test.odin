@@ -1,6 +1,6 @@
 package unit_tests
 
-// Dependency-validation tests (docs/mods.md "Manager/profiles"): gamedb.validate_masters flags a
+// Dependency-validation tests (mydocs/mods.md "Manager/profiles"): gamedb.validate_masters flags a
 // plugin whose declared master isn't in the enabled set, and resolve_load_order poisons an
 // unresolved master's slot to esm.INVALID_SLOT rather than cross-wiring it onto the identity slot.
 

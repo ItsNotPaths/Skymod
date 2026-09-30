@@ -16,7 +16,7 @@ import "../models"
 import "../physics"
 import "../worldstate"
 
-// --- resident-instance index (Layer-1 live-apply support; docs/live-state.md §7.1) ---
+// --- resident-instance index (Layer-1 live-apply support; mydocs/live-state.md §7.1) ---
 
 // index_instances records a freshly-finalised chunk's instances into the resident index (formID ->
 // location). Best-effort: the index is a self-healing CACHE (find_resident validates + scans on a
@@ -75,7 +75,7 @@ find_resident :: proc(s: ^Scene, form_id: Form_ID) -> (inst: ^Instance, chunk: ^
 // with no-op "moves".
 MOVE_EPS :: f32(2)
 
-// disable_ref is the Layer-1 mutation verb for Disabled (docs/live-state.md §7.1): it records a
+// disable_ref is the Layer-1 mutation verb for Disabled (mydocs/live-state.md §7.1): it records a
 // Disabled delta in the overlay and applies it to the live ref, which loses its collision (or gets it
 // back); render follows from the ref event. Returns false without an overlay.
 disable_ref :: proc(sp: ^Space, form_id, cell: Form_ID, disabled: bool) -> bool {
@@ -88,7 +88,7 @@ disable_ref :: proc(sp: ^Space, form_id, cell: Form_ID, disabled: bool) -> bool 
 }
 
 // apply_pending_scene_ops drains the worldstate deferred-apply queue into the live cells
-// (docs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write the
+// (mydocs/script-runtime-decisions.md §3 — the "one fixed frame point"). Script natives write the
 // overlay synchronously (read-your-writes) but don't touch the live cells; this makes the change real,
 // and its ref events make it visible. Call once per tick on the active space.
 apply_pending_scene_ops :: proc(sp: ^Space, db: ^gamedb.DB) {
