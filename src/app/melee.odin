@@ -69,9 +69,7 @@ use_hand :: proc(g: ^Game, c: ^script.Call, hand: gamedb.Slot, target: Form_ID) 
 // meets within `reach`.
 @(private = "file")
 swing_target :: proc(g: ^Game, phys: ^physics.World, attacker: Form_ID, reach: f32) -> (best: Form_ID) {
-	box := worldstate.actor_box(&g.sim.ws, &g.db, attacker)
-	chest := worldstate.ref_pos(&g.sim.ws, &g.db, attacker)
-	chest.z = box[0].z + (box[1].z - box[0].z) * 0.7
+	chest := worldstate.actor_chest(&g.sim.ws, &g.db, attacker)
 	yaw := worldstate.ref_rot(&g.sim.ws, &g.db, attacker).z
 	nearest := f32(2)
 	for i in 0 ..< SWING_RAYS {

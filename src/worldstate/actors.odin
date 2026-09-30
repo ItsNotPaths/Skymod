@@ -129,6 +129,12 @@ actor_box :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> [2][3]f32 {
 	return {box[0] * s, box[1] * s}
 }
 
+// actor_chest is where an actor's swings and casts leave from: 0.7 of its height above its feet.
+actor_chest :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> [3]f32 {
+	box := actor_box(ws, db, ref)
+	return ref_pos(ws, db, ref) + {0, 0, (box[1].z - box[0].z) * 0.7}
+}
+
 // ── actor values (actor -> AV name -> its parts) ──────────────────────────────────────────────
 // Skyrim's model (CK wiki, Actor Value): current = base + permanent + damage, max = base +
 // permanent. The temporary modifier arrives with effect magnitudes. `av` is always a canonical name
