@@ -217,7 +217,7 @@ ui_cmd_texture :: proc(ur: ^UI_Render, c: ui.Draw_Cmd) -> (render.Texture, ui.Re
 			return ui_prompt_texture(ur, c.image[len(PROMPT_PREFIX):])
 		}
 		tex, ok := ui_image_texture(ur, c.image) // lazily load the DDS from the VFS; draws nothing on miss
-		return tex, FULL, ok
+		return tex, c.uv if c.uv.w > 0 else FULL, ok
 	case .Rect:
 		return render.white_texture(ur.r), FULL, true
 	}

@@ -48,6 +48,7 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	if s, ok := field_str(L, idx, "from"); ok {n.from = node_align(s)}
 	if field_bool(L, idx, "modal") {n.modal = true}
 	if field_bool(L, idx, "flip_x") {n.flip_x = true}
+	if v, ok := field_vec4(L, idx, "uv"); ok {n.uv = v}
 	// `slice` = the horizontal 3-slice caps (fractions of the art width): a number → {n,n}, or {l,r}.
 	if s, ok := field_num(L, idx, "slice"); ok {
 		n.slice = {s, s}
@@ -121,6 +122,19 @@ field_vec2 :: proc(L: ^lua.State, idx: c.int, key: cstring) -> ([2]f32, bool) {
 		out[0] = elem_num(L, ti, 0)
 		out[1] = elem_num(L, ti, 1)
 		ok = true
+	}
+	lua.settop(L, -2)
+	return out, ok
+}
+
+@(private = "file")
+field_vec4 :: proc(L: ^lua.State, idx: c.int, key: cstring) -> ([4]f32, bool) {
+	lua.getfield(L, idx, key)
+	out: [4]f32
+	ok := lua.type(L, -1) == .TABLE
+	if ok {
+		ti := lua.gettop(L)
+		for i in 0 ..< 4 {out[i] = elem_num(L, ti, c.int(i))}
 	}
 	lua.settop(L, -2)
 	return out, ok
