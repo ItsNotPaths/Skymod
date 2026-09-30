@@ -396,13 +396,18 @@ package_input :: proc(db: ^DB, pack: Form_ID, index: u8) -> (Package_Input, bool
 	return {}, false
 }
 
-// (hole override-packages-use :tags (ai combat) :sev gap) decoded and never run: nothing swaps in the combat, spectator, corpse or guard-warn list (vanilla: 218 alias + 181 NPC_ ECOR, 3 SPOR), and an NPC_ template's lists are not inherited.
 // Override_Packages are FLSTs of packages that replace an actor's own in one situation.
 Override_Packages :: struct {
 	combat:     Form_ID, // ECOR
 	spectator:  Form_ID, // SPOR
+	// (hole corpse-guard-warn-overrides :tags ai :sev polish) OCOR and GWOR are decoded and never run: no vanilla record sets one, and nothing says when an actor observes a corpse or a guard warn long enough to run a package.
 	corpse:     Form_ID, // OCOR
 	guard_warn: Form_ID, // GWOR
+}
+
+// actor_overrides is an actor base's override lists, through its AI packages template flag.
+actor_overrides :: proc(db: ^DB, base: Form_ID, pick: Form_ID = 0) -> Override_Packages {
+	return template_part(db, base, esm.ACBS_TEMPLATE_AI_PACKAGES, pick).overrides
 }
 
 // override_packages reads an alias's or an NPC_'s override lists.

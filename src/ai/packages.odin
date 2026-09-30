@@ -13,32 +13,68 @@ import "../gamedb"
 import "../nav"
 import "../worldstate"
 
+// Override is the override lists an actor picks its package from: in a fight, only its combat
+// lists; watching one, its spectator lists before its own.
+Override :: enum u8 {
+	None,
+	Combat,
+	Spectator,
+}
+
+// override_now is the override lists the agent picks from now.
+override_now :: proc(a: Agent) -> Override {
+	if a.combat.state != .None {return .Combat}
+	return .Spectator if a.spectating > 0 else .None
+}
+
 // select_package is the package an actor runs now, and the quest whose alias gave it: a scene's
 // package action, else alias packages by quest priority, then its own list, then its default list;
-// the first whose schedule and conditions pass.
+// the first whose schedule and conditions pass. Under an override the lists of that kind come
+// first, alias ones by quest priority; in a fight nothing else does.
 select_package :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> (pack, quest: Form_ID) {
-	if p, q, _ := worldstate.scene_package(ws, db, actor); p != 0 {return p, q}
+	over := override_now(w.agents[actor] or_else {})
+	if over != .Combat {
+		if p, q, _ := worldstate.scene_package(ws, db, actor); p != 0 {return p, q}
+	}
 	Candidate :: struct {
 		pack, quest: Form_ID,
 		priority:    u8,
 	}
+	base, pick := worldstate.ref_base(ws, db, actor), worldstate.actor_pick(ws, db, actor)
 	list := make([dynamic]Candidate, context.temp_allocator)
-	for h in worldstate.aliases_of(ws, actor) {
-		q, id, _ := formid.alias_key(h)
-		alias, _ := gamedb.quest_alias(db, q, id)
-		qb, _ := gamedb.quest_baseline_of(db, q)
-		for p in alias.packages {append(&list, Candidate{p, q, qb.priority})}
+	add_aliases :: proc(list: ^[dynamic]Candidate, ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID, over: Override) {
+		from := len(list)
+		for h in worldstate.aliases_of(ws, actor) {
+			q, id, _ := formid.alias_key(h)
+			alias, _ := gamedb.quest_alias(db, q, id)
+			qb, _ := gamedb.quest_baseline_of(db, q)
+			packs := alias.packages if over == .None else override_list(db, alias.overrides, over)
+			for p in packs {append(list, Candidate{p, q, qb.priority})}
+		}
+		slice.stable_sort_by(list[from:], proc(a, b: Candidate) -> bool {return a.priority > b.priority})
 	}
-	slice.stable_sort_by(list[:], proc(a, b: Candidate) -> bool {return a.priority > b.priority})
-	own, defaults := gamedb.actor_packages(db, worldstate.ref_base(ws, db, actor), worldstate.actor_pick(ws, db, actor))
-	for p in own {append(&list, Candidate{pack = p})}
-	for p in defaults {append(&list, Candidate{pack = p})}
+	if over != .None {
+		add_aliases(&list, ws, db, actor, over)
+		for p in override_list(db, gamedb.actor_overrides(db, base, pick), over) {append(&list, Candidate{pack = p})}
+	}
+	if over != .Combat {
+		add_aliases(&list, ws, db, actor, .None)
+		own, defaults := gamedb.actor_packages(db, base, pick)
+		for p in own {append(&list, Candidate{pack = p})}
+		for p in defaults {append(&list, Candidate{pack = p})}
+	}
 	for c in list {
 		p := gamedb.package_of(db, c.pack) or_continue
 		ctx := conditions.Context{db = db, ws = ws, subject = actor, quest = p.owner_quest if p.owner_quest != 0 else c.quest, pack = c.pack, quest_vars = w.quest_vars}
 		if schedule_open(ws, p.schedule) && !worldstate.done_today(ws, actor, c.pack) && conditions.all(&ctx, p.conditions) {return c.pack, ctx.quest}
 	}
 	return 0, 0
+}
+
+@(private = "file")
+override_list :: proc(db: ^gamedb.DB, o: gamedb.Override_Packages, over: Override) -> []Form_ID {
+	list, _ := gamedb.form_list_of(db, o.combat if over == .Combat else o.spectator)
+	return list
 }
 
 // schedule_open is whether a package's schedule allows it now. Month and date are never set in vanilla and are not read.
@@ -170,7 +206,8 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Eat", "Acquire":                return .Done
 	case "Patrol":                        return proc_patrol(c)
 	case "UseIdleMarker":                 return proc_idle_marker(c)
-	case "Wait", "HoldPosition":          return proc_wait(c)
+	case "Wait":                          return proc_wait(c)
+	case "HoldPosition":                  return proc_hold_position(c)
 	case "Guard":                         return proc_guard(c)
 	case "Wander":                        return proc_wander(c)
 	case "LockDoors", "UnlockDoors":      return proc_doors(c, name == "LockDoors")
@@ -499,6 +536,20 @@ suspicious :: proc(c: ^Proc_Context, t: gamedb.Package_Target, other: Form_ID) -
 // proc_wait stands until the package or its parent ends.
 proc_wait :: proc(c: ^Proc_Context) -> Status {
 	c.agent.mover.goal = {}
+	return .Running
+}
+
+// proc_hold_position waits; in a fight it fights from inside its place, never chasing out of it.
+proc_hold_position :: proc(c: ^Proc_Context) -> Status {
+	if c.agent.combat.state == .None {return proc_wait(c)}
+	p, ok := location(c)
+	if !ok {return .Running}
+	g := &c.agent.mover.goal
+	off := g.point.xy - p.center.xy
+	if radius := max(p.radius, TRAVEL_RADIUS); g.active && linalg.length(off) > radius {
+		g.point.xy = p.center.xy + linalg.normalize(off) * radius
+		g.radius = ARRIVED
+	}
 	return .Running
 }
 

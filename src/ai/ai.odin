@@ -1,6 +1,6 @@
 package ai
 
-// AI: every actor runs a package, unless it is warning, fighting or fleeing the player. A loaded actor walks its capsule with a mover.
+// AI: every actor runs a package; while it fights, only one from its combat override lists. A loaded actor walks its capsule with a mover.
 // An unloaded actor that travels steps cell to cell; any other waits and is placed when its cell loads.
 
 import "core:fmt"
@@ -46,7 +46,9 @@ Agent :: struct {
 	seat:      Seat, // the furniture marker it claimed
 	posture:   actorstate.State_ID, // the state it holds `seat` in; STAND until it settles
 	lead_at:   [3]f32, // where the leader it follows stood last tick
-	combat:    combat.Fight, // toward its target (tick_combat); the package waits while it is not None
+	combat:    combat.Fight, // toward its target (tick_combat); only a combat override package runs while it is not None
+	override:  Override, // the lists `pack` was picked from
+	spectating: f32, // seconds it still counts as watching a fight
 	confront:  Confront, // a guard after a wanted actor; the package waits while it walks up
 	scene:     bool, // `pack` came from a scene's package action
 	social_in: f32, // seconds to the next look around (social.odin)
@@ -84,6 +86,8 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	scene_pack, _, action := worldstate.scene_package(ws, db, actor)
 	a.eval_in -= dt
 	if worldstate.take(&ws.ai.evaluate, actor) {a.eval_in = 0}
+	watch_fights(ws, db, a, actor, dt)
+	if override_now(a^) != a.override {a.eval_in = 0}
 	if worldstate.take(&ws.ai.to_package, actor) && a.pack != 0 {
 		jump_to_destination(w, ws, db, a, actor, feet)
 		interrupt(w, actor)
@@ -94,13 +98,17 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 		worldstate.wear_spare_armor(ws, db, actor)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 		a.scene = scene_pack != 0
+		a.override = override_now(a^)
 	}
-	if a.combat.state != .None { // tick_combat ran first
+	runs := a.pack != 0
+	if a.combat.state != .None { // tick_combat ran first; a combat override package steers on top
 		leave(a)
 		combat_goal(ws, db, a, feet)
 	} else if confront(w, ws, db, a, actor, feet, dt) {
 		leave(a)
-	} else if a.pack != 0 {
+		runs = false
+	}
+	if runs {
 		c := Proc_Context {
 			cond  = {db = db, ws = ws, subject = actor, quest = a.quest, pack = a.pack, quest_vars = w.quest_vars},
 			agent = a,

@@ -45,7 +45,7 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 	}
 	clear(&ws.ai.combat_asks)
 	for id, &a in w.agents {
-		if a.combat.state != .None && id not_in ws.ai.loaded {a.combat = {}} // unloaded, it fights no one
+		if id not_in ws.ai.loaded {a.combat, a.spectating = {}, 0} // unloaded, it fights and watches no one
 	}
 	defer publish_fights(w, ws)
 	fighters := make([dynamic]combat.Fighter, 0, len(actors), context.temp_allocator)
@@ -78,6 +78,22 @@ publish_fights :: proc(w: ^World, ws: ^worldstate.World_State) {
 	clear(&ws.ai.fighting)
 	for id, a in w.agents {
 		if a.combat.state == .Combat {ws.ai.fighting[id] = a.combat.target}
+	}
+}
+
+// (hole spectator-reading :tags (ai combat) :sev polish) unsourced: who counts as watching a fight; here an actor out of combat that detects either side of one.
+// watch_fights keeps an actor out of combat a spectator for fAISpectatorRememberThreatTimer after
+// it last detected a fight it is not in.
+@(private)
+watch_fights :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, a: ^Agent, actor: Form_ID, dt: f32) {
+	a.spectating = max(a.spectating - dt, 0)
+	if a.combat.state != .None {return}
+	for fighter, target in ws.ai.fighting {
+		if fighter == actor || target == actor {continue}
+		if worldstate.detected(ws, actor, fighter) || worldstate.detected(ws, actor, target) {
+			a.spectating = gamedb.setting_float(db, "fAISpectatorRememberThreatTimer", 5)
+			return
+		}
 	}
 }
 
