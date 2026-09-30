@@ -57,13 +57,13 @@ Effect_Def_Src :: struct {
 // runs the magichit hooks, then the effect's own land when def has one; they may change m, d and
 // the tunables. An effect never starts another: a spell names all its effects (user, 2026-09-28).
 // magic_cost runs magiccost; weapon_cost meleecost or archcost, weapon_hit meleehit or archhit, by
-// `ranged`; armor_hit runs armorhit on one worn piece, and cannot stop anything.
+// `ranged`, and gives back the spells its hooks put on the target; armor_hit runs armorhit on one worn piece, and cannot stop anything.
 Hooks :: struct {
 	data:        rawptr,
 	magic_hit:   proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
 	magic_cost:  proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
 	weapon_cost: proc(data: rawptr, actor, weapon: Form_ID, kind: combat.Attack_Kind, ranged: bool, cost: ^f32) -> bool,
-	weapon_hit:  proc(data: rawptr, a: ^combat.Attack, ranged: bool) -> bool,
+	weapon_hit:  proc(data: rawptr, a: ^combat.Attack, ranged: bool, spells: ^[dynamic]Form_ID) -> bool,
 	armor_hit:   proc(data: rawptr, wearer, item: Form_ID, rating: ^combat.Part),
 }
 

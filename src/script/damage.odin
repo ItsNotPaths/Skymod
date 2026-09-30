@@ -11,7 +11,6 @@ import "../worldstate"
 
 combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
-// (hole combat-hit-spells :tags (combat magic) :sev gap) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
 // weapon_hit is a weapon hit landing on a live actor, melee or ranged (`projectile` its PROJ): an
 // assault unless a friend lets it go, the damage (a sneak attack when the target had not detected the attacker), the weapon's
 // enchantment, OnHit, a noise and the target's grunt.
@@ -32,17 +31,21 @@ weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Att
 }
 
 // land_attack is everything a landed weapon hit does to its target. The meleehit or archhit hooks
-// (perks, as Lua) fill its parts or stop it, the armorhit hooks each worn piece's rating, then the
-// combat seam's damage composes them.
+// (perks, as Lua) fill its parts, name spells for it or stop it, the armorhit hooks each worn
+// piece's rating, then the combat seam's damage composes them; the spells land on a target that
+// lives through it, from the attacker.
 land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32, ranged: bool) {
 	a := combat.attack(attacker, target, weapon, kind)
 	a.roll = rand.float32()
 	h := c.ws.hooks
-	if h.weapon_hit != nil && !h.weapon_hit(h.data, &a, ranged) {return}
+	spells := make([dynamic]Form_ID, context.temp_allocator)
+	if h.weapon_hit != nil && !h.weapon_hit(h.data, &a, ranged, &spells) {return}
 	a.armor = plugin.span(worn_armor(c, target))
 	wd := worldhost.Data{context, c.ws, c.db}
 	w := worldhost.world(&wd)
 	damage_health(c, target, combat_table.damage(&w, a, base), attacker)
+	if worldstate.is_dead(c.ws, c.db, target) {return}
+	for s in spells {start_spell(c, s, target, attacker)}
 }
 
 // worn_armor is the armor `wearer` has on, each piece's rating through the armorhit hooks.

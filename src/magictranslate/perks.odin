@@ -11,6 +11,7 @@ import "../formats/esm"
 import "../gamedb"
 
 // (hole perk-translate :tags (magic records player) :sev gap :needs (magic-translate)) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
+// (hole swing-spell :tags combat :sev gap :needs (actor-states)) Apply_Weapon_Swing_Spell (Quick Reflexes, 1 entry) is not translated: it runs on the one blocking as an enemy power attacks, and no actor has a block or power-attack state.
 // (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 
 // Point is where an entry point's entries land: the perk file's function (FN_KINDS), its context,
@@ -41,6 +42,8 @@ POINTS := #partial [gamedb.Entry_Point]Point {
 	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER, ""},
 	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER, ""},
 	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER, ""},
+	.Apply_Combat_Hit_Spell           = {"hit", "h", "", ATTACKER, ""},
+	.Apply_Bashing_Spell              = {"hit", "h", "", ATTACKER, "h.bash"},
 	.Mod_Power_Attack_Stamina         = {"cost", "c", "c.cost", {"c.actor", "c.source", ""}, "c.power"},
 	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.actor", "a.source", ""}, ""},
 }
@@ -73,10 +76,10 @@ perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 		entries := slice.clone(src.db.perks[member].entries, context.temp_allocator)
 		slice.stable_sort_by(entries, proc(a, b: gamedb.Perk_Entry) -> bool {return a.priority > b.priority})
 		for e in entries {
-			if e.kind != .Entry_Point || e.point > max(gamedb.Entry_Point) || POINTS[e.point].fn == "" {continue}
+			if e.kind != .Entry_Point || e.point > max(gamedb.Entry_Point) || POINTS[e.point].fn == "" || gated_on_unbuilt(e) {continue}
 			pt := POINTS[e.point]
 			gate := entry_gate(src, chain, rank, e, pt) or_return
-			change := change_lua(pt, e) or_return
+			change := change_lua(src, pt, e) or_return
 			if pt.fn not_in lines {lines[pt.fn] = make([dynamic]string, context.temp_allocator)}
 			append(&lines[pt.fn], fmt.tprintf("  if %s then %s end", gate, change))
 		}
@@ -153,12 +156,30 @@ drop_rank_tests :: proc(chain: []Form_ID, rank: int, conds: []gamedb.Condition) 
 	return out[:], top
 }
 
-// change_lua is what an entry does to its part: Set, Add, Multiply, or Multiply by 1 + AV x k (the
-// owner's AV).
+// UNBUILT are the conditions with no body yet, which pass (action-state-conditions): an entry
+// gated on one would run on every hit, so it is not translated.
 @(private)
-change_lua :: proc(pt: Point, e: gamedb.Perk_Entry) -> (text: string, ok: bool) {
+UNBUILT := [?]string{"IsAttackType", "IsSprinting", "IsBlocking"}
+
+@(private)
+gated_on_unbuilt :: proc(e: gamedb.Perk_Entry) -> bool {
+	for tab in e.tabs {
+		for c in tab.conditions {
+			if slice.contains(UNBUILT[:], esm.condition_function(c.function).name) {return true}
+		}
+	}
+	return false
+}
+
+// change_lua is what an entry does: Set, Add, Multiply, or Multiply by 1 + AV x k (the owner's AV)
+// to its part; Select_Spell puts its spell on the one hit.
+@(private)
+change_lua :: proc(src: ^Source, pt: Point, e: gamedb.Perk_Entry) -> (text: string, ok: bool) {
 	p, v := pt.part, e.values[0]
 	#partial switch e.function {
+	case .Select_Spell:
+		if e.form == 0 {return "", false}
+		return fmt.tprintf("%s.apply(%q)", pt.ctx, form_name(src, e.form)), true
 	case .Set_Value:      return fmt.tprintf("%s.set = %v", p, v), true
 	case .Add_Value:      return fmt.tprintf("%s.add = %s.add + %v", p, p, v), true
 	case .Multiply_Value: return fmt.tprintf("%s.mult = %s.mult * %v", p, p, v), true

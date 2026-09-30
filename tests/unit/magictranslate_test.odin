@@ -147,7 +147,8 @@ return rt.item {
 }
 
 // A perk chain becomes one rt.perk: each entry gated on the owner's rank, a HasPerk(<next rank>) == 0
-// becoming the rank's top, its tabs' conditions on their refs, its function on its part.
+// becoming the rank's top, its tabs' conditions on their refs, its function on its part, a hit
+// spell as h.apply. An entry gated on a condition with no body yet (IsAttackType) is left out.
 @(test)
 test_magic_translate_perk :: proc(t: ^testing.T) {
 	src: magictranslate.Source
@@ -156,13 +157,14 @@ test_magic_translate_perk :: proc(t: ^testing.T) {
 	src.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
 	src.db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
 	src.files[0] = "Skyrim.esm"
-	RANK1, RANK2, SWORD :: gamedb.Form_ID(0xBABE4), gamedb.Form_ID(0x79342), gamedb.Form_ID(0x1E711)
-	for n in ([?]struct {f: gamedb.Form_ID, e: string}{{RANK1, "Armsman00"}, {RANK2, "Armsman20"}, {SWORD, "WeapTypeSword"}}) {
+	RANK1, RANK2, SWORD, BLEED :: gamedb.Form_ID(0xBABE4), gamedb.Form_ID(0x79342), gamedb.Form_ID(0x1E711), gamedb.Form_ID(0x3AF9B)
+	for n in ([?]struct {f: gamedb.Form_ID, e: string}{{RANK1, "Armsman00"}, {RANK2, "Armsman20"}, {SWORD, "WeapTypeSword"}, {BLEED, "PerkBleedingSwordIron25"}}) {
 		src.edids[n.f] = n.e
 		src.db.form_by_edid[strings.to_lower(n.e, context.temp_allocator)] = n.f
 	}
 	has_perk, _ := esm.condition_function_by_name("HasPerk")
 	keyword, _ := esm.condition_function_by_name("HasKeyword")
+	attack_type, _ := esm.condition_function_by_name("IsAttackType")
 	sword := []gamedb.Perk_Tab{{tab = 1, conditions = {{function = keyword, op = .Equal, value = 1, param1 = u64(SWORD)}}}}
 	src.db.perks[RANK1] = {next_rank = RANK2, entries = {{
 		kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {1.2, 0},
@@ -172,6 +174,8 @@ test_magic_translate_perk :: proc(t: ^testing.T) {
 		{kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {1.4, 0}, tabs = sword},
 		{kind = .Entry_Point, point = .Mod_Armor_Rating, function = .Set_Value, values = {0, 0}},
 		{kind = .Entry_Point, point = .Mod_Power_Attack_Stamina, function = .Multiply_Value, values = {0.75, 0}},
+		{kind = .Entry_Point, point = .Apply_Combat_Hit_Spell, function = .Select_Spell, form = BLEED},
+		{kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {3, 0}, tabs = {{tab = 0, conditions = {{function = attack_type, op = .Equal, value = 1}}}}},
 	}}
 	testing.expect(t, magictranslate.perk_chain(&src, RANK2) == nil, "a later rank heads no chain")
 	text, ok := magictranslate.perk_lua(&src, magictranslate.perk_chain(&src, RANK1))
@@ -186,6 +190,7 @@ end
 local function hit(h)
   if h.actor.av.Armsman00.value == 1 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
   if h.actor.av.Armsman00.value >= 2 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
+  if h.actor.av.Armsman00.value >= 2 then h.apply("PerkBleedingSwordIron25") end
 end
 
 local function armor(a)

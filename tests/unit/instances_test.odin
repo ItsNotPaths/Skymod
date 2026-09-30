@@ -2023,7 +2023,7 @@ C.__fn["ongameloaded"] = function(self)
     if not c.source then return false end
     if c.power then c.cost.mult = c.cost.mult * 0.75 end
   end })
-  rt.hook("Silver", { archhit = function(h) if h.source then h.damage.add = h.damage.add + 20 end end })
+  rt.hook("Silver", { archhit = function(h) if h.source then h.damage.add = h.damage.add + 20; h.apply(h.source) end end })
   rt.hook("Armsman", { meleehit = function(h) h.damage.mult = h.damage.mult * 2 end })
   rt.hook("Unseen", { meleehit = function(h) if not h.actor then return false end end })
   rt.hook("AssassinsBlade", { meleehit = function(h) if h.sneak then h.sneak_mult.mult = h.sneak_mult.mult * 2.5 end end })
@@ -2102,15 +2102,23 @@ test_landing_hooks :: proc(t: ^testing.T) {
 
 	h := f.ws.hooks
 	a := combat.attack(CASTER, TARGET, PLAIN, {.Sneak})
-	testing.expect(t, h.weapon_hit(h.data, &a, false), "the hit goes on")
+	spells := make([dynamic]gamedb.Form_ID, context.temp_allocator)
+	testing.expect(t, h.weapon_hit(h.data, &a, false, &spells), "the hit goes on")
 	testing.expect_value(t, a.damage, combat.Part{mult = 2}) // meleehit only
 	testing.expect_value(t, a.armor_pen, combat.KEEP)
 	testing.expect_value(t, a.sneak_mult, combat.Part{mult = 2.5})
 	a = combat.attack(CASTER, TARGET, PLAIN)
-	testing.expect(t, h.weapon_hit(h.data, &a, true), "the shot goes on")
+	clear(&spells)
+	testing.expect(t, h.weapon_hit(h.data, &a, true, &spells), "the shot goes on")
+	testing.expect(t, len(spells) == 1 && spells[0] == PLAIN, "h.apply names a spell for the target")
+	c := script.Call{ws = &f.ws, db = &f.db}
+	testing.expect_value(t, len(worldstate.effects_on(&f.ws, CASTER)), 0)
+	worldstate.av_set_base(&f.ws, CASTER, "Health", 100) // it lives through the hit
+	script.land_attack(&c, TARGET, CASTER, PLAIN, {}, 1, true)
+	testing.expect_value(t, len(worldstate.effects_on(&f.ws, CASTER)), 1) // the named spell lands after the hit
 	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 3}) // archhit, then the generic hit
 	a = combat.attack(0, TARGET, 0)
-	testing.expect(t, !h.weapon_hit(h.data, &a, false), "a hit hook stops the hit")
+	testing.expect(t, !h.weapon_hit(h.data, &a, false, &spells), "a hit hook stops the hit")
 	rating := combat.KEEP
 	h.armor_hit(h.data, TARGET, PLAIN, &rating)
 	testing.expect_value(t, rating, combat.Part{mult = 1.2, set = 0, has_set = true})
@@ -2291,7 +2299,8 @@ end } }`},
 	h := f.ws.hooks
 	hit :: proc(h: worldstate.Hooks) -> combat.Part {
 		a := combat.attack(0x701, 0x700, 0) // attacker, target
-		h.weapon_hit(h.data, &a, false)
+		spells := make([dynamic]gamedb.Form_ID, context.temp_allocator)
+		h.weapon_hit(h.data, &a, false, &spells)
 		return a.damage
 	}
 	testing.expect_value(t, hit(h), combat.KEEP) // no rank, and Gone is gone

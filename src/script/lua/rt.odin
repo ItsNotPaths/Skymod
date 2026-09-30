@@ -383,9 +383,9 @@ run_weapon_cost :: proc(data: rawptr, actor, weapon: worldstate.Form_ID, kind: c
 }
 
 // run_weapon_hit is worldstate.Hooks.weapon_hit: rt.weapon_hit runs the meleehit or archhit hooks,
-// which fill the attack's parts. False stops the hit.
+// which fill the attack's parts and name the spells it puts on the target. False stops the hit.
 @(private)
-run_weapon_hit :: proc(data: rawptr, a: ^combat.Attack, ranged: bool) -> bool {
+run_weapon_hit :: proc(data: rawptr, a: ^combat.Attack, ranged: bool, spells: ^[dynamic]worldstate.Form_ID) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
@@ -405,6 +405,14 @@ run_weapon_hit :: proc(data: rawptr, a: ^combat.Attack, ranged: bool) -> bool {
 	get_part(L, "crit_damage", &a.crit_damage)
 	get_part(L, "power_mult", &a.power_mult)
 	get_part(L, "sneak_mult", &a.sneak_mult)
+	if lua.getfield(L, -1, "spells") == i32(lua.TTABLE) {
+		for i in 0 ..< lua.Integer(lua.rawlen(L, -1)) {
+			lua.rawgeti(L, -1, i)
+			if f, ok := ref_form(L, -1); ok {append(spells, f)}
+			lua.pop(L, 1)
+		}
+	}
+	lua.pop(L, 1)
 	return true
 }
 

@@ -1262,6 +1262,7 @@ rt.global = setmetatable({}, { __index = function(_, name) return global_value(n
 --   meleehit    a melee hit lands, before the combat seam's damage (power, sneak, bash; parts
 --               damage, armor_pen (the target's armor rating), crit_chance (percent), crit_damage,
 --               power_mult, sneak_mult)
+--               h.apply(spell) puts a spell (by name, or a form) on the target once the hit lands
 --   archhit     a shot lands: as meleehit
 --   armorhit    a hit meets one worn piece (part rating)
 --   action      generic: as any of magiccost, meleecost and archcost, after that kind's function
@@ -1400,11 +1401,13 @@ end
 -- rt.weapon_hit(actor, target, source, ranged, power, sneak, bash) runs the archhit hooks for a
 -- shot, else the meleehit hooks: the context with its parts, or false when the hit is stopped.
 function rt.weapon_hit(actor, target, source, ranged, power, sneak, bash)
+  local spells = {}
   local h = {
     actor = actor, target = target, source = source, power = power, sneak = sneak, bash = bash,
     damage = part(), armor_pen = part(), crit_chance = part(), crit_damage = part(), power_mult = part(),
-    sneak_mult = part(), global = rt.global,
+    sneak_mult = part(), spells = spells, global = rt.global,
   }
+  function h.apply(spell) spells[#spells] = type(spell) == "string" and rt.ref(spell) or spell end
   if not run_hooks(ranged and "archhit" or "meleehit", h) then return false end
   return h
 end
