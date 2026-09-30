@@ -121,7 +121,7 @@ stop_effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, h: Form_ID) {
 // effect_visuals is what a running magic effect shows: its MGEF hit shader and hit art on the
 // target, and its image space modifier while the target is the player. 0 forms show nothing.
 // (hole cast-visuals :tags (vfx magic unclaimed) :sev gap) a cast shows no casting art or casting light on the caster, and a spell's projectile or touch landing plays no impact data set (an Impact at the hit ref, or at `pos` on terrain).
-// (hole enchant-visuals :tags (vfx magic combat unclaimed) :sev gap :needs (weapon-enchantments)) an enchanted weapon or item shows no enchant shader or enchant art.
+// (hole enchant-visuals :tags (vfx magic combat unclaimed) :sev gap :needs (twin-enchantments)) an enchanted weapon or item shows no enchant shader or enchant art.
 @(private = "file")
 effect_visuals :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> [3]Visual {
 	me, _ := gamedb.magic_effect_of(db, e.effect)

@@ -6,10 +6,13 @@ package script
 import "../worldstate"
 
 // (hole look-at-target :tags (threading animation ai unclaimed) :sev gap :needs (anim-state-snapshot)) SetLookAt has no store. Wanted: a look-at target per actor on the sim (script or AI), published in the actor view; main applies the head turn when it samples.
-// (hole ai-combat-natives :tags (ai combat) :sev gap) StartCombat, StopCombat, IsInCombat and GetCombatTarget are stubs: the stand-in combat toward the player is not reachable from scripts.
 // (hole look-at :tags (ai animation unclaimed) :sev gap :needs animation) SetLookAt and ClearLookAt are stubs: no head tracking.
 register_ai :: proc(reg: ^Registry) {
 	register(reg, "Actor", "EvaluatePackage", n_evaluate_package)
+	register(reg, "Actor", "StartCombat", n_start_combat)
+	register(reg, "Actor", "StopCombat", n_stop_combat)
+	register(reg, "Actor", "IsInCombat", n_is_in_combat)
+	register(reg, "Actor", "GetCombatTarget", n_get_combat_target)
 	register(reg, "Actor", "GetCurrentPackage", n_get_current_package)
 	register(reg, "Actor", "MoveToPackageLocation", n_move_to_package_location)
 	register(reg, "Actor", "PathToReference", n_path_to_reference)
@@ -81,5 +84,26 @@ n_keep_offset_from_actor :: proc(c: ^Call, args: []Value) -> Value {
 
 n_clear_keep_offset_from_actor :: proc(c: ^Call, args: []Value) -> Value {
 	delete_key(&c.ws.ai.offsets, c.self)
+	return nil
+}
+
+// StartCombat(akTarget) and StopCombat: the AI takes them at its next tick; the player fights by hand.
+n_start_combat :: proc(c: ^Call, args: []Value) -> Value {
+	if target := arg_form(c, args, 0); target != 0 {worldstate.ask_combat(c.ws, c.self, target)}
+	return nil
+}
+
+n_stop_combat :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.ask_combat(c.ws, c.self, 0)
+	return nil
+}
+
+n_is_in_combat :: proc(c: ^Call, args: []Value) -> Value {
+	return worldstate.in_combat(c.ws, c.self)
+}
+
+// GetCombatTarget: whom this actor fights; None when it fights no one.
+n_get_combat_target :: proc(c: ^Call, args: []Value) -> Value {
+	if target := c.ws.ai.fighting[c.self]; target != 0 {return target}
 	return nil
 }

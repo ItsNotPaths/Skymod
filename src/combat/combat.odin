@@ -65,6 +65,8 @@ Table :: struct {
 BUILTIN :: Table{tick_builtin, damage_builtin}
 
 COMBAT_LEAVE :: f32(1.5) // combat ends when the target is lost and past this times the aggro radius (guess)
+// (hole disengage-distance :tags (ai combat) :sev polish) unsourced: how far a fighter chases a target it still detects; DISENGAGE is a guess (no GMST names one).
+DISENGAGE :: f32(4096) // combat ends past this, detected or not (guess)
 SWING_EVERY :: f32(1.5) // seconds between a stand-in fighter's swings (guess)
 FAR :: f32(1e9) // the distance to an actor not loaded
 
@@ -107,7 +109,7 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 		if other.id == me.id {continue}
 		seen := detected(h, me.id, other.id)
 		d := distance_xy(me, other)
-		if !seen && d > reach || other.dead || h.world.relation(h.world.data, me.id, other.id) >= .Ally {continue}
+		if !seen && d > reach || d > DISENGAGE || other.dead || h.world.relation(h.world.data, me.id, other.id) >= .Ally {continue}
 		if seen && d < attack_d && attacks_on_sight(h, me.id, other.id) {attack, attack_d = other.id, d}
 		if d < near_d {near, near_d = other.id, d}
 	}
@@ -137,7 +139,8 @@ engage :: proc "contextless" (h: Host, actor: Form_ID) -> State {
 	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Value) == 0 else .Combat
 }
 
-// keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
+// keeps: a fight goes on while the target lives, is loaded and within DISENGAGE, and is detected or
+// near; a flight while it is near.
 @(private = "file")
 keeps :: proc "contextless" (inp: ^Input, me: plugin.Actor, c: Fight, aggro: Aggro) -> bool {
 	h := inp.host
@@ -145,6 +148,7 @@ keeps :: proc "contextless" (inp: ^Input, me: plugin.Actor, c: Fight, aggro: Agg
 	if c.target == 0 || loaded && target.dead {return false}
 	d := distance_xy(me, target) if loaded else FAR
 	if c.state == .Flee {return d <= flee_distance(h, me)}
+	if d > DISENGAGE {return false}
 	return detected(h, me.id, c.target) || d <= max(aggro.warn_attack, aggro.attack) * COMBAT_LEAVE
 }
 

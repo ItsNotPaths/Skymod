@@ -72,6 +72,8 @@ test_combat_brain :: proc(t: ^testing.T) {
 	testing.expect(t, h.swings == 1 && f.swing == combat.SWING_EVERY, "in reach, it swings")
 	fight(t, &table, &h, {actor = 0xA1, fight = f})
 	testing.expect_value(t, h.swings, 1) // not again until SWING_EVERY is past
+	h.distance = combat.DISENGAGE + 1
+	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1, fight = f}).state, combat.State.None) // too far: it gives up, detected or not
 	h = {confidence = 2, aggro = {on = true, warn = 500}}
 	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1}).state, combat.State.Warn) // inside its warn radius
 	h.aggro = {}

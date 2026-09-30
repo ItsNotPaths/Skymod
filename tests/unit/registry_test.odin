@@ -1030,12 +1030,12 @@ test_condition_stands_in :: proc(t: ^testing.T) {
 	reg: script.Registry
 	script.init(&reg)
 	defer script.destroy(&reg)
-	testing.expect(t, script.condition_stands_in(&reg, "Actor", "IsInCombat"), "a bool stub")
+	testing.expect(t, script.condition_stands_in(&reg, "Actor", "IsSprinting"), "a bool stub")
 	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "GetEquippedShout"), "an implemented native")
 	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "GetWarmthRating"), "no condition of that name")
-	k := script.Key("actor.isincombat")
+	k := script.Key("actor.issprinting")
 	e := reg.declared[k]
 	e.ret = "Actor"
 	reg.declared[k] = e
-	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "IsInCombat"), "a stub returning a form")
+	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "IsSprinting"), "a stub returning a form")
 }

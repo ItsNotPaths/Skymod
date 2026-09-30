@@ -289,18 +289,21 @@ av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 // ── regen ──
 // Damaged Health, Magicka and Stamina come back at max x Rate/100 x RateMult/100 per second of play,
 // on every actor, loaded or not (sources: build/out/wsP/formulas/regen_*). A rate of 0 is no regen.
-// (hole combat-regen :tags combat :sev gap) regen never applies its combat multipliers (the CombatHealthRegenMult AV, which trolls and werewolves skip; fCombatMagickaRegenRateMult; fCombatStaminaRegenRateMult): nothing is in combat.
+// In combat, Health regen takes fCombatHealthRegenRateMult (0) plus the actor's CombatHealthRegenMult
+// (a troll's), Magicka and Stamina fCombatMagickaRegenRateMult and fCombatStaminaRegenRateMult.
+// (hole combat-regen-rules :tags combat :sev polish) unsourced: that the GMST and the CombatHealthRegenMult AV add.
 
 Regen :: struct {
 	av, rate, mult:   string,
 	pause, pause_max: string, // GMSTs: seconds after a drop, and after reaching 0 (exe defaults 1 and 5)
+	combat:           string, // GMST: the rate's multiplier in combat
 }
 
 @(private)
 REGEN := [3]Regen {
-	{"Health", "HealRate", "HealRateMult", "fDamagedHealthRegenDelay", "fHealthRegenDelayMax"},
-	{"Magicka", "MagickaRate", "MagickaRateMult", "fDamagedMagickaRegenDelay", "fMagickaRegenDelayMax"},
-	{"Stamina", "StaminaRate", "StaminaRateMult", "fDamagedStaminaRegenDelay", "fStaminaRegenDelayMax"},
+	{"Health", "HealRate", "HealRateMult", "fDamagedHealthRegenDelay", "fHealthRegenDelayMax", "fCombatHealthRegenRateMult"},
+	{"Magicka", "MagickaRate", "MagickaRateMult", "fDamagedMagickaRegenDelay", "fMagickaRegenDelayMax", "fCombatMagickaRegenRateMult"},
+	{"Stamina", "StaminaRate", "StaminaRateMult", "fDamagedStaminaRegenDelay", "fStaminaRegenDelayMax", "fCombatStaminaRegenRateMult"},
 }
 
 // REGEN_TURNS: an actor outside the loaded cells regenerates in turns, once every this many ticks
@@ -333,6 +336,11 @@ av_regen :: proc(ws: ^World_State, db: ^gamedb.DB, seconds: f32) {
 			p.pause = max(p.pause - seconds, 0)
 			if left <= 0 {continue}
 			per_second := av_max(ws, db, actor, r.av) * av_current(ws, db, actor, r.rate) / 100 * av_current(ws, db, actor, r.mult) / 100
+			if in_combat(ws, actor) {
+				m := gamedb.setting_float(db, r.combat, 1)
+				if r.av == "Health" {m += av_current(ws, db, actor, "CombatHealthRegenMult")}
+				per_second *= m
+			}
 			p.damage = min(p.damage + per_second * left, 0)
 		}
 	}

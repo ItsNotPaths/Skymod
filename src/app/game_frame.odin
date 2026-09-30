@@ -192,7 +192,7 @@ game_tick :: proc(g: ^Game) {
 	lap(g, .Traversal, &t)
 	tick_weather(g)
 	lap(g, .Weather, &t)
-	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, ai.fought(&g.sim.agents, g.sim.ws.player), TICK_DT)
+	audio.music_update(&g.sim.music, &g.audio, &g.v, &g.db, &g.sim.ws, worldstate.in_combat(&g.sim.ws, g.sim.ws.player), TICK_DT)
 	audio.ambient_update(&g.sim.ambient, &g.audio, &g.v, &g.db, &g.sim.ws)
 	lap(g, .Audio, &t)
 	run_scripts(g)

@@ -41,7 +41,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	59  = fn_get_stage_done,
 	61  = fn_get_alarmed,
 	62  = fn_is_raining,
-	66  = fn_resting,
+	66  = fn_get_should_attack,
 	67  = fn_get_in_cell,
 	69  = fn_get_is_race,
 	70  = fn_get_is_sex,
@@ -90,7 +90,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	277 = fn_get_base_actor_value,
 	286 = fn_is_sneaking,
 	288 = fn_resting,
-	289 = fn_resting,
+	289 = fn_is_in_combat,
 	300 = fn_is_in_interior,
 	310 = fn_get_in_worldspace,
 	314 = fn_is_actor_a_victim,
@@ -119,7 +119,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	497 = fn_can_pay_crime_gold,
 	499 = fn_get_days_in_jail,
 	503 = fn_get_allow_world_interactions,
-	513 = fn_resting,
+	513 = fn_is_combat_target,
 	543 = fn_get_quest_completed,
 	550 = fn_is_scene_action_complete,
 	555 = fn_has_loaded_3d,
@@ -166,7 +166,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	698 = fn_is_allowed_to_fly,
 	699 = fn_has_magic_effect_keyword,
 	700 = fn_resting,
-	707 = fn_resting,
+	707 = fn_get_combat_target_has_keyword,
 	715 = fn_is_undead,
 	722 = fn_worn_apparel_has_keyword_count,
 	726 = fn_does_not_exist,
@@ -393,10 +393,39 @@ fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Fo
 	return yes(on != 0 && ctx.ws.talking == on)
 }
 
+// IsInCombat: the subject fights someone or someone fights it (the AI's fights this tick).
+@(private = "file")
+fn_is_in_combat :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(worldstate.in_combat(ctx.ws, on))
+}
+
+// GetShouldAttack(target): the subject would attack the target on sight: it is hostile to it.
+@(private = "file")
+fn_get_should_attack :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	target, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(worldstate.hostile(ctx.ws, ctx.db, on, target))
+}
+
+// IsCombatTarget(actor): the subject is whom that actor fights.
+@(private = "file")
+fn_is_combat_target :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	actor, ok := param_ref(ctx, c, 0)
+	if !ok {return 0, false}
+	return yes(on != 0 && ctx.ws.ai.fighting[actor] == on)
+}
+
+// GetCombatTargetHasKeyword(keyword): whom the subject fights has the keyword.
+@(private = "file")
+fn_get_combat_target_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	target := ctx.ws.ai.fighting[on]
+	return yes(target != 0 && worldstate.has_keyword(ctx.ws, ctx.db, target, p1(c)))
+}
+
 // Functions about a system that does not exist yet answer its resting state, which is the true
 // answer in this engine until the system comes: nobody fights, trespasses, sneaks or runs a package.
 // (hole crime-conditions :tags (combat quest) :sev gap :needs (persuasion)) IsBribedbyPlayer reads 0: nothing bribes.
-// (hole combat-conditions :tags combat :sev gap) IsInCombat, GetShouldAttack, GetFriendHit, IsCombatTarget and GetCombatTargetHasKeyword read 0, though the stand-in combat state (ai.combat_state) has the answer.
+// (hole friend-hits :tags combat :sev gap) GetFriendHit reads 0: nothing counts the player's hits on a friend, so a friend never turns on the player after three.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsAttackType (16 uses in damage perk tabs, SE), IsSprinting (4) and IsBlocking (2) have no body, so they pass.
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.

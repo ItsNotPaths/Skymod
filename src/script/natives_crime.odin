@@ -27,6 +27,8 @@ register_crime :: proc(reg: ^Registry) {
 	register(reg, "Faction", "SendPlayerToJail", n_send_player_to_jail)
 	register(reg, "Game", "ServeTime", n_serve_time)
 	register(reg, "Actor", "SendAssaultAlarm", n_send_assault_alarm)
+	register(reg, "Actor", "StopCombatAlarm", n_stop_combat_alarm)
+	register(reg, "Faction", "SendAssaultAlarm", n_faction_send_assault_alarm)
 	register(reg, "Actor", "SetPlayerResistingArrest", n_set_player_resisting_arrest)
 	register(reg, "Actor", "IsTrespassing", n_is_trespassing)
 	register(reg, "ObjectReference", "SendStealAlarm", n_send_steal_alarm)
@@ -168,6 +170,23 @@ n_set_player_report_crime :: proc(c: ^Call, args: []Value) -> Value {
 n_send_assault_alarm :: proc(c: ^Call, args: []Value) -> Value {
 	worldstate.report_crime(c.ws, c.db, c.ws.player, c.self, .Assault, 0)
 	worldstate.strike(c.ws, c.self, c.ws.player)
+	return nil
+}
+
+// StopCombatAlarm: this actor and everyone fighting it stop.
+n_stop_combat_alarm :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.ask_combat(c.ws, c.self, 0)
+	for actor, target in c.ws.ai.fighting {
+		if target == c.self {worldstate.ask_combat(c.ws, actor, 0)}
+	}
+	return nil
+}
+
+// Faction.SendAssaultAlarm: every loaded member of this faction attacks the player.
+n_faction_send_assault_alarm :: proc(c: ^Call, args: []Value) -> Value {
+	for actor in c.ws.ai.loaded {
+		if actor != c.ws.player && worldstate.in_faction(c.ws, c.db, actor, c.self) {worldstate.ask_combat(c.ws, actor, c.ws.player)}
+	}
 	return nil
 }
 

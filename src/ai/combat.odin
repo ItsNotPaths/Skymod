@@ -15,14 +15,6 @@ import "../worldstate"
 
 FLEE_STEP :: f32(512) // how far each flee leg runs
 
-// fought: some actor fights `target`.
-fought :: proc(w: ^World, target: Form_ID) -> bool {
-	for _, a in w.agents {
-		if a.combat.state == .Combat && a.combat.target == target {return true}
-	}
-	return false
-}
-
 combat_state :: proc(w: ^World, actor: Form_ID) -> combat.State {
 	a, ok := w.agents[actor]
 	return a.combat.state if ok else .None
@@ -45,6 +37,17 @@ Combat_Host :: struct {
 // tick_combat runs the combat seam for the loaded actors the AI drives, before their packages
 // tick. A fight that ends restarts the actor's package.
 tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^combat.Table, actors: []plugin.Actor, dt: f32) {
+	for ask in ws.ai.combat_asks {
+		if ask.actor == ws.player {continue} // the player fights by hand
+		a := agent_of(w, ws, db, ask.actor)
+		if ask.target == 0 && a.combat.state != .None {interrupt(w, ask.actor)}
+		a.combat = {state = .Combat, target = ask.target} if ask.target != 0 else {}
+	}
+	clear(&ws.ai.combat_asks)
+	for id, &a in w.agents {
+		if a.combat.state != .None && id not_in ws.ai.loaded {a.combat = {}} // unloaded, it fights no one
+	}
+	defer publish_fights(w, ws)
 	fighters := make([dynamic]combat.Fighter, 0, len(actors), context.temp_allocator)
 	for a in actors {
 		if a.id == ws.player || a.dead {continue}
@@ -66,6 +69,15 @@ tick_combat :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, t: ^
 		a := agent_of(w, ws, db, s.actor)
 		if a.combat.state != .None && s.fight.state == .None {interrupt(w, s.actor)}
 		a.combat = s.fight
+	}
+}
+
+// publish_fights tells scripts and conditions who fights whom (worldstate.AI_Link.fighting).
+@(private = "file")
+publish_fights :: proc(w: ^World, ws: ^worldstate.World_State) {
+	clear(&ws.ai.fighting)
+	for id, a in w.agents {
+		if a.combat.state == .Combat {ws.ai.fighting[id] = a.combat.target}
 	}
 }
 

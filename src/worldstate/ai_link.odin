@@ -15,12 +15,32 @@ AI_Link :: struct {
 	loaded:     Form_Set, // actors with a capsule this tick (app)
 	moving:     Form_Set, // actors walking this tick (AI)
 	moves:      [dynamic]Location_Move, // NPCs that changed location since the VM last looked (AI)
+	fighting:   map[Form_ID]Form_ID, // actor -> whom it fights this tick (AI)
+	combat_asks: [dynamic]Combat_Ask, // StartCombat and StopCombat, for the AI's next tick
 	skipped:    f64, // game hours a wait or GameHour write skipped that the AI has not walked yet
 }
 
 // Location_Move is an actor going from one location to another: OnLocationChange and a CLOC story event.
 Location_Move :: struct {
 	actor, old, now: Form_ID,
+}
+
+// Combat_Ask is StartCombat(target) or, with target 0, StopCombat.
+Combat_Ask :: struct {
+	actor, target: Form_ID,
+}
+
+ask_combat :: proc(ws: ^World_State, actor, target: Form_ID) {
+	append(&ws.ai.combat_asks, Combat_Ask{actor, target})
+}
+
+// in_combat: the actor fights someone, or someone fights it.
+in_combat :: proc(ws: ^World_State, actor: Form_ID) -> bool {
+	if actor in ws.ai.fighting {return true}
+	for _, target in ws.ai.fighting {
+		if target == actor {return true}
+	}
+	return false
 }
 
 // Path_Order is a PathTo: walk to `to`, at `speed` 0 (walk) .. 1 (run); the AI drops it on arrival.
@@ -88,4 +108,6 @@ destroy_ai_link :: proc(l: ^AI_Link) {
 	delete(l.loaded)
 	delete(l.moving)
 	delete(l.moves)
+	delete(l.fighting)
+	delete(l.combat_asks)
 }
