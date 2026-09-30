@@ -33,7 +33,7 @@ progress_read  :: converters.progress_read
 // Bump a part's version when its converter's output changes, so an older install re-runs that part.
 SCRIPTS_VERSION :: 4
 AUDIO_VERSION   :: 4
-MAGIC_VERSION   :: 2
+MAGIC_VERSION   :: 3
 
 // Part is a converted piece of the install. Each has its own key in the manifest; a part whose key
 // changed runs again alone, and the others keep their output.
@@ -168,7 +168,7 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 	}
 	if .Magic in stale {
 		magic_dir, _ := filepath.join({content, SCRIPTS_MOD, SCRIPTS_DIR}, context.temp_allocator)
-		for sub in ([]string{"effects", "spells", "powers", "items"}) { // the translator's alone
+		for sub in ([]string{"effects", "spells", "powers", "items", "perks"}) { // the translator's alone
 			old, _ := filepath.join({magic_dir, sub}, context.temp_allocator)
 			os.remove_all(old)
 		}
@@ -180,7 +180,7 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 		if !mok {
 			return false
 		}
-		log.infof("installer: translated %d effect(s) and %d item(s) to Lua, %d record(s) not", mst.effects, mst.items, mst.skipped)
+		log.infof("installer: translated %d effect(s), %d item(s) and %d perk(s) to Lua, %d record(s) not", mst.effects, mst.items, mst.perks, mst.skipped)
 	}
 	log.infof("installer: parts redone %v, kept %v", stale, ~stale)
 

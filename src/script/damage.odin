@@ -11,7 +11,7 @@ import "../worldstate"
 
 combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
-// (hole combat-hit-spells :tags (combat magic) :sev gap :needs (perk-translator)) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
+// (hole combat-hit-spells :tags (combat magic) :sev gap) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
 // weapon_hit is a weapon hit landing on a live actor, melee or ranged (`projectile` its PROJ): an
 // assault unless a friend lets it go, the damage (a sneak attack when the target had not detected the attacker), the weapon's
 // enchantment, OnHit, a noise and the target's grunt.

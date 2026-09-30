@@ -9,11 +9,20 @@ import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
+// Who names, in Lua, the context a gate runs in and the refs a condition's Subject and Target are;
+// "" where that run-on has no Lua form.
+Who :: struct {
+	ctx, subject, target: string,
+}
+
+// MGEF_WHO: an effect's land, where Subject is the one hit and Target the caster.
+MGEF_WHO :: Who{"e", "e.target", "e.caster"}
+
 // land_lua writes the land function: false from it when the conditions fail, then each dispel
 // (DispelTagged); "" for none. ok=false when a condition has no Lua form.
 land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string) -> (text: string, ok: bool) {
 	if len(conds) == 0 && len(dispels) == 0 {return "", true}
-	gate := gate_lua(src, conds) or_return
+	gate := gate_lua(src, conds, MGEF_WHO) or_return
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintln(&b, "  land = function(e)")
 	switch {
@@ -25,19 +34,19 @@ land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string) -> 
 	return strings.to_string(b), true
 }
 
-// gate_lua writes a condition list as one Lua test: an AND of OR runs, one run a line.
+// gate_lua writes a condition list as one Lua test: an AND of OR runs, joined by `and_`.
 @(private)
-gate_lua :: proc(src: ^Source, conds: []gamedb.Condition) -> (text: string, ok: bool) {
+gate_lua :: proc(src: ^Source, conds: []gamedb.Condition, who: Who, and_ := "\n      and ") -> (text: string, ok: bool) {
 	b := strings.builder_make(context.temp_allocator)
 	group := make([dynamic]string, context.temp_allocator)
 	first := true
 	for c, i in conds {
-		test := condition_lua(src, c) or_return
+		test := condition_lua(src, c, who) or_return
 		append(&group, test)
 		if .Or in c.flags && i < len(conds) - 1 {continue}
 		term := strings.join(group[:], " or ", context.temp_allocator)
 		if len(group) > 1 && len(conds) > len(group) {term = fmt.tprintf("(%s)", term)}
-		fmt.sbprintf(&b, "%s%s", "" if first else "\n      and ", term)
+		fmt.sbprintf(&b, "%s%s", "" if first else and_, term)
 		clear(&group)
 		first = false
 	}
@@ -46,10 +55,10 @@ gate_lua :: proc(src: ^Source, conds: []gamedb.Condition) -> (text: string, ok: 
 
 // condition_lua writes one condition as a Lua test.
 @(private)
-condition_lua :: proc(src: ^Source, c: gamedb.Condition) -> (text: string, ok: bool) {
+condition_lua :: proc(src: ^Source, c: gamedb.Condition, who: Who) -> (text: string, ok: bool) {
 	if .Swap in c.flags || .Use_Aliases in c.flags || .Use_Pack_Data in c.flags {return "", false}
 	info := esm.condition_function(c.function)
-	call := call_lua(src, c, info) or_return
+	call := call_lua(src, c, info, who) or_return
 	global := .Use_Global in c.flags
 	if esm.condition_answers_bool(info.name) {
 		switch truth(c.op, c.value) {
@@ -59,21 +68,21 @@ condition_lua :: proc(src: ^Source, c: gamedb.Condition) -> (text: string, ok: b
 		}
 	}
 	OPS := [esm.Condition_Op]string{.Equal = "==", .NotEqual = "~=", .Greater = ">", .GreaterOrEqual = ">=", .Less = "<", .LessOrEqual = "<="}
-	value := fmt.tprintf("e.global.%s", src.edids[c.global]) if global else fmt.tprint(c.value)
+	value := fmt.tprintf("%s.global.%s", who.ctx, src.edids[c.global]) if global else fmt.tprint(c.value)
 	return fmt.tprintf("%s %s %s", call, OPS[c.op], value), true
 }
 
 // call_lua writes the function a condition asks, called on its subject; a global by the naming rule.
 @(private)
-call_lua :: proc(src: ^Source, c: gamedb.Condition, info: esm.Condition_Function) -> (text: string, ok: bool) {
-	if info.name == "GetGlobalValue" {return fmt.tprintf("e.global.%s", src.edids[Form_ID(c.param1)]), true}
+call_lua :: proc(src: ^Source, c: gamedb.Condition, info: esm.Condition_Function, who: Who) -> (text: string, ok: bool) {
+	if info.name == "GetGlobalValue" {return fmt.tprintf("%s.global.%s", who.ctx, src.edids[Form_ID(c.param1)]), true}
 	subject: string
 	#partial switch c.run_on {
-	case .Subject:   subject = "e.target"
-	case .Target:    subject = "e.caster"
+	case .Subject:   subject = who.subject
+	case .Target:    subject = who.target
 	case .Reference: subject = fmt.tprintf("rt.ref(%q)", form_name(src, c.reference))
-	case:            return "", false
 	}
+	if subject == "" {return "", false}
 	args := args_lua(src, c, info) or_return
 	return fmt.tprintf("%s:%s(%s)", subject, info.name, strings.join(args, ", ", context.temp_allocator)), info.name != ""
 }

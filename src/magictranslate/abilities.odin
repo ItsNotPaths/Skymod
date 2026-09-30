@@ -102,7 +102,7 @@ merge_terms :: proc(terms: []Term) -> []Term {
 // gate_script writes the script that switches an ability by its entries' conditions, each second.
 @(private)
 gate_script :: proc(src: ^Source, form: Form_ID, class: string, conds: []gamedb.Condition) -> (text: string, ok: bool) {
-	gate := gate_lua(src, conds) or_return
+	gate := gate_lua(src, conds, MGEF_WHO) or_return
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintfln(&b, "-- %s SPEL %s: on while its conditions hold, checked each second.", src.files[u32(form >> 32)], src.edids[form])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")

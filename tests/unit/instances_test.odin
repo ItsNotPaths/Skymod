@@ -2229,3 +2229,55 @@ test_rt_stacking :: proc(t: ^testing.T) {
 	cast_by(t, &f, "CureDisease", 0x700)
 	testing.expect_value(t, running(&f, "Rot"), 0)
 }
+
+@(private = "file")
+NO_PERK_LUA :: `local rt = require('skymod.rt')
+local C = rt.class("NoPerk", nil)
+C.__fn["ongameloaded"] = function(self) rt.hook("Gone", nil) end
+return C
+`
+
+// A perks/ file is a hook of its name, added at game start before any mod's: its parts follow the
+// owner's rank in the chain, and a mod's rt.hook of that name, in any case, removes it.
+@(test)
+test_perk_hooks :: proc(t: ^testing.T) {
+	f: Fixture
+	fixture_init(t, &f, "skymod_instances_perks", {{"noperk.lua", NO_PERK_LUA}})
+	defer fixture_destroy(&f)
+	files := [][2]string {
+		{"perks/Armsman00.lua", `return require('skymod.rt').perk { ranks = { "Armsman00", "Armsman20" }, hooks = { hit = function(h)
+  if h.attacker.av.Armsman00.value == 1 then h.damage.mult = h.damage.mult * 1.2 end
+  if h.attacker.av.Armsman00.value >= 2 then h.damage.mult = h.damage.mult * 1.4 end
+end } }`},
+		{"perks/Gone.lua", `return require('skymod.rt').perk { ranks = {}, hooks = { hit = function(h) h.damage.add = 100 end } }`},
+	}
+	for file in files {
+		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
+		os.make_directory_all(filepath.dir(p))
+		testing.expect(t, os.write_entire_file(p, transmute([]u8)file[1]) == nil, "write content")
+	}
+	QUEST, ATTACKER, RANK1, RANK2 :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x701), gamedb.Form_ID(0x800), gamedb.Form_ID(0x801)
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[QUEST] = {scripts = []esm.Script_Attach{{name = "NoPerk"}}}
+	f.db.quest_baseline = make(map[gamedb.Form_ID]gamedb.Quest_Baseline, context.temp_allocator)
+	f.db.quest_baseline[QUEST] = {}
+	f.db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
+	f.db.perks[RANK1] = {next_rank = RANK2}
+	f.db.perks[RANK2] = {}
+	f.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	f.db.form_by_edid["armsman00"] = RANK1
+	slua.set_script_dirs(&f.vm, {f.dir})
+	slua.start_game(&f.vm, &f.db)
+
+	h := f.ws.hooks
+	hit :: proc(h: worldstate.Hooks) -> combat.Part {
+		a := combat.attack(0x701, 0x700, 0) // attacker, target
+		h.hit(h.data, &a)
+		return a.damage
+	}
+	testing.expect_value(t, hit(h), combat.KEEP) // no rank, and Gone is gone
+	worldstate.perk_add(&f.ws, ATTACKER, RANK1)
+	testing.expect_value(t, hit(h), combat.Part{mult = 1.2})
+	worldstate.perk_add(&f.ws, ATTACKER, RANK2)
+	testing.expect_value(t, hit(h), combat.Part{mult = 1.4})
+}

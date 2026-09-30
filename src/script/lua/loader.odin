@@ -23,9 +23,10 @@ Content :: enum u8 {
 	Spells,  // spells/: rt.spell
 	Powers,  // powers/: rt.power
 	Items,   // items/: rt.item
+	Perks,   // perks/: rt.perk
 }
 
-CONTENT_DIRS := [Content]string{.Effects = "effects", .Spells = "spells", .Powers = "powers", .Items = "items"}
+CONTENT_DIRS := [Content]string{.Effects = "effects", .Spells = "spells", .Powers = "powers", .Items = "items", .Perks = "perks"}
 
 // set_script_dirs indexes the scripts under `dirs`, given lowest priority first, and the definition
 // files in each one's content folders. Calling it again replaces the index; classes rt already
@@ -70,15 +71,19 @@ index_layers :: proc(index: ^map[string][dynamic]Script_Layer, dir: string) {
 
 @(private)
 free_script_index :: proc(vm: ^VM) {
-	for index in ([]^map[string][dynamic]Script_Layer{&vm.scripts, &vm.content[.Effects], &vm.content[.Spells], &vm.content[.Powers], &vm.content[.Items]}) {
-		for name, layers in index {
-			for l in layers {delete(l.path)}
-			delete(layers)
-			delete(name)
-		}
-		delete(index^)
-		index^ = nil
+	free_index(&vm.scripts)
+	for &index in vm.content {free_index(&index)}
+}
+
+@(private = "file")
+free_index :: proc(index: ^map[string][dynamic]Script_Layer) {
+	for name, layers in index {
+		for l in layers {delete(l.path)}
+		delete(layers)
+		delete(name)
 	}
+	delete(index^)
+	index^ = nil
 }
 
 // __script_layers(lname) -> { [0] = {path = ..., patch = bool}, ... }, lowest priority first.

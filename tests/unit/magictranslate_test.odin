@@ -141,3 +141,49 @@ return rt.item {
 }
 `)
 }
+
+// A perk chain becomes one rt.perk: each entry gated on the owner's rank, a HasPerk(<next rank>) == 0
+// becoming the rank's top, its tabs' conditions on their refs, its function on its part.
+@(test)
+test_magic_translate_perk :: proc(t: ^testing.T) {
+	src: magictranslate.Source
+	src.files = make(map[u32]string, context.temp_allocator)
+	src.edids = make(map[gamedb.Form_ID]string, context.temp_allocator)
+	src.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	src.db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
+	src.files[0] = "Skyrim.esm"
+	RANK1, RANK2, SWORD :: gamedb.Form_ID(0xBABE4), gamedb.Form_ID(0x79342), gamedb.Form_ID(0x1E711)
+	for n in ([?]struct {f: gamedb.Form_ID, e: string}{{RANK1, "Armsman00"}, {RANK2, "Armsman20"}, {SWORD, "WeapTypeSword"}}) {
+		src.edids[n.f] = n.e
+		src.db.form_by_edid[strings.to_lower(n.e, context.temp_allocator)] = n.f
+	}
+	has_perk, _ := esm.condition_function_by_name("HasPerk")
+	keyword, _ := esm.condition_function_by_name("HasKeyword")
+	sword := []gamedb.Perk_Tab{{tab = 1, conditions = {{function = keyword, op = .Equal, value = 1, param1 = u64(SWORD)}}}}
+	src.db.perks[RANK1] = {next_rank = RANK2, entries = {{
+		kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {1.2, 0},
+		tabs = {{tab = 0, conditions = {{function = has_perk, op = .Equal, value = 0, param1 = u64(RANK2)}}}, sword[0]},
+	}}}
+	src.db.perks[RANK2] = {entries = {
+		{kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {1.4, 0}, tabs = sword},
+		{kind = .Entry_Point, point = .Mod_Armor_Rating, function = .Set_Value, values = {0, 0}},
+	}}
+	testing.expect(t, magictranslate.perk_chain(&src, RANK2) == nil, "a later rank heads no chain")
+	text, ok := magictranslate.perk_lua(&src, magictranslate.perk_chain(&src, RANK1))
+	testing.expect(t, ok, "every entry has a Lua form")
+	testing.expect_value(t, text, `-- Skyrim.esm PERK Armsman00
+local rt = require('skymod.rt')
+return rt.perk {
+  ranks = { "Armsman00", "Armsman20" },
+  hooks = {
+    hit = function(h)
+      if h.attacker.av.Armsman00.value == 1 and h.weapon and h.weapon:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
+      if h.attacker.av.Armsman00.value >= 2 and h.weapon and h.weapon:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
+    end,
+    armor = function(a)
+      if a.wearer.av.Armsman00.value >= 2 then a.rating.set = 0 end
+    end,
+  },
+}
+`)
+}

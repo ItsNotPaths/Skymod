@@ -17,7 +17,7 @@ import "../gamedb"
 Form_ID :: gamedb.Form_ID
 
 Stats :: struct {
-	effects, items: int,
+	effects, items, perks: int,
 	skipped:        int, // records it could not write: a condition with no Lua form, an ability that cannot merge
 }
 
@@ -83,14 +83,20 @@ write_all :: proc(src: ^Source, out_dir: string) -> (st: Stats, ok: bool) {
 		if ab.gate != "" {write_file(out_dir, ab.gate_class, ab.gate) or_return}
 		st.effects += 1
 	}
+	perks_dir, _ := filepath.join({out_dir, "perks"}, context.temp_allocator)
+	os.make_directory_all(perks_dir)
 	for form in src.db.perks {
-		if !src.wanted[form] {continue}
-		text, done := perk_lua(src, form)
+		chain := perk_chain(src, form)
+		if chain == nil || !chain_wanted(src, chain) {continue}
+		text, done := perk_lua(src, chain)
 		if !done {
+			log.warnf("magic: perk %s keeps its record: a condition has no Lua form", src.edids[form])
 			st.skipped += 1
 			continue
 		}
-		if text != "" {write_file(out_dir, src.edids[form], text) or_return}
+		if text == "" {continue}
+		write_file(perks_dir, src.edids[form], text) or_return
+		st.perks += 1
 	}
 	return st, true
 }
@@ -157,7 +163,7 @@ Scan :: struct {
 
 // MAGIC_TYPES are the records the translator writes.
 @(private)
-MAGIC_TYPES := [?]string{"MGEF", "SPEL", "SCRL", "ENCH", "ALCH", "INGR", "SHOU"}
+MAGIC_TYPES := [?]string{"MGEF", "SPEL", "SCRL", "ENCH", "ALCH", "INGR", "SHOU", "PERK"}
 
 // UNNAMED_TYPES have no editor id worth a decompress.
 @(private)

@@ -1251,7 +1251,8 @@ local lands = {} -- lower effect name -> its land (rt.load_effects)
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
 
 -- rt.hook(name, { land = function(e) end, cost = function(c) end, hit = function(h) end,
--- armor = function(a) end }) adds a hook, or replaces the one called `name` in its place; rt.hook(name, nil) removes it. land runs as
+-- armor = function(a) end }) adds a hook, or replaces the one called `name` (in any case) in its
+-- place; rt.hook(name, nil) removes it. land runs as
 -- any effect lands on anyone, from any source, before the effect's own land, with its context
 -- (e.caster, e.target, e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast
 -- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, before the combat seam's damage
@@ -1301,14 +1302,15 @@ end
 
 function rt.hook(name, def)
   if not game_loading then error("rt.hook outside OnGameLoaded", 2) end
+  local lname = name:lower()
   for i = 0, #CORE_HOOKS - 1 do
-    if CORE_HOOKS[i].name == name then
-      core_set[name] = def or false
+    if CORE_HOOKS[i].name:lower() == lname then
+      core_set[CORE_HOOKS[i].name] = def or false
       return
     end
   end
   for i = 0, #hooks - 1 do
-    if hooks[i].name == name then
+    if hooks[i].name:lower() == lname then
       if def then
         hooks[i] = hook_entry(name, def)
       else
@@ -1396,7 +1398,8 @@ local function load_defs(folder, define)
 end
 
 -- rt.load_effects defines every effect the effects/ folders hold, then every spell, power and item
--- the spells/, powers/ and items/ folders hold (they name effects and spells), for the engine.
+-- the spells/, powers/ and items/ folders hold (they name effects and spells), for the engine, and
+-- adds each perk the perks/ folders hold as the hook of its name.
 function rt.load_effects()
   lands = {}
   load_defs("effects", function(name, def)
@@ -1406,7 +1409,16 @@ function rt.load_effects()
   load_defs("spells", spell_def)
   load_defs("powers", power_def)
   load_defs("items", item_def)
+  load_defs("perks", function(name, def) hooks[#hooks] = hook_entry(name, def.hooks or {}) end)
 end
+
+-- rt.perk(def) is a perk chain, in a perks/<name>.lua file that returns it (the name is the file's,
+-- and the hook's: a mod's rt.hook(name, ...) replaces or removes it):
+--   ranks = { "Armsman00", "Armsman20" }     -- the records whose ranks it stands in for, in order
+--   hooks = { hit = function(h) end, armor = function(a) end }  -- as rt.hook's, run before any mod's
+-- A hook gates each part on the owner's rank, the chain's first perk read as an actor value
+-- (h.attacker.av.Armsman00.value). A <name>.patch.lua returns a function that edits it.
+function rt.perk(def) return def end
 
 -- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
