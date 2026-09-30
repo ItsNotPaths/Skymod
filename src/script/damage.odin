@@ -20,7 +20,7 @@ weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Att
 	if !forgiven {worldstate.report_crime(c.ws, c.db, attacker, target, .Assault, 0)}
 	kind := kind
 	if !worldstate.awareness(c.ws, target, attacker).detected {kind += {.Sneak}}
-	land_attack(c, attacker, target, weapon, kind, base)
+	land_attack(c, attacker, target, weapon, kind, base, projectile != 0)
 	slot, _ := gamedb.equip_slot_of(c.db, weapon)
 	if e, ok := gamedb.enchantment_of(c.db, slot.enchantment); ok {
 		start_effects(c, slot.enchantment, e.effects, false, target, attacker)
@@ -31,21 +31,21 @@ weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Att
 	if !worldstate.is_dead(c.ws, c.db, target) {append(&c.ws.barks, worldstate.Bark{speaker = target, to = attacker, subtype = worldstate.SUBTYPE_HIT})} // a grunt, dropped while it still says one
 }
 
-// land_attack is everything a landed weapon hit does to its target. The hit hooks (perks, as Lua)
-// fill its parts or stop it, the armor hooks each worn piece's rating, then the combat seam's
-// damage composes them.
-land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32) {
+// land_attack is everything a landed weapon hit does to its target. The meleehit or archhit hooks
+// (perks, as Lua) fill its parts or stop it, the armorhit hooks each worn piece's rating, then the
+// combat seam's damage composes them.
+land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32, ranged: bool) {
 	a := combat.attack(attacker, target, weapon, kind)
 	a.roll = rand.float32()
 	h := c.ws.hooks
-	if h.hit != nil && !h.hit(h.data, &a) {return}
+	if h.weapon_hit != nil && !h.weapon_hit(h.data, &a, ranged) {return}
 	a.armor = plugin.span(worn_armor(c, target))
 	wd := worldhost.Data{context, c.ws, c.db}
 	w := worldhost.world(&wd)
 	damage_health(c, target, combat_table.damage(&w, a, base), attacker)
 }
 
-// worn_armor is the armor `wearer` has on, each piece's rating through the armor hooks.
+// worn_armor is the armor `wearer` has on, each piece's rating through the armorhit hooks.
 @(private = "file")
 worn_armor :: proc(c: ^Call, wearer: Form_ID) -> []combat.Piece {
 	out := make([dynamic]combat.Piece, context.temp_allocator)
@@ -54,7 +54,7 @@ worn_armor :: proc(c: ^Call, wearer: Form_ID) -> []combat.Piece {
 		slot, _ := gamedb.equip_slot_of(c.db, w.item)
 		if slot.kind != .Armor {continue}
 		p := combat.Piece{w.item, combat.KEEP}
-		if h.armor != nil {h.armor(h.data, wearer, w.item, &p.rating)}
+		if h.armor_hit != nil {h.armor_hit(h.data, wearer, w.item, &p.rating)}
 		append(&out, p)
 	}
 	return out[:]

@@ -2009,26 +2009,26 @@ test_apply_effect :: proc(t: ^testing.T) {
 HOOKS_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Hooks", nil)
 C.__fn["ongameloaded"] = function(self)
-  rt.hook("Double", { land = function(e) if e.source:HasTag("magic.fire") then e.m.mult = e.m.mult * 2 end end })
-  rt.hook("Plus", { land = function(e) e.m.add = e.m.add + 10 end })
-  rt.hook("Broken", { land = function(e) error("broken hook") end })
-  rt.hook("Gone", { land = function(e) return false end })
+  rt.hook("Double", { magichit = function(e) if e.source:HasTag("magic.fire") then e.m.mult = e.m.mult * 2 end end })
+  rt.hook("Plus", { magichit = function(e) e.m.add = e.m.add + 10 end })
+  rt.hook("Broken", { magichit = function(e) error("broken hook") end })
+  rt.hook("Gone", { magichit = function(e) return false end })
   rt.hook("Gone", nil)
-  rt.hook("Huge", { land = function(e) if e.m.value > 1000 then return false end end })
-  rt.hook("Cost", { cost = function(c)
+  rt.hook("Huge", { magichit = function(e) if e.m.value > 1000 then return false end end })
+  rt.hook("Cost", { magiccost = function(c)
     if c.source:HasTag("forbidden") then return false end
     c.cost.mult = c.cost.mult / 2
   end })
-  rt.hook("Stance", { swing = function(s)
-    if not s.source then return false end
-    if s.power then s.cost.mult = s.cost.mult * 0.75 end
+  rt.hook("Stance", { meleecost = function(c)
+    if not c.source then return false end
+    if c.power then c.cost.mult = c.cost.mult * 0.75 end
   end })
-  rt.hook("Silver", { hit = function(h) if h.source then h.damage.add = h.damage.add + 20 end end })
-  rt.hook("Armsman", { hit = function(h) h.damage.mult = h.damage.mult * 2 end })
-  rt.hook("Unseen", { hit = function(h) if not h.actor then return false end end })
-  rt.hook("AssassinsBlade", { hit = function(h) if h.sneak then h.sneak_mult.mult = h.sneak_mult.mult * 2.5 end end })
-  rt.hook("Juggernaut", { armor = function(a) a.rating.mult = a.rating.mult * 1.2 end })
-  rt.hook("Dragonhide", { armor = function(a) if a.source then a.rating.set = 0 end end })
+  rt.hook("Silver", { archhit = function(h) if h.source then h.damage.add = h.damage.add + 20 end end })
+  rt.hook("Armsman", { meleehit = function(h) h.damage.mult = h.damage.mult * 2 end })
+  rt.hook("Unseen", { meleehit = function(h) if not h.actor then return false end end })
+  rt.hook("AssassinsBlade", { meleehit = function(h) if h.sneak then h.sneak_mult.mult = h.sneak_mult.mult * 2.5 end end })
+  rt.hook("Juggernaut", { armorhit = function(a) a.rating.mult = a.rating.mult * 1.2 end })
+  rt.hook("Dragonhide", { armorhit = function(a) if a.source then a.rating.set = 0 end end })
 end
 return C
 `
@@ -2043,7 +2043,7 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	fixture_init(t, &f, "skymod_instances_hooks", {{"hooks.lua", HOOKS_LUA}})
 	defer fixture_destroy(&f)
 	files := [][2]string {
-		{"effects/scorch.lua", `return require('skymod.rt').effect { tags = { "magic.fire" }, av = { Health = { amount = "-m" } } }`},
+		{"effects/scorch.lua", `return require('skymod.rt').effect { tags = { "magic.fire" }, av = { Health = { amount = "-m" } }, land = function(e) e.d.set = e.m.value end }`},
 		{"spells/firebolt.lua", `return require('skymod.rt').spell { cost = 20, applies = { { "Scorch", m = 5 } } }`},
 		{"spells/doom.lua", `return require('skymod.rt').spell { tags = { "forbidden" }, cost = 20, applies = { { "Scorch", m = 2000 } } }`},
 	}
@@ -2079,7 +2079,9 @@ test_landing_hooks :: proc(t: ^testing.T) {
 		e := f.ws.effects[h]
 		switch e.effect {
 		case BARE: testing.expect_value(t, e.magnitude, 13) // not fire: Plus only
-		case:      testing.expect_value(t, e.magnitude, 30) // (5 + 10) * 2, in any order
+		case:
+			testing.expect_value(t, e.magnitude, 30) // (5 + 10) * 2, in any order
+			testing.expect_value(t, e.duration, 30) // its land sees m after the hooks
 		}
 	}
 
@@ -2087,28 +2089,33 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	testing.expect(t, ok && cost == 10, "the cost hook halves it")
 	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
 	testing.expect(t, !ok, "the cost hook refuses it")
-	stamina, swung := worldstate.swing_cost(&f.ws, CASTER, PLAIN, {.Power}, 40)
-	testing.expect(t, swung && stamina == 30, "the swing hook cuts a power attack's Stamina")
-	_, swung = worldstate.swing_cost(&f.ws, CASTER, 0, {}, 0)
-	testing.expect(t, !swung, "the swing hook refuses a swing with nothing in hand")
+	stamina, swung := worldstate.weapon_cost(&f.ws, CASTER, PLAIN, {.Power}, false, 40)
+	testing.expect(t, swung && stamina == 30, "the meleecost hook cuts a power attack's Stamina")
+	_, swung = worldstate.weapon_cost(&f.ws, CASTER, 0, {}, false, 0)
+	testing.expect(t, !swung, "the meleecost hook refuses a swing with nothing in hand")
+	_, swung = worldstate.weapon_cost(&f.ws, CASTER, 0, {}, true, 0)
+	testing.expect(t, swung, "a shot runs archcost, not meleecost")
 
 	h := f.ws.hooks
 	a := combat.attack(CASTER, TARGET, PLAIN, {.Sneak})
-	testing.expect(t, h.hit(h.data, &a), "the hit goes on")
-	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 2})
+	testing.expect(t, h.weapon_hit(h.data, &a, false), "the hit goes on")
+	testing.expect_value(t, a.damage, combat.Part{mult = 2}) // meleehit only
 	testing.expect_value(t, a.armor_pen, combat.KEEP)
 	testing.expect_value(t, a.sneak_mult, combat.Part{mult = 2.5})
+	a = combat.attack(CASTER, TARGET, PLAIN)
+	testing.expect(t, h.weapon_hit(h.data, &a, true), "the shot goes on")
+	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 1}) // archhit only
 	a = combat.attack(0, TARGET, 0)
-	testing.expect(t, !h.hit(h.data, &a), "a hit hook stops the hit")
+	testing.expect(t, !h.weapon_hit(h.data, &a, false), "a hit hook stops the hit")
 	rating := combat.KEEP
-	h.armor(h.data, TARGET, PLAIN, &rating)
+	h.armor_hit(h.data, TARGET, PLAIN, &rating)
 	testing.expect_value(t, rating, combat.Part{mult = 1.2, set = 0, has_set = true})
 }
 
 @(private = "file")
 PLUS_LUA :: `local rt = require('skymod.rt')
 local C = rt.class("Plus", nil)
-C.__fn["ongameloaded"] = function(self) rt.hook("Plus", { land = function(e) e.m.add = e.m.add + 10 end }) end
+C.__fn["ongameloaded"] = function(self) rt.hook("Plus", { magichit = function(e) e.m.add = e.m.add + 10 end }) end
 return C
 `
 
@@ -2253,11 +2260,11 @@ test_perk_hooks :: proc(t: ^testing.T) {
 	fixture_init(t, &f, "skymod_instances_perks", {{"noperk.lua", NO_PERK_LUA}})
 	defer fixture_destroy(&f)
 	files := [][2]string {
-		{"perks/Armsman00.lua", `return require('skymod.rt').perk { ranks = { "Armsman00", "Armsman20" }, hooks = { hit = function(h)
+		{"perks/Armsman00.lua", `return require('skymod.rt').perk { ranks = { "Armsman00", "Armsman20" }, hooks = { meleehit = function(h)
   if h.actor.av.Armsman00.value == 1 then h.damage.mult = h.damage.mult * 1.2 end
   if h.actor.av.Armsman00.value >= 2 then h.damage.mult = h.damage.mult * 1.4 end
 end } }`},
-		{"perks/Gone.lua", `return require('skymod.rt').perk { ranks = {}, hooks = { hit = function(h) h.damage.add = 100 end } }`},
+		{"perks/Gone.lua", `return require('skymod.rt').perk { ranks = {}, hooks = { meleehit = function(h) h.damage.add = 100 end } }`},
 	}
 	for file in files {
 		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
@@ -2280,7 +2287,7 @@ end } }`},
 	h := f.ws.hooks
 	hit :: proc(h: worldstate.Hooks) -> combat.Part {
 		a := combat.attack(0x701, 0x700, 0) // attacker, target
-		h.hit(h.data, &a)
+		h.weapon_hit(h.data, &a, false)
 		return a.damage
 	}
 	testing.expect_value(t, hit(h), combat.KEEP) // no rank, and Gone is gone

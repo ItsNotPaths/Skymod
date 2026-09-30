@@ -1,7 +1,7 @@
 package magictranslate
 
-// PERK records to Lua: a perk chain becomes one rt.perk whose hooks change a swing's, a hit's or an
-// armor piece's parts, each entry gated on the owner's rank (the chain's first perk read as an actor
+// PERK records to Lua: a perk chain becomes one rt.perk whose hooks change an attack's Stamina, a
+// weapon hit's or an armor piece's parts, each entry gated on the owner's rank (the chain's first perk read as an actor
 // value) and on its tabs' conditions.
 
 import "core:fmt"
@@ -13,14 +13,20 @@ import "../gamedb"
 // (hole perk-translate :tags (magic records player) :sev gap :needs (magic-translate)) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
 // (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 
-// Point is where an entry point's entries land: the hook kind, its context, the part they change,
-// the Lua ref each tab's conditions run on (tab 0 the owner), and a test the moment itself needs.
+// Point is where an entry point's entries land: the perk file's function (FN_KINDS), its context,
+// the part they change, the Lua ref each tab's conditions run on (tab 0 the owner), and a test the
+// moment itself needs.
 @(private)
 Point :: struct {
-	kind, ctx, part: string,
-	tabs:            [3]string,
-	only:            string,
+	fn, ctx, part: string,
+	tabs:          [3]string,
+	only:          string,
 }
+
+// FN_KINDS are the hook kinds each function of a perk file runs as: an entry about weapon hits
+// counts for melee and archery alike.
+@(private)
+FN_KINDS := [?][2]string{{"cost", "meleecost"}, {"hit", "meleehit"}, {"hit", "archhit"}, {"armor", "armorhit"}}
 
 @(private)
 ATTACKER :: [3]string{"h.actor", "h.source", "h.target"}
@@ -35,7 +41,7 @@ POINTS := #partial [gamedb.Entry_Point]Point {
 	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER, ""},
 	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER, ""},
 	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER, ""},
-	.Mod_Power_Attack_Stamina         = {"swing", "s", "s.cost", {"s.actor", "s.source", ""}, "s.power"},
+	.Mod_Power_Attack_Stamina         = {"cost", "c", "c.cost", {"c.actor", "c.source", ""}, "c.power"},
 	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.actor", "a.source", ""}, ""},
 }
 
@@ -67,30 +73,36 @@ perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 		entries := slice.clone(src.db.perks[member].entries, context.temp_allocator)
 		slice.stable_sort_by(entries, proc(a, b: gamedb.Perk_Entry) -> bool {return a.priority > b.priority})
 		for e in entries {
-			if e.kind != .Entry_Point || e.point > max(gamedb.Entry_Point) || POINTS[e.point].kind == "" {continue}
+			if e.kind != .Entry_Point || e.point > max(gamedb.Entry_Point) || POINTS[e.point].fn == "" {continue}
 			pt := POINTS[e.point]
 			gate := entry_gate(src, chain, rank, e, pt) or_return
 			change := change_lua(pt, e) or_return
-			if pt.kind not_in lines {lines[pt.kind] = make([dynamic]string, context.temp_allocator)}
-			append(&lines[pt.kind], fmt.tprintf("      if %s then %s end", gate, change))
+			if pt.fn not_in lines {lines[pt.fn] = make([dynamic]string, context.temp_allocator)}
+			append(&lines[pt.fn], fmt.tprintf("  if %s then %s end", gate, change))
 		}
 	}
 	if len(lines) == 0 {return "", true}
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintfln(&b, "-- %s PERK %s", src.files[u32(chain[0] >> 32)], src.edids[chain[0]])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
-	fmt.sbprintln(&b, "return rt.perk {")
+	for fn in ([]string{"cost", "hit", "armor"}) {
+		body := lines[fn] or_continue
+		fmt.sbprintfln(&b, "\nlocal function %s(%s)", fn, fn[:1])
+		for l in body {fmt.sbprintln(&b, l)}
+		fmt.sbprintln(&b, "end")
+	}
+	fmt.sbprintln(&b, "\nreturn rt.perk {")
 	fmt.sbprint(&b, "  ranks = {")
 	for p, i in chain {fmt.sbprintf(&b, "%s %q", "," if i > 0 else "", form_name(src, p))}
 	fmt.sbprintln(&b, " },")
-	fmt.sbprintln(&b, "  hooks = {")
-	for kind in ([]string{"swing", "hit", "armor"}) {
-		body := lines[kind] or_continue
-		fmt.sbprintfln(&b, "    %s = function(%s)", kind, kind[:1])
-		for l in body {fmt.sbprintln(&b, l)}
-		fmt.sbprintln(&b, "    end,")
+	fmt.sbprint(&b, "  hooks = {")
+	n := 0
+	for k in FN_KINDS {
+		if k[0] not_in lines {continue}
+		fmt.sbprintf(&b, "%s %s = %s", "," if n > 0 else "", k[1], k[0])
+		n += 1
 	}
-	fmt.sbprintln(&b, "  },")
+	fmt.sbprintln(&b, " },")
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b), true
 }

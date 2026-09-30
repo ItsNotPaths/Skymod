@@ -303,15 +303,16 @@ read_knobs :: proc(L: ^lua.State, owner, av: string, srcs: ^[dynamic]worldstate.
 	}
 }
 
-// run_land is worldstate.Hooks.land: rt.land runs the landing hooks and the effect's Lua land, then
-// its context gives back m, d and the tunables. def is nil for an effect with no definition.
+// run_magic_hit is worldstate.Hooks.magic_hit: rt.magic_hit runs the magichit hooks and the
+// effect's Lua land, then its context gives back m, d and the tunables. def is nil for an effect
+// with no definition.
 @(private)
-run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect) -> bool {
+run_magic_hit :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Active_Effect) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "land") {return true}
+	if !push_rt_fn(L, "magic_hit") {return true}
 	tunables := def.tunables[:] if def != nil else nil
 	lua.pushstring(L, strings.clone_to_cstring(strings.to_lower(def.name if def != nil else "", context.temp_allocator), context.temp_allocator))
 	for f in ([4]script.Form_ID{e.caster, e.target, e.spell, e.effect}) {push_value(L, f if f != 0 else nil)}
@@ -336,19 +337,20 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 	return true
 }
 
-// run_cost is worldstate.Hooks.cost: rt.cost runs the cost hooks on `cost`. False refuses the cast.
+// run_magic_cost is worldstate.Hooks.magic_cost: rt.magic_cost runs the magiccost hooks on `cost`.
+// False refuses the cast.
 @(private)
-run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) -> bool {
+run_magic_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "cost") {return true}
+	if !push_rt_fn(L, "magic_cost") {return true}
 	push_value(L, caster if caster != 0 else nil)
 	push_value(L, spell if spell != 0 else nil)
 	lua.pushnumber(L, lua.Number(cost^))
 	if lua.pcall(L, 3, 1, 0) != 0 {
-		log.errorf("lua: cost hooks: %s", to_string(L, -1))
+		log.errorf("lua: magiccost hooks: %s", to_string(L, -1))
 		return true
 	}
 	if !lua.istable(L, -1) {return false}
@@ -356,22 +358,23 @@ run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) ->
 	return true
 }
 
-// run_swing is worldstate.Hooks.swing: rt.swing runs the swing hooks on a swing's or shot's Stamina
-// `cost`. False refuses it.
+// run_weapon_cost is worldstate.Hooks.weapon_cost: rt.weapon_cost runs the meleecost or archcost
+// hooks on an attack's Stamina `cost`. False refuses it.
 @(private)
-run_swing :: proc(data: rawptr, actor, weapon: worldstate.Form_ID, kind: combat.Attack_Kind, cost: ^f32) -> bool {
+run_weapon_cost :: proc(data: rawptr, actor, weapon: worldstate.Form_ID, kind: combat.Attack_Kind, ranged: bool, cost: ^f32) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "swing") {return true}
+	if !push_rt_fn(L, "weapon_cost") {return true}
 	push_value(L, actor if actor != 0 else nil)
 	push_value(L, weapon if weapon != 0 else nil)
+	lua.pushboolean(L, b32(ranged))
 	lua.pushboolean(L, b32(.Power in kind))
 	lua.pushboolean(L, b32(.Bash in kind))
 	lua.pushnumber(L, lua.Number(cost^))
-	if lua.pcall(L, 5, 1, 0) != 0 {
-		log.errorf("lua: swing hooks: %s", to_string(L, -1))
+	if lua.pcall(L, 6, 1, 0) != 0 {
+		log.errorf("lua: weapon cost hooks: %s", to_string(L, -1))
 		return true
 	}
 	if !lua.istable(L, -1) {return false}
@@ -379,19 +382,20 @@ run_swing :: proc(data: rawptr, actor, weapon: worldstate.Form_ID, kind: combat.
 	return true
 }
 
-// run_hit is worldstate.Hooks.hit: rt.hit runs the hit hooks, which fill the attack's parts. False
-// stops the hit.
+// run_weapon_hit is worldstate.Hooks.weapon_hit: rt.weapon_hit runs the meleehit or archhit hooks,
+// which fill the attack's parts. False stops the hit.
 @(private)
-run_hit :: proc(data: rawptr, a: ^combat.Attack) -> bool {
+run_weapon_hit :: proc(data: rawptr, a: ^combat.Attack, ranged: bool) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "hit") {return true}
+	if !push_rt_fn(L, "weapon_hit") {return true}
 	for f in ([3]worldstate.Form_ID{a.attacker, a.target, a.weapon}) {push_value(L, f if f != 0 else nil)}
+	lua.pushboolean(L, b32(ranged))
 	for k in ([3]combat.Attack_Kind{{.Power}, {.Sneak}, {.Bash}}) {lua.pushboolean(L, b32(k <= a.kind))}
-	if lua.pcall(L, 6, 1, 0) != 0 {
-		log.errorf("lua: hit hooks: %s", to_string(L, -1))
+	if lua.pcall(L, 7, 1, 0) != 0 {
+		log.errorf("lua: weapon hit hooks: %s", to_string(L, -1))
 		return true
 	}
 	if !lua.istable(L, -1) {return false}
@@ -404,28 +408,37 @@ run_hit :: proc(data: rawptr, a: ^combat.Attack) -> bool {
 	return true
 }
 
-// run_armor is worldstate.Hooks.armor: rt.armor runs the armor hooks on one worn piece's rating.
+// run_armor_hit is worldstate.Hooks.armor_hit: rt.armor_hit runs the armorhit hooks on one worn
+// piece's rating.
 @(private)
-run_armor :: proc(data: rawptr, wearer, item: worldstate.Form_ID, rating: ^combat.Part) {
+run_armor_hit :: proc(data: rawptr, wearer, item: worldstate.Form_ID, rating: ^combat.Part) {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
-	if !push_rt_fn(L, "armor") {return}
+	if !push_rt_fn(L, "armor_hit") {return}
 	push_value(L, wearer)
 	push_value(L, item)
 	if lua.pcall(L, 2, 1, 0) != 0 {
-		log.errorf("lua: armor hooks: %s", to_string(L, -1))
+		log.errorf("lua: armorhit hooks: %s", to_string(L, -1))
 		return
 	}
 	if lua.istable(L, -1) {read_part(L, rating)}
 }
 
-// apply_part makes `v` what the part `key` of the table on top of the stack says of it.
+// apply_part makes `v` what the part `key` of the table on top of the stack says of it, from the
+// part's value when it has one (rt.magic_hit settles m and d before the effect's land).
 @(private = "file")
 apply_part :: proc(L: ^lua.State, key: cstring, v: ^f32) {
+	if lua.getfield(L, -1, key) != i32(lua.TTABLE) {
+		lua.pop(L, 1)
+		return
+	}
+	defer lua.pop(L, 1)
+	if lua.getfield(L, -1, "value") == i32(lua.TNUMBER) {v^ = f32(lua.tonumber(L, -1))}
+	lua.pop(L, 1)
 	p := combat.KEEP
-	get_part(L, key, &p)
+	read_part(L, &p)
 	v^ = combat.apply(p, v^)
 }
 
@@ -592,7 +605,7 @@ rt_effect_def :: proc "c" (L: ^lua.State) -> c.int {
 		switch {
 		case key == "form": src.form = to_string(L, -1)
 		case key == "resist": src.resist = to_string(L, -1)
-		case key == "land": // Lua keeps it (rt.land)
+		case key == "land": // Lua keeps it (rt.magic_hit)
 		case key == "stack": src.stack = to_string(L, -1)
 		case key == "nostack": src.nostack = to_string(L, -1)
 		case key == "taper": src.taper = to_string(L, -1)

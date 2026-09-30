@@ -174,20 +174,23 @@ test_magic_translate_perk :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "every entry has a Lua form")
 	testing.expect_value(t, text, `-- Skyrim.esm PERK Armsman00
 local rt = require('skymod.rt')
+
+local function cost(c)
+  if c.actor.av.Armsman00.value >= 2 and c.power then c.cost.mult = c.cost.mult * 0.75 end
+end
+
+local function hit(h)
+  if h.actor.av.Armsman00.value == 1 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
+  if h.actor.av.Armsman00.value >= 2 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
+end
+
+local function armor(a)
+  if a.actor.av.Armsman00.value >= 2 then a.rating.set = 0 end
+end
+
 return rt.perk {
   ranks = { "Armsman00", "Armsman20" },
-  hooks = {
-    swing = function(s)
-      if s.actor.av.Armsman00.value >= 2 and s.power then s.cost.mult = s.cost.mult * 0.75 end
-    end,
-    hit = function(h)
-      if h.actor.av.Armsman00.value == 1 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
-      if h.actor.av.Armsman00.value >= 2 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
-    end,
-    armor = function(a)
-      if a.actor.av.Armsman00.value >= 2 then a.rating.set = 0 end
-    end,
-  },
+  hooks = { meleecost = cost, meleehit = hit, archhit = hit, armorhit = armor },
 }
 `)
 }

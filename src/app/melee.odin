@@ -11,7 +11,7 @@ import "../worldstate"
 SWING_CONE :: f32(math.PI / 6)
 SWING_RAYS :: 5
 
-// tick_swings lands the swings brains and the player asked for, once the swing hooks let each go and
+// tick_swings lands the swings brains and the player asked for, once the meleecost hooks let each go and
 // set its Stamina: the first live actor a ray from the attacker's chest meets inside its reach, the
 // hand's WEAP reach x fCombatDistance (fists 1x).
 tick_swings :: proc(g: ^Game) {
@@ -23,7 +23,7 @@ tick_swings :: proc(g: ^Game) {
 		weapon := worldstate.in_slot(c.ws, c.db, s.attacker, s.hand)
 		slot, _ := gamedb.equip_slot_of(c.db, weapon)
 		if slot.kind != .Weapon {weapon, slot = 0, {}}
-		cost := worldstate.swing_cost(c.ws, s.attacker, weapon, s.kind, swing_stamina(c.db, s, weapon)) or_continue
+		cost := worldstate.weapon_cost(c.ws, s.attacker, weapon, s.kind, false, swing_stamina(c.db, s, weapon)) or_continue
 		if cost > 0 {worldstate.av_damage(c.ws, c.db, s.attacker, "Stamina", cost)}
 		reach := (slot.gear.reach if slot.gear.reach > 0 else 1) * gamedb.setting_float(c.db, "fCombatDistance", 141)
 		switch target := swing_target(g, sp.phys, s.attacker, reach); {

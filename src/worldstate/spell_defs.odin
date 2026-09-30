@@ -107,19 +107,19 @@ parse_duration :: proc(s: string) -> (f32, bool) {
 	return strconv.parse_f32(s)
 }
 
-// cast_cost runs the cost hooks (rt.hook) on a spell's cost as `caster` casts it: false, and the
-// cast is refused.
+// cast_cost runs the magiccost hooks (rt.hook) on a spell's cost as `caster` casts it: false, and
+// the cast is refused.
 cast_cost :: proc(ws: ^World_State, caster, spell: Form_ID, cost: f32) -> (f32, bool) {
 	cost := cost
-	if ws.hooks.cost != nil && !ws.hooks.cost(ws.hooks.data, caster, spell, &cost) {return 0, false}
+	if ws.hooks.magic_cost != nil && !ws.hooks.magic_cost(ws.hooks.data, caster, spell, &cost) {return 0, false}
 	return max(cost, 0), true
 }
 
-// swing_cost runs the swing hooks (rt.hook) on the Stamina a melee swing or a shot costs `actor`:
-// false, and it is refused.
-swing_cost :: proc(ws: ^World_State, actor, weapon: Form_ID, kind: combat.Attack_Kind, cost: f32) -> (f32, bool) {
+// weapon_cost runs the meleecost hooks, or archcost for a shot (rt.hook), on the Stamina an attack
+// costs `actor`: false, and it is refused.
+weapon_cost :: proc(ws: ^World_State, actor, weapon: Form_ID, kind: combat.Attack_Kind, ranged: bool, cost: f32) -> (f32, bool) {
 	cost := cost
-	if ws.hooks.swing != nil && !ws.hooks.swing(ws.hooks.data, actor, weapon, kind, &cost) {return 0, false}
+	if ws.hooks.weapon_cost != nil && !ws.hooks.weapon_cost(ws.hooks.data, actor, weapon, kind, ranged, &cost) {return 0, false}
 	return max(cost, 0), true
 }
 

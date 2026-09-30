@@ -53,17 +53,18 @@ Effect_Def_Src :: struct {
 	scripts:    []esm.Script_Attach, // borrowed; cloned here
 }
 
-// Hooks are the Lua a landing and a cast run (the VM sets them). land runs the landing hooks
-// (rt.hook), then the effect's own land when def has one: false, and it does not start. They may
-// change m, d and the tunables. An effect never starts another: a spell names all its effects
-// (user, 2026-09-28). cost runs the cost hooks: false, and the cast is refused.
+// Hooks run the Lua hooks (rt.hook; the VM sets them), each false to stop its moment. magic_hit
+// runs the magichit hooks, then the effect's own land when def has one; they may change m, d and
+// the tunables. An effect never starts another: a spell names all its effects (user, 2026-09-28).
+// magic_cost runs magiccost; weapon_cost meleecost or archcost, weapon_hit meleehit or archhit, by
+// `ranged`; armor_hit runs armorhit on one worn piece, and cannot stop anything.
 Hooks :: struct {
-	data: rawptr,
-	land: proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
-	cost: proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
-	swing: proc(data: rawptr, actor, weapon: Form_ID, kind: combat.Attack_Kind, cost: ^f32) -> bool,
-	hit:   proc(data: rawptr, a: ^combat.Attack) -> bool,
-	armor: proc(data: rawptr, wearer, item: Form_ID, rating: ^combat.Part),
+	data:        rawptr,
+	magic_hit:   proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
+	magic_cost:  proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
+	weapon_cost: proc(data: rawptr, actor, weapon: Form_ID, kind: combat.Attack_Kind, ranged: bool, cost: ^f32) -> bool,
+	weapon_hit:  proc(data: rawptr, a: ^combat.Attack, ranged: bool) -> bool,
+	armor_hit:   proc(data: rawptr, wearer, item: Form_ID, rating: ^combat.Part),
 }
 
 // AV_VARS: what an effect's AV formulas see besides reads and tunables.
@@ -131,8 +132,8 @@ land_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: ^Active_Effect) -> bool
 	} else {
 		d = nil
 	}
-	if ws.hooks.land == nil {return true}
-	ok := ws.hooks.land(ws.hooks.data, d, e)
+	if ws.hooks.magic_hit == nil {return true}
+	ok := ws.hooks.magic_hit(ws.hooks.data, d, e)
 	if math.is_nan(e.duration) || math.is_inf(e.duration) { // a timed effect must end: only its source makes one last
 		log.warnf("effect %X: landing set d to %v; it applies once", e.effect, e.duration)
 		e.duration = 0
