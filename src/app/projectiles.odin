@@ -27,7 +27,7 @@ tick_projectiles :: proc(g: ^Game) {
 
 // (hole fire-without-ammo :tags (combat script mods) :sev polish) Weapon.Fire with no ammo launches nothing. No vanilla ref does it (the two scripts that pass None attach to nothing), and a WEAP names no projectile, so a default would be ours: a data-driven projectile per weapon type, for mods.
 // fire launches a Weapon.Fire from the source's ProjectileNode (its origin without one), along the
-// node's +Y.
+// node's +Y, once the swing hooks let it go; the Stamina they set is spent.
 @(private = "file")
 fire :: proc(g: ^Game, f: worldstate.Fire) {
 	ammo, _ := gamedb.equip_slot_of(&g.db, f.ammo)
@@ -35,6 +35,9 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 		log.warnf("Weapon.Fire: 0x%X fired no ammo projectile (ammo 0x%X)", u64(f.weapon), u64(f.ammo))
 		return
 	}
+	cost, ok := worldstate.swing_cost(&g.sim.ws, f.source, f.weapon, {}, 0)
+	if !ok {return}
+	if cost > 0 {worldstate.av_damage(&g.sim.ws, &g.db, f.source, "Stamina", cost)}
 	weapon, _ := gamedb.equip_slot_of(&g.db, f.weapon)
 	m := smath.trs(worldstate.ref_pos(&g.sim.ws, &g.db, f.source), worldstate.ref_rot(&g.sim.ws, &g.db, f.source), worldstate.ref_scale(&g.sim.ws, &g.db, f.source))
 	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, f.source)); ok {

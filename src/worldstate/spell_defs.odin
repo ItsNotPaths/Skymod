@@ -8,6 +8,7 @@ package worldstate
 import "core:log"
 import "core:strconv"
 import "core:strings"
+import "../combat"
 import "../formid"
 import "../gamedb"
 
@@ -111,6 +112,14 @@ parse_duration :: proc(s: string) -> (f32, bool) {
 cast_cost :: proc(ws: ^World_State, caster, spell: Form_ID, cost: f32) -> (f32, bool) {
 	cost := cost
 	if ws.hooks.cost != nil && !ws.hooks.cost(ws.hooks.data, caster, spell, &cost) {return 0, false}
+	return max(cost, 0), true
+}
+
+// swing_cost runs the swing hooks (rt.hook) on the Stamina a melee swing or a shot costs `actor`:
+// false, and it is refused.
+swing_cost :: proc(ws: ^World_State, actor, weapon: Form_ID, kind: combat.Attack_Kind, cost: f32) -> (f32, bool) {
+	cost := cost
+	if ws.hooks.swing != nil && !ws.hooks.swing(ws.hooks.data, actor, weapon, kind, &cost) {return 0, false}
 	return max(cost, 0), true
 }
 

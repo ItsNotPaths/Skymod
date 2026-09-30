@@ -1,7 +1,7 @@
 package magictranslate
 
-// PERK records to Lua: a perk chain becomes one rt.perk whose hooks change a hit's or an armor
-// piece's parts, each entry gated on the owner's rank (the chain's first perk read as an actor
+// PERK records to Lua: a perk chain becomes one rt.perk whose hooks change a swing's, a hit's or an
+// armor piece's parts, each entry gated on the owner's rank (the chain's first perk read as an actor
 // value) and on its tabs' conditions.
 
 import "core:fmt"
@@ -11,31 +11,32 @@ import "../formats/esm"
 import "../gamedb"
 
 // (hole perk-translate :tags (magic records player) :sev gap :needs (magic-translate)) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
-// (hole perk-swing-stamina :tags combat :sev gap) Mod_Power_Attack_Stamina (3 entries) is not translated: no swing hook kind runs as a power attack spends its stamina (src/app/melee.odin).
-// (hole perk-priority :tags combat :sev polish) entry priority orders entries only within a chain; across perks, hooks run in file order, so a Set may land before another perk's Multiply.
+// (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 
 // Point is where an entry point's entries land: the hook kind, its context, the part they change,
-// and the Lua ref each tab's conditions run on (tab 0 the owner).
+// the Lua ref each tab's conditions run on (tab 0 the owner), and a test the moment itself needs.
 @(private)
 Point :: struct {
 	kind, ctx, part: string,
 	tabs:            [3]string,
+	only:            string,
 }
 
 @(private)
-ATTACKER :: [3]string{"h.attacker", "h.weapon", "h.target"}
+ATTACKER :: [3]string{"h.actor", "h.source", "h.target"}
 
 @(private)
 POINTS := #partial [gamedb.Entry_Point]Point {
-	.Calculate_Weapon_Damage          = {"hit", "h", "h.damage", ATTACKER},
-	.Mod_Attack_Damage                = {"hit", "h", "h.damage", ATTACKER},
-	.Mod_Incoming_Damage              = {"hit", "h", "h.damage", {"h.target", "h.attacker", "h.weapon"}},
-	.Mod_Target_Damage_Resistance     = {"hit", "h", "h.armor_pen", ATTACKER},
-	.Calculate_My_Critical_Hit_Chance = {"hit", "h", "h.crit_chance", ATTACKER},
-	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER},
-	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER},
-	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER},
-	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.wearer", "a.item", ""}},
+	.Calculate_Weapon_Damage          = {"hit", "h", "h.damage", ATTACKER, ""},
+	.Mod_Attack_Damage                = {"hit", "h", "h.damage", ATTACKER, ""},
+	.Mod_Incoming_Damage              = {"hit", "h", "h.damage", {"h.target", "h.actor", "h.source"}, ""},
+	.Mod_Target_Damage_Resistance     = {"hit", "h", "h.armor_pen", ATTACKER, ""},
+	.Calculate_My_Critical_Hit_Chance = {"hit", "h", "h.crit_chance", ATTACKER, ""},
+	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER, ""},
+	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER, ""},
+	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER, ""},
+	.Mod_Power_Attack_Stamina         = {"swing", "s", "s.cost", {"s.actor", "s.source", ""}, "s.power"},
+	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.actor", "a.source", ""}, ""},
 }
 
 // perk_chain is the chain a perk heads, first rank first; nil when another perk ranks up into it.
@@ -83,9 +84,9 @@ perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 	for p, i in chain {fmt.sbprintf(&b, "%s %q", "," if i > 0 else "", form_name(src, p))}
 	fmt.sbprintln(&b, " },")
 	fmt.sbprintln(&b, "  hooks = {")
-	for kind in ([]string{"hit", "armor"}) {
+	for kind in ([]string{"swing", "hit", "armor"}) {
 		body := lines[kind] or_continue
-		fmt.sbprintfln(&b, "    %s = function(%s)", kind, "h" if kind == "hit" else "a")
+		fmt.sbprintfln(&b, "    %s = function(%s)", kind, kind[:1])
 		for l in body {fmt.sbprintln(&b, l)}
 		fmt.sbprintln(&b, "    end,")
 	}
@@ -113,6 +114,7 @@ entry_gate :: proc(src: ^Source, chain: []Form_ID, rank: int, e: gamedb.Perk_Ent
 		if len(conds) > 1 {gate = fmt.tprintf("(%s)", gate)}
 		append(&parts, gate if tab.tab == 0 else fmt.tprintf("%s and %s", who.subject, gate))
 	}
+	if pt.only != "" {inject_at(&parts, 0, pt.only)}
 	av := fmt.tprintf("%s.av.%s.value", pt.tabs[0], head)
 	switch {
 	case top == rank + 1: inject_at(&parts, 0, fmt.tprintf("%s == %d", av, rank + 1))

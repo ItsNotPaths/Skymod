@@ -1167,7 +1167,7 @@ end
 
 local starting        -- during game start: { forms = attached, fresh = those that run OnInit }
 local game_loading = false
-local hooks = {} -- rt.hook's, in order: { name =, land =, cost =, hit = }
+local hooks = {} -- rt.hook's, in order: { name =, land =, cost =, swing =, hit =, armor = }
 local core_set = {} -- a mod's replacement for a core hook, by name; false removes it
 local add_core_hooks, hook_entry -- (below rt.hook)
 
@@ -1232,14 +1232,14 @@ end
 --   taper = "1s"                            -- a timed copy goes on this long after d (t runs past d)
 --   radius = 320                            -- a tunable's default; a bare name in a formula is one
 --   land = function(e) ... end              -- once as it lands: return false and it does not start;
---                                           -- set e.m, e.d and tunables (e.taken = ...). An effect
+--                                           -- change the parts e.m and e.d as a hook does, and set
+--                                           -- tunables (e.taken = ...). An effect
 --                                           -- never starts another: a spell names all its effects
 --   script = "Name" | { "Name", Prop = value }  -- a moment script and its properties, or a list of
 --                                              -- them; it switches the effect with self:SetActive(bool)
 -- AV formulas are per tick, in t, m, d, the tunables and reads by the naming rule
--- (target.av.Health.value, global.GameHour, target:IsSneaking()). land gets e.caster, e.target,
--- e.spell, e.effect (refs), e.m and e.d. A <name>.patch.lua returns a function that edits the
--- definition from below it.
+-- (target.av.Health.value, global.GameHour, target:IsSneaking()). land gets the land hook's
+-- context (rt.hook). A <name>.patch.lua returns a function that edits the definition from below it.
 function rt.effect(def) return def end
 
 -- rt.ref(name) is the form "File.esm:012FCD" or an editor id names, for a property that holds a form.
@@ -1250,37 +1250,41 @@ local lands = {} -- lower effect name -> its land (rt.load_effects)
 -- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
 
--- rt.hook(name, { land = function(e) end, cost = function(c) end, hit = function(h) end,
--- armor = function(a) end }) adds a hook, or replaces the one called `name` (in any case) in its
--- place; rt.hook(name, nil) removes it. land runs as
--- any effect lands on anyone, from any source, before the effect's own land, with its context
--- (e.caster, e.target, e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast
--- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, before the combat seam's damage
--- (h.attacker, h.target, h.weapon; h.power, h.sneak and h.bash say what kind of attack); armor runs
--- on each armor piece a hit meets (a.wearer, a.item). land, cost and hit return false to stop that
--- effect, cast or hit. hit and armor change parts, not numbers: h.damage (the weapon's damage),
--- h.armor_pen (the target's armor rating), h.crit_chance (percent), h.crit_damage, h.power_mult,
--- h.sneak_mult and a.rating are { add = 0, mult = 1 }, and a hook may give set; the seam makes set,
--- else (value + add) * mult. Hooks run in the order
--- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
--- new game or load.
+-- rt.hook(name, { land = function(e) end, cost = function(c) end, swing = function(s) end,
+-- hit = function(h) end, armor = function(a) end }) adds a hook, or replaces the one called `name`
+-- (in any case) in its place; rt.hook(name, nil) removes it. Each kind runs at one engine moment:
+--   land   an effect lands, from any source, before the effect's own land (e.effect; parts m, d)
+--   cost   a spell is cast (part cost, in Magicka)
+--   swing  a melee swing or a bow or crossbow shot starts (s.power, s.bash; part cost, in Stamina)
+--   hit    a weapon hit lands, before the combat seam's damage (h.power, h.sneak, h.bash; parts
+--          damage, armor_pen (the target's armor rating), crit_chance (percent), crit_damage,
+--          power_mult, sneak_mult)
+--   armor  a hit meets one worn piece, or its rating is asked (part rating)
+-- Every context has actor (who casts, swings or wears), target (who it lands on; none for cost,
+-- swing and armor) and source (the spell, weapon or piece), and global. A part is
+-- { add = 0, mult = 1 }; a hook changes add and mult, or gives set, and the engine makes set, else
+-- (value + add) * mult, so hooks' order does not change it. value is the number before the hooks
+-- where the engine has it (land's m and d, cost's and swing's cost); hit's and armor's parts are
+-- composed in the combat seam. Every kind but armor returns false to stop its moment. Hooks run in
+-- the order they were added: perks/ first, then mods' by priority. Only inside OnGameLoaded; they
+-- last until the next new game or load.
 -- resist is the core Resist hook: a hostile effect's power, cut by each resistance of the target
 -- up to its ResistCap. Resist Magic, then the effect's own (GetResistance); a poison's by
 -- PoisonResist alone; a disease's not here (disease-resistance).
 local function resist(e)
-  local src = e.spell
+  local src = e.source
   if not e.effect:HasTag("hostile") then return end
   if src and (src:HasTag("ignore_resist") or src:HasTag("disease")) then return end
   local av = e.target.av
   local cap = av.ResistCap.value
   local function keep(name) return 1 - math.min(av[name].value, cap) / 100 end
   if src and src:HasTag("poison") then
-    e.m = e.m * keep("PoisonResist")
+    e.m.mult = e.m.mult * keep("PoisonResist")
     return
   end
-  e.m = e.m * keep("MagicResist")
+  e.m.mult = e.m.mult * keep("MagicResist")
   local own = e.effect:GetResistance()
-  if own ~= "" and own ~= "MagicResist" then e.m = e.m * keep(own) end
+  if own ~= "" and own ~= "MagicResist" then e.m.mult = e.m.mult * keep(own) end
 end
 
 -- CORE_HOOKS run after every mod's, so resistance has the last say, as in vanilla. rt.hook with a
@@ -1288,7 +1292,7 @@ end
 local CORE_HOOKS = { { name = "Resist", land = resist } }
 
 hook_entry = function(name, def)
-  return { name = name, land = def.land, cost = def.cost, hit = def.hit, armor = def.armor }
+  return { name = name, land = def.land, cost = def.cost, swing = def.swing, hit = def.hit, armor = def.armor }
 end
 
 add_core_hooks = function()
@@ -1336,10 +1340,12 @@ local function run_hooks(kind, ctx)
   return true
 end
 
--- rt.land(lname, caster, target, spell, effect, m, d, tunables) runs the landing hooks, then the
+local function part(value) return { value = value, add = 0, mult = 1 } end
+
+-- rt.land(lname, actor, target, source, effect, m, d, tunables) runs the landing hooks, then the
 -- effect's land: its context, or false when it does not start (worldstate.Hooks).
-function rt.land(lname, caster, target, spell, effect, m, d, tunables)
-  local e = { caster = caster, target = target, spell = spell, effect = effect, m = m, d = d, global = rt.global }
+function rt.land(lname, actor, target, source, effect, m, d, tunables)
+  local e = { actor = actor, target = target, source = source, effect = effect, m = part(m), d = part(d), global = rt.global }
   for k, v in pairs(tunables) do e[k] = v end
   if not run_hooks("land", e) then return false end
   local fn = lands[lname]
@@ -1347,20 +1353,26 @@ function rt.land(lname, caster, target, spell, effect, m, d, tunables)
   return e
 end
 
--- rt.cost(caster, spell, cost) runs the cost hooks: the cost, or false when the cast is refused.
-function rt.cost(caster, spell, cost)
-  local c = { caster = caster, spell = spell, cost = cost, global = rt.global }
+-- rt.cost(actor, source, cost) runs the cost hooks: the context, or false when the cast is refused.
+function rt.cost(actor, source, cost)
+  local c = { actor = actor, source = source, cost = part(cost), global = rt.global }
   if not run_hooks("cost", c) then return false end
-  return c.cost
+  return c
 end
 
-local function part() return { add = 0, mult = 1 } end
+-- rt.swing(actor, source, power, bash, cost) runs the swing hooks: the context, or false when the
+-- swing or shot is refused.
+function rt.swing(actor, source, power, bash, cost)
+  local s = { actor = actor, source = source, power = power, bash = bash, cost = part(cost), global = rt.global }
+  if not run_hooks("swing", s) then return false end
+  return s
+end
 
--- rt.hit(attacker, target, weapon, power, sneak, bash) runs the hit hooks: the context with its
+-- rt.hit(actor, target, source, power, sneak, bash) runs the hit hooks: the context with its
 -- parts, or false when the hit is stopped.
-function rt.hit(attacker, target, weapon, power, sneak, bash)
+function rt.hit(actor, target, source, power, sneak, bash)
   local h = {
-    attacker = attacker, target = target, weapon = weapon, power = power, sneak = sneak, bash = bash,
+    actor = actor, target = target, source = source, power = power, sneak = sneak, bash = bash,
     damage = part(), armor_pen = part(), crit_chance = part(), crit_damage = part(), power_mult = part(),
     sneak_mult = part(), global = rt.global,
   }
@@ -1368,9 +1380,9 @@ function rt.hit(attacker, target, weapon, power, sneak, bash)
   return h
 end
 
--- rt.armor(wearer, item) runs the armor hooks: the piece's rating part.
-function rt.armor(wearer, item)
-  local a = { wearer = wearer, item = item, rating = part(), global = rt.global }
+-- rt.armor(actor, source) runs the armor hooks on one worn piece: its rating part.
+function rt.armor(actor, source)
+  local a = { actor = actor, source = source, rating = part(), global = rt.global }
   run_hooks("armor", a)
   return a.rating
 end
@@ -1417,7 +1429,7 @@ end
 --   ranks = { "Armsman00", "Armsman20" }     -- the records whose ranks it stands in for, in order
 --   hooks = { hit = function(h) end, armor = function(a) end }  -- as rt.hook's, run before any mod's
 -- A hook gates each part on the owner's rank, the chain's first perk read as an actor value
--- (h.attacker.av.Armsman00.value). A <name>.patch.lua returns a function that edits it.
+-- (h.actor.av.Armsman00.value). A <name>.patch.lua returns a function that edits it.
 function rt.perk(def) return def end
 
 -- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):

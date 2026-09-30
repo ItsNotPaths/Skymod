@@ -1,7 +1,7 @@
 package magictranslate
 
 // MGEF conditions to Lua: the land gate. In an MGEF's conditions the subject is the one hit and the
-// target is the caster (edges.md 3), so Subject reads e.target and Target e.caster. An Is/Has
+// target is the caster (edges.md 3), so Subject reads e.target and Target e.actor. An Is/Has
 // function answers a boolean in Lua, the rest a number (rt.odin __condition).
 
 import "core:fmt"
@@ -16,7 +16,7 @@ Who :: struct {
 }
 
 // MGEF_WHO: an effect's land, where Subject is the one hit and Target the caster.
-MGEF_WHO :: Who{"e", "e.target", "e.caster"}
+MGEF_WHO :: Who{"e", "e.target", "e.actor"}
 
 // land_lua writes the land function: false from it when the conditions fail, then each dispel
 // (DispelTagged); "" for none. ok=false when a condition has no Lua form.

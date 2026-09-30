@@ -106,7 +106,7 @@ test_magic_translate_land :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "every condition has a Lua form")
 	testing.expect_value(t, text, `  land = function(e)
     return (e.target:IsUndead() or e.target:HasKeyword("ActorTypeUndead"))
-      and e.caster:GetActorValuePercent("Health") < 0.2
+      and e.actor:GetActorValuePercent("Health") < 0.2
       and not e.target:IsUndead()
   end,
 `)
@@ -167,6 +167,7 @@ test_magic_translate_perk :: proc(t: ^testing.T) {
 	src.db.perks[RANK2] = {entries = {
 		{kind = .Entry_Point, point = .Mod_Attack_Damage, function = .Multiply_Value, values = {1.4, 0}, tabs = sword},
 		{kind = .Entry_Point, point = .Mod_Armor_Rating, function = .Set_Value, values = {0, 0}},
+		{kind = .Entry_Point, point = .Mod_Power_Attack_Stamina, function = .Multiply_Value, values = {0.75, 0}},
 	}}
 	testing.expect(t, magictranslate.perk_chain(&src, RANK2) == nil, "a later rank heads no chain")
 	text, ok := magictranslate.perk_lua(&src, magictranslate.perk_chain(&src, RANK1))
@@ -176,12 +177,15 @@ local rt = require('skymod.rt')
 return rt.perk {
   ranks = { "Armsman00", "Armsman20" },
   hooks = {
+    swing = function(s)
+      if s.actor.av.Armsman00.value >= 2 and s.power then s.cost.mult = s.cost.mult * 0.75 end
+    end,
     hit = function(h)
-      if h.attacker.av.Armsman00.value == 1 and h.weapon and h.weapon:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
-      if h.attacker.av.Armsman00.value >= 2 and h.weapon and h.weapon:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
+      if h.actor.av.Armsman00.value == 1 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.2 end
+      if h.actor.av.Armsman00.value >= 2 and h.source and h.source:HasKeyword("WeapTypeSword") then h.damage.mult = h.damage.mult * 1.4 end
     end,
     armor = function(a)
-      if a.wearer.av.Armsman00.value >= 2 then a.rating.set = 0 end
+      if a.actor.av.Armsman00.value >= 2 then a.rating.set = 0 end
     end,
   },
 }

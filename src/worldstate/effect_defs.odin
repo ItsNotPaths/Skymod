@@ -61,6 +61,7 @@ Hooks :: struct {
 	data: rawptr,
 	land: proc(data: rawptr, def: ^Effect_Def, e: ^Active_Effect) -> bool,
 	cost: proc(data: rawptr, caster, spell: Form_ID, cost: ^f32) -> bool,
+	swing: proc(data: rawptr, actor, weapon: Form_ID, kind: combat.Attack_Kind, cost: ^f32) -> bool,
 	hit:   proc(data: rawptr, a: ^combat.Attack) -> bool,
 	armor: proc(data: rawptr, wearer, item: Form_ID, rating: ^combat.Part),
 }

@@ -327,13 +327,12 @@ run_land :: proc(data: rawptr, def: ^worldstate.Effect_Def, e: ^worldstate.Activ
 		return true // a broken land does not keep the effect from starting
 	}
 	if !lua.istable(L, -1) {return false}
-	number :: proc(L: ^lua.State, key: cstring, v: ^f32) {
-		if lua.getfield(L, -1, key) == i32(lua.TNUMBER) {v^ = f32(lua.tonumber(L, -1))}
+	apply_part(L, "m", &e.magnitude)
+	apply_part(L, "d", &e.duration)
+	for t, i in tunables {
+		if lua.getfield(L, -1, strings.clone_to_cstring(t.name, context.temp_allocator)) == i32(lua.TNUMBER) {e.tunables[i] = f32(lua.tonumber(L, -1))}
 		lua.pop(L, 1)
 	}
-	number(L, "m", &e.magnitude)
-	number(L, "d", &e.duration)
-	for t, i in tunables {number(L, strings.clone_to_cstring(t.name, context.temp_allocator), &e.tunables[i])}
 	return true
 }
 
@@ -352,8 +351,32 @@ run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) ->
 		log.errorf("lua: cost hooks: %s", to_string(L, -1))
 		return true
 	}
-	if lua.type(L, -1) == .NUMBER {cost^ = f32(lua.tonumber(L, -1))}
-	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
+	if !lua.istable(L, -1) {return false}
+	apply_part(L, "cost", cost)
+	return true
+}
+
+// run_swing is worldstate.Hooks.swing: rt.swing runs the swing hooks on a swing's or shot's Stamina
+// `cost`. False refuses it.
+@(private)
+run_swing :: proc(data: rawptr, actor, weapon: worldstate.Form_ID, kind: combat.Attack_Kind, cost: ^f32) -> bool {
+	vm := cast(^VM)data
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "swing") {return true}
+	push_value(L, actor if actor != 0 else nil)
+	push_value(L, weapon if weapon != 0 else nil)
+	lua.pushboolean(L, b32(.Power in kind))
+	lua.pushboolean(L, b32(.Bash in kind))
+	lua.pushnumber(L, lua.Number(cost^))
+	if lua.pcall(L, 5, 1, 0) != 0 {
+		log.errorf("lua: swing hooks: %s", to_string(L, -1))
+		return true
+	}
+	if !lua.istable(L, -1) {return false}
+	apply_part(L, "cost", cost)
+	return true
 }
 
 // run_hit is worldstate.Hooks.hit: rt.hit runs the hit hooks, which fill the attack's parts. False
@@ -396,6 +419,14 @@ run_armor :: proc(data: rawptr, wearer, item: worldstate.Form_ID, rating: ^comba
 		return
 	}
 	if lua.istable(L, -1) {read_part(L, rating)}
+}
+
+// apply_part makes `v` what the part `key` of the table on top of the stack says of it.
+@(private = "file")
+apply_part :: proc(L: ^lua.State, key: cstring, v: ^f32) {
+	p := combat.KEEP
+	get_part(L, key, &p)
+	v^ = combat.apply(p, v^)
 }
 
 // get_part reads the part `key` of the table on top of the stack.
