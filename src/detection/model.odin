@@ -4,6 +4,7 @@ package detection
 // model replaces judge_builtin, here or in a plugin, and nothing else.
 
 // (hole sneak-detection :tags (ai player unclaimed) :sev gap :needs light-at-point) the real detection model: awareness that grows and decays with view direction, distance, movement, sneak (and the Sneak skill), light, noise and cutout cover. It replaces judge behind the same Senses and awareness store.
+// (hole invisibility-read :tags (ai unclaimed) :sev gap) the Invisibility AV is written by its effects and read by nothing: an invisible actor is seen, and acting does not end it.
 // Senses is what a viewer takes in of one target in one look.
 Senses :: struct {
 	sight:    f32, // sight.Mode.Cone, 0..1

@@ -179,9 +179,12 @@ prop_named :: proc(list: []esm.Script_Prop, name: string) -> bool {
 	return false
 }
 
-// archetype_class is the class that plays an archetype: a pure-formula script in the core scripts
-// mod (src/script/effects), which a mod replaces like any script. "" for one no class plays.
-// (hole other-archetypes :tags magic :sev gap) only Value Modifier, Peak Value Modifier, Dual Value Modifier and Absorb have a class. The status archetypes (Paralysis, Invisibility, Calm, Frenzy, Demoralize, Rally, Turn Undead, Banish) should write their AV with the level cap as m; the moment ones (Summon, Stagger, Soul Trap, Reanimate, Bound Weapon, Light, Telekinesis, Detect Life, Slow Time, Etherealize, Disarm, Dispel, the Cures, Werewolf, Vampire Lord) need core wrapper scripts; Cloak is a script casting its spell each second on actors within m.
+// archetype_class is the class that plays an archetype's moment: a script in the core scripts mod
+// (src/script/effects), which a mod replaces like any script. "" for one no class plays: the
+// numeric and status archetypes are formulas the translator writes into each effect.
+// (hole visual-archetypes :tags (magic vfx unclaimed) :sev gap) Light, Detect Life, Night Eye and Guide do nothing: they are art (a light, a shader, a trail).
+// (hole slow-time :tags magic :sev gap) Slow Time does nothing: the sim has no time scale for the world around the player.
+// (hole telekinesis :tags (magic physics) :sev gap) Telekinesis and Grab Actor do nothing: nothing holds a body or an actor in front of the caster.
 archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	#partial switch a {
 	case .Value_Modifier:      return "archetypevaluemodifier"
@@ -189,6 +192,18 @@ archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	case .Dual_Value_Modifier: return "archetypedualvaluemodifier"
 	case .Absorb:              return "archetypeabsorb"
 	case .Spawn_Hazard:        return "archetypespawnhazard"
+	case .Summon_Creature:     return "archetypesummoncreature"
+	case .Reanimate:           return "archetypereanimate"
+	case .Command_Summoned:    return "archetypecommandsummoned"
+	case .Banish:              return "archetypebanish"
+	case .Bound_Weapon:        return "archetypeboundweapon"
+	case .Cloak:               return "archetypecloak"
+	case .Stagger:             return "archetypestagger"
+	case .Disarm:              return "archetypedisarm"
+	case .Etherealize:         return "archetypeetherealize"
+	case .Soul_Trap:           return "archetypesoultrap"
+	case .Cure_Disease:        return "archetypecuredisease"
+	case .Cure_Poison:         return "archetypecurepoison"
 	}
 	return ""
 }

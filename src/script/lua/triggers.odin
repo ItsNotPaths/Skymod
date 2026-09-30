@@ -37,6 +37,10 @@ tick_triggers :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, dt: 
 				continue
 			}
 		}
+		if z.follow != 0 {
+			at := worldstate.ref_pos(ws, db, z.follow)
+			if at != worldstate.ref_pos(ws, db, id) {worldstate.relocate(ws, id, worldstate.ref_cell(ws, db, z.follow), at, {})}
+		}
 		run_zone(vm, db, ws, id, z^, actors[:], &live, dt)
 	}
 	for id in db.placed_hazards {

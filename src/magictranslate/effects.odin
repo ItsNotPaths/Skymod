@@ -11,7 +11,8 @@ import "../gamedb"
 // effect_lua writes an MGEF as an effects/ file; false when one of its conditions has no Lua form.
 effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (text: string, ok: bool) {
 	info := mgef.info
-	land := land_lua(src, mgef.conditions, dispels(src, form, info)) or_return
+	status, is_status := status_of(info.archetype)
+	land := land_lua(src, mgef.conditions, dispels(src, form, info), archetype_gate(info.archetype)) or_return
 	b := strings.builder_make(context.temp_allocator)
 	write_head(&b, src, form, fmt.tprintf("MGEF %s", src.edids[form]), "effect")
 	tags := keyword_tags(src, form)
@@ -25,17 +26,71 @@ effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (
 	if info.taper_duration > 0 {fmt.sbprintfln(&b, "  taper = \"%vs\",", info.taper_duration)}
 	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
 	#partial switch info.archetype {
-	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
+	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb, .Enhance_Weapon, .Accumulate_Magnitude:
 		held := info.flags & esm.MGEF_RECOVER != 0 || src.lasting[form] == {.Lasting}
 		write_terms(&b, effect_terms(info, held))
 	case:
-		if class := gamedb.archetype_class(info.archetype); class != "" {append(&scripts, esm.Script_Attach{name = class})}
+		if is_status {write_terms(&b, {{status.av, "capacity", status.f, false}})}
+		if class := gamedb.archetype_class(info.archetype); class != "" {append(&scripts, archetype_script(class, info.archetype, mgef.related))}
 	}
 	strings.write_string(&b, land)
 	append(&scripts, ..gamedb.form_scripts(&src.db, form))
 	write_scripts(&b, src, scripts[:])
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b), true
+}
+
+// Status is what a status archetype holds on its target's AV while it runs.
+Status :: struct {
+	av, f: string,
+}
+
+// status_of: calm and frenzy move Aggression past its range (below 0 is calmed, combat.odin), fear
+// and rally Confidence; paralysis and invisibility set their AV.
+@(private)
+status_of :: proc(a: esm.Effect_Archetype) -> (Status, bool) {
+	#partial switch a {
+	case .Calm:         return {"Aggression", "-3"}, true
+	case .Frenzy:       return {"Aggression", "3"}, true
+	case .Demoralize:   return {"Confidence", "-4"}, true
+	case .Turn_Undead:  return {"Confidence", "-4"}, true
+	case .Rally:        return {"Confidence", "4"}, true
+	case .Paralysis:    return {"Paralysis", "1"}, true
+	case .Invisibility: return {"Invisibility", "1"}, true
+	}
+	return {}, false
+}
+
+// archetype_gate is the test an archetype adds to its effect's start: the magnitude is the highest
+// level it reaches (CK), or an immunity keyword.
+@(private)
+archetype_gate :: proc(a: esm.Effect_Archetype) -> string {
+	#partial switch a {
+	case .Calm, .Frenzy, .Demoralize, .Turn_Undead, .Rally, .Reanimate, .Command_Summoned, .Banish:
+		return "e.target.av.Level.value <= e.m.value"
+	case .Paralysis:
+		return "not e.target:HasKeyword(\"ImmuneParalysis\")"
+	}
+	return ""
+}
+
+// archetype_script is an archetype's class with the MGEF's associated item as its property: the
+// actor a summon places, the bound weapon, the spell a cloak casts.
+@(private)
+archetype_script :: proc(class: string, a: esm.Effect_Archetype, related: Form_ID) -> esm.Script_Attach {
+	s := esm.Script_Attach{name = class}
+	name: string
+	#partial switch a {
+	case .Summon_Creature: name = "Summon"
+	case .Bound_Weapon:    name = "Weapon"
+	case .Cloak:           name = "Spell"
+	}
+	if name != "" && related != 0 {
+		props := make([]esm.Script_Prop, 1, context.temp_allocator)
+		props[0] = {name = name, kind = .Object, status = 1, value = esm.Prop_Object{form = related, alias = -1}}
+		s.props = props
+	}
+	return s
 }
 
 // dispels are the tags a Dispel With Keywords effect clears as it lands: its keywords.

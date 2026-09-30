@@ -114,6 +114,7 @@ Overlay :: struct {
 	destruction:     map[Form_ID]f32,              // destructible ref -> the damage it has taken (destruction.odin)
 	deferred_kills:  Form_Set,                     // StartDeferredKill: it does not die at 0 Health until EndDeferredKill
 	causes:          map[Form_ID]Form_ID,          // SetActorCause: ref -> the actor its hits count as
+	commanded:       map[Form_ID]Commanded,        // summoned or raised actor -> its commander (commanded.odin)
 	dont_move:       Form_Set,                     // Actor.SetDontMove: stands (ai_link.odin)
 	restrained:      Form_Set,                     // Actor.SetRestrained: stands
 	actor_flags:     map[Form_ID]Flag_Override,    // actor or NPC_ -> ACBS bits a script set: ghost, essential, protected, invulnerable
@@ -181,6 +182,7 @@ Runtime :: struct {
 	hits:            [dynamic]Hit,          // hits since the VM last looked: OnHit
 	casts:           [dynamic]Spell_Cast,   // casts since the VM last looked: OnSpellCast
 	struck:          map[Form_ID]Form_ID,   // victim -> who last hit it, until its combat looks (projectiles.odin); not saved
+	pushes:          map[Form_ID][2]f32,    // actor -> the push velocity it still carries (push.odin); not saved
 	alarmed:         map[Form_ID]Form_ID,   // actor -> whom it fights or confronts, as the AI set it (GetAlarmed); not saved
 	trespass_warnings: map[[2]Form_ID]Trespass_Warning, // {warner, trespasser} -> its warnings so far (crime.odin); not saved
 	arresting:       map[Form_ID]Form_ID,   // guard -> the actor it arrests, as the AI set it (GetArrestingActor); not saved
@@ -277,6 +279,7 @@ init :: proc(ws: ^World_State) {
 	ws.hits = make([dynamic]Hit)
 	ws.casts = make([dynamic]Spell_Cast)
 	ws.struck = make(map[Form_ID]Form_ID)
+	ws.pushes = make(map[Form_ID][2]f32)
 	ws.alarmed = make(map[Form_ID]Form_ID)
 	ws.trespass_warnings = make(map[[2]Form_ID]Trespass_Warning)
 	ws.arresting = make(map[Form_ID]Form_ID)
@@ -316,6 +319,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.hits)
 	delete(ws.casts)
 	delete(ws.struck)
+	delete(ws.pushes)
 	delete(ws.alarmed)
 	delete(ws.trespass_warnings)
 	delete(ws.arresting)
@@ -422,6 +426,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.destruction = make(map[Form_ID]f32)
 	o.deferred_kills = make(Form_Set)
 	o.causes = make(map[Form_ID]Form_ID)
+	o.commanded = make(map[Form_ID]Commanded)
 	o.dont_move = make(Form_Set)
 	o.restrained = make(Form_Set)
 	o.actor_flags = make(map[Form_ID]Flag_Override)
@@ -535,6 +540,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.destruction)
 	delete(o.deferred_kills)
 	delete(o.causes)
+	delete(o.commanded)
 	delete(o.dont_move)
 	delete(o.restrained)
 	delete(o.actor_flags)

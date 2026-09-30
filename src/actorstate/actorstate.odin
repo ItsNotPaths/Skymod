@@ -39,6 +39,7 @@ Saved :: struct {
 }
 
 // (hole actor-states :tags (animation ai unclaimed) :sev blocker) the model is a stub: one state per actor, granted on request, with no properties or transitions. Wanted: one model that AI, scripts and conditions write and read and animation plays, not a copy of Havok behaviour graphs or Nemesis/Pandora patching. Swinging, drinking a potion, a dodge roll, paragliding are states; a mod adds one through the model's own clean API (user 2026-09-28: not a native plugin seam), and the combat brain and scripts ask for states by name. A state carries its own properties (Sleep has speed 0) and transitions (moving while asleep enters a WakeUp state for the get-out-of-bed clip).
+// (hole paralysis-read :tags (animation ai unclaimed) :sev gap :needs (actor-states)) the Paralysis AV is written by its effects and read by nothing: a paralyzed actor moves and acts.
 Model :: struct {
 	ids:     map[string]State_ID,
 	names:   [dynamic]string, // by State_ID

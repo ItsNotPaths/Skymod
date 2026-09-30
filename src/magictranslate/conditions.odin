@@ -18,17 +18,25 @@ Who :: struct {
 // MGEF_WHO: an effect's magichit, where Subject is the one hit and Target the caster.
 MGEF_WHO :: Who{"e", "e.target", "e.actor"}
 
-// land_lua writes an effect's own magichit hook: false from it when the conditions fail, then each
-// dispel (DispelTagged); "" for none. ok=false when a condition has no Lua form.
-land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string) -> (text: string, ok: bool) {
-	if len(conds) == 0 && len(dispels) == 0 {return "", true}
-	gate := gate_lua(src, conds, MGEF_WHO, "\n        and ") or_return
+// land_lua writes an effect's own magichit hook: false from it when the `extra` test or the
+// conditions fail, then each dispel (DispelTagged); "" for none. ok=false when a condition has no
+// Lua form.
+land_lua :: proc(src: ^Source, conds: []gamedb.Condition, dispels: []string, extra := "") -> (text: string, ok: bool) {
+	if len(conds) == 0 && len(dispels) == 0 && extra == "" {return "", true}
+	tests := make([dynamic]string, context.temp_allocator)
+	if extra != "" {append(&tests, extra)}
+	if len(conds) > 0 {
+		gate := gate_lua(src, conds, MGEF_WHO, "\n        and ") or_return
+		if extra != "" && strings.contains(gate, " or ") {gate = fmt.tprintf("(%s)", gate)}
+		append(&tests, gate)
+	}
+	test := strings.join(tests[:], "\n        and ", context.temp_allocator)
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintln(&b, "  hooks = {")
 	fmt.sbprintln(&b, "    magichit = function(e)")
 	switch {
-	case len(dispels) == 0: fmt.sbprintfln(&b, "      return %s", gate)
-	case len(conds) > 0:    fmt.sbprintfln(&b, "      if not (%s) then return false end", gate)
+	case len(dispels) == 0: fmt.sbprintfln(&b, "      return %s", test)
+	case len(tests) > 0:    fmt.sbprintfln(&b, "      if not (%s) then return false end", test)
 	}
 	for d in dispels {fmt.sbprintfln(&b, "      e.target:DispelTagged(%q)", d)}
 	fmt.sbprintln(&b, "    end,")

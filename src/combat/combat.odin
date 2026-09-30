@@ -90,7 +90,7 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 	h := inp.host
 	actors := plugin.items(inp.actors)
 	me, _ := find(actors, f.actor)
-	if me.dead {return {}}
+	if me.dead || h.world.actor_value(h.world.data, f.actor, "Aggression", .Value) < 0 {return {}} // below 0: calmed
 	c = f.fight
 	c.swing = max(c.swing - inp.dt, 0)
 	if f.struck_by != 0 {
@@ -98,7 +98,10 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 	}
 	aggro := h.aggro(h.data, f.actor)
 	if c.state == .Combat || c.state == .Flee {
-		if keeps(inp, me, c, aggro) {return c}
+		if keeps(inp, me, c, aggro) {
+			c.state = engage(h, f.actor)
+			return c
+		}
 		c = {}
 	}
 
@@ -133,10 +136,10 @@ swing :: proc "contextless" (inp: ^Input, actor: Form_ID, c: ^Fight) {
 	c.swing = SWING_EVERY
 }
 
-// engage is Combat, or Flee for a Cowardly actor.
+// engage is Combat, or Flee for a Cowardly or frightened actor.
 @(private = "file")
 engage :: proc "contextless" (h: Host, actor: Form_ID) -> State {
-	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Value) == 0 else .Combat
+	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Value) <= 0 else .Combat
 }
 
 // keeps: a fight goes on while the target lives, is loaded and within DISENGAGE, and is detected or

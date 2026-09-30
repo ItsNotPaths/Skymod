@@ -17,6 +17,7 @@ register_query :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "CalculateEncounterLevel", n_calculate_encounter_level)
 	register(reg, "Form", "GetGoldValue", n_get_gold_value)
 	register(reg, "ObjectReference", "PlaceActorAtMe", n_place_actor_at_me)
+	register(reg, "ObjectReference", "PushActorAway", n_push_actor_away)
 
 	register(reg, "Actor", "HasMagicEffect", n_has_magic_effect)
 	register(reg, "Actor", "HasMagicEffectWithKeyword", n_has_effect_keyword)
@@ -183,6 +184,13 @@ n_set_ghost :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, 
 n_set_essential :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, esm.ACBS_ESSENTIAL)}
 n_set_protected :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, esm.ACBS_PROTECTED)}
 n_set_invulnerable :: proc(c: ^Call, args: []Value) -> Value {return set_flag(c, args, esm.ACBS_INVULNERABLE)}
+
+// PushActorAway(akActorToPush, afKnockbackForce): the actor slides away from this ref. No ragdoll:
+// that is animation.
+n_push_actor_away :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.push_actor(c.ws, c.db, c.self, arg_form(c, args, 0), arg_f32(args, 1, 0))
+	return nil
+}
 
 n_is_ghost :: proc(c: ^Call, args: []Value) -> Value {return worldstate.actor_flag(c.ws, c.db, c.self, esm.ACBS_GHOST)}
 n_is_essential :: proc(c: ^Call, args: []Value) -> Value {return worldstate.actor_flag(c.ws, c.db, c.self, esm.ACBS_ESSENTIAL)}

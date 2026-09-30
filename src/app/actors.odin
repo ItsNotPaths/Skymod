@@ -118,6 +118,7 @@ tick_actor_bodies :: proc(g: ^Game) {
 				continue
 			}
 			// (hole root-motion-velocity :tags (animation ai physics unclaimed) :sev gap :needs (animation)) actor movement is only the AI velocity. Wanted: a set point where the clip's root motion replaces or scales vel before character_move.
+			vel += worldstate.take_push(&g.sim.ws, form, TICK_DT)
 			physics.character_move(phys, &b.char, vel, jump, TICK_DT)
 			if vel != {} || !physics.character_on_ground(&b.char) {actor_publish(g, form, &b, vel, face)}
 		} else {

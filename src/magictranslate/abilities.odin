@@ -64,10 +64,11 @@ ability_parts :: proc(src: ^Source, sp: gamedb.Spell) -> (p: Parts, ok: bool) {
 		if !same_conditions(e.conditions, p.live) {return}
 		if len(mgef.conditions) > 0 && len(sp.effects) > 1 {return}
 		#partial switch info.archetype {
-		case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
+		case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb, .Enhance_Weapon, .Accumulate_Magnitude:
 			append(&p.terms, ..effect_terms(info, true, e.magnitude))
 		case:
-			if class := gamedb.archetype_class(info.archetype); class != "" {append(&p.scripts, esm.Script_Attach{name = class})}
+			if st, ok := status_of(info.archetype); ok {append(&p.terms, Term{st.av, "capacity", st.f, false})}
+			if class := gamedb.archetype_class(info.archetype); class != "" {append(&p.scripts, archetype_script(class, info.archetype, mgef.related))}
 		}
 		append(&p.scripts, ..gamedb.form_scripts(&src.db, e.effect))
 		for t in keyword_tags(src, e.effect) {

@@ -167,7 +167,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	682 = fn_worn_has_keyword,
 	698 = fn_is_allowed_to_fly,
 	699 = fn_has_magic_effect_keyword,
-	700 = fn_resting,
+	700 = fn_is_commanded_actor,
 	707 = fn_get_combat_target_has_keyword,
 	715 = fn_is_undead,
 	722 = fn_worn_apparel_has_keyword_count,
@@ -450,7 +450,6 @@ fn_get_friend_hit :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f
 // (hole action-state-conditions :tags (combat unclaimed) :sev gap :needs (actor-states)) IsWeaponOut, IsWeaponMagicOut, IsCasting and IsBleedingOut read 0: no actor has a drawn, casting or bleedout state.
 // (hole package-conditions :tags ai :sev gap) IsSmallBump and GetGroupMemberCount read 0: no bump is noticed (and no line answers one), and there are no package groups.
 // (hole magic-conditions :tags (magic records) :sev gap) these have no body, so they pass: HasShout, GetSpellUsageNum, HasEquippedSpell, GetCurrentCastingType, IsCurrentSpell, IsWardState, IsDualCasting, EPMagic_IsAdvanceSkill, EPMagic_SpellHasKeyword, EPMagic_SpellHasSkill, HasBoundWeaponEquipped, SpellHasCastingPerk, EffectWasDualCast. A perk gated on an EPMagic_ one applies to every spell.
-// (hole commanded-actors :tags (magic unclaimed) :sev gap :needs (other-archetypes)) IsCommandedActor reads 0: no spell raises or commands an actor.
 // (hole flight :tags (animation combat unclaimed) :sev gap :needs (actor-states)) GetIsFlying and GetFlyingState read 0: no dragon flies.
 // (hole map-markers :tags quest :sev gap) GetMapMarkerVisible reads 0: no marker is ever found; nothing discovers one as the player nears it, and AddToMap and IsMapMarkerVisible are not natives.
 // (hole persuasion :tags dialogue :sev gap) GetIntimidateSuccess and GetBribeSuccess read 0: no speech check marks an actor persuaded.
@@ -734,6 +733,12 @@ fn_worn_has_keyword :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_get_ref_type_alive_count :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return f32(worldstate.ref_type_count(ctx.ws, ctx.db, p1(c), gamedb.condition_param2_form(c), false)), true
+}
+
+// IsCommandedActor: a summon or reanimate effect commands the subject (worldstate.command).
+@(private = "file")
+fn_is_commanded_actor :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	return yes(on in ctx.ws.commanded)
 }
 
 // GetIsGhost, IsEssential, IsProtected and IsUnique: the ACBS flags, as scripts set them.

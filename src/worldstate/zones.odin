@@ -15,6 +15,7 @@ Zone :: struct {
 	every:  f32,     // seconds between casts on one actor inside; 0: once (a rune), then it goes
 	burst:  f32,     // a once zone casts on each actor within this of it
 	player_only: bool, // it casts only on the controlled actor
+	follow: Form_ID, // it moves with this ref (a cloak); 0: it stays
 }
 
 // UNITS_PER_FOOT turns a record's feet into world units: a unit is 0.5625 inches, so 64 are 3 feet.

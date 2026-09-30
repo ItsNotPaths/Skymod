@@ -1550,14 +1550,15 @@ end
 -- OnTriggerLeave like an authored trigger and goes when deleted or when its lifetime runs out:
 --   rt.zone { at = ref, shape = { sphere = radius } or { box = { x, y, z } }, lifetime = seconds,
 --             form = its base (for scripts, and the limit), limit = n (the oldest of this form and
---             caster go), caster = ref, spell = ref, every = seconds, burst = radius }
+--             caster go), caster = ref, spell = ref, every = seconds, burst = radius, follow = ref }
 -- With a spell it casts on each actor inside that is hostile to the caster (every actor with no
 -- caster): on entry, then every `every` seconds; with no `every` it fires once, at the first such
--- actor, on each within `burst`, and goes (a rune).
+-- actor, on each within `burst`, and goes (a rune). With `follow` it moves with that ref (a cloak).
 function rt.zone(def)
   if type(def.shape) ~= "table" or is_none(def.at) then error("rt.zone needs at and shape", 2) end
   def.at, def.form = form_of(def.at), def.form and form_of(def.form)
   def.caster, def.spell = def.caster and form_of(def.caster), def.spell and form_of(def.spell)
+  def.follow = def.follow and form_of(def.follow)
   return make_zone(def)
 end
 

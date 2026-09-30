@@ -14,7 +14,7 @@ import "../gamedb"
 import "../magic"
 import "../worldstate"
 
-// (hole soul-gems :tags (magic unclaimed) :sev gap :needs (other-archetypes)) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
+// (hole soul-gems :tags (magic unclaimed) :sev gap) soul trap fills no gem: Actor.TrapSoul is not a native, SLGM capacity and fill are not indexed, an inventory stack holds no soul and the Soul Trap perk entries are unread; nothing recharges an item.
 register_magic :: proc(reg: ^Registry) {
 	register(reg, "Actor", "AddSpell", n_add_spell)
 	register(reg, "Actor", "RemoveSpell", n_remove_spell)
@@ -41,6 +41,10 @@ register_magic :: proc(reg: ^Registry) {
 	register(reg, "Scroll", "Cast", n_spell_cast)
 	register(reg, "ActiveMagicEffect", "Dispel", n_effect_dispel)
 	register(reg, "ActiveMagicEffect", "SetActive", n_effect_set_active)
+	register(reg, "ActiveMagicEffect", "Command", n_effect_command)
+	register(reg, "ActiveMagicEffect", "GetMagnitude", n_effect_magnitude)
+	register(reg, "ActiveMagicEffect", "GetDuration", n_effect_duration)
+	register(reg, "Actor", "IsCommandedActor", n_is_commanded)
 	register(reg, "ActiveMagicEffect", "GetBaseObject", n_effect_base)
 	register(reg, "ActiveMagicEffect", "GetTargetActor", n_effect_target)
 	register(reg, "ActiveMagicEffect", "GetCasterActor", n_effect_caster)
@@ -228,6 +232,18 @@ n_effect_set_active :: proc(c: ^Call, args: []Value) -> Value {
 	if e, ok := &c.ws.effects[c.self]; ok {e.inactive = !arg_bool(args, 0, true)}
 	return nil
 }
+
+// Command(akActor) is not Papyrus: a summon or reanimate effect's script makes the actor fight for
+// its caster until the effect ends (worldstate.command).
+n_effect_command :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.command(c.ws, c.db, arg_form(c, args, 0), c.self)
+	return nil
+}
+
+n_effect_magnitude :: proc(c: ^Call, args: []Value) -> Value {return c.ws.effects[c.self].magnitude}
+n_effect_duration :: proc(c: ^Call, args: []Value) -> Value {return c.ws.effects[c.self].duration}
+
+n_is_commanded :: proc(c: ^Call, args: []Value) -> Value {return c.self in c.ws.commanded}
 
 n_effect_base :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].effect)}
 n_effect_target :: proc(c: ^Call, args: []Value) -> Value {return form_or_none(c.ws.effects[c.self].target)}

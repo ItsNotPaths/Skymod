@@ -854,6 +854,7 @@ rt_zone :: proc "c" (L: ^lua.State) -> c.int {
 		spell  = field_ref(L, 1, "spell"),
 		every  = field_num(L, 1, "every"),
 		burst  = field_num(L, 1, "burst"),
+		follow = field_ref(L, 1, "follow"),
 	}
 	lua.getfield(L, 1, "shape")
 	if r := field_num(L, -1, "sphere"); r > 0 {

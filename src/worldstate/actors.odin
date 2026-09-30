@@ -496,7 +496,9 @@ allowed_to_fly :: proc(ws: ^World_State, actor: Form_ID) -> bool {
 
 // faction_relation is how one of `actor`'s factions stands toward one of `other`'s (XNAM, or a
 // script's change). The first relation found answers; none is Neutral.
-faction_relation :: proc(ws: ^World_State, db: ^gamedb.DB, actor, other: Form_ID) -> esm.Combat_Reaction {
+faction_relation :: proc(ws: ^World_State, db: ^gamedb.DB, actor_, other_: Form_ID) -> esm.Combat_Reaction {
+	actor, other := commander_of(ws, actor_), commander_of(ws, other_) // a commanded actor takes its commander's side
+	if actor == other {return .Ally}
 	theirs := actor_factions_now(ws, db, other)
 	for mine in actor_factions_now(ws, db, actor) {
 		for t in theirs {

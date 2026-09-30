@@ -53,6 +53,7 @@ end_effect :: proc(ws: ^World_State, h: Form_ID) {
 	if !ok || e.ended {return}
 	e.ended = true
 	append(&ws.ended_effects, h)
+	release(ws, h)
 }
 
 // advance_effect runs an effect's clock on by `dt`. Each amount term adds what its running total

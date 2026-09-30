@@ -4,6 +4,7 @@ package script
 
 import "core:math/rand"
 import "../combat"
+import "../formats/esm"
 import "../gamedb"
 import "../plugin"
 import "../worldhost"
@@ -13,8 +14,9 @@ combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
 // weapon_hit is a weapon hit landing on a live actor, melee or ranged (`projectile` its PROJ): an
 // assault unless a friend lets it go, the damage (a sneak attack when the target had not detected the attacker), the weapon's
-// enchantment, OnHit, a noise and the target's grunt.
+// enchantment, OnHit, a noise and the target's grunt. A ghost is not hit.
 weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32, projectile: Form_ID = 0) {
+	if worldstate.actor_flag(c.ws, c.db, target, esm.ACBS_GHOST) {return}
 	forgiven := worldstate.friend_hit(c.ws, c.db, target, attacker)
 	if !forgiven {worldstate.report_crime(c.ws, c.db, attacker, target, .Assault, 0)}
 	kind := kind

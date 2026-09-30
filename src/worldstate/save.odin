@@ -105,6 +105,11 @@ Saved_Alias :: struct {
 	alias, form: Form_ID,
 }
 
+Saved_Commanded :: struct {
+	actor: Form_ID,
+	by:    Commanded,
+}
+
 Saved_Name :: struct {
 	form: Form_ID,
 	name: string,
@@ -371,6 +376,7 @@ Save_Body :: struct {
 	deferred_kills: []Form_ID,
 	destruction:   []Saved_Global, // id = the ref, value = the damage it has taken
 	causes:        []Saved_Alias, // alias = the ref, form = the actor its hits count as
+	commanded:     []Saved_Commanded,
 	dont_move:     []Form_ID,
 	restrained:    []Form_ID,
 	actor_flags:   []Saved_Flags,
@@ -666,6 +672,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		deferred_kills = save_set(ws.deferred_kills),
 		destruction   = destruction[:],
 		causes        = save_pairs(ws.causes),
+		commanded     = save_commanded(ws),
 		dont_move     = save_set(ws.dont_move),
 		restrained    = save_set(ws.restrained),
 		actor_flags   = actor_flags[:],
@@ -891,6 +898,11 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		if id, kok := rf(remap, have_remap, g.id); kok {ws.destruction[id] = g.value}
 	}
 	load_pairs(&ws.causes, body.causes, remap, have_remap, rf)
+	for s in body.commanded {
+		actor, aok := rf(remap, have_remap, s.actor)
+		by, bok := rf(remap, have_remap, s.by.by)
+		if aok && bok {ws.commanded[actor] = {by, s.by.effect}}
+	}
 	load_set(&ws.dont_move, body.dont_move, remap, have_remap, rf)
 	load_set(&ws.restrained, body.restrained, remap, have_remap, rf)
 	for f in body.actor_flags {
@@ -1115,8 +1127,9 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		ref, rok := rf(remap, have_remap, s.ref)
 		caster, cok := rf(remap, have_remap, z.caster)
 		spell, sok := rf(remap, have_remap, z.spell)
-		z.caster, z.spell = caster, spell
-		if rok && cok && sok {ws.zones[ref] = z}
+		follow, fok := rf(remap, have_remap, z.follow)
+		z.caster, z.spell, z.follow = caster, spell, follow
+		if rok && cok && sok && fok {ws.zones[ref] = z}
 	}
 	for a in body.aliases {
 		alias, aok := rf(remap, have_remap, a.alias)
@@ -1244,6 +1257,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.deferred_kills {add_slot(&seen, a)}
 	for g in body.destruction {add_slot(&seen, g.id)}
 	for r in body.causes {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
+	for c in body.commanded {add_slot(&seen, c.actor);add_slot(&seen, c.by.by)}
 	for a in body.dont_move {add_slot(&seen, a)}
 	for a in body.restrained {add_slot(&seen, a)}
 	for f in body.actor_flags {add_slot(&seen, f.form)}
@@ -1281,7 +1295,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for a in body.anim_regs {add_slot(&seen, a.sender);add_slot(&seen, a.form)}
 	for l in body.los_regs {add_slot(&seen, l.form);add_slot(&seen, l.viewer);add_slot(&seen, l.target)}
 	for f in body.projectiles {add_slot(&seen, f.ref);add_slot(&seen, f.shooter);add_slot(&seen, f.weapon)}
-	for s in body.zones {add_slot(&seen, s.ref);add_slot(&seen, s.zone.caster);add_slot(&seen, s.zone.spell)}
+	for s in body.zones {add_slot(&seen, s.ref);add_slot(&seen, s.zone.caster);add_slot(&seen, s.zone.spell);add_slot(&seen, s.zone.follow)}
 	for v in body.visuals {add_slot(&seen, v.form);add_slot(&seen, v.ref);add_slot(&seen, v.facing)}
 	for s in body.effects {add_slot(&seen, s.effect.effect);add_slot(&seen, s.effect.spell);add_slot(&seen, s.effect.target);add_slot(&seen, s.effect.caster)}
 	for sc in body.scripts {
