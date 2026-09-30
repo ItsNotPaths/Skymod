@@ -203,3 +203,22 @@ test_effect_magnitude_perks :: proc(t: ^testing.T) {
 	script.start_spell(&c, SPELL, CASTER, TARGET)
 	testing.expect_value(t, ws.effects[script.spell_effects(&ws, CASTER, SPELL)[0]].magnitude, 10) // reversed: neither perk applies
 }
+
+// Sprinting spends 7 stamina a second, 2% more per unit of worn armor weight; a held weapon's weight
+// does not count.
+@(test)
+test_sprint_drain :: proc(t: ^testing.T) {
+	F :: gamedb.Form_ID
+	A, ARMOR, SWORD :: F(0x14), F(0x100), F(0x101)
+	db: gamedb.DB
+	defer {delete(db.base_weight);delete(db.equip_slots)}
+	db.base_weight[ARMOR], db.base_weight[SWORD] = 20, 10
+	db.equip_slots[ARMOR], db.equip_slots[SWORD] = {kind = .Armor}, {kind = .Weapon}
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	testing.expect_value(t, worldstate.sprint_drain(&ws, &db, A), 7)
+	eq := worldstate.equipment(&ws, &db, A)
+	append(&eq.worn, worldstate.Worn{item = ARMOR}, worldstate.Worn{item = SWORD})
+	testing.expect(t, abs(worldstate.sprint_drain(&ws, &db, A) - 9.8) < 1e-4)
+}

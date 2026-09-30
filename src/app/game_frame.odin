@@ -447,16 +447,21 @@ frame_look :: proc(g: ^Game) {
 	if !g.fr.mouse_cap {camera_look(&g.cam, g.p.input.look)}
 }
 
-// input_move is the player's controller: camera-relative WASD at the current yaw, Shift sprint,
-// Space jump. Free-fly moves in frame_camera instead — no solver, so it has nothing to keep
-// deterministic.
+// input_move is the player's controller, run each tick: camera-relative WASD at the current yaw,
+// Shift sprint (it spends stamina, and stops when none is left), Space jump. Free-fly moves in
+// frame_camera instead — no solver, so it has nothing to keep deterministic.
 input_move :: proc(g: ^Game) -> (vel: [2]f32, jump: bool) {
+	ws, player := &g.sim.ws, g.sim.ws.player
 	move := g.sim.input.move
 	cy, sy := math.cos(g.sim.input.yaw), math.sin(g.sim.input.yaw)
 	dir := [2]f32{cy * move.x + sy * move.y, sy * move.x - cy * move.y}
 	mag := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	if g.sim.input.sprint {actorstate.leave(&g.sim.ws.states, g.sim.ws.player, actorstate.SNEAK)} // sprinting stands up
-	speed := SPRINT_SPEED if g.sim.input.sprint else SNEAK_SPEED if actorstate.current(&g.sim.ws.states, g.sim.ws.player) == actorstate.SNEAK else RUN_SPEED
+	sprint := g.sim.input.sprint && mag > 0.001 && worldstate.av_current(ws, &g.db, player, "Stamina") > 0
+	if sprint {
+		actorstate.leave(&ws.states, player, actorstate.SNEAK) // sprinting stands up
+		worldstate.av_damage(ws, &g.db, player, "Stamina", worldstate.sprint_drain(ws, &g.db, player) * TICK_DT)
+	}
+	speed := SPRINT_SPEED if sprint else SNEAK_SPEED if actorstate.current(&ws.states, player) == actorstate.SNEAK else RUN_SPEED
 	if mag > 0.001 {vel = {dir.x / mag * speed, dir.y / mag * speed}}
 	return vel, move.z > 0.5
 }

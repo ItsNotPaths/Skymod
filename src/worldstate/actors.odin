@@ -286,6 +286,21 @@ av_damage :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, av: string, 
 	}
 }
 
+// (hole sprint-drain-rule :tags player :sev polish) unsourced: how the sprint GMSTs combine. Taken as fSprintStaminaDrainMult × (fSprintStaminaWeightBase + fSprintStaminaWeightMult × worn armor weight) a second (UESP: 7 a second, more in heavier armor).
+// sprint_drain is the stamina a second an actor spends sprinting.
+sprint_drain :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) -> f32 {
+	armor: f32
+	for w in equipment(ws, db, actor).worn {
+		if slot, ok := gamedb.equip_slot_of(db, w.item); ok && slot.kind == .Armor {
+			weight, _ := gamedb.weight_of(db, w.item)
+			armor += weight
+		}
+	}
+	base := gamedb.setting_float(db, "fSprintStaminaWeightBase", 1)
+	per_weight := gamedb.setting_float(db, "fSprintStaminaWeightMult", 0.02)
+	return gamedb.setting_float(db, "fSprintStaminaDrainMult", 7) * (base + per_weight * armor)
+}
+
 // av_restore is RestoreActorValue: it removes damage, never past none.
 av_restore :: proc(ws: ^World_State, actor: Form_ID, av: string, amount: f32) {
 	p := av_upsert(ws, actor, av)
