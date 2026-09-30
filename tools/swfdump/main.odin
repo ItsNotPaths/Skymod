@@ -95,7 +95,7 @@ main :: proc() {
 		case want_shapes && shapes_i + 1 < len(os.args):
 			dump_shapes(&mv, os.args[shapes_i + 1])
 		case want_render && render_i + 3 < len(os.args):
-			img, rok := swf.render_instance(&mv, os.args[render_i + 1], os.args[render_i + 2], 2, nil, context.temp_allocator)
+			img, rok := swf.render_instance(&mv, os.args[render_i + 1], os.args[render_i + 2], 2, allocator = context.temp_allocator)
 			if !rok {
 				fmt.eprintln("no such instance")
 				os.exit(1)

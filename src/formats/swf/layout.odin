@@ -38,10 +38,28 @@ layout_walk :: proc(mv: ^Movie, s: Sprite, prefix: string, m: Matrix, out: ^[dyn
 	}
 }
 
-// moving is, per label, the box of the children whose placement changes across the sprite's frames.
+// moving is, per label, the box of the children whose placement changes across the sprite's frames:
+// a fill that slides or scales, or the clip layer that scales over a still fill.
 @(private)
 moving :: proc(mv: ^Movie, s: Sprite, m: Matrix, allocator: Allocator) -> []Label_Rect {
 	if len(s.labels) == 0 {return nil}
+	varies := varying_depths(s)
+	if len(varies) == 0 {return nil}
+	out := make([dynamic]Label_Rect, allocator)
+	for label, frame in s.labels {
+		r := EMPTY_RECT
+		for p in s.frames[clamp(frame, 0, len(s.frames) - 1)] {
+			if varies[p.depth] {r = rect_union(r, bounds(mv, p.id, label, mat_mul(m, p.mat)))} // a clip layer's box is what it shows
+		}
+		append(&out, Label_Rect{label, to_px(r)})
+	}
+	slice.sort_by(out[:], proc(a, b: Label_Rect) -> bool {return a.label < b.label})
+	return out[:]
+}
+
+// varying_depths is the depths whose child changes across a sprite's frames: another character or
+// another matrix. A child that only leaves (the enemy bar at "Empty") does not count.
+varying_depths :: proc(s: Sprite) -> map[u16]bool {
 	varies := make(map[u16]bool, allocator = context.temp_allocator)
 	first := make(map[u16]Place, allocator = context.temp_allocator)
 	for f in s.frames {
@@ -53,24 +71,22 @@ moving :: proc(mv: ^Movie, s: Sprite, m: Matrix, allocator: Allocator) -> []Labe
 			}
 		}
 	}
-	for f in s.frames { // a child missing from some frame comes and goes
-		for depth in first {
-			found := false
-			for p in f {if p.depth == depth {found = true;break}}
-			if !found {varies[depth] = true}
+	return varies
+}
+
+// still_skip is what to leave out to draw only the part of a sprite that never moves: the varying
+// depths, and every depth an animated clip layer masks.
+still_skip :: proc(s: Sprite) -> map[u16]bool {
+	skip := varying_depths(s)
+	for f in s.frames {
+		for p in f {
+			if p.clip == 0 || !skip[p.depth] {continue}
+			for g in s.frames {
+				for q in g {if q.depth > p.depth && q.depth <= p.clip {skip[q.depth] = true}}
+			}
 		}
 	}
-	if len(varies) == 0 {return nil}
-	out := make([dynamic]Label_Rect, allocator)
-	for label, frame in s.labels {
-		r := EMPTY_RECT
-		for p in s.frames[clamp(frame, 0, len(s.frames) - 1)] {
-			if varies[p.depth] && p.clip == 0 {r = rect_union(r, bounds(mv, p.id, label, mat_mul(m, p.mat)))}
-		}
-		append(&out, Label_Rect{label, to_px(r)})
-	}
-	slice.sort_by(out[:], proc(a, b: Label_Rect) -> bool {return a.label < b.label})
-	return out[:]
+	return skip
 }
 
 @(private)

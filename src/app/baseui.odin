@@ -16,7 +16,6 @@ import "core:log"
 import "core:math"
 import "core:os"
 import "core:path/filepath"
-import "core:strings"
 import "../font"
 import "../formats/dds"
 import "../formats/swf"
@@ -213,55 +212,27 @@ write_layout :: proc(v: ^vfs.VFS, assets, swf_path: string) {
 	if !ok {
 		return
 	}
-	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "-- Generated from %s: where its named instances sit on the stage, in px.", swf_path)
-	fmt.sbprintln(&b, "return {")
-	fmt.sbprintfln(&b, "  stage = { w = %.0f, h = %.0f },", (mv.stage.x1 - mv.stage.x0) / 20, (mv.stage.y1 - mv.stage.y0) / 20)
-	fmt.sbprintln(&b, "  art = {")
+	art := make([dynamic]ui.Art_Rect, context.temp_allocator)
 	for a in UI_ASSETS {
 		if a.swf != swf_path || a.path == "" {
 			continue
 		}
-		img, rok := swf.render_instance(&mv, a.path, a.label, ART_SCALE, a.hide, context.temp_allocator)
+		img, rok := swf.render_instance(&mv, a.path, a.label, ART_SCALE, a.hide, a.still, context.temp_allocator)
 		if !rok {
 			log.warnf("ui: no instance %q in %s", a.path, swf_path)
 			continue
 		}
 		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
 		write_dds(dest, img)
-		fmt.sbprintfln(&b, "    [%q] = %s,", a.dest, lua_rect(img.rect))
+		append(&art, ui.Art_Rect{a.dest, img.rect})
 	}
-	fmt.sbprintln(&b, "  },")
-	fmt.sbprintln(&b, "  instances = {")
-	for e in swf.layout(&mv, context.temp_allocator) {
-		if swf.rect_empty(e.rect) {
-			continue
-		}
-		fmt.sbprintf(&b, "    [%q] = { rect = %s", e.path, lua_rect(e.rect))
-		if len(e.moving) > 0 {
-			fmt.sbprint(&b, ", moving = {")
-			for m in e.moving {
-				if !swf.rect_empty(m.rect) {
-					fmt.sbprintf(&b, " [%q] = %s,", m.label, lua_rect(m.rect))
-				}
-			}
-			fmt.sbprint(&b, " }")
-		}
-		fmt.sbprintln(&b, " },")
-	}
-	fmt.sbprintln(&b, "  },")
-	fmt.sbprintln(&b, "}")
+	src := ui.layout_source(&mv, swf_path, art[:], context.temp_allocator)
 	ensure_parent_dir(out)
-	if os.write_entire_file(out, transmute([]u8)strings.to_string(b)) != nil {
+	if os.write_entire_file(out, transmute([]u8)src) != nil {
 		log.errorf("ui: could not write %q", out)
 	} else {
 		log.infof("ui: wrote %s", filepath.base(out))
 	}
-}
-
-@(private = "file")
-lua_rect :: proc(r: swf.Rect) -> string {
-	return fmt.tprintf("{ x = %.2f, y = %.2f, w = %.2f, h = %.2f }", r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0)
 }
 
 @(private = "file")

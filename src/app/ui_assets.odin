@@ -17,6 +17,7 @@ UI_Asset :: struct {
 	path:    string, // INSTANCE: dotted instance names from the root
 	label:   string, // INSTANCE: the frame label to draw ("" = first frame)
 	hide:    []string, // INSTANCE: named children left out
+	still:   bool,   // INSTANCE: only the children that never move (chrome without its fill)
 	size:    [2]int, // SHAPE: native px size
 	fill:    [4]u8,  // SHAPE: the shape's first solid fill (RGBA)
 	recolor: [4]u8,  // SHAPE: output colour override; {0,0,0,0} = keep
@@ -41,7 +42,8 @@ UI_ASSETS := [?]UI_Asset{
 	{dest = "interface/hud/magicka_full.dds", swf = HUD_SWF, path = HUD_ROOT + "Magica.MagickaMeter_mc", label = "Full"},
 	{dest = "interface/hud/stamina_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "Stamina.StaminaMeter_mc", label = "Empty"},
 	{dest = "interface/hud/stamina_full.dds", swf = HUD_SWF, path = HUD_ROOT + "Stamina.StaminaMeter_mc", label = "Full"},
-	{dest = "interface/hud/enemy_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", label = "Empty", hide = {"BracketsInstance"}},
+	// The enemy bar's "Empty" frame drops the whole bar, so its chrome is the part that never moves.
+	{dest = "interface/hud/enemy_empty.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", still = true, hide = {"BracketsInstance"}},
 	{dest = "interface/hud/enemy_full.dds", swf = HUD_SWF, path = HUD_ROOT + "EnemyHealth_mc", label = "Full", hide = {"BracketsInstance"}},
 
 	// ── Shapes (by size + fill) ──
@@ -50,8 +52,9 @@ UI_ASSETS := [?]UI_Asset{
 	// The shout meter's deco FRAME (red border + knotwork ends, 3-sliced by the bar widget), re-coloured
 	// WHITE so a bar can tint it.
 	{dest = "interface/bar_frame.dds", swf = HUD_SWF, size = {358, 25}, fill = {0x99, 0, 0, 0xff}, recolor = {255, 255, 255, 255}},
-	// The compass frame's black body, used as a plain bar background.
-	{dest = "interface/bar_bg.dds", swf = HUD_SWF, size = {366, 30}, fill = {1, 1, 1, 0xff}},
+	// The compass frame's silhouette in its black, used as a plain bar background (its grey border
+	// would double the bar's own frame).
+	{dest = "interface/bar_bg.dds", swf = HUD_SWF, size = {366, 30}, fill = {1, 1, 1, 0xff}, recolor = {1, 1, 1, 0xff}},
 	// Sneak eye (the pupil is a hole), re-coloured WHITE so the HUD can tint it.
 	{dest = "interface/sneak_eye.dds", swf = HUD_SWF, size = {95, 44}, fill = {0x99, 0x33, 0, 0xff}, recolor = {255, 255, 255, 255}},
 }

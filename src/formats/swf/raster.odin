@@ -81,8 +81,9 @@ frame_list :: proc(s: Sprite, label: string) -> []Place {
 	return s.frames[clamp(f, 0, len(s.frames) - 1)]
 }
 
-// bounds is the box of character `id` at `label` after `m`. `texts` counts text field boxes.
-bounds :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, hide: []string = nil, texts := true) -> Rect {
+// bounds is the box of character `id` at `label` after `m`. `texts` counts text field boxes; `skip`
+// leaves out depths of this sprite (not of the ones inside it).
+bounds :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, hide: []string = nil, texts := true, skip: map[u16]bool = nil) -> Rect {
 	switch c in mv.chars[id] {
 	case Shape_Def:
 		return rect_xform(c.bounds, m)
@@ -97,7 +98,7 @@ bounds :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, hide: []string = n
 				clip, until = bounds(mv, p.id, label, pm), p.clip
 				continue
 			}
-			if hidden(p.name, hide) {continue}
+			if hidden(p.name, hide) || skip[p.depth] {continue}
 			b := bounds(mv, p.id, label, pm, hide, texts)
 			if p.depth <= until {b = rect_intersect(b, clip)}
 			out = rect_union(out, b)
@@ -142,20 +143,23 @@ find_place :: proc(s: Sprite, name: string) -> (Place, bool) {
 
 // render_instance draws the instance at `path` as it sits on the stage, at `label` (any sprite
 // inside that has the label shows it), `scale` px per stage px, without the named children in `hide`.
-// Colour transforms above the instance (its fades) are left out. Image.rect is in stage px.
-render_instance :: proc(mv: ^Movie, path, label: string, scale: f32, hide: []string = nil, allocator := context.allocator) -> (img: Image, ok: bool) {
+// Colour transforms above the instance (its fades) are left out. `still` draws only its children
+// that never move (a meter's chrome without its fill). Image.rect is in stage px.
+render_instance :: proc(mv: ^Movie, path, label: string, scale: f32, hide: []string = nil, still := false, allocator := context.allocator) -> (img: Image, ok: bool) {
 	id, m := find(mv, path) or_return
-	return render(mv, id, label, m, CX_IDENTITY, scale, hide, allocator)
+	skip: map[u16]bool
+	if s, is_sprite := mv.chars[id].(Sprite); is_sprite && still {skip = still_skip(s)}
+	return render(mv, id, label, m, CX_IDENTITY, scale, hide, skip, allocator)
 }
 
 // render_shape_image draws one shape definition at `scale` px per shape px.
 render_shape_image :: proc(mv: ^Movie, id: u16, scale: f32, allocator := context.allocator) -> (Image, bool) {
-	return render(mv, id, "", IDENTITY, CX_IDENTITY, scale, nil, allocator)
+	return render(mv, id, "", IDENTITY, CX_IDENTITY, scale, nil, nil, allocator)
 }
 
 @(private)
-render :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, cx: Cxform, scale: f32, hide: []string, allocator: Allocator) -> (img: Image, ok: bool) {
-	b := bounds(mv, id, label, m, hide, false)
+render :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, cx: Cxform, scale: f32, hide: []string, skip: map[u16]bool, allocator: Allocator) -> (img: Image, ok: bool) {
+	b := bounds(mv, id, label, m, hide, false, skip)
 	if rect_empty(b) {return}
 	k := scale / 20
 	x0, y0 := math.floor(b.x0 * k) - 1, math.floor(b.y0 * k) - 1
@@ -164,7 +168,7 @@ render :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, cx: Cxform, scale:
 	if c.w <= 0 || c.h <= 0 || c.w * c.h > 16 << 20 {return}
 	c.px = make([][4]f32, c.w * c.h, context.temp_allocator)
 	c.acc = make([]f32, c.w * c.h, context.temp_allocator)
-	draw(mv, &c, id, label, mat_mul(Matrix{k, 0, 0, k, -x0, -y0}, m), cx, hide)
+	draw(mv, &c, id, label, mat_mul(Matrix{k, 0, 0, k, -x0, -y0}, m), cx, hide, skip)
 	img = Image{make([]u8, c.w * c.h * 4, allocator), c.w, c.h, {x0 / scale, y0 / scale, x1 / scale, y1 / scale}}
 	for p, i in c.px {
 		if p.a <= 0 {continue}
@@ -175,7 +179,7 @@ render :: proc(mv: ^Movie, id: u16, label: string, m: Matrix, cx: Cxform, scale:
 }
 
 @(private)
-draw :: proc(mv: ^Movie, c: ^Canvas, id: u16, label: string, m: Matrix, cx: Cxform, hide: []string) {
+draw :: proc(mv: ^Movie, c: ^Canvas, id: u16, label: string, m: Matrix, cx: Cxform, hide: []string, skip: map[u16]bool = nil) {
 	switch ch in mv.chars[id] {
 	case Shape_Def:
 		draw_shape(c, ch, m, cx)
@@ -188,7 +192,7 @@ draw :: proc(mv: ^Movie, c: ^Canvas, id: u16, label: string, m: Matrix, cx: Cxfo
 				c.mask, until = clip_mask(mv, c, p.id, label, mat_mul(m, p.mat), outer), p.clip
 				continue
 			}
-			if hidden(p.name, hide) {continue}
+			if hidden(p.name, hide) || skip[p.depth] {continue}
 			draw(mv, c, p.id, label, mat_mul(m, p.mat), cx_mul(cx, p.cx), hide)
 		}
 		c.mask = outer

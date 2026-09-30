@@ -1,10 +1,13 @@
 package unit_tests
 
-// formats/swf movie model: a clip layer masks the depths under it when drawing and measuring, and
-// the layout gives the box of a sprite's animated children at each label.
+// formats/swf movie model: a clip layer masks the depths under it when drawing and measuring, the
+// layout gives the box of a sprite's animated children at each label, and its Lua file loads.
 
+import "core:strings"
 import "core:testing"
+import lua "../../vendor/lua"
 import "../../src/formats/swf"
+import "../../src/ui"
 
 // box_shape is a filled w×h px rectangle at (x, y) px, in twips.
 @(private = "file")
@@ -53,7 +56,7 @@ meter_movie :: proc() -> swf.Movie {
 @(test)
 test_swf_clip_masks_draw :: proc(t: ^testing.T) {
 	mv := meter_movie()
-	full, ok := swf.render_instance(&mv, "Meter", "Full", 1, nil, context.temp_allocator)
+	full, ok := swf.render_instance(&mv, "Meter", "Full", 1, allocator = context.temp_allocator)
 	testing.expect(t, ok)
 	testing.expect_value(t, full.w, 12) // 10 px and a 1 px margin each side
 	centre := (full.h / 2 * full.w + full.w / 2) * 4
@@ -61,7 +64,7 @@ test_swf_clip_masks_draw :: proc(t: ^testing.T) {
 	testing.expect_value(t, full.rgba[centre + 3], 255)
 
 	// At "Empty" the fill slid out from under the mask: nothing shows, and nothing is measured.
-	_, drawn := swf.render_instance(&mv, "Meter", "Empty", 1, nil, context.temp_allocator)
+	_, drawn := swf.render_instance(&mv, "Meter", "Empty", 1, allocator = context.temp_allocator)
 	testing.expect(t, !drawn)
 }
 
@@ -81,4 +84,26 @@ test_swf_layout_moving_box :: proc(t: ^testing.T) {
 		case "Empty": testing.expect_value(t, m.rect, swf.Rect{90, 50, 100, 60}) // slid left
 		}
 	}
+}
+
+// The layout file is Lua that loads, with the numbers the layout measured.
+@(test)
+test_swf_layout_source_loads :: proc(t: ^testing.T) {
+	mv := meter_movie()
+	art := []ui.Art_Rect{{"interface/hud/meter.dds", {99, 49, 111, 61}}}
+	src := ui.layout_source(&mv, "meter.gfx", art, context.temp_allocator)
+	L := lua.L_newstate()
+	defer lua.close(L)
+	ok := lua.L_dostring(L, strings.clone_to_cstring(src, context.temp_allocator)) == 0
+	testing.expectf(t, ok, "layout source did not load:\n%s", src)
+	if !ok {return}
+	num :: proc(L: ^lua.State, path: []cstring) -> f64 {
+		top := lua.gettop(L)
+		defer lua.settop(L, top)
+		for key in path {lua.getfield(L, -1, key)}
+		return f64(lua.tonumber(L, -1))
+	}
+	testing.expect_value(t, num(L, {"art", "interface/hud/meter.dds", "w"}), 12)
+	testing.expect_value(t, num(L, {"instances", "Meter", "rect", "x"}), 100)
+	testing.expect_value(t, num(L, {"instances", "Meter", "moving", "Empty", "x"}), 90)
 }
