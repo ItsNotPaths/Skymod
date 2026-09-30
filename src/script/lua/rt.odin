@@ -757,31 +757,23 @@ rt_ref :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// __method_kind(ref, name) is what ref:name() calls: "native" for a native implemented on the ref's
-// class chain, else "condition" for a condition function by that name, else "native" for a declared
-// stub; nil for none.
+// __method_kind(ref, name) is what ref:name() calls: "native" for a native on the ref's class chain,
+// unless it is a stub the condition function of its name stands in for; then "condition" for a
+// condition function; nil for none.
 @(private)
 rt_method_kind :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	form, _ := ref_form(L, 1)
 	name := to_string(L, 2)
-	kind := gamedb.form_kind(vm.ctx.db, form)
-	for class in script.class_chain(kind) {
-		if script.is_implemented(vm.reg, class, name) {
-			lua.pushstring(L, "native")
-			return 1
-		}
+	class, declared := script.method_class(vm.reg, name, gamedb.form_kind(vm.ctx.db, form))
+	_, condition := esm.condition_function_by_name(name)
+	switch {
+	case declared && !script.condition_stands_in(vm.reg, class, name): lua.pushstring(L, "native")
+	case condition:                                                    lua.pushstring(L, "condition")
+	case:                                                              return 0
 	}
-	if _, ok := esm.condition_function_by_name(name); ok {
-		lua.pushstring(L, "condition")
-		return 1
-	}
-	if _, ok := script.method_class(vm.reg, name, kind); ok {
-		lua.pushstring(L, "native")
-		return 1
-	}
-	return 0
+	return 1
 }
 
 // __native_condition(class, fn) reports whether the condition function of that name stands in for
@@ -794,9 +786,9 @@ rt_native_condition :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// __condition(ref, name, args...) runs a condition function on ref. A form argument is a ref or a
-// name ("File.esm:012FCD", an editor id), a number one a number or an actor value's name. An Is*
-// or Has* function answers true or false, as Papyrus's do; the rest answer a number.
+// __condition(ref, name, args...) runs a condition function on ref, its arguments as
+// worldstate.condition_param takes them. An Is* or Has* function answers a boolean, the rest a
+// number (esm.condition_answers_bool).
 @(private)
 rt_condition :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
@@ -806,29 +798,25 @@ rt_condition :: proc "c" (L: ^lua.State) -> c.int {
 	info := esm.condition_function(fn)
 	params: [2]u64
 	for kind, i in info.params {
-		arg := c.int(3 + i)
-		switch {
-		case lua.isnoneornil(L, arg) || kind == .None:
-		case kind == .String:
-			return c.int(lua.L_error(L, "%s takes a string, which Lua cannot pass", info.name))
-		case kind == .Number && lua.type(L, arg) == .STRING:
-			v, ok := worldstate.condition_number(to_string(L, arg))
-			if !ok {return c.int(lua.L_error(L, "%s: %s is not an actor value", info.name, lua.tostring(L, arg)))}
-			params[i] = v
-		case kind == .Number:
-			params[i] = u64(lua.tointeger(L, arg))
-		case:
-			f, ok := ref_form(L, arg)
-			if !ok {f, ok = worldstate.form_by_name(vm.ctx.ws, vm.ctx.db, to_string(L, arg))}
-			if !ok {return c.int(lua.L_error(L, "%s: no form %s", info.name, lua.tostring(L, arg)))}
-			params[i] = u64(f)
+		idx := c.int(3 + i)
+		if lua.isnoneornil(L, idx) {continue}
+		arg: worldstate.Condition_Arg
+		if f, is_ref := ref_form(L, idx); is_ref {
+			arg = f
+		} else if lua.type(L, idx) == .NUMBER {
+			arg = f64(lua.tonumber(L, idx))
+		} else {
+			arg = to_string(L, idx)
 		}
+		v, err := worldstate.condition_param(vm.ctx.ws, vm.ctx.db, kind, arg)
+		if err != "" {return c.int(lua.L_error(L, "%s", strings.clone_to_cstring(strings.concatenate({info.name, ": ", err}, context.temp_allocator), context.temp_allocator)))}
+		params[i] = v
 	}
 	v: f32
 	if worldstate.condition_call != nil {
 		v = worldstate.condition_call(vm.ctx.ws, vm.ctx.db, {function = fn, param1 = params[0], param2 = params[1], param3 = -1}, subject, 0)
 	}
-	if strings.has_prefix(info.name, "Is") || strings.has_prefix(info.name, "Has") {
+	if esm.condition_answers_bool(info.name) {
 		lua.pushboolean(L, b32(v != 0))
 	} else {
 		lua.pushnumber(L, lua.Number(v))

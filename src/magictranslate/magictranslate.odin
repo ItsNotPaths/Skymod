@@ -17,8 +17,8 @@ import "../gamedb"
 Form_ID :: gamedb.Form_ID
 
 Stats :: struct {
-	spells, effects, items: int,
-	skipped:         int, // records no part of the translator handles yet
+	effects, items: int,
+	skipped:        int, // records it could not write: a condition with no Lua form, an ability that cannot merge
 }
 
 // Source is what the translator reads: the merged records, and per form what the DB drops.

@@ -180,7 +180,7 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 		if !mok {
 			return false
 		}
-		log.infof("installer: translated %d spell(s), %d effect(s) and %d item(s) to Lua, %d record(s) not yet", mst.spells, mst.effects, mst.items, mst.skipped)
+		log.infof("installer: translated %d effect(s) and %d item(s) to Lua, %d record(s) not", mst.effects, mst.items, mst.skipped)
 	}
 	log.infof("installer: parts redone %v, kept %v", stale, ~stale)
 

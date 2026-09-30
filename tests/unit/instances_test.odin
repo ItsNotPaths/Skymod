@@ -1802,6 +1802,8 @@ local a = ref(0x700)
 assert(a:IsUndead() == false, "IsUndead is a boolean")
 assert(a:IsHostileToActor(ref(0x701)) == false, "a condition beats the declared stub")
 assert(a:GetActorValuePercent("Health") == 1, tostring(a:GetActorValuePercent("Health")))
+local ok, err = pcall(function() return a:GetActorValuePercent("NoSuchAV") end)
+assert(not ok and err:find("GetActorValuePercent: expected a number or an actor value name", 1, true), tostring(err))
 `), "condition calls")
 }
 

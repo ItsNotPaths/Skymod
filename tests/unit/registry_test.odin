@@ -1022,3 +1022,20 @@ test_registry_queries :: proc(t: ^testing.T) {
 	testing.expect_value(t, script.call(&reg, "Actor", "HasParentRelationship", &base, {CHILD}), script.Value(bool(true)))
 	testing.expect_value(t, script.call(&reg, "Actor", "HasParentRelationship", &child, {NPC}), script.Value(bool(false)))
 }
+
+// A condition function answers a stub native of its name only when the native returns a bool or a
+// number: never an implemented one, never one a script expects a form from.
+@(test)
+test_condition_stands_in :: proc(t: ^testing.T) {
+	reg: script.Registry
+	script.init(&reg)
+	defer script.destroy(&reg)
+	testing.expect(t, script.condition_stands_in(&reg, "Actor", "IsInCombat"), "a bool stub")
+	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "GetEquippedShout"), "an implemented native")
+	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "GetWarmthRating"), "no condition of that name")
+	k := script.Key("actor.isincombat")
+	e := reg.declared[k]
+	e.ret = "Actor"
+	reg.declared[k] = e
+	testing.expect(t, !script.condition_stands_in(&reg, "Actor", "IsInCombat"), "a stub returning a form")
+}

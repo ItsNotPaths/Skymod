@@ -1,82 +1,86 @@
 package magictranslate
 
 // Ability SPEL to rt.effect: a passive is one effect at the ability's form (user, 2026-09-29), so
-// lists, AddSpell and HasSpell reach it as before. Its entries merge: each numeric part's terms with
-// its magnitude baked in (m = 1 as granted), every part's scripts, one start gate. Conditions on the
-// spell's entries are live: a gate script switches the effect each second.
+// lists, AddSpell and HasSpell reach it as before, granted at m = 1. Conditions on the spell's
+// entries are live: a gate script switches the effect each second.
 
 import "core:fmt"
 import "core:slice"
 import "core:strings"
 import "../formats/esm"
 import "../gamedb"
-import "../worldstate"
 
 // Ability is an ability's translation: its effect file, and its gate script when it has one.
 Ability :: struct {
 	effect, gate, gate_class: string,
 }
 
+// Parts is what an ability's entries add up to as one effect.
+@(private)
+Parts :: struct {
+	terms:   [dynamic]Term,
+	scripts: [dynamic]esm.Script_Attach,
+	tags:    [dynamic]string,
+	start:   []gamedb.Condition, // the one part's MGEF conditions
+	nostack: string,
+	live:    []gamedb.Condition, // the entries' conditions, the same on each
+}
+
 // ability_lua translates an ability; false when its parts cannot merge into one effect.
 ability_lua :: proc(src: ^Source, form: Form_ID, sp: gamedb.Spell) -> (out: Ability, ok: bool) {
 	edid := src.edids[form]
-	terms := make([dynamic]Term, context.temp_allocator)
-	scripts := make([dynamic]esm.Script_Attach, context.temp_allocator)
-	tags := make([dynamic]string, context.temp_allocator)
-	start: []gamedb.Condition
-	nostack := ""
-	for e in sp.effects {
-		mgef := src.db.magic_effects[e.effect] or_else {}
-		info := mgef.info
-		#partial switch info.archetype {
-		case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
-			append(&terms, ..effect_terms(info, true, e.magnitude))
-		case:
-			if class := worldstate.archetype_class(info.archetype); class != "" {append(&scripts, esm.Script_Attach{name = class})}
-		}
-		append(&scripts, ..gamedb.form_scripts(&src.db, e.effect))
-		for t in effect_tags(src, e.effect, info) {
-			if t != "hostile" && !slice.contains(tags[:], t) {append(&tags, t)}
-		}
-		if len(mgef.conditions) > 0 {
-			if len(sp.effects) > 1 {return} // one part's start gate cannot gate the whole
-			start = mgef.conditions
-		}
-		if info.archetype == .Peak_Value_Modifier && mgef.related != 0 {
-			group := gamedb.keyword_editor_id(&src.db, mgef.related)
-			if nostack != "" && nostack != group {return}
-			nostack = group
-		}
-	}
-	if len(sp.effects) == 0 {return}
-	live := sp.effects[0].conditions
-	for e in sp.effects[1:] {
-		if !same_conditions(e.conditions, live) {return} // one switch for the whole effect
-	}
-	land := land_lua(src, start, nil) or_return
-	if len(live) > 0 {
+	p := ability_parts(src, sp) or_return
+	land := land_lua(src, p.start, nil) or_return
+	if len(p.live) > 0 {
 		out.gate_class = fmt.tprintf("%sGate", edid)
-		out.gate = gate_script(src, form, out.gate_class, live) or_return
-		append(&scripts, esm.Script_Attach{name = out.gate_class})
+		out.gate = gate_script(src, form, out.gate_class, p.live) or_return
+		append(&p.scripts, esm.Script_Attach{name = out.gate_class})
 	}
-
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "-- %s SPEL %s, an ability", src.files[u32(form >> 32)], edid)
-	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
-	fmt.sbprintln(&b, "return rt.effect {")
-	fmt.sbprintfln(&b, "  form = %q,", form_ref(src, form))
-	if len(tags) > 0 {
-		fmt.sbprint(&b, "  tags = {")
-		for t, i in tags {fmt.sbprintf(&b, "%s %q", "," if i > 0 else "", t)}
-		fmt.sbprintln(&b, " },")
-	}
-	if nostack != "" {fmt.sbprintfln(&b, "  nostack = %q,", nostack)}
-	write_terms(&b, merge_terms(terms[:]))
+	write_head(&b, src, form, fmt.tprintf("SPEL %s, an ability", edid), "effect")
+	write_tags(&b, p.tags[:])
+	if p.nostack != "" {fmt.sbprintfln(&b, "  nostack = %q,", p.nostack)}
+	write_terms(&b, merge_terms(p.terms[:]))
 	strings.write_string(&b, land)
-	write_scripts(&b, src, scripts[:])
+	write_scripts(&b, src, p.scripts[:])
 	fmt.sbprintln(&b, "}")
 	out.effect = strings.to_string(b)
 	return out, true
+}
+
+// ability_parts merges an ability's entries: each numeric part's terms with its magnitude baked in,
+// every part's scripts and keyword tags. False when a start gate or a live switch would cover only
+// some parts, or two parts name different nostack groups.
+@(private)
+ability_parts :: proc(src: ^Source, sp: gamedb.Spell) -> (p: Parts, ok: bool) {
+	if len(sp.effects) == 0 {return}
+	p.terms = make([dynamic]Term, context.temp_allocator)
+	p.scripts = make([dynamic]esm.Script_Attach, context.temp_allocator)
+	p.tags = make([dynamic]string, context.temp_allocator)
+	p.live = sp.effects[0].conditions
+	for e in sp.effects {
+		mgef := src.db.magic_effects[e.effect] or_else {}
+		info := mgef.info
+		if !same_conditions(e.conditions, p.live) {return}
+		if len(mgef.conditions) > 0 && len(sp.effects) > 1 {return}
+		#partial switch info.archetype {
+		case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier, .Absorb:
+			append(&p.terms, ..effect_terms(info, true, e.magnitude))
+		case:
+			if class := gamedb.archetype_class(info.archetype); class != "" {append(&p.scripts, esm.Script_Attach{name = class})}
+		}
+		append(&p.scripts, ..gamedb.form_scripts(&src.db, e.effect))
+		for t in keyword_tags(src, e.effect) {
+			if !slice.contains(p.tags[:], t) {append(&p.tags, t)}
+		}
+		if len(mgef.conditions) > 0 {p.start = mgef.conditions}
+		if info.archetype == .Peak_Value_Modifier && mgef.related != 0 {
+			group := gamedb.keyword_editor_id(&src.db, mgef.related)
+			if p.nostack != "" && p.nostack != group {return}
+			p.nostack = group
+		}
+	}
+	return p, true
 }
 
 // merge_terms sums the terms that move the same knob of the same AV on the same side.

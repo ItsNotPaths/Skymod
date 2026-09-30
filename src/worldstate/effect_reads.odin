@@ -67,23 +67,16 @@ effect_bind :: proc(data: rawptr, r: ^formula.Read) -> string {
 		n += 1
 		if i >= len(r.args) {continue} // a left-out parameter is 0
 		arg, quoted := r.args[i], i in r.quoted
-		switch kind {
-		case .None:
-		case .String: return "a function taking a string cannot be called from a formula"
-		case .Number:
-			v, ok := condition_number(arg)
-			if !ok {return "expected a number or an actor value name"}
+		is_form := kind == .Form || kind == .Ref
+		switch {
+		case kind == .Ref && !quoted && (arg == "caster" || arg == "target"):
+			r.bound[2 + i] = ARG_CASTER if arg == "caster" else ARG_TARGET
+		case is_form && !quoted:
+			return "a form argument is a quoted editor id, or caster or target"
+		case:
+			v, err := condition_param(b.ws, db, kind, arg)
+			if err != "" {return err}
 			r.bound[2 + i] = v
-		case .Form, .Ref:
-			switch {
-			case quoted:
-				f, ok := form_by_name(b.ws, db, arg)
-				if !ok {return "unknown form"}
-				r.bound[2 + i] = u64(f)
-			case kind == .Ref && (arg == "caster" || arg == "target"):
-				r.bound[2 + i] = ARG_CASTER if arg == "caster" else ARG_TARGET
-			case: return "a form argument is a quoted editor id, or caster or target"
-			}
 		}
 	}
 	if len(r.args) > n {return "too many arguments"}
@@ -109,6 +102,35 @@ bind_av :: proc(db: ^gamedb.DB, r: ^formula.Read) -> string {
 	}
 	r.name = av
 	return ""
+}
+
+// Condition_Arg is a condition function argument: a form, a number, or a name (an editor id,
+// "File.esm:012FCD", or an actor value's name).
+Condition_Arg :: union {
+	Form_ID,
+	f64,
+	string,
+}
+
+// condition_param converts one argument for a parameter of `kind`; the error says why it cannot.
+condition_param :: proc(ws: ^World_State, db: ^gamedb.DB, kind: esm.Condition_Param, arg: Condition_Arg) -> (u64, string) {
+	switch kind {
+	case .None:   return 0, ""
+	case .String: return 0, "a string parameter cannot be passed"
+	case .Number:
+		#partial switch a in arg {
+		case f64:    return u64(i64(a)), ""
+		case string: if v, ok := condition_number(a); ok {return v, ""}
+		}
+		return 0, "expected a number or an actor value name"
+	case .Form, .Ref:
+		#partial switch a in arg {
+		case Form_ID: return u64(a), ""
+		case string:  if f, ok := form_by_name(ws, db, a); ok {return u64(f), ""}
+		}
+		return 0, "unknown form"
+	}
+	return 0, ""
 }
 
 // condition_number reads a condition function's number parameter: a number, or an actor value's

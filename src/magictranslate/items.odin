@@ -10,11 +10,8 @@ import "../gamedb"
 // item_lua writes an item used from the inventory as an items/ file; `record` is ALCH or INGR.
 item_lua :: proc(src: ^Source, form: Form_ID, record: string, applies: []gamedb.Magic_Effect_Ref, poison: bool) -> string {
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "-- %s %s %s", src.files[u32(form >> 32)], record, src.edids[form])
-	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
-	fmt.sbprintln(&b, "return rt.item {")
-	fmt.sbprintfln(&b, "  form = %q,", form_ref(src, form))
-	if poison {fmt.sbprintln(&b, "  tags = { \"poison\" },")}
+	write_head(&b, src, form, fmt.tprintf("%s %s", record, src.edids[form]), "item")
+	if poison {write_tags(&b, {"poison"})}
 	write_applies(&b, src, applies)
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b)

@@ -384,6 +384,11 @@ condition_function_by_name :: proc(name: string) -> (u16, bool) {
 	return 0, false
 }
 
+// condition_answers_bool: an Is* or Has* function answers true or false in Lua, as Papyrus's do.
+condition_answers_bool :: proc(name: string) -> bool {
+	return strings.has_prefix(name, "Is") || strings.has_prefix(name, "Has")
+}
+
 // condition_param_is_form reports whether parameter `i` (0 or 1) of `c` holds a form ID.
 condition_param_is_form :: proc(c: Condition, i: int) -> bool {
 	switch condition_function(c.function).params[i] {

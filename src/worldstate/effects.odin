@@ -181,22 +181,8 @@ effect_classes :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> []s
 		if c, ok := ws.effect_classes[name]; ok && c.claims {claimed = true}
 	}
 	mgef, _ := gamedb.magic_effect_of(db, effect)
-	if arch := archetype_class(mgef.info.archetype); arch != "" && !claimed {append(&out, arch)}
+	if arch := gamedb.archetype_class(mgef.info.archetype); arch != "" && !claimed {append(&out, arch)}
 	return out[:]
-}
-
-// archetype_class is the class that plays an archetype: a pure-formula script in the core scripts
-// mod (src/script/effects), which a mod replaces like any script. "" for one no class plays.
-// (hole other-archetypes :tags magic :sev gap) only Value Modifier, Peak Value Modifier, Dual Value Modifier and Absorb have a class. The status archetypes (Paralysis, Invisibility, Calm, Frenzy, Demoralize, Rally, Turn Undead, Banish) should write their AV with the level cap as m; the moment ones (Summon, Stagger, Soul Trap, Reanimate, Bound Weapon, Light, Telekinesis, Detect Life, Slow Time, Etherealize, Disarm, Dispel, the Cures, Werewolf, Vampire Lord) need core wrapper scripts; Cloak is a script casting its spell each second on actors within m.
-archetype_class :: proc(a: esm.Effect_Archetype) -> string {
-	#partial switch a {
-	case .Value_Modifier:      return "archetypevaluemodifier"
-	case .Peak_Value_Modifier: return "archetypepeakvaluemodifier"
-	case .Dual_Value_Modifier: return "archetypedualvaluemodifier"
-	case .Absorb:              return "archetypeabsorb"
-	case .Spawn_Hazard:        return "archetypespawnhazard"
-	}
-	return ""
 }
 
 // effect_terms_of is an effect's definition's terms, or the __effect terms of its classes, once

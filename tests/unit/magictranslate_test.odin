@@ -85,7 +85,7 @@ test_magic_translate_terms :: proc(t: ^testing.T) {
 
 // MGEF conditions become the land gate: an OR run binds tighter than AND, Subject reads the one hit
 // and Target the caster, an Is/Has function reads as a boolean, an AV parameter by its name, and a
-// form by its editor id.
+// form by its editor id. A keyword dispel runs after the gate passes.
 @(test)
 test_magic_translate_land :: proc(t: ^testing.T) {
 	src: magictranslate.Source
@@ -108,6 +108,12 @@ test_magic_translate_land :: proc(t: ^testing.T) {
     return (e.target:IsUndead() or e.target:HasKeyword("ActorTypeUndead"))
       and e.caster:GetActorValuePercent("Health") < 0.2
       and not e.target:IsUndead()
+  end,
+`)
+	gated, _ := magictranslate.land_lua(&src, conds[3:], {"kw.MagicInfluence"})
+	testing.expect_value(t, gated, `  land = function(e)
+    if not (not e.target:IsUndead()) then return false end
+    e.target:DispelTagged("kw.MagicInfluence")
   end,
 `)
 }

@@ -7,26 +7,18 @@ import "core:fmt"
 import "core:strings"
 import "../formats/esm"
 import "../gamedb"
-import "../worldstate"
-
-MGEF_NO_RECAST :: 0x0002_0000
 
 // effect_lua writes an MGEF as an effects/ file; false when one of its conditions has no Lua form.
 effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (text: string, ok: bool) {
 	info := mgef.info
 	land := land_lua(src, mgef.conditions, dispels(src, form, info)) or_return
 	b := strings.builder_make(context.temp_allocator)
-	fmt.sbprintfln(&b, "-- %s MGEF %s", src.files[u32(form >> 32)], src.edids[form])
-	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
-	fmt.sbprintln(&b, "return rt.effect {")
-	fmt.sbprintfln(&b, "  form = %q,", form_ref(src, form))
-	if tags := effect_tags(src, form, info); len(tags) > 0 {
-		fmt.sbprint(&b, "  tags = {")
-		for t, i in tags {fmt.sbprintf(&b, "%s %q", "," if i > 0 else "", t)}
-		fmt.sbprintln(&b, " },")
-	}
+	write_head(&b, src, form, fmt.tprintf("MGEF %s", src.edids[form]), "effect")
+	tags := keyword_tags(src, form)
+	if info.flags & esm.MGEF_HOSTILE != 0 {inject_at(&tags, 0, "hostile")}
+	write_tags(&b, tags[:])
 	if av := av_name(info.resist_av); av != "" {fmt.sbprintfln(&b, "  resist = %q,", av)}
-	if info.flags & MGEF_NO_RECAST != 0 {fmt.sbprintln(&b, "  stack = \"keep\",")}
+	if info.flags & esm.MGEF_NO_RECAST != 0 {fmt.sbprintln(&b, "  stack = \"keep\",")}
 	if info.archetype == .Peak_Value_Modifier && mgef.related != 0 {
 		fmt.sbprintfln(&b, "  nostack = %q,", gamedb.keyword_editor_id(&src.db, mgef.related))
 	}
@@ -37,7 +29,7 @@ effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (
 		held := info.flags & esm.MGEF_RECOVER != 0 || src.lasting[form] == {.Lasting}
 		write_terms(&b, effect_terms(info, held))
 	case:
-		if class := worldstate.archetype_class(info.archetype); class != "" {append(&scripts, esm.Script_Attach{name = class})}
+		if class := gamedb.archetype_class(info.archetype); class != "" {append(&scripts, esm.Script_Attach{name = class})}
 	}
 	strings.write_string(&b, land)
 	append(&scripts, ..gamedb.form_scripts(&src.db, form))
@@ -49,23 +41,35 @@ effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (
 // dispels are the tags a Dispel With Keywords effect clears as it lands: its keywords.
 @(private)
 dispels :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> []string {
-	out := make([dynamic]string, context.temp_allocator)
 	if info.flags & esm.MGEF_DISPEL_WITH_KEYWORDS == 0 {return nil}
-	for kw in src.db.keywords[form] {
-		if edid := gamedb.keyword_editor_id(&src.db, kw); edid != "" {append(&out, fmt.tprintf("kw.%s", edid))}
-	}
-	return out[:]
+	return keyword_tags(src, form)[:]
 }
 
-// effect_tags: `hostile` from the Hostile flag, and a kw.<editor id> per keyword.
+// keyword_tags is a kw.<editor id> tag per keyword of `form`.
 @(private)
-effect_tags :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> []string {
+keyword_tags :: proc(src: ^Source, form: Form_ID) -> [dynamic]string {
 	out := make([dynamic]string, context.temp_allocator)
-	if info.flags & esm.MGEF_HOSTILE != 0 {append(&out, "hostile")}
 	for kw in src.db.keywords[form] {
 		if edid := gamedb.keyword_editor_id(&src.db, kw); edid != "" {append(&out, fmt.tprintf("kw.%s", edid))}
 	}
-	return out[:]
+	return out
+}
+
+// write_head opens a definition file: the record it came from, then `return rt.<call> {` and its form.
+@(private)
+write_head :: proc(b: ^strings.Builder, src: ^Source, form: Form_ID, what, call: string) {
+	fmt.sbprintfln(b, "-- %s %s", src.files[u32(form >> 32)], what)
+	fmt.sbprintln(b, "local rt = require('skymod.rt')")
+	fmt.sbprintfln(b, "return rt.%s {{", call)
+	fmt.sbprintfln(b, "  form = %q,", form_ref(src, form))
+}
+
+@(private)
+write_tags :: proc(b: ^strings.Builder, tags: []string) {
+	if len(tags) == 0 {return}
+	fmt.sbprint(b, "  tags = {")
+	for t, i in tags {fmt.sbprintf(b, "%s %q", "," if i > 0 else "", t)}
+	fmt.sbprintln(b, " },")
 }
 
 // Term is one formula an effect writes: on the target's AV, or the caster's (Absorb's other half).

@@ -507,6 +507,7 @@ MGEF_DISPEL_WITH_KEYWORDS :: 0x0000_0100 // applying it dispels the spells whose
 MGEF_NO_DURATION :: 0x0000_0200
 MGEF_NO_MAGNITUDE :: 0x0000_0400
 MGEF_NO_AREA :: 0x0000_0800
+MGEF_NO_RECAST :: 0x0002_0000 // a copy already running keeps running; the new one does not land
 MGEF_PAINLESS :: 0x0400_0000
 
 // AV_NONE is the "no actor value" sentinel MGEF stores for the skill / resistance / affected
