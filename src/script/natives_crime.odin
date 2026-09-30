@@ -122,14 +122,13 @@ n_can_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	return worldstate.inv_count(c.ws, c.db, c.ws.player, formid.GOLD) >= worldstate.total(player_bounty(c))
 }
 
-// (hole pay-bounty :tags (combat) :sev gap) paying off a bounty to a guard does not fully work (user, 2026-09-28, seen in game; which part fails is not yet known). Wanted: a repro with the log, then a fix.
 // PlayerPayCrimeGold(abRemoveStolenItems = true, abGoToJail = true): the gold goes, the bounty
 // clears and the stolen things go to the jail's evidence chest (UESP: "all stolen items in your
 // possession will be seized"); abGoToJail takes the player outside the faction's jail (UESP:
 // "transport outside the nearest jail").
 n_player_pay_crime_gold :: proc(c: ^Call, args: []Value) -> Value {
 	move_items(c, {base = formid.GOLD, from = c.ws.player, count = worldstate.total(player_bounty(c))})
-	worldstate.pay_bounty(c.ws, c.ws.player, c.self)
+	worldstate.pay_bounty(c.ws, c.db, c.ws.player, c.self)
 	if arg_bool(args, 0, true) {
 		f, _ := worldstate.faction(c.ws, c.db, c.self)
 		for s in worldstate.inv_stacks(c.ws, c.db, c.ws.player) {

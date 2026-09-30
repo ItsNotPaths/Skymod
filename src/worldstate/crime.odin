@@ -83,8 +83,9 @@ learn_bounty :: proc(ws: ^World_State, db: ^gamedb.DB, knower, offender: Form_ID
 	ws.known_bounties[{knower, offender}] = {faction, higher(bounty(ws, db, knower, offender), b)}
 }
 
-// pay_bounty clears what `faction` holds on `offender`, faction-wide and in every member's memory.
-pay_bounty :: proc(ws: ^World_State, offender, faction: Form_ID) {
+// pay_bounty clears what `faction` holds on `offender`, faction-wide and in every member's memory,
+// and its members and the victims of the crimes paid for stop fighting the offender.
+pay_bounty :: proc(ws: ^World_State, db: ^gamedb.DB, offender, faction: Form_ID) {
 	w := wanted(ws, offender, faction)
 	w.bounty = {}
 	set_wanted(ws, offender, faction, w)
@@ -98,6 +99,12 @@ pay_bounty :: proc(ws: ^World_State, offender, faction: Form_ID) {
 		if k[1] == offender {append(&paid, k)}
 	}
 	for k in paid {delete_key(&ws.crime_victims, k)}
+	for actor, target in ws.ai.fighting {
+		if target != offender {continue}
+		victim := false
+		for k in paid {victim ||= k[0] == actor}
+		if victim || in_faction(ws, db, actor, faction) {ask_combat(ws, actor, 0)}
+	}
 }
 
 // set_arresting is whom a guard arrests now; 0 when none.

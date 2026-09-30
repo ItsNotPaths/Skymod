@@ -55,7 +55,7 @@ release :: proc(g: ^Game, c: ^script.Call, o: worldstate.Jail_Order, f: gamedb.F
 	days := worldstate.jail_days(worldstate.wanted(&g.sim.ws, o.actor, o.faction).bounty)
 	g.sim.ws.days_jailed[o.actor] += days
 	worldstate.lose_skill_progress(&g.sim.ws, o.actor, days)
-	worldstate.pay_bounty(&g.sim.ws, o.actor, o.faction)
+	worldstate.pay_bounty(&g.sim.ws, &g.db, o.actor, o.faction)
 }
 
 // give_all moves everything `actor` carries, quest objects aside, into `chest`, its stolen things

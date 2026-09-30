@@ -45,7 +45,7 @@ test_crime_bounty_store :: proc(t: ^testing.T) {
 	testing.expect_value(t, d.known_bounties[{CRIME_CITIZEN, CRIME_THIEF}], ws.Known_Bounty{CRIME_TOWN, {violent = 40}})
 
 	// Paying clears the faction's bounty and what its members knew.
-	ws.pay_bounty(&s, CRIME_THIEF, CRIME_TOWN)
+	ws.pay_bounty(&s, nil, CRIME_THIEF, CRIME_TOWN)
 	testing.expect_value(t, ws.bounty(&s, nil, CRIME_CITIZEN, CRIME_THIEF), ws.Bounty{})
 	testing.expect_value(t, len(s.wanted), 0)
 }
@@ -366,8 +366,12 @@ test_crime_victims_and_groups :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, ws.report_crime(&s, &db, CRIME_THIEF, CRIME_CITIZEN, .Assault, 0), ws.Crime_Status.Reported)
 	testing.expect(t, s.crime_victims[{CRIME_CITIZEN, CRIME_THIEF}], "the victim remembers")
-	ws.pay_bounty(&s, CRIME_THIEF, CRIME_TOWN)
+	s.ai.fighting[CRIME_CITIZEN] = CRIME_THIEF
+	s.ai.fighting[0x000A0199] = CRIME_THIEF // a bandit, no part of it
+	ws.pay_bounty(&s, &db, CRIME_THIEF, CRIME_TOWN)
 	testing.expect(t, !s.crime_victims[{CRIME_CITIZEN, CRIME_THIEF}], "paid off")
+	testing.expect_value(t, len(s.ai.combat_asks), 1)
+	testing.expect_value(t, s.ai.combat_asks[0], ws.Combat_Ask{CRIME_CITIZEN, 0}) // the victim stops fighting
 
 	quiet := ws.Form_ID(0x000A0105)
 	ws.faction_set_rank(&s, quiet, QUIET, 0)

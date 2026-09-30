@@ -67,7 +67,7 @@ settle_bounty :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, guard, actor:
 	owed := worldstate.total(worldstate.bounty(ws, db, guard, actor))
 	if worldstate.inv_count(ws, db, actor, formid.GOLD) >= owed {
 		worldstate.inv_add(ws, actor, formid.GOLD, -owed)
-		worldstate.pay_bounty(ws, actor, faction)
+		worldstate.pay_bounty(ws, db, actor, faction)
 	} else {
 		worldstate.send_to_jail(ws, db, actor, faction, guard)
 	}
