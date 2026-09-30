@@ -183,8 +183,8 @@ prop_named :: proc(list: []esm.Script_Prop, name: string) -> bool {
 // (src/script/effects), which a mod replaces like any script. "" for one no class plays: the
 // numeric and status archetypes are formulas the translator writes into each effect.
 // (hole visual-archetypes :tags (magic vfx unclaimed) :sev gap) Light, Detect Life, Night Eye and Guide do nothing: they are art (a light, a shader, a trail).
-// (hole slow-time :tags magic :sev gap) Slow Time does nothing: the sim has no time scale for the world around the player.
-// (hole telekinesis :tags (magic physics) :sev gap) Telekinesis and Grab Actor do nothing: nothing holds a body or an actor in front of the caster.
+// (hole slow-time :tags (magic unclaimed) :sev gap) Slow Time does nothing: the sim has no time scale for the world around the player.
+// (hole telekinesis :tags (magic physics unclaimed) :sev gap) Telekinesis and Grab Actor do nothing: nothing holds a body or an actor in front of the caster.
 archetype_class :: proc(a: esm.Effect_Archetype) -> string {
 	#partial switch a {
 	case .Value_Modifier:      return "archetypevaluemodifier"

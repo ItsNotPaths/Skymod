@@ -185,7 +185,7 @@ is_constant_enchantment :: proc(db: ^gamedb.DB, form: Form_ID) -> bool {
 	return ok && e.info.cast_type == .Constant_Effect
 }
 
-// (hole death-dispel :tags magic :sev gap) a death ends no effect: vanilla dispels every effect on a dying actor unless its MGEF has No Death Dispel (0x10000000); OnEffectFinish then reaches soul trap and ash pile scripts with the dead target still valid.
+// (hole death-dispel :tags (magic unclaimed) :sev gap) a death ends no effect: vanilla dispels every effect on a dying actor unless its MGEF has No Death Dispel (0x10000000); OnEffectFinish then reaches soul trap and ash pile scripts with the dead target still valid.
 // DispelAllSpells ends every effect with a duration; abilities stay.
 n_dispel_all_spells :: proc(c: ^Call, args: []Value) -> Value {
 	for h in worldstate.effects_on(c.ws, c.self) {

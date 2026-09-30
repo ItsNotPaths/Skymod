@@ -102,7 +102,7 @@ drop_markers :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, markers: ^[dyn
 	}
 }
 
-// (hole spell-body-saves :tags (magic save) :sev gap) spell bodies and landing markers are not saved: a spell in flight at a save is gone after a load, and a marker an effect still held at the save is never deleted.
+// (hole spell-body-saves :tags (magic save unclaimed) :sev gap) spell bodies and landing markers are not saved: a spell in flight at a save is gone after a load, and a marker an effect still held at the save is never deleted.
 spell_bodies_destroy :: proc(b: ^Spell_Bodies) {
 	delete(b.list)
 	delete(b.markers)
@@ -153,7 +153,7 @@ magicphys_strike :: proc "c" (data: rawptr, from, to: [3]f32, radius: f32, skip:
 	return {}
 }
 
-// (hole anchor-names :tags (magic animation) :sev gap :needs (animation)) every anchor is the chest, facing the actor's way: "hand.left", "hand.right" and the rest need the skeleton's nodes.
+// (hole anchor-names :tags (magic animation unclaimed) :sev gap :needs (animation)) every anchor is the chest, facing the actor's way: "hand.left", "hand.right" and the rest need the skeleton's nodes.
 @(private = "file")
 magicphys_anchor :: proc "c" (data: rawptr, actor: Form_ID, name: cstring) -> magicphys.Anchor {
 	h := (^Magicphys_Host)(data)
@@ -186,7 +186,7 @@ magicphys_remove :: proc "c" (data: rawptr, id: magicphys.Body_ID) {
 	append(&h.removes, id)
 }
 
-// (hole area-entries :tags magic :sev gap) a hit lands every entry of the spell: `hits = "direct"` entries (62 of 227 area spells mix areas) land on area hits too, and an actor struck and in the burst gets the spell once, as a direct hit.
+// (hole area-entries :tags (magic unclaimed) :sev gap) a hit lands every entry of the spell: `hits = "direct"` entries (62 of 227 area spells mix areas) land on area hits too, and an actor struck and in the burst gets the spell once, as a direct hit.
 @(private = "file")
 magicphys_hit :: proc "c" (data: rawptr, hit: magic.Hit) {
 	h := (^Magicphys_Host)(data)

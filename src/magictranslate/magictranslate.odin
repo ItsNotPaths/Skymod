@@ -38,7 +38,7 @@ Uses :: bit_set[enum {Lasting, Timed, Long, Poison, Disease}]
 // translate reads the winning version of each magic record over `plugins` (load order, in
 // `data_dir`) and writes the ones that a plugin in `only` defines or overrides (all when empty)
 // into `out_dir`.
-// (hole rider-rules :tags magic :sev gap) perk riders (93 MGEFs: Intense Flames, Deep Freeze, Disintegrate, Impact) are copied into spells unevenly: none on scrolls, staffs, weapon enchantments or runes, and 34 test the player ref. Wanted: each rider stays an entry of the items that carry it (a spell names all its effects), with its per-spell values (Impact 0.05/0.25/0.5), its perk gate in the rider effect's own magichit; decide per item whether scrolls, staves and runes get the entries vanilla forgot.
+// (hole rider-rules :tags (magic unclaimed) :sev gap) perk riders (93 MGEFs: Intense Flames, Deep Freeze, Disintegrate, Impact) are copied into spells unevenly: none on scrolls, staffs, weapon enchantments or runes, and 34 test the player ref. Wanted: each rider stays an entry of the items that carry it (a spell names all its effects), with its per-spell values (Impact 0.05/0.25/0.5), its perk gate in the rider effect's own magichit; decide per item whether scrolls, staves and runes get the entries vanilla forgot.
 translate :: proc(data_dir: string, plugins, only: []string, out_dir: string) -> (st: Stats, ok: bool) {
 	src := load(data_dir, plugins, only) or_return
 	defer destroy(&src)
@@ -87,7 +87,7 @@ write_all :: proc(src: ^Source, out_dir: string) -> (st: Stats, ok: bool) {
 		#partial switch sp.info.type {
 		case .Ability:
 			ab, done := ability_lua(src, form, sp)
-			// (hole ability-splits :tags (magic records) :sev gap) 27 abilities whose parts carry different conditions keep their records (this warning names them): hand-write each, or split it into effects the ability's entries gate apart.
+			// (hole ability-splits :tags (magic records unclaimed) :sev gap) 27 abilities whose parts carry different conditions keep their records (this warning names them): hand-write each, or split it into effects the ability's entries gate apart.
 			if !done {
 				log.warnf("magic: ability %s keeps its record: its parts' conditions differ", edid)
 				st.skipped += 1

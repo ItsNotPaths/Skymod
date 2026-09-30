@@ -10,7 +10,7 @@ import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
-// (hole magic-perk-points :tags (magic player) :sev gap) not translated: Mod_Spell_Range_To_Location (11 entries), Mod_Commanded_Actor_Limit (Twin Souls; the limit is the CommandedActorLimit AV), Apply_Sneaking_Spell, Apply_Reanimate_Spell and Mod_Shout_OK. The crafting, dual-cast, ward and soul points wait on their own holes.
+// (hole magic-perk-points :tags (magic player unclaimed) :sev gap) not translated: Mod_Spell_Range_To_Location (11 entries), Mod_Commanded_Actor_Limit (Twin Souls; the limit is the CommandedActorLimit AV), Apply_Sneaking_Spell, Apply_Reanimate_Spell and Mod_Shout_OK. The crafting, dual-cast, ward and soul points wait on their own holes.
 // (hole swing-spell :tags combat :sev gap :needs (actor-states)) Apply_Weapon_Swing_Spell (Quick Reflexes, 1 entry) is not translated: it runs on the one blocking as an enemy power attacks, and no actor has a block or power-attack state.
 // (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 

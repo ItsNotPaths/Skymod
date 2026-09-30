@@ -222,7 +222,7 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "DialogueActivate":              return proc_dialogue_activate(c)
 	case "UseWeapon":                     return proc_use_weapon(c)
 	case "UseMagic":                      return proc_use_magic(c)
-	// (hole proc-shout :tags (ai combat magic) :sev gap :needs (shouts)) Shout fails: no shout has its words' spells to cast (dragons, Paarthurnax's lessons).
+	// (hole proc-shout :tags (ai combat magic unclaimed) :sev gap :needs (shouts)) Shout fails: no shout has its words' spells to cast (dragons, Paarthurnax's lessons).
 	case "Shout":                         return .Failed
 	// (hole flight :tags (animation combat unclaimed) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
 	case "Hover", "Orbit", "FlightGrab":  return .Failed

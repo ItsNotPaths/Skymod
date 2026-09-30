@@ -41,7 +41,7 @@ stack_effect :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect) -> bool
 // enchantments add to each other and to potions (UESP Skyrim:Enchanting_Effects), and different
 // spells add. Sources: UESP Skyrim:Alchemy_Effects, CK Magic Effect (keyword dispel; the PVM keyword
 // rule is marked "?" there).
-// (hole record-stacking :tags magic :sev gap) record effects still stack by this code, unlike vanilla (mechanics.md): the timed-potion rule also ends Weakness potions and lingering poisons, a recast replaces its copy whoever cast it, and No Recast (0x20000) is ignored. The translator gives them stack and nostack (PVM keywords to groups, No Recast to keep) and this goes.
+// (hole record-stacking :tags (magic unclaimed) :sev gap) record effects still stack by this code, unlike vanilla (mechanics.md): the timed-potion rule also ends Weakness potions and lingering poisons, a recast replaces its copy whoever cast it, and No Recast (0x20000) is ignored. The translator gives them stack and nostack (PVM keywords to groups, No Recast to keep) and this goes.
 // - Its MGEF dispels with keywords: every spell with an effect sharing one ends.
 // - Two Peak Value Modifiers sharing a no-stack keyword: the lower magnitude ends (a tie keeps the new).
 // - A timed spell cast again replaces its running copy.
