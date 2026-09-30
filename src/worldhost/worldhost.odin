@@ -70,12 +70,7 @@ ref :: proc "c" (data: rawptr, ref: Form_ID) -> (r: plugin.Ref) {
 actor_value :: proc "c" (data: rawptr, actor: Form_ID, name: cstring, part: plugin.AV_Part) -> f32 {
 	d := (^Data)(data)
 	context = d.ctx
-	switch part {
-	case .Current: return worldstate.av_current(d.ws, d.db, actor, string(name))
-	case .Base:    return worldstate.av_base(d.ws, d.db, actor, string(name))
-	case .Max:     return worldstate.av_max(d.ws, d.db, actor, string(name))
-	}
-	return 0
+	return worldstate.av_part(d.ws, d.db, actor, string(name), worldstate.AV_Part(part))
 }
 
 @(private = "file")

@@ -9,7 +9,7 @@ World :: struct {
 	data:          rawptr,
 	player:        Form_ID, // the actor the player controls
 	ref:           proc "c" (data: rawptr, ref: Form_ID) -> Ref,
-	actor_value:   proc "c" (data: rawptr, actor: Form_ID, name: cstring, part: AV_Part) -> f32,
+	actor_value:   proc "c" (data: rawptr, actor: Form_ID, name: cstring, part: AV_Part) -> f32, // any AV: engine, mod, Level, a perk's ranks by editor id
 	level:         proc "c" (data: rawptr, actor: Form_ID) -> i32,
 	faction_rank:  proc "c" (data: rawptr, actor, faction: Form_ID) -> i32, // -1 = not a member
 	relation:      proc "c" (data: rawptr, a, b: Form_ID) -> Relation, // through their factions
@@ -45,10 +45,11 @@ Ref :: struct {
 	interior: bool,
 }
 
+// AV_Part is a part of an actor value, as the naming rule names it (<actor>.av.<Name>.<part>).
 AV_Part :: enum u8 {
-	Current,
-	Base,
-	Max,
+	Value,
+	Capacity,
+	Amount,
 }
 
 Relation :: enum u8 {

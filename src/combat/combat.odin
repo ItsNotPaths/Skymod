@@ -115,7 +115,7 @@ next :: proc "contextless" (inp: ^Input, f: Fighter) -> (c: Fight) {
 // engage is Combat, or Flee for a Cowardly actor.
 @(private = "file")
 engage :: proc "contextless" (h: Host, actor: Form_ID) -> State {
-	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Current) == 0 else .Combat
+	return .Flee if h.world.actor_value(h.world.data, actor, "Confidence", .Value) == 0 else .Combat
 }
 
 // keeps: a fight goes on while the target lives and is detected or near; a flight while it is near.
@@ -133,7 +133,7 @@ keeps :: proc "contextless" (inp: ^Input, me: plugin.Actor, c: Fight, aggro: Agg
 // neutrals too, Frenzied anyone.
 @(private = "file")
 attacks_on_sight :: proc "contextless" (h: Host, actor, other: Form_ID) -> bool {
-	aggression := h.world.actor_value(h.world.data, actor, "Aggression", .Current)
+	aggression := h.world.actor_value(h.world.data, actor, "Aggression", .Value)
 	return aggression >= 2 || aggression >= 1 && h.world.hostile(h.world.data, actor, other)
 }
 
