@@ -82,7 +82,7 @@ start_from_node :: proc(c: ^Call, node: Form_ID, n: gamedb.Story_Node, e: ^Story
 
 // pick_order is the order a quest node tries its quests: authored (Stacked) or shuffled (Random),
 // with the quests that ran this round moved last. When every quest has run, a new round starts.
-// (hole story-random-rounds :tags quest :sev polish) NOT VANILLA (user choice 2026-09-26): every Random quest node runs in rounds as if Do All Before Repeating were set, not only the 128 of 197 that set it. It may starve a quest vanilla would pick again, or break a node built to repeat one quest; watch radiant quests.
+// (hole story-random-rounds :tags quest :sev polish) NOT VANILLA: every Random quest node runs in rounds as if Do All Before Repeating were set, not only the 128 of 197 that set it. It may starve a quest vanilla would pick again, or break a node built to repeat one quest; watch radiant quests.
 @(private = "file")
 pick_order :: proc(c: ^Call, node: Form_ID, n: gamedb.Story_Node) -> []gamedb.Story_Quest {
 	order := slice_clone_temp(n.quests)

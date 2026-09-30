@@ -14,7 +14,7 @@ Entry_Point :: enum u16 {
 	Up,
 }
 
-// (hole furniture-marker-unknowns :tags ai :sev polish) unsourced: the heading's turn direction (assumed REFR z rotation; the data only shows 0 and pi clearly), and how FURN MNAM bits 0-23 (the markers turned on; build/out/wsI/formats.md) map to NIF marker indexes, which 12 records need (more NIF markers than FNPR entries).
+// (hole furniture-marker-unknowns :tags ai :sev polish) unsourced: the heading's turn direction (assumed REFR z rotation; the data only shows 0 and pi clearly), and how FURN MNAM bits 0-23 (the markers turned on) map to NIF marker indexes, which 12 records need (more NIF markers than FNPR entries).
 // Furniture_Marker is one place to sit, lie or lean on a furniture model, in model space.
 // The root node's transform does not apply to it (sovthrone01.nif: rotated root, heading still faces off the back).
 Furniture_Marker :: struct {

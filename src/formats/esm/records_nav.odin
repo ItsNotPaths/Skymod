@@ -1,7 +1,7 @@
 package esm
 
 // NAVM navmesh geometry (NVNM, version 12; same in SE and LE). Layout: xEdit wbDefinitionsTES5,
-// validated by parsing every vanilla NAVM with 0 bytes left over (build/out/wsI/navm.py).
+// validated by parsing every vanilla NAVM with 0 bytes left over.
 
 // Nav_Tri flag bit i marks edge i as leading to another navmesh: its `adj` is then an index into
 // `edge_links`, not a triangle.

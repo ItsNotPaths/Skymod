@@ -12,7 +12,7 @@ import "../gamedb"
 import "../sighthost"
 import "../worldstate"
 
-// (hole condition-functions :tags (records dialogue query) :sev polish) no body for GetClothingValue (2 uses, build/out/wsQ/measure14.py), so it passes: the CK wiki gives no formula for how an item's value is scaled by the slots it covers.
+// (hole condition-functions :tags (records dialogue query) :sev polish) no body for GetClothingValue (2 uses), so it passes: the CK wiki gives no formula for how an item's value is scaled by the slots it covers.
 // (hole starts-dead :tags (records world) :sev polish) a ref placed dead reads alive: no baseline "starts dead" flag is surfaced, so GetDead and IsDead see only deaths at runtime.
 
 // Eval answers one condition. Returns the value to compare plus whether it could answer at all;

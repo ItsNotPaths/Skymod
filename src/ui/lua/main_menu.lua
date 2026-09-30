@@ -46,7 +46,7 @@ local function sidebar(data, content)
     size = { SIDE_W, 0 },
     fill = "y", -- full height (the SWF stripe is ~full stage height)
     color = "#00000097", -- translucent black body (alpha 151, from the SWF)
-    -- inset light lines ~5px in from each edge (the SWF's faint accent; "white" per the user's eye)
+    -- inset light lines ~5px in from each edge (the SWF's faint accent, white)
     rect { anchor = "left", offset = { 5, 0 }, size = { 2, 0 }, fill = "y", color = "#bbbdbfdd" },
     rect { anchor = "right", offset = { -5, 0 }, size = { 2, 0 }, fill = "y", color = "#bbbdbfdd" },
     col,

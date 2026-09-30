@@ -1,6 +1,6 @@
 package worldstate
 
-// What an actor wears and holds (sources: build/out/wsP/formulas/equip_*). Every item fills a set of
+// What an actor wears and holds. Every item fills a set of
 // engine slots (gamedb.slots_of), held items included; putting one on takes off whatever shares a
 // slot. It starts as the actor's outfit, whose gear is part of its starting contents (inv_start); a
 // reset puts the outfit back.
@@ -122,8 +122,7 @@ put_on :: proc(ws: ^World_State, db: ^gamedb.DB, eq: ^Equipment, actor, item: Fo
 }
 
 // pick_hand chooses one of an either-hand item's slots: the asked hand, else the right. EquipItem has
-// no hand and "always just equips items in the right hand"; the player picks one in the menu
-// (build/out/wsP/research/findings.md section 4).
+// no hand and "always just equips items in the right hand"; the player picks one in the menu.
 @(private)
 pick_hand :: proc(choices: gamedb.Slots, hand: Maybe(gamedb.Slot)) -> gamedb.Slot {
 	if h, ok := hand.?; ok && h in choices {return h}

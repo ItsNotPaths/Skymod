@@ -1,7 +1,7 @@
 package esm
 
 // The visual records' data blocks: EFSH DATA, IPCT DATA and DODT, and IMAD's keyframe curves.
-// Field order is xEdit's (wbDefinitionsTES5); validated on SE Skyrim.esm (build/out/wsQ).
+// Field order is xEdit's (wbDefinitionsTES5); validated on SE Skyrim.esm.
 
 // Alpha_Ramp is how a shader layer's alpha rises, holds and falls, in seconds.
 Alpha_Ramp :: struct {

@@ -1,6 +1,6 @@
 package worldstate
 
-// Levels and leveled lists (sources: build/out/wsP/formulas/lvl_*). A zone gets its level the
+// Levels and leveled lists. A zone gets its level the
 // first time something asks, and keeps it; a leveled list rolls on the first read of what holds it,
 // and the result stays until that owner resets (drop_inventory).
 

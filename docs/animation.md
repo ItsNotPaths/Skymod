@@ -3,7 +3,7 @@
 Skyrim: Havok Behavior 2010.2 graphs + Havok Animation clips (annotations, `animationdatasinglefile.txt`
 motion data), Havok ragdolls from `skeleton.nif`, Gamebryo controller sequences on props, FaceFX `.lip`.
 We translate at install and never read `.hkx` at run time: no shippable Havok runtime, LE 32-bit and SE
-64-bit packfiles must be one union, and the owner rejected graph reproduction and Nemesis/Pandora patching
+64-bit packfiles must be one union, and graph reproduction and Nemesis/Pandora patching are ruled out
 in favor of one actor-state model ([actor-states.md](actor-states.md)).
 Now: actors are Jolt `CharacterVirtual` capsules, meshes draw in bind pose, animation natives return zero.
 Goal: porter → read-only clip store → sim-side `(clip, t)` clock at 60 Hz (annotations, root motion,

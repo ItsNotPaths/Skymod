@@ -1,6 +1,6 @@
 package script
 
-// What actors wear and hold (worldstate.Equipment; CK wiki pages in build/out/wsP/formulas/equip_*).
+// What actors wear and hold (worldstate.Equipment; CK wiki).
 // Papyrus numbers hands and casting sources 0 left, 1 right, 2 voice.
 
 import "../gamedb"
@@ -41,7 +41,7 @@ n_base_set_outfit :: proc(c: ^Call, args: []Value) -> Value {
 
 // EquipItem(akItem, abPreventRemoval=false, abSilent=false): an actor without the item is given one.
 // A leveled list does not work (CK wiki). An item used from the inventory (a potion, food) is used.
-// (hole ingredients :tags (magic player unclaimed) :sev gap) an eaten ingredient teaches no effect: Ingredient.LearnEffect/LearnNextEffect/LearnAllEffects are not natives and no known-effect state exists. Eating learns the first effect; the perk that learns two on one eat follows the ingredient's effect order (user, 2026-09-29).
+// (hole ingredients :tags (magic player unclaimed) :sev gap) an eaten ingredient teaches no effect: Ingredient.LearnEffect/LearnNextEffect/LearnAllEffects are not natives and no known-effect state exists. Eating learns the first effect; the perk that learns two on one eat follows the ingredient's effect order.
 n_equip_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, _ := item_of(c, arg_form(c, args, 0))
 	if _, leveled := gamedb.leveled_list_of(c.db, base); leveled || base == 0 {return nil}

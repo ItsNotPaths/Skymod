@@ -82,7 +82,7 @@ index_story_node :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
 
 // order_story_nodes gives each node its children, and the tree its roots, in sibling order: each
 // chain of previous-sibling links in turn. SNAM is no total order (7 of 117 vanilla parents have
-// several chains, or two nodes after one sibling); ties go by editor id (user choice 2026-09-27).
+// several chains, or two nodes after one sibling); ties go by editor id.
 @(private)
 order_story_nodes :: proc(db: ^DB) {
 	previous := make(map[Form_ID]Form_ID, len(db.story_nodes), context.temp_allocator)

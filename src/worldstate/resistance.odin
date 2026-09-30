@@ -13,7 +13,7 @@ import "../gamedb"
 
 // resisted is magnitude `m` of a record `effect` from `source` after `target`'s resistances. A
 // defined effect is resisted by the core Resist hook (rt.lua) instead.
-// (hole record-resist :tags (magic unclaimed) :sev gap) record effects still resist here, unlike vanilla (build/out/wsM/mechanics.md): only magnitude is cut (Resist Magic should shorten Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, worn armour enchantments are resisted, and the cap is not ResistCap. The translator makes them rt.effects and this proc goes.
+// (hole record-resist :tags (magic unclaimed) :sev gap) record effects still resist here, unlike vanilla: only magnitude is cut (Resist Magic should shorten Paralysis), an alchemy poison uses its effect's resist instead of PoisonResist, worn armour enchantments are resisted, and the cap is not ResistCap. The translator makes them rt.effects and this proc goes.
 resisted :: proc(ws: ^World_State, db: ^gamedb.DB, source, effect, target: Form_ID, m: f32) -> f32 {
 	mgef, _ := gamedb.magic_effect_of(db, effect)
 	if mgef.info.flags & esm.MGEF_HOSTILE == 0 {return m}

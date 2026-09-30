@@ -499,7 +499,7 @@ input_target :: proc(c: ^Proc_Context, k: int) -> Form_ID {
 // it is suspicious of comes inside ImmediateAttackRadius of RestrictedArea: it attacks. Inside
 // WarnOnlyRadius, where it sees it: trespass lines every fAITrespassWarningTimer, then after
 // iGuardWarnings it attacks. The area's owners and the guard's allies and friends are let be (CK:
-// Guard (Procedure), build/out/wsK/wiki). Inputs: RestrictedArea, SuspiciousOf, WarnOnlyRadius,
+// Guard (Procedure)). Inputs: RestrictedArea, SuspiciousOf, WarnOnlyRadius,
 // ImmediateAttackRadius.
 // (hole guard-draws-weapon :tags (ai animation unclaimed) :sev polish :needs (actor-states)) a Guard does not draw its weapon while it warns: no actor has a drawn state.
 proc_guard :: proc(c: ^Proc_Context) -> Status {

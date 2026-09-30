@@ -224,7 +224,7 @@ record_level :: proc(db: ^DB, form: Form_ID, pick: Form_ID = 0, player_level := 
 // actor_level is an NPC_'s level: its ACBS level, or its multiple of the player's rounded down and
 // held to its calc band (a calc max of 0 is no cap). Below 1 it stays: a Calc Min of 0 gives level
 // 0, and auto-calc then takes one level's health bonus off. Both match the CK's DNAM cache on all 297
-// vanilla auto-calc PC-mult NPC_ (build/out/wsP/pcmult: x1.5 and x1.75 give 1, not 2).
+// vanilla auto-calc PC-mult NPC_ (x1.5 and x1.75 give 1, not 2).
 actor_level :: proc(stats: Actor_Base, player_level: int) -> int {
 	if stats.flags & esm.ACBS_PC_LEVEL_MULT == 0 {return max(int(stats.level), 1)}
 	lvl := max(int(f32(stats.level) / 1000 * f32(max(player_level, 1))), int(stats.calc_min))
@@ -249,7 +249,7 @@ attribute_gain :: proc(db: ^DB, stats: Actor_Base, which: int, player_level: int
 // skill_base is skill `i` (0..17): with auto-calc, iAVDSkillStart plus the race bonus plus the class
 // share of iAVDSkillsLevelUp points per level above 1, capped at AUTO_CALC_SKILL_CAP with the
 // excess shared among the rest; without it, the DNAM value plus its offset.
-// (hole skill-cap-share :tags (records player) :sev polish) the auto-calc cap of 125 is a choice (user, 2026-09-26), not Skyrim's: the CK's DNAM cache stops at 100 and loses part of the excess by a rule not yet found (best fit 11 of 24 capped NPC_, build/out/wsP/skillcap); in play some followers (J'zargo, Frea, Durak, Ingjard, Celann) go past 100.
+// (hole skill-cap-share :tags (records player) :sev polish) the auto-calc cap of 125 is a choice, not Skyrim's: the CK's DNAM cache stops at 100 and loses part of the excess by a rule not yet found (best fit 11 of 24 capped NPC_); in play some followers (J'zargo, Frea, Durak, Ingjard, Celann) go past 100.
 @(private)
 skill_base :: proc(db: ^DB, stats: Actor_Base, race: Race, i: int, player_level: int) -> int {
 	if stats.flags & esm.ACBS_AUTO_CALC_STATS == 0 {return int(stats.skills[i]) + int(stats.skill_offsets[i])}

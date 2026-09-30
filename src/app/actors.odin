@@ -44,7 +44,7 @@ Capsule :: struct {
 	radius, half_h: f32,
 }
 
-// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the race skeleton's BBX box, else the NPC_ OBND (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers (build/out/wsP/research/findings.md sections 1 and 8).
+// (hole actor-capsule-source :tags (player physics) :sev polish) the capsule is fitted to the race skeleton's BBX box, else the NPC_ OBND (radius = mean half-width, height = box height). Skyrim's controller is an 18-vertex convex built at runtime from an unknown source; 15 skeletons carry layer-30 capsules (human r 20 len 76) that may be bumpers.
 // actor_capsule fits an upright capsule to an actor's bounds at its scale.
 actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 	box := worldstate.actor_box(&g.sim.ws, &g.db, form)
@@ -53,7 +53,7 @@ actor_capsule :: proc(g: ^Game, form: Form_ID) -> Capsule {
 	return {radius, max(size.z / 2 - radius, 1)}
 }
 
-// (hole animation) Decided (user, 2026-09-27): the sim owns the animation clock. It advances each actor's (clip, t) per tick, fires the annotations, applies root motion and samples the bones combat hitboxes need; main samples the full skeleton for drawing from the same clips.
+// (hole animation) Decided: the sim owns the animation clock. It advances each actor's (clip, t) per tick, fires the annotations, applies root motion and samples the bones combat hitboxes need; main samples the full skeleton for drawing from the same clips.
 // tick_actor_bodies gives each actor in the active scene's loaded cells a capsule, moves it one
 // tick, and drops the capsules of actors that left or were disabled.
 tick_actor_bodies :: proc(g: ^Game) {

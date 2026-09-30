@@ -276,7 +276,7 @@ Cast_Type :: enum u32 {
 	Constant_Effect = 0,
 	Fire_And_Forget = 1,
 	Concentration   = 2,
-	Scroll          = 3, // every SCRL but 2 (build/out/wsM/corpus.txt)
+	Scroll          = 3, // every SCRL but 2
 }
 
 Delivery :: enum u32 {

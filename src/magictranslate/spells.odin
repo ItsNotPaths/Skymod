@@ -2,7 +2,7 @@ package magictranslate
 
 // SPEL, SCRL and ENCH to rt.spell, powers and SHOU to rt.power, and a scroll's use to a hand rt.item.
 // A spell's shape comes from its delivery and the first projectile its effects fly as. An entry
-// with conditions applies a copy of its effect that carries them (user, 2026-09-30).
+// with conditions applies a copy of its effect that carries them.
 
 import "core:fmt"
 import "core:strings"

@@ -2,7 +2,7 @@ package worldstate
 
 // Spells content defines (rt.spell): the charged and held castables, and enchantments (a spell
 // tagged `enchantment`). A spell is data: how it is used and delivered, what it costs, and the
-// effects it applies, all of them named (user, 2026-09-28). Keyed by form like effects, and not
+// effects it applies, all of them named. Keyed by form like effects, and not
 // saved. spell_view answers for a definition or a record alike.
 
 import "core:log"

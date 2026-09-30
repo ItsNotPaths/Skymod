@@ -6,7 +6,7 @@ import "../formats/esm"
 import "../formid"
 import "../gamedb"
 
-// Crime is faction logic, for every actor (user, 2026-09-27). An offence gives the members of a
+// Crime is faction logic, for every actor. An offence gives the members of a
 // crime faction who witness it a bounty on the offender. The bounty is local to the members who
 // know it, and it spreads between them. It becomes faction-wide when a member who knows it sees a
 // guard of the faction, or, in a faction with no guards, when half its members know it. A local
@@ -144,7 +144,7 @@ set_crime_faction :: proc(ws: ^World_State, actor, faction: Form_ID) {
 	ws.crime_members_built = 0
 }
 
-// VICTIM_DELAY is how long after a violent crime its victim counts as a witness (user, 2026-09-27):
+// VICTIM_DELAY is how long after a violent crime its victim counts as a witness:
 // a victim killed by the next blow never reports, and no hit races the one before it.
 VICTIM_DELAY :: f32(2)
 
@@ -463,7 +463,7 @@ jailed_by :: proc(ws: ^World_State, actor, faction: Form_ID) -> bool {
 	return ok && j.faction == faction
 }
 
-// escape_jail is a prisoner out of its cell (user, 2026-09-27): no longer jailed, its bounty and
+// escape_jail is a prisoner out of its cell: no longer jailed, its bounty and
 // the gear in the evidence chest stay, and the ESJA event goes out.
 escape_jail :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
 	j := ws.jailed[actor]

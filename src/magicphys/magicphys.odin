@@ -16,7 +16,7 @@ VERSION :: u32(1)
 
 Body_ID :: distinct u32 // the host's; 0 = none
 
-// Primitive is a spell's shape (user, 2026-09-30). Every vanilla delivery maps to one: Aimed Missile,
+// Primitive is a spell's shape. Every vanilla delivery maps to one: Aimed Missile,
 // Arrow and Lobber, and Target_Location (an invisible one whose landing places the rune, wall or
 // summon), to Projectile; Aimed Beam and Target_Actor to Beam; Aimed Flame and Cone to Spray; Self
 // with an area, and an explosion where a beam or projectile lands, to Aura. Self without an area and

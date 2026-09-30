@@ -2,7 +2,7 @@ package script
 
 // Game.FindClosest* and FindRandom*: a search of the loaded refs around a point. A loaded ref is
 // enabled, not carried, and in a cell attached to the player's scene. Dead actors and the player
-// count (CK wiki, build/out/wsQ/wiki/Find*).
+// count (CK wiki, Find*).
 
 import "core:math/rand"
 import "../gamedb"

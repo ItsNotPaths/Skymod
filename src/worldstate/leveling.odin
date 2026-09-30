@@ -1,6 +1,6 @@
 package worldstate
 
-// Leveling (sources: build/out/wsP/formulas/lvl_uesp_Skyrim_Leveling.txt). Skill XP raises a skill
+// Leveling (UESP Skyrim:Leveling). Skill XP raises a skill
 // up to its cap; each raise gives the actor XP; enough XP makes a level-up ready, and it happens when
 // the skills menu opens (level_up), with a choice and OnLevelUp. Every actor has this; only acts give
 // XP. All the math is named formulas (formulas.odin).

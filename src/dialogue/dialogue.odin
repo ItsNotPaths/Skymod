@@ -1,6 +1,6 @@
 package dialogue
 
-// Player dialogue as the CK wiki describes it (build/out/wsQ/wiki: Topic, Topic Info, Dialogue
+// Player dialogue as the CK wiki describes it (Topic, Topic Info, Dialogue
 // Branch): a branch starts a topic, a topic offers the first of its infos that can be said, and an
 // info's links are the choices after it. The app drives a conversation through these procs; what
 // dialogue remembers lives in worldstate (dialogue.odin there).
@@ -37,8 +37,8 @@ Greeting :: struct {
 
 // greeting picks the speaker's opening line: its Exclusive branch, else the best valid Blocking
 // branch (the higher quest priority wins, then load order), else a Hello. ok=false: the speaker is
-// in an Exclusive branch with nothing to say, and the conversation does not open (user decision;
-// in vanilla that NPC blocks all dialogue).
+// in an Exclusive branch with nothing to say, and the conversation does not open. Vanilla lets
+// that NPC block all dialogue.
 greeting :: proc(c: ^conditions.Context, speaker: Form_ID) -> (g: Greeting, ok: bool) {
 	if branch := worldstate.exclusive_branch(c.ws, speaker); branch != 0 {
 		b := c.db.branches[branch]

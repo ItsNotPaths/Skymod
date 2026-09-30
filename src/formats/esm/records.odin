@@ -193,7 +193,7 @@ object_box :: proc(fields: []Field) -> (box: [2][3]f32, ok: bool) {
 	return box, true
 }
 
-// BOOK DATA flags (UESP; build/out/wsP/perks/books.py: 90 skill books, 94 spell tomes in Skyrim.esm).
+// BOOK DATA flags (UESP; 90 skill books, 94 spell tomes in Skyrim.esm).
 BOOK_TEACHES_SKILL :: 0x01
 BOOK_TEACHES_SPELL :: 0x04
 

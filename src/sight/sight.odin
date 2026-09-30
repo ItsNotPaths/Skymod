@@ -2,7 +2,7 @@ package sight
 
 // What one ref sees of another, 0..1, at three levels (Mode). The player sees through the camera; an
 // NPC through its eyes, facing its heading. Line of sight (CK wiki HasLOS, GetLineOfSight,
-// RegisterForLOS; build/out/wsQ/wiki/) sits on top: three picks at the target's bottom, middle and
+// RegisterForLOS) sits on top: three picks at the target's bottom, middle and
 // top, any clear one is enough, and an NPC sees only actors. This is a seam (ws.md Workstream H):
 // the host answers the queries in Host and calls through Table; a plugin replaces its entries.
 
@@ -54,7 +54,7 @@ BUILTIN :: Table{level_builtin, has_los_builtin, range_builtin, light_builtin}
 // NPC_EYE is how high an NPC's eye sits, as a part of its height.
 NPC_EYE :: f32(0.9)
 
-// (hole view-cone-source :tags ai :sev polish) unsourced: the NPC view cone is 190 degrees from memory (fDetectionViewCone); Skyrim.esm has no such GMST (build/out/wsW/gmst.txt).
+// (hole view-cone-source :tags ai :sev polish) unsourced: the NPC view cone is 190 degrees from memory (fDetectionViewCone); Skyrim.esm has no such GMST.
 VIEW_CONE :: f32(190)
 
 // (hole cutout-cover-source :tags query :sev polish) unsourced: how much one cutout surface (a leaf canopy wall, a fence) hides; a guess.

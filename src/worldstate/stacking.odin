@@ -1,7 +1,7 @@
 package worldstate
 
-// Stacking: what a new effect does to the effects already on its target. A defined effect (user,
-// 2026-09-28): different sources add; the same caster landing it again from the same source
+// Stacking: what a new effect does to the effects already on its target. A defined effect:
+// different sources add; the same caster landing it again from the same source
 // restarts it, adds, or keeps the running one, by its `stack`; in a `nostack` group, across effects
 // and AVs, only the strongest runs (a weaker one does not land; CK Magic Effect, vanilla's Peak
 // Value Modifier keywords). Dispelling by tag is the effect's land (DispelTagged).

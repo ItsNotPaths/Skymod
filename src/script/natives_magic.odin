@@ -76,7 +76,7 @@ n_remove_spell :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 // ApplyEffect(akEffect, afMagnitude = 0[, afDuration]) is not Papyrus: it starts an effect on the
-// actor directly, with its own m (user, 2026-09-28: a passive is an effect, the vampire stage its m).
+// actor directly, with its own m (a passive is an effect, the vampire stage its m).
 // With no duration it lasts until DispelEffect. A duration given is always a timed one; a negative
 // one, a computed time that ran out, is 0. No number means "lasts", so no lag or arithmetic can make
 // a timed effect last. It is saved with its m.

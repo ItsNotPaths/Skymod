@@ -51,7 +51,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 
 // use_power uses `words` words of a defined power or shout at `target` (0 = nothing under the aim):
 // a self-shaped one hits `caster`. False while it cools down.
-// (hole shouts :tags (magic input player unclaimed) :sev gap) nothing uses the Voice slot: no Shout action or hold to charge more words (user, 2026-09-28: tap for one, hold for more, up to the unlocked words), no SetVoiceRecoveryTime/GetVoiceRecoveryTime on the Voice timer AV, no GetCurrentShoutVariation, and record SHOUs and powers are not defined powers yet.
+// (hole shouts :tags (magic input player unclaimed) :sev gap) nothing uses the Voice slot: no Shout action or hold to charge more words (tap for one, hold for more, up to the unlocked words), no SetVoiceRecoveryTime/GetVoiceRecoveryTime on the Voice timer AV, no GetCurrentShoutVariation, and record SHOUs and powers are not defined powers yet.
 // (hole power-bodies :tags (magic unclaimed) :sev gap) a power or shout lands on its target at once: it does not go through the magicphys seam, so a shout has no cone.
 use_power :: proc(c: ^Call, caster, power: Form_ID, words: int, target: Form_ID) -> bool {
 	entries := worldstate.power_word(c.ws, c.db, caster, power, words) or_return

@@ -55,7 +55,7 @@ Effect_Def_Src :: struct {
 
 // Hooks run the Lua hooks (rt.hook; the VM sets them), each false to stop its moment. magic_hit
 // runs the magichit hooks, then the effect's own land when def has one; they may change m, d and
-// the tunables. An effect never starts another: a spell names all its effects (user, 2026-09-28).
+// the tunables. An effect never starts another: a spell names all its effects.
 // magic_cost runs magiccost; weapon_cost meleecost or archcost, weapon_hit meleehit or archhit, by
 // `ranged`, and gives back the spells its hooks put on the target; armor_hit runs armorhit on one worn piece, and cannot stop anything.
 Hooks :: struct {

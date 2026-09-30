@@ -231,8 +231,8 @@ Perk_Tab :: struct {
 }
 
 // perk_entries splits a PERK's fields into its entries. VERIFIED against Skyrim.esm: 484 entries
-// (6 quest, 29 ability, 449 entry point), each closed by PRKF; entry DATA is 8, 4 and 3 bytes by kind
-// (build/out/wsP/perks/entries.py). Layout from UESP Mod File Format/PERK.
+// (6 quest, 29 ability, 449 entry point), each closed by PRKF; entry DATA is 8, 4 and 3 bytes by kind.
+// Layout from UESP Mod File Format/PERK.
 perk_entries :: proc(fields: []Field, allocator := context.allocator) -> [dynamic]Raw_Perk_Entry {
 	out := make([dynamic]Raw_Perk_Entry, allocator)
 	e: ^Raw_Perk_Entry

@@ -1,6 +1,6 @@
 package worldstate
 
-// Powers content defines (rt.power): lesser powers, powers and shouts, one kind (user, 2026-09-28).
+// Powers content defines (rt.power): lesser powers, powers and shouts, one kind.
 // A power has words, its variants in order (a lesser or greater power has one); each applies its
 // effects like a spell's entries and sets a cooldown instead of costing Magicka. The cooldown runs
 // on a timer AV: game hours for a power, real seconds for a shout ("24h", "15s"). Shouts share

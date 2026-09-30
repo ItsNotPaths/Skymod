@@ -241,7 +241,7 @@ closest :: proc(c: ^Call, found: []Form_ID) -> Form_ID {
 
 // pick_round picks at random among the matches this alias has not taken yet; when it has taken them
 // all, a new round starts.
-// (hole alias-fill-rounds :tags quest :sev polish) NOT VANILLA (user choice 2026-09-26): a searching alias fill picks in rounds, preferring what it has not filled before; vanilla picks uniformly at random. It may keep a quest from a target vanilla would pick again, or grow the saved rounds for aliases that search the whole world; watch radiant quests.
+// (hole alias-fill-rounds :tags quest :sev polish) NOT VANILLA: a searching alias fill picks in rounds, preferring what it has not filled before; vanilla picks uniformly at random. It may keep a quest from a target vanilla would pick again, or grow the saved rounds for aliases that search the whole world; watch radiant quests.
 @(private = "file")
 pick_round :: proc(c: ^Call, h: Form_ID, found: []Form_ID) -> Form_ID {
 	fresh := make([dynamic]Form_ID, 0, len(found), context.temp_allocator)

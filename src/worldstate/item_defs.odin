@@ -1,7 +1,7 @@
 package worldstate
 
 // Items content gives magic (rt.item): what using an item does. The item itself (model, name,
-// weight, value) stays its record's; the definition says how it is used (user, 2026-09-28):
+// weight, value) stays its record's; the definition says how it is used:
 // from the inventory on the user (potions, food, ingredients, a lucky mug), or held in a hand where
 // each cast of the spell it `casts` uses one up (scrolls). A `poison` tag coats the held weapon
 // instead. Keyed by the item's form, and not saved. item_view answers for a definition or a record.
