@@ -155,9 +155,9 @@ test_set_outfit :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, helmet) && !worldstate.is_equipped(&ws, &db, NPC, hood), "a reset keeps the new outfit")
 }
 
-// An NPC puts armor from its pack back on where nothing is worn.
+// An NPC puts armor from its pack back on where nothing is worn, and holds its best weapon.
 @(test)
-test_wear_spare_armor :: proc(t: ^testing.T) {
+test_wear_spare_gear :: proc(t: ^testing.T) {
 	NPC :: gamedb.Form_ID(0x200)
 	OUTFIT :: gamedb.Form_ID(0x201)
 	hood := gamedb.Form_ID(Gear.Hood)
@@ -172,8 +172,14 @@ test_wear_spare_armor :: proc(t: ^testing.T) {
 	defer worldstate.destroy(&ws)
 
 	worldstate.unequip(&ws, &db, NPC, hood)
-	worldstate.wear_spare_armor(&ws, &db, NPC)
+	mace := gamedb.Form_ID(Gear.Mace)
+	(&db.equip_slots[gamedb.Form_ID(Gear.Dagger)]).damage = 4
+	(&db.equip_slots[mace]).damage = 9
+	worldstate.inv_add(&ws, NPC, gamedb.Form_ID(Gear.Dagger), 1)
+	worldstate.inv_add(&ws, NPC, mace, 1)
+	worldstate.wear_spare_gear(&ws, &db, NPC)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, hood), "outfit back on")
+	testing.expect_value(t, worldstate.in_slot(&ws, &db, NPC, .RightHand), mace) // the most damaging weapon
 }
 
 // A sleeper changes into its sleep outfit and back on waking, and a save between keeps it straight.

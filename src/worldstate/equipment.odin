@@ -8,7 +8,7 @@ package worldstate
 import "../gamedb"
 import "../actorstate"
 
-// (hole npc-auto-equip :tags ai :sev gap) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
+// (hole npc-auto-equip :tags ai :sev gap) an NPC never swaps to better armor or a better weapon (UESP Followers): nothing rates gear; it only fills empty slots, a weapon by its base damage. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
 
 Worn :: struct {
 	item:  Form_ID,
@@ -151,16 +151,20 @@ outfit_items :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, sleep := 
 	return gamedb.outfit_of(db, record, actor_pick(ws, db, actor), sleep)
 }
 
-// wear_spare_armor puts on armor from the actor's inventory where nothing is worn: its outfit, after
-// it was taken off, or what it was given.
-wear_spare_armor :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
+// wear_spare_gear puts on armor from the actor's inventory where nothing is worn (its outfit, after
+// it was taken off, or what it was given), and holds its most damaging weapon in an empty right hand.
+wear_spare_gear :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID) {
 	eq := equipment(ws, db, actor)
+	weapon, damage := Form_ID(0), f32(-1)
 	for item in inv_items(ws, db, actor) {
 		s, ok := db.equip_slots[item]
+		if !ok {continue}
+		if s.kind == .Weapon && s.damage > damage {weapon, damage = item, s.damage}
 		slots, _ := gamedb.slots_of(db, item)
-		if !ok || s.kind != .Armor || slots == {} || worn_in(eq, slots) {continue}
+		if s.kind != .Armor || slots == {} || worn_in(eq, slots) {continue}
 		put_on(ws, db, eq, actor, item, nil, false, true)
 	}
+	if weapon != 0 && !worn_in(eq, {.RightHand}) {put_on(ws, db, eq, actor, weapon, .RightHand, false, true)}
 }
 
 @(private = "file")

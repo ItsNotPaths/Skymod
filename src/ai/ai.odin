@@ -95,7 +95,7 @@ tick_loaded :: proc(w: ^World, ws: ^worldstate.World_State, db: ^gamedb.DB, acto
 	if a.eval_in <= 0 || scene_pack != a.pack && (scene_pack != 0 || a.scene) { // a scene takes and gives back the actor at once
 		a.eval_in = max(a.eval_in + EVAL_EVERY, 0)
 		a.mover.pace = actor_pace(ws, db, actor)
-		worldstate.wear_spare_armor(ws, db, actor)
+		worldstate.wear_spare_gear(ws, db, actor)
 		if pack, quest := select_package(w, ws, db, actor); pack != a.pack {start_package(a, db, pack, quest, ws.clock.hours, feet)}
 		a.scene = scene_pack != 0
 		a.override = override_now(a^)
