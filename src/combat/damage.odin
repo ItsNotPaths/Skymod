@@ -3,14 +3,36 @@ package combat
 // Weapon damage: what one landed hit takes from its target's Health. Table.damage is the vanilla
 // formula; a plugin replaces it.
 
-import "../formats/esm"
 import "../plugin"
 
 HAND_TO_HAND :: u8(0) // WEAP DNAM animation type: fists
 
-// Attack is one weapon hit that landed: melee, a projectile or a bash.
+// Attack is one weapon hit that landed: melee, a projectile or a bash, with what the hit and armor
+// hooks (perks, as Lua) made of its numbers.
 Attack :: struct {
 	attacker, target, weapon: Form_ID,
+	damage:                   Part, // the weapon's damage
+	armor_pen:                Part, // the target's armor rating
+	armor:                    plugin.Span(Piece), // the target's worn armor
+}
+
+// Part is what hooks made of one number: set replaces it, else (value + add) x mult.
+Part :: struct {
+	add, mult: f32,
+	set:       f32,
+	has_set:   bool,
+}
+
+KEEP :: Part{mult = 1}
+
+// Piece is one worn armor item and what the armor hooks made of its rating.
+Piece :: struct {
+	item:   Form_ID,
+	rating: Part,
+}
+
+apply :: proc "contextless" (p: Part, v: f32) -> f32 {
+	return p.set if p.has_set else (v + p.add) * p.mult
 }
 
 // (hole armor-base-factor :tags combat :sev polish) unsourced: fArmorBaseFactor 0.03 per worn piece (Skyrim.esm) is not applied; nothing says what it adds to.
@@ -23,7 +45,7 @@ Attack :: struct {
 // what the target's armor stops.
 @(private)
 damage_builtin :: proc "c" (w: ^plugin.World, a: Attack, base: f32) -> f32 {
-	return weapon_damage(w, a, base) * (1 - armor_cut(w, a.target))
+	return weapon_damage(w, a, base) * (1 - armor_cut(w, a))
 }
 
 // weapon_damage is `base` times the weapon skill's factor: fDamagePCSkillMin (engine default 1) at
@@ -32,42 +54,43 @@ damage_builtin :: proc "c" (w: ^plugin.World, a: Attack, base: f32) -> f32 {
 weapon_damage :: proc "contextless" (w: ^plugin.World, a: Attack, base: f32) -> f32 {
 	slot: plugin.Equip_Slot
 	has := a.weapon != 0 && plugin.record(w, a.weapon, .Equip_Slot, &slot)
-	if !has || slot.weapon_type == HAND_TO_HAND {return w.actor_value(w.data, a.attacker, "UnarmedDamage", .Value)}
-	if slot.gear.skill < 0 {return base}
+	if !has || slot.weapon_type == HAND_TO_HAND {return apply(a.damage, w.actor_value(w.data, a.attacker, "UnarmedDamage", .Value))}
+	if slot.gear.skill < 0 {return apply(a.damage, base)}
 	lo, hi := setting(w, "fDamagePCSkillMin", 1), setting(w, "fDamagePCSkillMax", 1.5)
-	return base * (lo + (hi - lo) * skill(w, a.attacker, slot.gear.skill) / 100)
+	return apply(a.damage, base) * (lo + (hi - lo) * skill(w, a.attacker, slot.gear.skill) / 100)
 }
 
 // armor_cut is the share of a hit the target's armor stops: each worn piece's rating times its
 // skill factor, plus DamageResist, at fArmorScalingFactor percent a point, up to fMaxArmorRating.
 @(private = "file")
-armor_cut :: proc "contextless" (w: ^plugin.World, target: Form_ID) -> f32 {
-	rating := w.actor_value(w.data, target, "DamageResist", .Value)
-	for item in plugin.items(w.worn(w.data, target)) {
+armor_cut :: proc "contextless" (w: ^plugin.World, a: Attack) -> f32 {
+	rating := w.actor_value(w.data, a.target, "DamageResist", .Value)
+	for p in plugin.items(a.armor) {
 		slot: plugin.Equip_Slot
-		if !plugin.record(w, item, .Equip_Slot, &slot) || slot.gear.armor_rating == 0 {continue}
-		rating += slot.gear.armor_rating * armor_factor(w, target, slot.gear.armor_type)
+		if !plugin.record(w, p.item, .Equip_Slot, &slot) {continue}
+		rating += apply(p.rating, slot.gear.armor_rating * armor_factor(w, a.target, slot.gear.armor_type))
 	}
-	percent := min(rating * setting(w, "fArmorScalingFactor", 0.12), setting(w, "fMaxArmorRating", 80))
+	percent := min(apply(a.armor_pen, rating) * setting(w, "fArmorScalingFactor", 0.12), setting(w, "fMaxArmorRating", 80))
 	return max(percent, 0) / 100
 }
 
 // armor_factor scales a piece's rating by the wearer's skill in its type: 1 at skill 0 to
 // fArmorRatingPCMax at 100 for the player, fArmorRatingBase to fArmorRatingMax for an NPC.
 @(private = "file")
-armor_factor :: proc "contextless" (w: ^plugin.World, actor: Form_ID, type: esm.Armor_Type) -> f32 {
+armor_factor :: proc "contextless" (w: ^plugin.World, actor: Form_ID, type: plugin.Armor_Type) -> f32 {
 	lo, hi := f32(1), setting(w, "fArmorRatingPCMax", 1.4)
 	if actor != w.player {lo, hi = setting(w, "fArmorRatingBase", 1), setting(w, "fArmorRatingMax", 2.5)}
 	name: cstring = "HeavyArmor" if type == .Heavy else "LightArmor"
 	return lo + (hi - lo) * w.actor_value(w.data, actor, name, .Value) / 100
 }
 
-// skill reads the actor value at `index` (esm.AV_NAMES).
+// skill reads the actor value at `index` (plugin.av_name).
 @(private = "file")
 skill :: proc "contextless" (w: ^plugin.World, actor: Form_ID, index: i32) -> f32 {
-	if int(index) >= len(esm.AV_NAMES) {return 0}
+	name := plugin.av_name(index)
+	if name == "" {return 0}
 	buf: [64]u8
-	n := copy(buf[:len(buf) - 1], esm.AV_NAMES[index])
+	n := copy(buf[:len(buf) - 1], name)
 	buf[n] = 0
 	return w.actor_value(w.data, actor, cstring(raw_data(buf[:])), .Value)
 }

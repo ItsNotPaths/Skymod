@@ -1250,12 +1250,15 @@ local lands = {} -- lower effect name -> its land (rt.load_effects)
 -- rt.global.<Name> is a GLOB's value by editor id: the naming rule's global.<Name>.
 rt.global = setmetatable({}, { __index = function(_, name) return global_value(name) end })
 
--- rt.hook(name, { land = function(e) end, cost = function(c) end, hit = function(h) end }) adds a
--- hook, or replaces the one called `name` in its place; rt.hook(name, nil) removes it. land runs as
+-- rt.hook(name, { land = function(e) end, cost = function(c) end, hit = function(h) end,
+-- armor = function(a) end }) adds a hook, or replaces the one called `name` in its place; rt.hook(name, nil) removes it. land runs as
 -- any effect lands on anyone, from any source, before the effect's own land, with its context
 -- (e.caster, e.target, e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast
--- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, on the damage the combat seam gave
--- (h.attacker, h.target, h.weapon, h.damage). Each returns false to stop that effect, cast or hit. Hooks run in the order
+-- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, before the combat seam's damage
+-- (h.attacker, h.target, h.weapon); armor runs on each armor piece a hit meets (a.wearer, a.item).
+-- land, cost and hit return false to stop that effect, cast or hit. hit and armor change parts, not
+-- numbers: h.damage (the weapon's damage), h.armor_pen (the target's armor rating) and a.rating are
+-- { add = 0, mult = 1 }, and a hook may give set; the seam makes set, else (value + add) * mult. Hooks run in the order
 -- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
 -- new game or load.
 -- resist is the core Resist hook: a hostile effect's power, cut by each resistance of the target
@@ -1282,7 +1285,7 @@ end
 local CORE_HOOKS = { { name = "Resist", land = resist } }
 
 hook_entry = function(name, def)
-  return { name = name, land = def.land, cost = def.cost, hit = def.hit }
+  return { name = name, land = def.land, cost = def.cost, hit = def.hit, armor = def.armor }
 end
 
 add_core_hooks = function()
@@ -1347,12 +1350,21 @@ function rt.cost(caster, spell, cost)
   return c.cost
 end
 
--- rt.hit(attacker, target, weapon, damage) runs the hit hooks: the damage, or false when the hit is
--- stopped.
-function rt.hit(attacker, target, weapon, damage)
-  local h = { attacker = attacker, target = target, weapon = weapon, damage = damage, global = rt.global }
+local function part() return { add = 0, mult = 1 } end
+
+-- rt.hit(attacker, target, weapon) runs the hit hooks: the context with its parts, or false when the
+-- hit is stopped.
+function rt.hit(attacker, target, weapon)
+  local h = { attacker = attacker, target = target, weapon = weapon, damage = part(), armor_pen = part(), global = rt.global }
   if not run_hooks("hit", h) then return false end
-  return h.damage
+  return h
+end
+
+-- rt.armor(wearer, item) runs the armor hooks: the piece's rating part.
+function rt.armor(wearer, item)
+  local a = { wearer = wearer, item = item, rating = part(), global = rt.global }
+  run_hooks("armor", a)
+  return a.rating
 end
 
 -- load_defs runs every definition file in a content folder, lowest priority first per name: a full

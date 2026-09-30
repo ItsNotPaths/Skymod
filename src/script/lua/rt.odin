@@ -11,6 +11,7 @@ import "core:strings"
 import "core:sys/posix"
 import lua "../../../vendor/lua"
 import script ".."
+import "../../combat"
 import "../../formats/esm"
 import "../../gamedb"
 import "../../worldstate"
@@ -355,22 +356,61 @@ run_cost :: proc(data: rawptr, caster, spell: worldstate.Form_ID, cost: ^f32) ->
 	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
 }
 
-// run_hit is worldstate.Hooks.hit: rt.hit runs the hit hooks on `damage`. False stops the hit.
+// run_hit is worldstate.Hooks.hit: rt.hit runs the hit hooks, which fill the attack's parts. False
+// stops the hit.
 @(private)
-run_hit :: proc(data: rawptr, attacker, target, weapon: worldstate.Form_ID, damage: ^f32) -> bool {
+run_hit :: proc(data: rawptr, a: ^combat.Attack) -> bool {
 	vm := cast(^VM)data
 	L := vm.L
 	top := lua.gettop(L)
 	defer lua.settop(L, top)
 	if !push_rt_fn(L, "hit") {return true}
-	for f in ([3]worldstate.Form_ID{attacker, target, weapon}) {push_value(L, f if f != 0 else nil)}
-	lua.pushnumber(L, lua.Number(damage^))
-	if lua.pcall(L, 4, 1, 0) != 0 {
+	for f in ([3]worldstate.Form_ID{a.attacker, a.target, a.weapon}) {push_value(L, f if f != 0 else nil)}
+	if lua.pcall(L, 3, 1, 0) != 0 {
 		log.errorf("lua: hit hooks: %s", to_string(L, -1))
 		return true
 	}
-	if lua.type(L, -1) == .NUMBER {damage^ = f32(lua.tonumber(L, -1))}
-	return !(lua.type(L, -1) == .BOOLEAN && !lua.toboolean(L, -1))
+	if !lua.istable(L, -1) {return false}
+	get_part(L, "damage", &a.damage)
+	get_part(L, "armor_pen", &a.armor_pen)
+	return true
+}
+
+// run_armor is worldstate.Hooks.armor: rt.armor runs the armor hooks on one worn piece's rating.
+@(private)
+run_armor :: proc(data: rawptr, wearer, item: worldstate.Form_ID, rating: ^combat.Part) {
+	vm := cast(^VM)data
+	L := vm.L
+	top := lua.gettop(L)
+	defer lua.settop(L, top)
+	if !push_rt_fn(L, "armor") {return}
+	push_value(L, wearer)
+	push_value(L, item)
+	if lua.pcall(L, 2, 1, 0) != 0 {
+		log.errorf("lua: armor hooks: %s", to_string(L, -1))
+		return
+	}
+	if lua.istable(L, -1) {read_part(L, rating)}
+}
+
+// get_part reads the part `key` of the table on top of the stack.
+@(private = "file")
+get_part :: proc(L: ^lua.State, key: cstring, p: ^combat.Part) {
+	if lua.getfield(L, -1, key) == i32(lua.TTABLE) {read_part(L, p)}
+	lua.pop(L, 1)
+}
+
+// read_part reads the part on top of the stack: add, mult and set.
+@(private = "file")
+read_part :: proc(L: ^lua.State, p: ^combat.Part) {
+	number :: proc(L: ^lua.State, key: cstring) -> (f32, bool) {
+		defer lua.pop(L, 1)
+		if lua.getfield(L, -1, key) != i32(lua.TNUMBER) {return 0, false}
+		return f32(lua.tonumber(L, -1)), true
+	}
+	p.add, _ = number(L, "add")
+	if m, ok := number(L, "mult"); ok {p.mult = m}
+	p.set, p.has_set = number(L, "set")
 }
 
 // __global(name) reads the GLOB with that editor id: global.<Name>. 0 for none.

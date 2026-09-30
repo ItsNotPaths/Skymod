@@ -15,6 +15,7 @@ import "core:path/filepath"
 import "core:strconv"
 import "core:strings"
 import "core:testing"
+import "../../src/combat"
 import "../../src/conditions"
 import "../../src/formid"
 import "../../src/formula"
@@ -2030,8 +2031,11 @@ C.__fn["ongameloaded"] = function(self)
     if c.spell:HasTag("forbidden") then return false end
     c.cost = c.cost / 2
   end })
-  rt.hook("Silver", { hit = function(h) if h.weapon then h.damage = h.damage * 2 + 20 end end })
+  rt.hook("Silver", { hit = function(h) if h.weapon then h.damage.add = h.damage.add + 20 end end })
+  rt.hook("Armsman", { hit = function(h) h.damage.mult = h.damage.mult * 2 end })
   rt.hook("Unseen", { hit = function(h) if not h.attacker then return false end end })
+  rt.hook("Juggernaut", { armor = function(a) a.rating.mult = a.rating.mult * 1.2 end })
+  rt.hook("Dragonhide", { armor = function(a) if a.item then a.rating.set = 0 end end })
 end
 return C
 `
@@ -2039,7 +2043,7 @@ return C
 // rt.hook adds landing, cost and hit hooks at game load. Landing hooks run on every effect from any
 // source, defined or not, in the order they were added, and see a spell's tags through its effects;
 // a broken one is passed over, one may stop an effect, a cost hook may refuse a cast, and a hit hook
-// may change a hit's damage or stop it.
+// may change a hit's parts or stop it; an armor hook changes a piece's rating part.
 @(test)
 test_landing_hooks :: proc(t: ^testing.T) {
 	f: Fixture
@@ -2091,10 +2095,16 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	_, ok = worldstate.cast_cost(&f.ws, CASTER, DOOM, 20)
 	testing.expect(t, !ok, "the cost hook refuses it")
 
-	hit := f.ws.hooks.hit
-	damage := f32(5)
-	testing.expect(t, hit(f.ws.hooks.data, CASTER, TARGET, PLAIN, &damage) && damage == 30, "a hit hook changes the damage")
-	testing.expect(t, !hit(f.ws.hooks.data, 0, TARGET, 0, &damage), "a hit hook stops the hit")
+	h := f.ws.hooks
+	a := combat.Attack{attacker = CASTER, target = TARGET, weapon = PLAIN, damage = combat.KEEP, armor_pen = combat.KEEP}
+	testing.expect(t, h.hit(h.data, &a), "the hit goes on")
+	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 2})
+	testing.expect_value(t, a.armor_pen, combat.KEEP)
+	a = {target = TARGET}
+	testing.expect(t, !h.hit(h.data, &a), "a hit hook stops the hit")
+	rating := combat.KEEP
+	h.armor(h.data, TARGET, PLAIN, &rating)
+	testing.expect_value(t, rating, combat.Part{mult = 1.2, set = 0, has_set = true})
 }
 
 @(private = "file")

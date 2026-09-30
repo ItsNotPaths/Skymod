@@ -246,6 +246,13 @@ Equip_Slot :: struct {
 	gear:         esm.Gear, // a WEAP's or ARMO's combat stats
 }
 
+Armor_Type :: esm.Armor_Type
+
+// av_name is the engine actor value at `index` (a record's AV index); "" out of range.
+av_name :: proc "contextless" (index: i32) -> string {
+	return esm.AV_NAMES[index] if index >= 0 && int(index) < len(esm.AV_NAMES) else ""
+}
+
 Equip_Type :: struct {
 	using header: Header,
 	parents:      Span(Form_ID),

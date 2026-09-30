@@ -3,18 +3,39 @@ package script
 // The host side of the combat seam's damage (src/combat).
 
 import "../combat"
+import "../gamedb"
+import "../plugin"
 import "../worldhost"
+import "../worldstate"
 
 combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
 // (hole combat-hit-spells :tags (combat magic) :sev gap :needs (perk-translator)) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
 // (hole attack-stamina :tags combat :sev gap :needs (combat-damage)) an attack costs no Stamina: fStaminaAttackWeaponBase 20 and fStaminaAttackWeaponMult 1, fPowerAttackStaminaPenalty 2, Mod_Power_Attack_Stamina (3), fStaminaBashBase 35, fStaminaPowerBashBase 55.
-// land_attack is everything a landed weapon hit does to its target: the combat seam's damage,
-// then the hit hooks (perk functionality scripts), which may change it or stop the hit.
-land_attack :: proc(c: ^Call, a: combat.Attack, base: f32) {
+// land_attack is everything a landed weapon hit does to its target. The hit hooks (perks, as Lua)
+// fill its parts or stop it, the armor hooks each worn piece's rating, then the combat seam's
+// damage composes them.
+land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, base: f32) {
+	a := combat.Attack{attacker = attacker, target = target, weapon = weapon, damage = combat.KEEP, armor_pen = combat.KEEP}
+	h := c.ws.hooks
+	if h.hit != nil && !h.hit(h.data, &a) {return}
+	a.armor = plugin.span(worn_armor(c, target))
 	wd := worldhost.Data{context, c.ws, c.db}
 	w := worldhost.world(&wd)
-	damage := combat_table.damage(&w, a, base)
-	if h := c.ws.hooks; h.hit != nil && !h.hit(h.data, a.attacker, a.target, a.weapon, &damage) {return}
-	damage_health(c, a.target, damage, a.attacker)
+	damage_health(c, target, combat_table.damage(&w, a, base), attacker)
+}
+
+// worn_armor is the armor `wearer` has on, each piece's rating through the armor hooks.
+@(private = "file")
+worn_armor :: proc(c: ^Call, wearer: Form_ID) -> []combat.Piece {
+	out := make([dynamic]combat.Piece, context.temp_allocator)
+	h := c.ws.hooks
+	for w in worldstate.equipment(c.ws, c.db, wearer).worn {
+		slot, _ := gamedb.equip_slot_of(c.db, w.item)
+		if slot.kind != .Armor {continue}
+		p := combat.Piece{w.item, combat.KEEP}
+		if h.armor != nil {h.armor(h.data, wearer, w.item, &p.rating)}
+		append(&out, p)
+	}
+	return out[:]
 }

@@ -26,7 +26,6 @@ World :: struct {
 	game_hours:    proc "c" (data: rawptr) -> f64, // since day 0
 	record:        proc "c" (data: rawptr, form: Form_ID, kind: Record_Kind, out: rawptr) -> bool, // see records.odin
 	has_tag:       proc "c" (data: rawptr, form: Form_ID, pattern: cstring) -> bool, // "magic" matches magic.fire; kw.<editor id> is a keyword
-	worn:          proc "c" (data: rawptr, actor: Form_ID) -> Span(Form_ID), // what it wears and holds; valid until the end of the tick
 }
 
 // Ref is what the world says of one ref.
