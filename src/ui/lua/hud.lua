@@ -44,19 +44,13 @@ local INST   = LAYOUT.instances or {}
 local ROOT   = "HUDMovieBaseInstance."
 local REF_EM = 64 -- the UI's text px at scale 1
 
--- Meters fade out LINGER seconds after they stop being needed, over FADE seconds.
+-- Meter fills. Meters fade out LINGER seconds after they stop being needed, over FADE seconds.
 local HEALTH    = "#b3302b"
 local MAGICKA   = "#2f6fc4"
 local STAMINA   = "#3f9c4a"
 local LINGER    = 2.0
 local FADE      = 0.6
 
--- Compass: the letters travel across the compass mask; COMPASS_FOV degrees of heading span it.
-local COMPASS_FOV = 180
-local CARDINALS = {
-  { 0, "N" }, { 45, "NE" }, { 90, "E" }, { 135, "SE" },
-  { 180, "S" }, { 225, "SW" }, { 270, "W" }, { 315, "NW" },
-}
 -- Sneak eye (vanilla: over the crosshair, the pupil round the dot). HIDDEN/DETECTED sits above it,
 -- clear of the activation prompt.
 local EYE_W, EYE_H = 64, 30
@@ -151,29 +145,21 @@ local function meters(root, h)
   end
 end
 
--- The compass: the vanilla frame, and the letters in view across its mask (faded toward the ends).
+-- The compass: the vanilla frame, and the vanilla letter strip scrolled by heading and cut to the
+-- compass mask. The strip's x at the Compass sprite's "Zero" and "ThreeSixty" frames spans one turn.
 local function compass(root, heading)
-  local frame = ART["interface/hud/compass.dds"]
-  local mask = INST[ROOT .. "CompassShoutMeterHolder.Compass.CompassMask_mc"]
-  if not frame or not mask then return end
+  local c = ROOT .. "CompassShoutMeterHolder.Compass."
+  local frame, art = ART["interface/hud/compass.dds"], ART["interface/hud/compass_strip.dds"]
+  local strip, mask = INST[c .. "DirectionRect"], INST[c .. "CompassMask_mc"]
+  if not frame or not art or not strip or not strip.at or not mask then return end
   root[#root] = image(with(place(frame), { source = "interface/hud/compass.dds" }))
-  local strip = mask.rect
-  local half = COMPASS_FOV / 2
-  for _, c in ipairs(CARDINALS) do
-    local d = (c[0] - heading + 540) % 360 - 180 -- -180..180, + = to the right
-    if math.abs(d) < half then
-      local major = #c[1] == 1
-      local x = strip.x + strip.w / 2 + d / half * strip.w / 2
-      root[#root] = container(with(place({ x = x - 20, y = frame.y, w = 40, h = frame.h }), {
-        text {
-          c[1],
-          anchor = "center",
-          scale = text_scale(major and 18 or 13),
-          color = alpha(major and "#ffffff" or "#bbbdbf", 1 - (math.abs(d) / half) ^ 4),
-        },
-      }))
-    end
-  end
+  local turn = strip.at.ThreeSixty.x - strip.at.Zero.x
+  local x = art.x + turn * heading / 360 -- the strip art's left edge now (the art is drawn at "Zero")
+  local m = mask.rect
+  root[#root] = image(with(place({ x = m.x, y = art.y, w = m.w, h = art.h }), {
+    source = "interface/hud/compass_strip.dds",
+    uv = { (m.x - x) / art.w, 0, (m.x + m.w - x) / art.w, 1 },
+  }))
 end
 
 -- The sneak eye: opens as the most watchful actor notices the player.

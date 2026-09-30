@@ -11,6 +11,7 @@ Layout_Entry :: struct {
 	path:   string, // dotted instance names from the root
 	rect:   Rect,
 	moving: []Label_Rect,
+	at:     []Label_Rect, // where the instance itself sits at each label of its parent (the parent moves it)
 }
 
 Label_Rect :: struct {
@@ -30,12 +31,26 @@ layout_walk :: proc(mv: ^Movie, s: Sprite, prefix: string, m: Matrix, out: ^[dyn
 		if p.name == "" {continue}
 		path := p.name if prefix == "" else strings.concatenate({prefix, ".", p.name}, allocator)
 		pm := mat_mul(m, p.mat)
-		e := Layout_Entry{path = path, rect = to_px(bounds(mv, p.id, "", pm))}
+		e := Layout_Entry{path = path, rect = to_px(bounds(mv, p.id, "", pm)), at = at_labels(mv, s, p, m, allocator)}
 		sp, is_sprite := mv.chars[p.id].(Sprite)
 		if is_sprite {e.moving = moving(mv, sp, pm, allocator)}
 		append(out, e)
 		if is_sprite {layout_walk(mv, sp, path, pm, out, allocator)}
 	}
+}
+
+// at_labels is, per label of the parent `s`, the box of the child named like `p` at that frame.
+@(private)
+at_labels :: proc(mv: ^Movie, s: Sprite, p: Place, m: Matrix, allocator: Allocator) -> []Label_Rect {
+	if len(s.labels) == 0 {return nil}
+	out := make([dynamic]Label_Rect, allocator)
+	for label in s.labels {
+		for q in frame_list(s, label) {
+			if q.name == p.name {append(&out, Label_Rect{label, to_px(bounds(mv, q.id, "", mat_mul(m, q.mat)))})}
+		}
+	}
+	slice.sort_by(out[:], proc(a, b: Label_Rect) -> bool {return a.label < b.label})
+	return out[:]
 }
 
 // moving is, per label, the box of the children whose placement changes across the sprite's frames:

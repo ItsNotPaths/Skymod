@@ -107,7 +107,10 @@ main :: proc() {
 				r := e.rect
 				fmt.printfln("%s  (%.1f,%.1f) %.1fx%.1f", e.path, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0)
 				for m in e.moving {
-					fmt.printfln("    %s: (%.1f,%.1f) %.1fx%.1f", m.label, m.rect.x0, m.rect.y0, m.rect.x1 - m.rect.x0, m.rect.y1 - m.rect.y0)
+					fmt.printfln("    moving %s: (%.1f,%.1f) %.1fx%.1f", m.label, m.rect.x0, m.rect.y0, m.rect.x1 - m.rect.x0, m.rect.y1 - m.rect.y0)
+				}
+				for m in e.at {
+					fmt.printfln("    at %s: (%.1f,%.1f) %.1fx%.1f", m.label, m.rect.x0, m.rect.y0, m.rect.x1 - m.rect.x0, m.rect.y1 - m.rect.y0)
 				}
 			}
 		}

@@ -36,6 +36,8 @@ UI_ASSETS := [?]UI_Asset{
 
 	// ── Instances: the HUD chrome (a meter at "Empty" is its frame without the fill) ──
 	{dest = "interface/hud/compass.dds", swf = HUD_SWF, path = HUD_ROOT + "CompassShoutMeterHolder.Compass.CompassFrame"},
+	// The compass letters: a strip longer than a full turn, scrolled under the compass mask.
+	{dest = "interface/hud/compass_strip.dds", swf = HUD_SWF, path = HUD_ROOT + "CompassShoutMeterHolder.Compass.DirectionRect"},
 	// The stat meter chrome (health, magicka and stamina share it); widget/bar.lua bakes its numbers.
 	{dest = "interface/hud/meter.dds", swf = HUD_SWF, path = HUD_ROOT + "Magica.MagickaMeter_mc", label = "Empty"},
 	// The enemy bar's "Empty" frame drops the whole bar, so its chrome is the part that never moves;

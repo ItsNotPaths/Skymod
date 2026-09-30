@@ -1,6 +1,6 @@
 package unit_tests
 
-// hud.lua: which meters show, their chrome and fill, the compass letters in view, the sneak eye,
+// hud.lua: which meters show, their chrome and fill, the compass strip's scroll, the sneak eye,
 // the foe bar and the notification feed. worldstate.notify keeps the newest.
 
 import "core:testing"
@@ -17,9 +17,12 @@ engine.layout = function() return {
 	stage = { w = 1280, h = 720 },
 	art = {
 		["interface/hud/compass.dds"] = r(458, 58, 364, 27),
+		["interface/hud/compass_strip.dds"] = r(447.5, 64.5, 1458, 15),
 	},
 	instances = {
 		["HUDMovieBaseInstance.CompassShoutMeterHolder.Compass.CompassMask_mc"] = { rect = r(494, 43, 291, 60) },
+		["HUDMovieBaseInstance.CompassShoutMeterHolder.Compass.DirectionRect"] = { rect = r(448.3, 65.2, 1456.6, 13.8),
+			at = { Zero = r(448.3, 65.2, 1456.6, 13.8), ThreeSixty = r(-646.7, 65.2, 1456.7, 13.8) } },
 		["HUDMovieBaseInstance.Health.HealthMeter_mc.HealthLeft"] = { rect = r(518, 620, 246, 15), moving = { Full = r(518, 620, 246, 15) } },
 		["HUDMovieBaseInstance.Magica.MagickaMeter_mc"] = { rect = r(121, 617, 286, 20), moving = { Full = r(141, 616, 247, 17), Empty = r(141, 616, 0.4, 12) } },
 		["HUDMovieBaseInstance.EnemyHealth_mc"] = { rect = r(510, 85, 260, 41), moving = { Full = r(510, 85, 260, 13) } },
@@ -42,6 +45,7 @@ hud_tree :: proc(vm: ^ui.VM, engine_src: cstring) -> (ui.Node, bool) {
 @(private = "file")
 Found :: struct {
 	images: [dynamic]string,
+	strip:  [4]f32, // the compass strip's texture window
 	bars:   [dynamic]ui.Node,
 	texts:  [dynamic]string,
 }
@@ -49,7 +53,9 @@ Found :: struct {
 @(private = "file")
 collect :: proc(n: ^ui.Node, f: ^Found) {
 	#partial switch n.kind {
-	case .Image: append(&f.images, n.image)
+	case .Image:
+		append(&f.images, n.image)
+		if n.image == "interface/hud/compass_strip.dds" {f.strip = n.uv}
 	case .Bar:   append(&f.bars, n^)
 	case .Text: append(&f.texts, n.text)
 	}
@@ -83,8 +89,8 @@ test_hud_full_meters_hidden :: proc(t: ^testing.T) {
 	testing.expect(t, !has(f.images[:], "interface/hud/meter.dds")) // all full, out of combat
 	testing.expect_value(t, len(f.bars), 0)
 	testing.expect(t, has(f.images[:], "interface/hud/compass.dds"))
-	testing.expect(t, has(f.texts[:], "N"))
-	testing.expect(t, !has(f.texts[:], "S"))
+	testing.expect(t, abs(f.strip[0] - (494 - 447.5) / 1458) < 1e-4) // heading 0: the strip at "Zero"
+	testing.expect(t, abs(f.strip[2] - f.strip[0] - 291.0 / 1458) < 1e-4) // the mask's width of it
 	testing.expect(t, !has(f.texts[:], "HIDDEN")) // not sneaking
 }
 
@@ -118,8 +124,7 @@ test_hud_hurt_foe_and_notes :: proc(t: ^testing.T) {
 	testing.expect(t, has(f.texts[:], "Quest started"))
 	testing.expect(t, !has(f.texts[:], "old"))
 	testing.expect(t, has(f.texts[:], "DETECTED"))
-	testing.expect(t, has(f.texts[:], "E")) // facing east: N and S just out of view, W behind
-	testing.expect(t, !has(f.texts[:], "W"))
+	testing.expect(t, abs(f.strip[0] - (494 - 447.5 + 1095 / 4.0) / 1458) < 1e-3) // a quarter turn on
 }
 
 @(test)

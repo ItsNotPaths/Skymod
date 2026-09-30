@@ -14,7 +14,7 @@ Art_Rect :: struct {
 }
 
 // layout_source is the file's Lua: { stage = {w, h}, art = { [dest] = rect }, instances = { [path] =
-// { rect, moving = { [label] = rect } } } }, each rect { x, y, w, h }.
+// { rect, moving = { [label] = rect }, at = { [parent label] = rect } } } }, each rect { x, y, w, h }.
 layout_source :: proc(mv: ^swf.Movie, source: string, art: []Art_Rect, allocator := context.allocator) -> string {
 	b := strings.builder_make(allocator)
 	fmt.sbprintfln(&b, "-- Generated from %s: where its named instances sit on the stage, in px.", source)
@@ -29,18 +29,23 @@ layout_source :: proc(mv: ^swf.Movie, source: string, art: []Art_Rect, allocator
 	for e in swf.layout(mv, context.temp_allocator) {
 		if swf.rect_empty(e.rect) {continue}
 		fmt.sbprintf(&b, "    [%q] = {{ rect = %s", e.path, lua_rect(e.rect))
-		if len(e.moving) > 0 {
-			fmt.sbprint(&b, ", moving = {")
-			for m in e.moving {
-				if !swf.rect_empty(m.rect) {fmt.sbprintf(&b, " [%q] = %s,", m.label, lua_rect(m.rect))}
-			}
-			fmt.sbprint(&b, " }")
-		}
+		label_rects(&b, "moving", e.moving)
+		label_rects(&b, "at", e.at)
 		fmt.sbprintln(&b, " },")
 	}
 	fmt.sbprintln(&b, "  },")
 	fmt.sbprintln(&b, "}")
 	return strings.to_string(b)
+}
+
+@(private = "file")
+label_rects :: proc(b: ^strings.Builder, key: string, list: []swf.Label_Rect) {
+	if len(list) == 0 {return}
+	fmt.sbprintf(b, ", %s = {{", key)
+	for m in list {
+		if !swf.rect_empty(m.rect) {fmt.sbprintf(b, " [%q] = %s,", m.label, lua_rect(m.rect))}
+	}
+	fmt.sbprint(b, " }")
 }
 
 @(private = "file")
