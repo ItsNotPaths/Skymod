@@ -32,6 +32,7 @@ owns :: proc(ws: ^World_State, db: ^gamedb.DB, actor, owner: Form_ID) -> bool {
 }
 
 // (hole stolen-item-value :tags combat :sev polish) GetStolenItemValue (and Faction.GetStolenItemValueCrime/NoCrime) read 0: a mark knows whose item it was, not whether the theft was seen.
+// (hole item-stolen-data :tags (world save player) :sev gap :needs (item-units)) a stolen item is a count per holder, base and owner, and becomes the ref's owner when dropped and a count again when picked up. Wanted: the owner it was stolen from is unit data (takes_mark still decides whether a theft marks at all).
 // Stolen is how many of one item a holder holds that were stolen from one owner.
 Stolen :: struct {
 	owner: Form_ID,
@@ -102,7 +103,6 @@ set_stolen_mark :: proc(ws: ^World_State, item: Form_ID, marks: bool) {
 	ws.stolen_marks[item] = marks
 }
 
-// (hole item-tempering :tags (combat player save) :sev gap) no item is tempered: a stack is an item and a stolen flag, with no per-item quality, so no weapon or armor gets its smithing bonus, and Mod_Tempering_Health (11 SE entries) is not run.
 // Item_Stack is one row of a holder's items: the clean ones stack, a stolen one never does.
 Item_Stack :: struct {
 	item:   Form_ID,

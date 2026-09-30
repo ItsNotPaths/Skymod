@@ -535,6 +535,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for actor, outfit in ws.outfits {append(&outfits, Saved_Alias{actor, outfit})}
 	sleep_outfits := make([dynamic]Saved_Alias, 0, len(ws.sleep_outfits), context.temp_allocator)
 	for actor, outfit in ws.sleep_outfits {append(&sleep_outfits, Saved_Alias{actor, outfit})}
+	// (hole item-save :tags (world save player) :sev gap :needs (item-units)) a save stores counts, carried refs and stolen counts; wanted: units and their data by name, and on load the counts of an item that now has data split into units.
 	carried := make([dynamic]Saved_Alias, 0, len(ws.carried), context.temp_allocator)
 	for ref, holder in ws.carried {append(&carried, Saved_Alias{ref, holder})}
 	ranges := make([dynamic]Saved_Range, 0, len(ws.zone_ranges), context.temp_allocator)

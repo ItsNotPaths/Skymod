@@ -90,6 +90,7 @@ give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
 }
 
 // take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
+// (hole item-placement :tags (world save player) :sev gap :needs (item-units)) a pickup adds a count and disables the ref, which stays filed in its cell; a drop mints a new ref for a count or a split stack. Wanted: a unit loses or gains its placement and keeps its ID; a plain ref becomes a count, a plain count a created ref.
 take :: proc(c: ^Call, form, base, by: Form_ID) {
 	n := worldstate.stack_count(c.ws, c.db, form)
 	victim := report_theft(c, by, form, base, n)
@@ -149,6 +150,7 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 // move_items moves the counts and queues the move's inventory events for the next tick. A source
 // gives at most what it holds. A carried ref that a move by base takes along is its own move, so
 // it hears OnContainerChanged. The container menu moves items through it too.
+// (hole item-moves :tags (world save player) :sev gap :needs (item-units)) a move takes counts, then carries refs along by a split rule (worldstate.carry) and mints scripted stacks (stack_into, new_stack, item_stack), so one item can become two. Wanted: a unit moves by changing its holder; counts move as counts; RemoveItem by base takes plain units first.
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	m := m
 	marks: []worldstate.Stolen

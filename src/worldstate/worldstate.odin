@@ -53,6 +53,7 @@ Overlay :: struct {
 	outfits:         map[Form_ID]Form_ID,          // actor or NPC_ -> the OTFT a script set (SetOutfit), over its records'
 	sleep_outfits:   map[Form_ID]Form_ID,          // actor or NPC_ -> the sleep OTFT a script set
 	carried:         map[Form_ID]Form_ID,          // item ref taken into a container -> that container
+	units:           map[Form_ID]Unit,             // item unit -> its data (items.odin)
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
 	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
@@ -362,6 +363,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.outfits = make(map[Form_ID]Form_ID)
 	o.sleep_outfits = make(map[Form_ID]Form_ID)
 	o.carried = make(map[Form_ID]Form_ID)
+	o.units = make(map[Form_ID]Unit)
 	init_formulas(o)
 	o.stolen_marks = make(map[Form_ID]bool)
 	o.stolen_marks[formid.GOLD] = false
@@ -469,6 +471,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.outfits)
 	delete(o.sleep_outfits)
 	delete(o.carried)
+	delete(o.units)
 	for &f in o.formulas {formula.destroy(&f)}
 	free_choices(&o.level_choices)
 	delete(o.levels)

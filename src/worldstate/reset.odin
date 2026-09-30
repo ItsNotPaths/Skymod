@@ -48,6 +48,7 @@ restart_scripts :: proc(ws: ^World_State, form: Form_ID) {
 }
 
 // drop_inventory puts a container's contents back to its baseline; leveled entries roll again.
+// (hole item-placement :tags (world save player) :sev gap :needs (item-units)) a container reset drops its carried entries and leaves the refs disabled for good, and Cell.Reset removes a taken ref still filed under its old cell while carried points at it.
 drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
 	drop_deltas(&ws.inventories, form)
 	if m, ok := ws.stolen[form]; ok {delete(m)}

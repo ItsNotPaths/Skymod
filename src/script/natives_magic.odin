@@ -258,7 +258,7 @@ start_spell :: proc(c: ^Call, spell, target, caster: Form_ID) {
 	start_effects(c, spell, v.entries, v.passive, target, caster)
 }
 
-// (hole weapon-poison :tags (magic combat unclaimed) :sev gap) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
+// (hole weapon-poison :tags (magic combat unclaimed) :sev gap :needs (item-units)) a poison goes on no weapon: no poisoned state or dose count (Mod_Poison_Dose_Count) and no apply on hit.
 // use_item uses up one of `actor`'s items used from the inventory (a potion, food, rt.item) and
 // starts its effects on it (EquipItem, the inventory menu): OnItemRemoved, then OnObjectEquipped.
 // False for a poison, which goes on a weapon, and for an item held to use.
