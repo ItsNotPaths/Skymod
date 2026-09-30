@@ -5,6 +5,7 @@ package main
 
 import "base:runtime"
 import "core:math"
+import "core:strings"
 import "../gamedb"
 import "../magic"
 import "../magicphys"
@@ -87,10 +88,14 @@ facing :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, actor: Form_ID) -> [
 	return {math.sin(yaw), math.cos(yaw), 0}
 }
 
-// (hole shape-defs :tags (magic mods) :sev gap) a spell's shape is only a name (Spell_Def.shape): content cannot give it a primitive, its numbers or an anchor, so every spell is None.
+// magicphys_def is a defined spell's shape; a record's has none until magic-translate defines it.
 @(private = "file")
 magicphys_def :: proc "c" (data: rawptr, spell: Form_ID) -> magicphys.Def {
-	return {}
+	h := (^Magicphys_Host)(data)
+	context = h.ctx
+	d, ok := h.ws.spell_defs[spell]
+	if !ok {return {}}
+	return {d.shape, strings.clone_to_cstring(d.anchor, context.temp_allocator)}
 }
 
 // (hole thick-strike :tags (magic physics) :sev polish :needs (shape-cast)) a strike is a thin ray: the radius is ignored, so a thick beam or projectile slips past what only its edge would touch.

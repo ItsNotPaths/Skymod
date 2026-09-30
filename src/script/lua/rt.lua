@@ -1472,7 +1472,10 @@ function rt.perk(def) return def end
 -- rt.spell(def) is a spell, in a spells/<name>.lua file that returns it (the name is the file's):
 --   form = "Skyrim.esm:012FCD" | editor id  -- the record it stands in for; none makes a Lua form
 --   name = "Firebolt"                        -- what menus show
---   use = "charged" | "held", shape = "missile", cost = 41
+--   use = "charged" | "held", cost = 41
+--   shape = "self" | { "projectile", speed = 2500, range = 10000, radius = 10, burst = 320 }
+--     kinds: beam, spray, projectile, aura (magicphys); numbers: range, speed, gravity (1 = world),
+--     radius, spread (degrees), burst (the aura's radius where it lands), lasts ("3s"), follow, anchor
 --   tags = { "tier.apprentice", "enchantment" }  -- for spell-level numbers (cost, tier)
 --   applies = { { "FireDamage", m = 25, d = "3s", area = 15, hits = "direct" }, ... }
 -- A spell is data: it names every effect it applies, and effects hold the logic. d is "3s", "20tk"

@@ -11,6 +11,7 @@ import "core:strings"
 import "../combat"
 import "../formid"
 import "../gamedb"
+import "../magicphys"
 
 // Spell_Use is how a spell is used (spell-use gives each its behaviour).
 Spell_Use :: enum u8 {
@@ -22,7 +23,9 @@ Spell_Def :: struct {
 	name:    string, // owned
 	display: string, // owned: the name menus show
 	use:     Spell_Use,
-	shape:   string, // owned (spell-shapes gives it its behaviour)
+	self:    bool, // it hits the caster: no shape
+	shape:   magicphys.Shape,
+	anchor:  string, // owned: where on the caster it leaves; "" = the chest
 	cost:    f32,
 	entries: [dynamic]Spell_Entry,
 }
@@ -38,7 +41,9 @@ Spell_Entry :: struct {
 // Spell_Def_Src is a definition as content wrote it, borrowed.
 Spell_Def_Src :: struct {
 	name, form, display: string,
-	use, shape:          string,
+	use, shape:          string, // shape: "self" or a primitive's name
+	body:                magicphys.Shape, // the primitive's numbers; kind and held are set from shape and use
+	lasts, anchor:       string,
 	cost:                f32,
 	tags:                []string,
 	entries:             []Spell_Entry_Src,
@@ -75,7 +80,15 @@ set_spell_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Spell_Def_Src) -> (
 		log.warnf("rt.spell %s: use %q is not charged or held", src.name, src.use)
 		return 0, false
 	}
-	d := Spell_Def{name = strings.clone(src.name), display = strings.clone(src.display), use = use, shape = strings.clone(src.shape), cost = src.cost}
+	shape := src.body
+	kind, kok := primitive_named(src.shape)
+	lasts, lok := parse_duration(src.lasts)
+	if !kok || !lok {
+		log.warnf("rt.spell %s: shape %q, lasts %q: not self, beam, spray, projectile or aura, or not a duration", src.name, src.shape, src.lasts)
+		return 0, false
+	}
+	shape.kind, shape.lasts, shape.held = kind, lasts, use == .Held
+	d := Spell_Def{name = strings.clone(src.name), display = strings.clone(src.display), use = use, self = src.shape == "self", shape = shape, anchor = strings.clone(src.anchor), cost = src.cost}
 	for e in src.entries {
 		effect, ok := effect_by_name(ws, db, e.effect)
 		dur, dok := parse_duration(e.d)
@@ -95,6 +108,19 @@ set_spell_def :: proc(ws: ^World_State, db: ^gamedb.DB, src: Spell_Def_Src) -> (
 		ws.spell_defs[form] = d
 	}
 	return form, true
+}
+
+// primitive_named is a shape's kind by its content name; "self" and "" have none.
+@(private)
+primitive_named :: proc(name: string) -> (magicphys.Primitive, bool) {
+	switch name {
+	case "", "self":   return .None, true
+	case "beam":       return .Beam, true
+	case "spray":      return .Spray, true
+	case "projectile": return .Projectile, true
+	case "aura":       return .Aura, true
+	}
+	return .None, false
 }
 
 // parse_duration reads "3s", "20tk" (ticks) or a plain number of seconds; "" is 0.
@@ -135,7 +161,7 @@ Spell_View :: struct {
 
 spell_view :: proc(ws: ^World_State, db: ^gamedb.DB, spell: Form_ID) -> (v: Spell_View, ok: bool) {
 	if d, has := ws.spell_defs[spell]; has {
-		return {castable = true, self = d.shape == "self", cost = d.cost, entries = entry_refs(d.entries[:]), defined = true}, true
+		return {castable = true, self = d.self, cost = d.cost, entries = entry_refs(d.entries[:]), defined = true}, true
 	}
 	if d, has := ws.power_defs[spell]; has { // Spell.Cast: its first word, with no cooldown
 		entries := entry_refs(d.words[0].entries[:]) if len(d.words) > 0 else nil
@@ -155,6 +181,6 @@ spell_view :: proc(ws: ^World_State, db: ^gamedb.DB, spell: Form_ID) -> (v: Spel
 free_spell_def :: proc(d: ^Spell_Def) {
 	delete(d.name)
 	delete(d.display)
-	delete(d.shape)
+	delete(d.anchor)
 	delete(d.entries)
 }

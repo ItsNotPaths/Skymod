@@ -101,7 +101,7 @@ Table :: struct {
 
 BUILTIN :: Table{tick_builtin}
 
-// (hole spell-shapes :tags (magic combat) :sev gap :needs (shape-defs)) the built-in has no primitives: every cast lands on its target at once. Wanted: Beam strikes along its range at once, Projectile flies by speed and gravity and strikes along each tick's step, Spray's front moves out and hits the actors inside its cone, Aura hits the actors inside its sphere; a burst leaves an Aura where a beam or projectile lands; a held shape lives while the cast is held. `hits = "direct"` entries go only to the actor struck (62 of 227 area spells mix areas); an area needs line of sight (strike).
+// (hole spell-shapes :tags (magic combat) :sev gap) the built-in has no primitives: every cast lands on its target at once. Wanted: Beam strikes along its range at once, Projectile flies by speed and gravity and strikes along each tick's step, Spray's front moves out and hits the actors inside its cone, Aura hits the actors inside its sphere; a burst leaves an Aura where a beam or projectile lands; a held shape lives while the cast is held. `hits = "direct"` entries go only to the actor struck (62 of 227 area spells mix areas); an area needs line of sight (strike).
 tick_builtin :: proc "c" (inp: ^Input) {
 	h := inp.host
 	for c in plugin.items(inp.casts) {

@@ -5,6 +5,7 @@ package script_lua
 
 import "core:c"
 import "core:log"
+import "core:math"
 import "core:reflect"
 import "core:slice"
 import "core:strings"
@@ -486,8 +487,9 @@ rt_spell_def :: proc "c" (L: ^lua.State) -> c.int {
 	vm := cast(^VM)lua.touserdata(L, UPVAL_VM)
 	context = vm.host_context
 	src := worldstate.Spell_Def_Src{name = to_string(L, 1)}
-	src.form, src.display, src.use, src.shape = field_str(L, 2, "form"), field_str(L, 2, "name"), field_str(L, 2, "use"), field_str(L, 2, "shape")
+	src.form, src.display, src.use = field_str(L, 2, "form"), field_str(L, 2, "name"), field_str(L, 2, "use")
 	src.cost = field_num(L, 2, "cost")
+	read_shape(L, 2, &src)
 	tags := make([dynamic]string, context.temp_allocator)
 	if lua.getfield(L, 2, "tags") == i32(lua.TTABLE) {
 		lua.pushnil(L)
@@ -497,6 +499,33 @@ rt_spell_def :: proc "c" (L: ^lua.State) -> c.int {
 	src.tags, src.entries = tags[:], read_applies(L, 2)
 	worldstate.set_spell_def(vm.ctx.ws, vm.ctx.db, src)
 	return 0
+}
+
+// read_shape reads the table at `t`'s `shape`: "self", a primitive's name, or { "projectile",
+// range =, speed =, gravity =, radius =, spread = degrees, burst =, lasts = "3s", follow =, anchor = }.
+@(private)
+read_shape :: proc(L: ^lua.State, t: c.int, src: ^worldstate.Spell_Def_Src) {
+	defer lua.pop(L, 1)
+	if lua.getfield(L, t, "shape") != i32(lua.TTABLE) {
+		src.shape = to_string(L, -1) if lua.type(L, -1) != .NIL else ""
+		return
+	}
+	s := lua.gettop(L)
+	lua.geti(L, s, 0)
+	src.shape = to_string(L, -1)
+	lua.pop(L, 1)
+	src.body = {
+		range   = field_num(L, s, "range"),
+		speed   = field_num(L, s, "speed"),
+		gravity = field_num(L, s, "gravity"),
+		radius  = field_num(L, s, "radius"),
+		spread  = field_num(L, s, "spread") * math.RAD_PER_DEG,
+		burst   = field_num(L, s, "burst"),
+	}
+	lua.getfield(L, s, "follow")
+	src.body.follow = bool(lua.toboolean(L, -1))
+	lua.pop(L, 1)
+	src.lasts, src.anchor = field_str(L, s, "lasts"), field_str(L, s, "anchor")
 }
 
 // read_applies reads the table at `t`'s `applies`: { { "EffectName", m =, d =, area =, hits = }, ... }.

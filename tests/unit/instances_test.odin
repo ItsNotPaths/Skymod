@@ -1851,7 +1851,7 @@ test_rt_spell :: proc(t: ^testing.T) {
 	files := [][2]string {
 		{"effects/scorch.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } }, tags = { "school.destruction" }, ` + NIGHT + ` }`},
 		{"effects/dread.lua", `return require('skymod.rt').effect { av = { Confidence = { capacity = "-m" } }, ` + NIGHT + ` }`},
-		{"spells/nightfire.lua", `return require('skymod.rt').spell { name = "Nightfire", use = "charged", shape = "missile", cost = 10, applies = { { "Scorch", m = 5 }, { "Dread", m = 2, d = "20tk" }, { "Nothing", m = 1 } } }`},
+		{"spells/nightfire.lua", `return require('skymod.rt').spell { name = "Nightfire", use = "charged", shape = { "projectile", speed = 2500 }, cost = 10, applies = { { "Scorch", m = 5 }, { "Dread", m = 2, d = "20tk" }, { "Nothing", m = 1 } } }`},
 	}
 	for file in files {
 		p, _ := filepath.join({f.dir, file[0]}, context.temp_allocator)
@@ -1868,6 +1868,8 @@ test_rt_spell :: proc(t: ^testing.T) {
 	TARGET, CASTER :: gamedb.Form_ID(0x700), gamedb.Form_ID(0x701)
 	SPELL := formid.lua_form("spell", "Nightfire")
 	testing.expect_value(t, len(f.ws.spell_defs[SPELL].entries), 2)
+	shape := f.ws.spell_defs[SPELL].shape
+	testing.expect(t, shape.kind == .Projectile && shape.speed == 2500 && !shape.held, "a projectile shape at speed 2500")
 	testing.expect_value(t, f.db.form_kinds[SPELL], gamedb.Form_Kind.Spell)
 	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
 	cast_it := fmt.tprintf("rt.call(ref(0x%X), \"Cast\", ref(0x701), ref(0x700))", SPELL)
@@ -1946,7 +1948,7 @@ test_rt_item :: proc(t: ^testing.T) {
 		{"effects/luckygold.lua", `local rt = require('skymod.rt')
 return rt.effect { hooks = { magichit = function(e) e.target:AddItem("Gold001", rt.static("Utility", "RandomInt", 10, 50)) end } }`},
 		{"effects/burn.lua", `return require('skymod.rt').effect { av = { Health = { amount = "-m" } } }`},
-		{"spells/firebolt.lua", `return require('skymod.rt').spell { use = "charged", shape = "missile", cost = 50, applies = { { "Burn", m = 10 } } }`},
+		{"spells/firebolt.lua", `return require('skymod.rt').spell { use = "charged", shape = { "projectile", speed = 2500 }, cost = 50, applies = { { "Burn", m = 10 } } }`},
 		{"items/luckymug.lua", `return require('skymod.rt').item { form = "LuckyMug", use = "inventory", applies = { { "LuckyGold" } } }`},
 		{"items/firescroll.lua", `return require('skymod.rt').item { form = "FireScroll", use = "hand", casts = "Firebolt" }`},
 	}
