@@ -58,7 +58,7 @@ ui_image_texture :: proc(ur: ^UI_Render, path: string) -> (render.Texture, bool)
 		return t, t.tex != nil
 	}
 	t := ui_load_dds(ur, path)
-	ur.images[path] = t
+	ur.images[strings.clone(path)] = t // path is borrowed from this frame's tree
 	if t.tex == nil {
 		log.warnf("ui: image %q did not load", path)
 	}
@@ -124,18 +124,14 @@ ui_render_destroy :: proc(ur: ^UI_Render) {
 	if ur.atlas_tex.tex != nil {render.release_texture(ur.r, ur.atlas_tex)}
 	if ur.prompt_tex.tex != nil {render.release_texture(ur.r, ur.prompt_tex)}
 	delete(ur.prompt_dir)
-	for _, t in ur.images {
+	for k, t in ur.images {
 		if t.tex != nil {render.release_texture(ur.r, t)} // nil = a cached failed load
+		delete(k)
 	}
 	delete(ur.images)
 	delete(ur.verts)
 	delete(ur.indices)
 	delete(ur.batches)
-}
-
-// ui_render_register_image adds an art texture under `name` (resolved by `image{source=name}`).
-ui_render_register_image :: proc(ur: ^UI_Render, name: string, tex: render.Texture) {
-	ur.images[name] = tex
 }
 
 // ui_render_draw builds the frame's vertex/index/batch buffers from `cmds` and hands them to the
@@ -174,7 +170,7 @@ ui_render_draw :: proc(ur: ^UI_Render, cmds: []ui.Draw_Cmd, screen: [2]f32) {
 				&ur.batches,
 				render.UI_Batch {
 					kind = .Bar,
-					bar = {fill = c.color, mask = {clamp(c.value, 0, 1), 0, 0, 0}},
+					bar = {fill = c.color, mask = {clamp(c.value, 0, 1), f32(c.from), 0, 0}},
 					first_index = start,
 					index_count = u32(len(ur.indices)) - start,
 				},
