@@ -369,6 +369,7 @@ Save_Body :: struct {
 	plugin_blobs:  []Saved_Blob,
 	grounded:      []Form_ID,
 	deferred_kills: []Form_ID,
+	destruction:   []Saved_Global, // id = the ref, value = the damage it has taken
 	causes:        []Saved_Alias, // alias = the ref, form = the actor its hits count as
 	dont_move:     []Form_ID,
 	restrained:    []Form_ID,
@@ -445,6 +446,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		}
 		j += 1
 	}
+	destruction := make([dynamic]Saved_Global, 0, len(ws.destruction), context.temp_allocator)
+	for id, v in ws.destruction {append(&destruction, Saved_Global{id, v})}
 	globals := make([]Saved_Global, len(ws.globals), context.temp_allocator)
 	k := 0
 	for id, value in ws.globals {
@@ -658,6 +661,7 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		plugin_blobs  = saved_blobs(ws),
 		grounded      = save_set(ws.grounded),
 		deferred_kills = save_set(ws.deferred_kills),
+		destruction   = destruction[:],
 		causes        = save_pairs(ws.causes),
 		dont_move     = save_set(ws.dont_move),
 		restrained    = save_set(ws.restrained),
@@ -879,6 +883,9 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	}
 	load_set(&ws.grounded, body.grounded, remap, have_remap, rf)
 	load_set(&ws.deferred_kills, body.deferred_kills, remap, have_remap, rf)
+	for g in body.destruction {
+		if id, kok := rf(remap, have_remap, g.id); kok {ws.destruction[id] = g.value}
+	}
 	load_pairs(&ws.causes, body.causes, remap, have_remap, rf)
 	load_set(&ws.dont_move, body.dont_move, remap, have_remap, rf)
 	load_set(&ws.restrained, body.restrained, remap, have_remap, rf)
@@ -1226,6 +1233,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for f in ([]Form_ID{w.current, w.outgoing, w.natural, w.override, w.request}) {add_slot(&seen, f)}
 	for a in body.grounded {add_slot(&seen, a)}
 	for a in body.deferred_kills {add_slot(&seen, a)}
+	for g in body.destruction {add_slot(&seen, g.id)}
 	for r in body.causes {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for a in body.dont_move {add_slot(&seen, a)}
 	for a in body.restrained {add_slot(&seen, a)}

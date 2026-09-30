@@ -62,6 +62,8 @@ register_builtins :: proc(reg: ^Registry) {
 	register(reg, "ObjectReference", "IsActivationBlocked", n_is_activation_blocked)
 	register(reg, "ObjectReference", "SetDestroyed", n_set_destroyed)
 	register(reg, "ObjectReference", "ClearDestruction", n_clear_destruction)
+	register(reg, "ObjectReference", "DamageObject", n_damage_object)
+	register(reg, "ObjectReference", "GetCurrentDestructionStage", n_get_current_destruction_stage)
 
 	// Game / Debug — the top globals (callstatic), self is unused (0).
 	register(reg, "Game", "GetPlayer", n_get_player)
@@ -210,13 +212,25 @@ n_is_activation_blocked :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_set_destroyed :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_destroyed(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), arg_bool(args, 0, true))
+	worldstate.destroy_object(c.ws, c.db, c.self, arg_bool(args, 0, true))
 	return nil
 }
 
 n_clear_destruction :: proc(c: ^Call, args: []Value) -> Value {
-	worldstate.set_destroyed(c.ws, c.self, worldstate.ref_cell(c.ws, c.db, c.self), false)
+	worldstate.destroy_object(c.ws, c.db, c.self, false)
 	return nil
+}
+
+// DamageObject(afDamage): a script's damage, which a stage that ignores hits still takes.
+n_damage_object :: proc(c: ^Call, args: []Value) -> Value {
+	worldstate.damage_object(c.ws, c.db, c.self, arg_f32(args, 0, 0), false)
+	return nil
+}
+
+// GetCurrentDestructionStage: the stage's index; 0 when it is in none.
+n_get_current_destruction_stage :: proc(c: ^Call, args: []Value) -> Value {
+	stage, _ := worldstate.destruction_stage(c.ws, c.db, c.self)
+	return max(stage, 0)
 }
 
 n_set_scale :: proc(c: ^Call, args: []Value) -> Value {

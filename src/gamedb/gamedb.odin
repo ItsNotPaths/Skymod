@@ -282,6 +282,7 @@ DB :: struct {
 	zones:                 map[Form_ID]Zone,    // ECZN -> its levels, flags and location
 	equip_slots:           map[Form_ID]Equip_Slot, // ARMO/WEAP/SPEL/... -> where it equips, and a weapon's or ammo's damage
 	equip_types:           map[Form_ID]Equip_Type, // EQUP -> the slots it stands for
+	destructibles:         map[Form_ID]Destructible, // base -> its DEST health and stages (destruction.odin)
 	ref_zones:             map[Form_ID]Form_ID, // REFR/ACHR -> its own XEZN zone (absent = its cell's)
 	level_mods:            map[Form_ID]u8,      // ACHR -> its XLCM difficulty (esm.LEVEL_MOD_*); absent = none
 	owners:                map[Form_ID]Form_ID, // REFR/ACHR/CELL -> its XOWN owner, an NPC_ or a FACT (queries.odin)
@@ -895,6 +896,7 @@ build_plugins :: proc(plugins: []Loaded_Plugin, allocator := context.allocator, 
 		zones                 = make(map[Form_ID]Zone, 1024, allocator),
 		equip_slots           = make(map[Form_ID]Equip_Slot, 8192, allocator),
 		equip_types           = make(map[Form_ID]Equip_Type, 16, allocator),
+		destructibles         = make(map[Form_ID]Destructible, 16, allocator),
 		ref_zones             = make(map[Form_ID]Form_ID, 1024, allocator),
 		level_mods            = make(map[Form_ID]u8, 1024, allocator),
 		owners                = make(map[Form_ID]Form_ID, 4096, allocator),
@@ -1138,6 +1140,8 @@ destroy :: proc(db: ^DB) {
 	delete(db.hazards)
 	delete(db.placed_hazards)
 	for _, t in db.equip_types {delete(t.parents, db.allocator)}
+	for _, d in db.destructibles {destroy_destructible(db, d)}
+	delete(db.destructibles)
 	delete(db.equip_types)
 	delete(db.ref_zones)
 	delete(db.level_mods)
@@ -1555,6 +1559,9 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	}
 	if kind, equips := equip_kind(s); equips {
 		index_equip(db, rec, kind, ctx.fm)
+	}
+	switch s {
+	case "ACTI", "FURN", "MSTT", "CONT", "DOOR": index_destructible(db, rec, ctx.fm)
 	}
 
 	switch {

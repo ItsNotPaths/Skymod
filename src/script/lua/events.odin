@@ -176,6 +176,13 @@ tick_items :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 	clear(&ws.item_moves)
 }
 
+// tick_destruction_changes sends OnDestructionStageChanged(aiOldStage, aiCurrentStage) to each ref
+// that entered another destruction stage (none is -1 here, 0 to scripts).
+tick_destruction_changes :: proc(vm: ^VM, ws: ^worldstate.World_State) {
+	for d in ws.destruction_changes {send(vm, d.ref, "OnDestructionStageChanged", max(d.old, 0), max(d.now, 0))}
+	clear(&ws.destruction_changes)
+}
+
 // tick_deaths sends OnDying, then OnDeath, each with the killer, to each actor that died and to its
 // aliases and effects. Without death animations both go out in the same tick.
 tick_deaths :: proc(vm: ^VM, ws: ^worldstate.World_State) {
@@ -382,6 +389,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	call_rt(vm, "advance", f64(dt), hours)
 	step(vm, .Script_Clocks, &at)
 	worldstate.av_regen(ws, db, play_seconds(db, ws, dt, hours))
+	worldstate.tick_destruction(ws, db, dt)
 	step(vm, .Regen, &at)
 	sync_refs(vm)
 	step(vm, .Refs, &at)
@@ -403,6 +411,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	tick_hits(vm, ws)
 	tick_casts(vm, ws)
 	tick_deaths(vm, ws)
+	tick_destruction_changes(vm, ws)
 	tick_zone_levels(vm, ws)
 	tick_equips(vm, ws)
 	tick_level_ups(vm, ws)

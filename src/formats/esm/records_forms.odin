@@ -1019,6 +1019,44 @@ biped_slots :: proc(fields: []Field) -> (u32, bool) {
 	return 0, false
 }
 
+DSTD_CAP_DAMAGE :: 0x1
+DSTD_DISABLE :: 0x2
+DSTD_DESTROY :: 0x4
+DSTD_IGNORE_EXTERNAL :: 0x8
+
+// Destruction_Stage is one DSTD: the stage an object enters at or below `health_pct` of its DEST
+// health, and the model (DMDL) it swaps to.
+Destruction_Stage :: struct {
+	health_pct:     u8,
+	index:          u8,
+	model_stage:    u8,
+	flags:          u8, // DSTD_*
+	self_dps:       i32,
+	explosion:      Form_ID, // raw
+	debris:         Form_ID, // raw
+	debris_count:   i32,
+	model:          string, // borrowed from the record
+}
+
+// destruction reads a form's DEST health and its DSTD stages, in order (allocated with `allocator`).
+destruction :: proc(fields: []Field, allocator := context.allocator) -> (health: i32, stages: []Destruction_Stage, ok: bool) {
+	f := find_field(fields, "DEST") or_return
+	if len(f.data) < 4 {return}
+	health = i32(rd32(f.data, 0))
+	out := make([dynamic]Destruction_Stage, allocator)
+	for fl in fields {
+		switch fl.type {
+		case "DSTD":
+			if len(fl.data) < 20 {continue}
+			d := fl.data
+			append(&out, Destruction_Stage{d[0], d[1], d[2], d[3], i32(rd32(d, 4)), Form_ID(rd32(d, 8)), Form_ID(rd32(d, 12)), i32(rd32(d, 16)), ""})
+		case "DMDL":
+			if len(out) > 0 {out[len(out) - 1].model = cstr(fl.data)}
+		}
+	}
+	return health, out[:], true
+}
+
 Armor_Type :: enum u8 {
 	Light,
 	Heavy,

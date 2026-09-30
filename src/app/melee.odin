@@ -24,8 +24,9 @@ tick_swings :: proc(g: ^Game) {
 		if slot.kind != .Weapon {weapon, slot = 0, {}}
 		if cost := swing_stamina(c.db, s, weapon); cost > 0 {worldstate.av_damage(c.ws, c.db, s.attacker, "Stamina", cost)}
 		reach := (slot.gear.reach if slot.gear.reach > 0 else 1) * gamedb.setting_float(c.db, "fCombatDistance", 141)
-		if target := swing_target(g, sp.phys, s.attacker, reach); target != 0 {
-			script.weapon_hit(&c, s.attacker, target, weapon, s.kind, slot.damage)
+		switch target := swing_target(g, sp.phys, s.attacker, reach); {
+		case live_actor(g, target): script.weapon_hit(&c, s.attacker, target, weapon, s.kind, slot.damage)
+		case target != 0:           worldstate.damage_object(c.ws, c.db, target, slot.damage, true)
 		}
 	}
 }
@@ -62,7 +63,8 @@ use_hand :: proc(g: ^Game, c: ^script.Call, hand: gamedb.Slot, target: Form_ID) 
 	}
 }
 
-// swing_target is the nearest live actor a fan of rays from `attacker`'s chest meets within `reach`.
+// swing_target is the nearest live actor or destructible ref a fan of rays from `attacker`'s chest
+// meets within `reach`.
 @(private = "file")
 swing_target :: proc(g: ^Game, phys: ^physics.World, attacker: Form_ID, reach: f32) -> (best: Form_ID) {
 	box := worldstate.actor_box(&g.sim.ws, &g.db, attacker)
@@ -76,7 +78,8 @@ swing_target :: proc(g: ^Game, phys: ^physics.World, attacker: Form_ID, reach: f
 		for h in physics.ray_hits(phys, chest, to) {
 			target := Form_ID(h.owner)
 			if target == attacker || target == 0 {continue}
-			if live_actor(g, target) && h.fraction < nearest {best, nearest = target, h.fraction}
+			_, destructible := gamedb.destructible_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, target))
+			if (live_actor(g, target) || destructible) && h.fraction < nearest {best, nearest = target, h.fraction}
 			break
 		}
 	}

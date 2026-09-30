@@ -82,7 +82,10 @@ fly :: proc(g: ^Game, c: ^script.Call, f: ^worldstate.Flight) -> bool {
 			worldstate.mark_scene_dirty(&g.sim.ws, f.ref)
 			return false
 		}
-		if target != 0 {script.queue_hit(c, f^, target)}
+		if target != 0 {
+			script.queue_hit(c, f^, target)
+			worldstate.damage_object(&g.sim.ws, &g.db, target, f.damage, true)
+		}
 		embed(g, sp, r, from + (to - from) * h.fraction - dir * (tip - EMBED_DEPTH), dir)
 		return false
 	}

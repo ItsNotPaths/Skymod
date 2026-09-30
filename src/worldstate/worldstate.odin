@@ -111,6 +111,7 @@ Overlay :: struct {
 	states:          actorstate.Model,             // what each actor does with its body
 	plugin_blobs:    map[string][]u8,              // native plugins' saved data by plugin ID, orphans too
 	grounded:        Form_Set,                     // Actor.SetAllowFlying(false): may not fly
+	destruction:     map[Form_ID]f32,              // destructible ref -> the damage it has taken (destruction.odin)
 	deferred_kills:  Form_Set,                     // StartDeferredKill: it does not die at 0 Health until EndDeferredKill
 	causes:          map[Form_ID]Form_ID,          // SetActorCause: ref -> the actor its hits count as
 	dont_move:       Form_Set,                     // Actor.SetDontMove: stands (ai_link.odin)
@@ -153,6 +154,7 @@ Runtime :: struct {
 	fires:           [dynamic]Fire, // Weapon.Fire calls for the app to launch
 	swings:          [dynamic]Swing, // weapon swings for the app to land
 	critical:        map[Form_ID]Critical, // SetCriticalStage and AttachAshPile (not saved: a death in progress)
+	destruction_changes: [dynamic]Destruction_Change, // stages refs entered since the last tick, for their event
 	// Items scripts moved since the last tick; the tick sends their inventory events.
 	item_moves:      [dynamic]Item_Move,
 	// Refs created and deleted since the VM last looked. It gives the new ones their scripts
@@ -252,6 +254,7 @@ init :: proc(ws: ^World_State) {
 	ws.fires = make([dynamic]Fire)
 	ws.swings = make([dynamic]Swing)
 	ws.critical = make(map[Form_ID]Critical)
+	ws.destruction_changes = make([dynamic]Destruction_Change)
 	ws.item_moves = make([dynamic]Item_Move)
 	ws.new_refs = make([dynamic]Form_ID)
 	ws.gone_refs = make([dynamic]Form_ID)
@@ -289,6 +292,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.fires)
 	delete(ws.swings)
 	delete(ws.critical)
+	delete(ws.destruction_changes)
 	delete(ws.item_moves)
 	delete(ws.new_refs)
 	delete(ws.gone_refs)
@@ -408,6 +412,7 @@ init_overlay :: proc(o: ^Overlay) {
 	o.plugin_blobs = make(map[string][]u8)
 	o.unreported = make(Form_Set)
 	o.grounded = make(Form_Set)
+	o.destruction = make(map[Form_ID]f32)
 	o.deferred_kills = make(Form_Set)
 	o.causes = make(map[Form_ID]Form_ID)
 	o.dont_move = make(Form_Set)
@@ -519,6 +524,7 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.plugin_blobs)
 	delete(o.unreported)
 	delete(o.grounded)
+	delete(o.destruction)
 	delete(o.deferred_kills)
 	delete(o.causes)
 	delete(o.dont_move)

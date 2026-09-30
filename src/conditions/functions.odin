@@ -114,6 +114,7 @@ TABLE := #partial [esm.CONDITION_FUNCTION_COUNT]Eval {
 	449 = fn_get_faction_relation,
 	453 = fn_get_player_teammate,
 	459 = fn_get_crime_gold,
+	470 = fn_get_destruction_stage,
 	476 = fn_is_protected,
 	491 = fn_resting,
 	497 = fn_can_pay_crime_gold,
@@ -392,6 +393,13 @@ fn_get_talked_to_pc :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> 
 @(private = "file")
 fn_is_in_dialogue_with_player :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	return yes(on != 0 && ctx.ws.talking == on)
+}
+
+// GetDestructionStage: the subject's destruction stage; 0 when it is in none.
+@(private = "file")
+fn_get_destruction_stage :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
+	stage, _ := worldstate.destruction_stage(ctx.ws, ctx.db, on)
+	return f32(max(stage, 0)), true
 }
 
 // IsInCriticalStage(stage): the subject's death is at that stage (SetCriticalStage).
