@@ -116,7 +116,7 @@ test_outfit_worn :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "load")
 	testing.expect(t, !worldstate.is_equipped(&ws, &db, NPC, gamedb.Form_ID(Gear.Hood)) && worldstate.is_equipped(&ws, &db, NPC, gamedb.Form_ID(Gear.Robes)), "worn set saved")
 
-	worldstate.drop_inventory(&ws, NPC)
+	worldstate.drop_inventory(&ws, &db, NPC)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, gamedb.Form_ID(Gear.Hood)), "a reset puts the outfit back")
 }
 
@@ -151,7 +151,7 @@ test_set_outfit :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.save_to_file(&ws, path, {save_number = 1}), "save")
 	_, ok := worldstate.load_from_file(&ws, path)
 	testing.expect(t, ok, "load")
-	worldstate.drop_inventory(&ws, NPC)
+	worldstate.drop_inventory(&ws, &db, NPC)
 	testing.expect(t, worldstate.is_equipped(&ws, &db, NPC, helmet) && !worldstate.is_equipped(&ws, &db, NPC, hood), "a reset keeps the new outfit")
 }
 

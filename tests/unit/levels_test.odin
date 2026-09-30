@@ -65,7 +65,7 @@ test_rolled_contents_stay :: proc(t: ^testing.T) {
 	testing.expect(t, ok, "load")
 	testing.expect_value(t, worldstate.inv_start(&ws, &db, CHEST)[0], first)
 
-	worldstate.drop_inventory(&ws, CHEST)
+	worldstate.drop_inventory(&ws, &db, CHEST)
 	testing.expect(t, CHEST not_in ws.rolled, "a reset forgets the roll")
 }
 
@@ -91,7 +91,7 @@ test_leveled_actor_pick :: proc(t: ^testing.T) {
 
 	testing.expect_value(t, worldstate.actor_pick(&ws, &db, REF), PICK)
 	testing.expect_value(t, worldstate.inv_count(&ws, &db, REF, 0xF), 3)
-	worldstate.reset_ref_state(&ws, REF, true)
+	worldstate.reset_ref_state(&ws, &db, REF, true)
 	testing.expect(t, REF not_in ws.actor_picks, "a reset forgets the pick")
 }
 

@@ -599,13 +599,12 @@ fn_get_is_object_type :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -
 	return 0, false
 }
 
-// GetInContainer(container): the item ref is carried in that container.
+// GetInContainer(container): the item unit is in that container.
 @(private = "file")
 fn_get_in_container :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	container, ok := param_ref(ctx, c, 0)
 	if !ok {return 0, false}
-	holder, carried := ctx.ws.carried[on]
-	return yes(carried && holder == container)
+	return yes(ctx.ws.units[on].holder == container && container != 0)
 }
 
 // GetVMScriptVariable(ref, variable): a member of a script on the ref, as GetVMQuestVariable.

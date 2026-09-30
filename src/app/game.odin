@@ -641,6 +641,7 @@ game_setup :: proc(g: ^Game, logging: ^slog.Logging, cfg: ^settings.Config, load
 	if boot_choice == .Continue {
 		if m, mok := worldstate.load_from_file(&g.sim.ws, g.quicksave_path, &g.save_bridge); mok {
 			g.save_no = m.save_number
+			worldstate.split_scripted_counts(&g.sim.ws, &g.db)
 			// Rebuild resident chunks (the pinned persistent cell) from baseline ⊕ the loaded overlay;
 			// grid cells stream in afterward and pick it up on build.
 			world.rebuild_resident_overlay(&g.sim.ext, &g.db)

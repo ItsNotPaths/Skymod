@@ -240,8 +240,10 @@ test_crime_jail :: proc(t: ^testing.T) {
 	testing.expect_value(t, ws.av_base(&s, nil, CRIME_THIEF, "AlchemySkillAdvance"), f32(0))
 }
 
-// Stolen items stack apart: a theft marks what it took, a move of the stolen stack takes only
-// stolen ones, any other move takes clean ones first, and the marks travel with the items.
+// A theft marks what it took as units stolen from their owner: a move of the stolen ones takes only
+// those, any other move takes clean ones first, and the owner travels with the unit, into the world
+// and back. Given back to its owner, a unit is clean and a count again. Cheap items and gold take no
+// mark, so they stay counts.
 @(test)
 test_stolen_stacks :: proc(t: ^testing.T) {
 	AXE :: gamedb.Form_ID(0x000E0001)
@@ -260,12 +262,12 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 
 	ws.inv_add(&s, THIEF, AXE, 3)
 	ws.inv_add(&s, CHEST, AXE, 1)
-	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1})
-	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 1) // what a theft does after the move
+	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1, robbed = CHEST_OWNER})
 	stacks := ws.inv_stacks(&s, &db, THIEF)
 	testing.expect_value(t, len(stacks), 2)
 	testing.expect_value(t, stacks[0], ws.Item_Stack{AXE, false, 3})
 	testing.expect_value(t, stacks[1], ws.Item_Stack{AXE, true, 1})
+	testing.expect_value(t, len(ws.held_units(&s, THIEF, AXE)), 1) // the clean ones are a count
 
 	script.move_items(&c, {base = AXE, from = THIEF, to = CHEST, count = 2}) // clean ones go first
 	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, AXE), 1)
@@ -276,31 +278,33 @@ test_stolen_stacks :: proc(t: ^testing.T) {
 	script.move_items(&c, {base = AXE, from = THIEF, count = 5, stolen = true}) // nothing stolen left to take
 	testing.expect_value(t, ws.inv_count(&s, &db, THIEF, AXE), 1)
 
-	// Dropped, a stolen axe is still its owner's; given back to its owner, it is clean.
+	// Dropped, a stolen axe keeps its ID and is still its owner's; given back to its owner, it is clean.
+	axe := ws.held_units(&s, CHEST, AXE)[0]
 	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 1, stolen = true})
-	dropped := script.drop_object(&c, THIEF, AXE, 0, 1, true)
-	testing.expect_value(t, ws.owner(&s, &db, dropped), CHEST_OWNER)
-	ws.inv_add(&s, THIEF, AXE, 1)
-	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 1)
+	testing.expect_value(t, script.drop_object(&c, THIEF, AXE, 0, 1, true), axe)
+	testing.expect_value(t, ws.robbed(&s, &db, THIEF, axe), CHEST_OWNER)
+	script.take(&c, axe, AXE, THIEF)
+	testing.expect_value(t, ws.held_units(&s, THIEF, AXE)[0], axe)
 	script.move_items(&c, {base = AXE, from = THIEF, to = OWNER_REF, count = 1, stolen = true})
 	testing.expect_value(t, ws.stolen_count(&s, &db, OWNER_REF, AXE), 0)
+	testing.expect_value(t, ws.inv_count(&s, &db, OWNER_REF, AXE), 1)
+	testing.expect(t, axe not_in s.units, "back with its owner, it is a count again")
 
-	// Stolen ones never stack; gold is never marked.
-	ws.inv_add(&s, THIEF, AXE, 2)
-	ws.mark_stolen(&s, &db, THIEF, AXE, CHEST_OWNER, 2)
-	rows := 0
-	for r in ws.inv_stacks(&s, &db, THIEF) {if r.stolen {rows += 1; testing.expect_value(t, r.count, 1)}}
-	testing.expect_value(t, rows, 2)
-	ws.inv_add(&s, THIEF, 0xF, 500)
-	ws.mark_stolen(&s, &db, THIEF, 0xF, CHEST_OWNER, 500) // 500 units of 1 gold, not one of 500
+	// Identical stolen units show as one row; gold is never marked.
+	ws.inv_add(&s, CHEST, AXE, 2)
+	script.move_items(&c, {base = AXE, from = CHEST, to = THIEF, count = 2, robbed = CHEST_OWNER})
+	testing.expect_value(t, ws.inv_stacks(&s, &db, THIEF)[1], ws.Item_Stack{AXE, true, 2})
+	ws.inv_add(&s, CHEST, 0xF, 500)
+	script.move_items(&c, {base = 0xF, from = CHEST, to = THIEF, count = 500, robbed = CHEST_OWNER})
 	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, 0xF), 0)
+	testing.expect_value(t, len(ws.held_units(&s, THIEF, 0xF)), 0)
 
 	// A unit worth 5 or less stays clean however many are taken; a mod can make one take marks.
-	ws.inv_add(&s, THIEF, CUP, 20)
-	ws.mark_stolen(&s, &db, THIEF, CUP, CHEST_OWNER, 20)
+	ws.inv_add(&s, CHEST, CUP, 21)
+	script.move_items(&c, {base = CUP, from = CHEST, to = THIEF, count = 20, robbed = CHEST_OWNER})
 	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, CUP), 0)
 	ws.set_stolen_mark(&s, CUP, true)
-	ws.mark_stolen(&s, &db, THIEF, CUP, CHEST_OWNER, 1)
+	script.move_items(&c, {base = CUP, from = CHEST, to = THIEF, count = 1, robbed = CHEST_OWNER})
 	testing.expect_value(t, ws.stolen_count(&s, &db, THIEF, CUP), 1)
 }
 

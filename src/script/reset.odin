@@ -61,7 +61,7 @@ location_cleared :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, loc: Form_
 reset_ref :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State, r: gamedb.Ref) {
 	if kept(db, ws, r.form_id) || worldstate.is_deleted(ws, r.form_id) {return}
 	_, is_actor := db.actors[r.base]
-	worldstate.reset_ref_state(ws, r.form_id, is_actor || db.respawning_containers[r.base])
+	worldstate.reset_ref_state(ws, db, r.form_id, is_actor || db.respawning_containers[r.base])
 	worldstate.restart_scripts(ws, r.form_id)
 }
 
@@ -90,7 +90,7 @@ restock_vendors :: proc(db: ^gamedb.DB, ws: ^worldstate.World_State) {
 		last, seen := ws.restocks[chest]
 		if seen && now - last < every {continue}
 		ws.restocks[chest] = now
-		if seen {worldstate.drop_inventory(ws, chest)}
+		if seen {worldstate.drop_inventory(ws, db, chest)}
 	}
 }
 
@@ -106,7 +106,7 @@ n_cell_reset :: proc(c: ^Call, args: []Value) -> Value {
 n_ref_reset :: proc(c: ^Call, args: []Value) -> Value {
 	if c.self == c.ws.player {return nil}
 	was := worldstate.ref_cell(c.ws, c.db, c.self)
-	worldstate.reset_ref_state(c.ws, c.self, true)
+	worldstate.reset_ref_state(c.ws, c.db, c.self, true)
 	if target := arg_form(c, args, 0); target != 0 {move_to(c, c.self, target, {})}
 	append(&c.ws.rebuild_cells, was)
 	if now := worldstate.ref_cell(c.ws, c.db, c.self); now != was {append(&c.ws.rebuild_cells, now)}

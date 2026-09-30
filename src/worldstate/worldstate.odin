@@ -44,7 +44,6 @@ Overlay :: struct {
 	globals:         map[Form_ID]f32,              // GLOB FormID -> value (script globals; NOT quest stages)
 	quests:          map[Form_ID]Quest_State,      // QUST FormID -> its runtime state (stages/objectives/run-state)
 	inventories:     Deltas,                       // owner FormID -> (item FormID -> count delta from baseline)
-	stolen:          map[Form_ID]map[[2]Form_ID]i32, // holder -> {item, owner robbed} -> how many it holds (ownership.odin)
 	spells:          Deltas,                       // actor -> (spell or shout -> GIVEN / REMOVED against its records' list)
 	spell_seeds:     Deltas,                       // RACE or NPC_ -> (spell -> GIVEN / REMOVED): rt.seed_spell (not saved; OnGameLoaded rebuilds it)
 	rolled:          map[Form_ID][dynamic]gamedb.Content_Entry, // owner -> its starting contents with leveled entries rolled
@@ -52,8 +51,8 @@ Overlay :: struct {
 	actor_picks:     map[Form_ID]Form_ID,          // leveled actor ref -> the NPC_ its LVLN rolled (0 = none)
 	outfits:         map[Form_ID]Form_ID,          // actor or NPC_ -> the OTFT a script set (SetOutfit), over its records'
 	sleep_outfits:   map[Form_ID]Form_ID,          // actor or NPC_ -> the sleep OTFT a script set
-	carried:         map[Form_ID]Form_ID,          // item ref taken into a container -> that container
 	units:           map[Form_ID]Unit,             // item unit -> its data (items.odin)
+	units_of:        map[Form_ID][dynamic]Form_ID, // holder -> the units it has (not saved; rebuilt)
 	equipment:       map[Form_ID]Equipment,        // actor -> what it wears and holds; absent = not read yet
 	zone_ranges:     map[Form_ID][2]i32,           // ECZN -> the min and max level a script set
 	formulas:        [Formula_Name]formula.Formula, // the named formulas, mods' replacements included (not saved)
@@ -354,7 +353,6 @@ init_overlay :: proc(o: ^Overlay) {
 	o.globals = make(map[Form_ID]f32)
 	o.quests = make(map[Form_ID]Quest_State)
 	o.inventories = make(Deltas)
-	o.stolen = make(map[Form_ID]map[[2]Form_ID]i32)
 	o.spells = make(Deltas)
 	o.spell_seeds = make(Deltas)
 	o.rolled = make(map[Form_ID][dynamic]gamedb.Content_Entry)
@@ -362,8 +360,8 @@ init_overlay :: proc(o: ^Overlay) {
 	o.actor_picks = make(map[Form_ID]Form_ID)
 	o.outfits = make(map[Form_ID]Form_ID)
 	o.sleep_outfits = make(map[Form_ID]Form_ID)
-	o.carried = make(map[Form_ID]Form_ID)
 	o.units = make(map[Form_ID]Unit)
+	o.units_of = make(map[Form_ID][dynamic]Form_ID)
 	init_formulas(o)
 	o.stolen_marks = make(map[Form_ID]bool)
 	o.stolen_marks[formid.GOLD] = false
@@ -460,8 +458,6 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.globals)
 	delete(o.quests)
 	free_deltas(&o.inventories)
-	for _, m in o.stolen {delete(m)}
-	delete(o.stolen)
 	delete(o.stolen_marks)
 	free_deltas(&o.spells)
 	free_deltas(&o.spell_seeds)
@@ -470,8 +466,9 @@ destroy_overlay :: proc(o: ^Overlay) {
 	delete(o.actor_picks)
 	delete(o.outfits)
 	delete(o.sleep_outfits)
-	delete(o.carried)
 	delete(o.units)
+	for _, l in o.units_of {delete(l)}
+	delete(o.units_of)
 	for &f in o.formulas {formula.destroy(&f)}
 	free_choices(&o.level_choices)
 	delete(o.levels)

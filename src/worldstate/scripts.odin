@@ -47,7 +47,8 @@ Item_Move :: struct {
 	base, ref, from, to: Form_ID,
 	count:               i32,
 	via:                 Item_Via,
-	stolen:              bool, // move the source's stolen ones; otherwise clean ones go first
+	stolen:              bool, // move the source's stolen ones; otherwise plain, then clean, then stolen
+	robbed:              Form_ID, // a theft: whom the moved items are stolen from (takes_mark decides)
 }
 
 // Item_Via is how the player gains or loses items, as the AIPL and REMP story events carry it:
@@ -289,10 +290,10 @@ alias_flags :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) -> (flags: 
 }
 
 // quest_object_kept: the player may not drop `base` from `holder` (into = 0) or store it in `into`
-// while a carried ref of it is a Quest Object, unless `into` is a Quest Object of the same quest.
+// while a unit of it is a Quest Object, unless `into` is a Quest Object of the same quest.
 quest_object_kept :: proc(ws: ^World_State, db: ^gamedb.DB, holder, base: Form_ID, into: Form_ID = 0) -> bool {
 	boxes := quest_object_quests(ws, db, into)
-	for r in carried_refs(ws, db, holder, base) {
+	for r in held_units(ws, holder, base) {
 		for q in quest_object_quests(ws, db, r) {
 			if !slice.contains(boxes, q) {return true}
 		}
@@ -300,10 +301,10 @@ quest_object_kept :: proc(ws: ^World_State, db: ^gamedb.DB, holder, base: Form_I
 	return false
 }
 
-// holds_quest_object: a container that carries a Quest Object is never cleaned up.
+// holds_quest_object: a container that holds a Quest Object is never cleaned up.
 holds_quest_object :: proc(ws: ^World_State, db: ^gamedb.DB, container: Form_ID) -> bool {
-	for ref, holder in ws.carried {
-		if holder == container && len(quest_object_quests(ws, db, ref)) > 0 {return true}
+	for id in held_units(ws, container) {
+		if len(quest_object_quests(ws, db, id)) > 0 {return true}
 	}
 	return false
 }

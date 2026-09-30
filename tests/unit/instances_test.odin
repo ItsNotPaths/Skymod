@@ -646,6 +646,8 @@ test_item_events :: proc(t: ^testing.T) {
 	ring := worldstate.create_ref(&f.ws, 0x20, 0, {}, {}, 1)
 	f.db.base_value = make(map[gamedb.Form_ID]i32, context.temp_allocator)
 	f.db.base_value[0x20] = 50
+	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
+	f.db.form_scripts[0x20] = {scripts = bag} // the ring's scripts make it a unit
 	for form in ([]script.Form_ID{CHEST, OTHER, ring}) {slua.attach(&f.vm, form, bag, false)}
 	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
 		c := script.Call{self = form, ws = &f.ws, db = &f.db}
@@ -682,26 +684,26 @@ test_item_events :: proc(t: ^testing.T) {
 
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1;moved+new;"), "a ref moving hears OnContainerChanged")
-	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 1)
+	testing.expect_value(t, f.ws.units[ring].holder, OTHER)
 	native(&f, CHEST, "AddItem", ring)
-	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "AddItem of a carried ref takes it from its container (the chest filters for gold)")
-	testing.expect_value(t, worldstate.inv_delta(&f.ws, OTHER, 0x20), 0)
+	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "AddItem of a held unit takes it from its container (the chest filters for gold)")
+	testing.expect_value(t, worldstate.inv_count(&f.ws, &f.db, OTHER, 0x20), 0)
 	native(&f, OTHER, "AddItem", ring)
 	testing.expect(t, logged(&f, "add1+src;moved+new+old;"), "and back")
 	c := script.Call{ws = &f.ws, db = &f.db}
 	script.move_items(&c, {base = 0x20, from = OTHER, to = f.ws.player, count = 1, via = .Dead_Body}) // the container menu's Take
-	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "a carried ref taken by base hears OnContainerChanged")
+	testing.expect(t, logged(&f, "rem1+dest;moved+new+old;"), "a unit taken by base hears OnContainerChanged")
 
 	native(&f, CHEST, "RemoveAllInventoryEventFilters")
 	native(&f, CHEST, "RemoveAllItems")
 	testing.expect(t, logged(&f, "rem1;rem11;"), "RemoveAllItems: one event per item type")
 }
 
-// A scripted item arriving by count gets one carried ref for the stack, holding the count; more of
-// it joins that stack. Part of a stack leaving splits it: the stack keeps the rest, the part that
-// goes becomes the destination's stack. A partial drop splits the same way.
+// Scripts are data, so each scripted item is a unit with its own instance: it keeps its ID when it
+// moves or drops. A scripted item held as a count (starting contents) gets identity when an event
+// needs its ref.
 @(test)
-test_scripted_item_stacks :: proc(t: ^testing.T) {
+test_scripted_item_units :: proc(t: ^testing.T) {
 	f: Fixture
 	fixture_init(t, &f, "skymod_instances_stacks", {{"tome.lua", TOME_LUA}})
 	defer fixture_destroy(&f)
@@ -709,41 +711,26 @@ test_scripted_item_stacks :: proc(t: ^testing.T) {
 	CHEST, OTHER, TOME :: script.Form_ID(0x800), script.Form_ID(0x801), script.Form_ID(0x30)
 	f.db.form_scripts = make(map[gamedb.Form_ID]esm.Form_Scripts, context.temp_allocator)
 	f.db.form_scripts[TOME] = {scripts = []esm.Script_Attach{{name = "Tome"}}}
-	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) {
+	native :: proc(f: ^Fixture, form: script.Form_ID, fn: string, args: ..script.Value) -> script.Value {
 		c := script.Call{self = form, ws = &f.ws, db = &f.db}
-		script.call(&f.reg, "ObjectReference", fn, &c, args)
+		v := script.call(&f.reg, "ObjectReference", fn, &c, args)
 		slua.sync_refs(&f.vm)
+		return v
 	}
 	logged :: proc(f: ^Fixture, want: string) -> bool {
 		slua.tick_items(&f.vm, &f.db, &f.ws)
 		slua.drain(&f.vm)
 		return slua.do_string(&f.vm, strings.concatenate({`assert((__log or "") == "`, want, `", __log); __log = nil`}, context.temp_allocator))
 	}
-	stacks :: proc(f: ^Fixture, holder: script.Form_ID) -> (n: int, units: i32) {
-		for r in worldstate.carried_refs(&f.ws, &f.db, holder, TOME) {
-			n += 1
-			units += worldstate.stack_count(&f.ws, &f.db, r)
-		}
-		return
-	}
 
-	native(&f, CHEST, "AddItem", TOME, i32(1500))
-	testing.expect(t, logged(&f, "init;moved;"), "one instance for the whole stack")
-	n, units := stacks(&f, CHEST)
-	testing.expect(t, n == 1 && units == 1500, "one stack of 1500")
-	native(&f, CHEST, "AddItem", TOME, i32(5))
-	n, units = stacks(&f, CHEST)
-	testing.expect(t, logged(&f, "") && n == 1 && units == 1505, "more joins the stack")
-
-	native(&f, CHEST, "RemoveItem", TOME, i32(5), false, OTHER)
-	n, units = stacks(&f, CHEST)
-	testing.expect(t, n == 1 && units == 1500, "the stack keeps the rest")
-	n, units = stacks(&f, OTHER)
-	testing.expect(t, logged(&f, "init;moved;") && n == 1 && units == 5, "the part that went is a new stack")
-
-	native(&f, CHEST, "DropObject", TOME, i32(500))
-	n, units = stacks(&f, CHEST)
-	testing.expect(t, n == 1 && units == 1000 && worldstate.inv_count(&f.ws, &f.db, CHEST, TOME) == 1000, "a partial drop leaves the stack the rest")
+	native(&f, CHEST, "AddItem", TOME, i32(3))
+	testing.expect(t, logged(&f, "init;init;init;moved;moved;moved;"), "one instance each")
+	testing.expect_value(t, len(worldstate.held_units(&f.ws, CHEST, TOME)), 3)
+	first := worldstate.held_units(&f.ws, CHEST, TOME)[0]
+	native(&f, CHEST, "RemoveItem", TOME, i32(1), false, OTHER)
+	testing.expect(t, logged(&f, "moved;") && worldstate.held_units(&f.ws, OTHER, TOME)[0] == first, "it moves as itself")
+	dropped := native(&f, OTHER, "DropObject", TOME, i32(1))
+	testing.expect(t, dropped.(script.Form_ID) == first && f.ws.units[first].holder == 0, "it drops as itself")
 	slua.drain(&f.vm)
 	slua.do_string(&f.vm, `__log = nil`)
 
@@ -752,7 +739,8 @@ test_scripted_item_stacks :: proc(t: ^testing.T) {
 	append(&f.ws.equip_changes, worldstate.Equip_Change{OTHER, 0x31, true})
 	slua.tick_equips(&f.vm, &f.ws)
 	slua.drain(&f.vm)
-	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "init;equipped;", __log)`), "an item with no ref gets a stack, then hears its own OnEquipped")
+	testing.expect(t, slua.do_string(&f.vm, `assert(__log == "init;equipped;", __log)`), "an item with no ref gets one, then hears its own OnEquipped")
+	testing.expect_value(t, worldstate.plain_count(&f.ws, &f.db, OTHER, 0x31), 1)
 }
 
 // A stage runs the fragment of each item whose conditions pass, inside SetStage: a fragment that sets

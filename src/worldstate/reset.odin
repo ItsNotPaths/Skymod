@@ -2,6 +2,8 @@ package worldstate
 
 // Cell reset: the overlay half. What resets and when is decided over gamedb in script/reset.odin.
 
+import "../gamedb"
+
 // Cell_State is a cell's reset clock.
 Cell_State :: struct {
 	left:        f64, // game hour the cell last detached
@@ -25,14 +27,14 @@ ask_reset :: proc(ws: ^World_State, cell: Form_ID) {
 // reset_ref_state puts a ref's overlay back to its baseline. The enable state and a deletion stay
 // (CK wiki, Cell Reset). `inventory` resets its contents and actor values too. Scripts are
 // restart_scripts' job.
-reset_ref_state :: proc(ws: ^World_State, form: Form_ID, inventory: bool) {
+reset_ref_state :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID, inventory: bool) {
 	if d, ok := &ws.ref_deltas[form]; ok {
-		d.live &= {.Disabled, .Deleted, .Delete_When_Detached}
+		d.live &= {.Disabled, .Deleted, .Delete_When_Detached, .Held}
 		if d.live == {} {drop_delta(ws, form)}
 	}
 	delete_key(&ws.killers, form)
 	if inventory {
-		drop_inventory(ws, form)
+		drop_inventory(ws, db, form)
 		if inner, ok := ws.actor_values[form]; ok {delete(inner)}
 		delete_key(&ws.actor_values, form)
 		drop_deltas(&ws.spells, form)
@@ -47,26 +49,24 @@ restart_scripts :: proc(ws: ^World_State, form: Form_ID) {
 	append(&ws.reset_refs, form)
 }
 
-// drop_inventory puts a container's contents back to its baseline; leveled entries roll again.
-// (hole item-placement :tags (world save player) :sev gap :needs (item-units)) a container reset drops its carried entries and leaves the refs disabled for good, and Cell.Reset removes a taken ref still filed under its old cell while carried points at it.
-drop_inventory :: proc(ws: ^World_State, form: Form_ID) {
+// drop_inventory puts a container's contents back to its baseline; leveled entries roll again. Its
+// units are gone with the rest.
+drop_inventory :: proc(ws: ^World_State, db: ^gamedb.DB, form: Form_ID) {
 	drop_deltas(&ws.inventories, form)
-	if m, ok := ws.stolen[form]; ok {delete(m)}
-	delete_key(&ws.stolen, form)
 	if list, ok := ws.rolled[form]; ok {delete(list)}
 	delete_key(&ws.rolled, form)
 	drop_equipment(ws, form)
-	gone := make([dynamic]Form_ID, context.temp_allocator)
-	for ref, holder in ws.carried {
-		if holder == form {append(&gone, ref)}
-	}
-	for ref in gone {delete_key(&ws.carried, ref)}
+	for id in held_units(ws, form) {drop_unit(ws, db, id)}
 }
 
-// remove_created deletes a created ref outright: its placement, delta and scripts.
+// remove_created deletes a created ref outright: its placement, delta, scripts and unit data.
 remove_created :: proc(ws: ^World_State, form: Form_ID) {
 	c, ok := ws.created[form]
 	if !ok {return}
+	if u, unit := ws.units[form]; unit {
+		if list, lok := &ws.units_of[u.holder]; lok {remove_id(list, form)}
+		delete_key(&ws.units, form)
+	}
 	delete_key(&ws.created, form)
 	if list, lok := &ws.created_by_cell[c.cell]; lok {remove_id(list, form)}
 	drop_delta(ws, form)

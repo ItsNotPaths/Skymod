@@ -87,11 +87,11 @@ world_model :: proc(db: ^gamedb.DB, base: Form_ID) -> (string, bool) {
 	return modl, true
 }
 
-// ref_built is whether a ref is built at all: a disabled ref is, so it can be re-enabled; a ref
-// gated off by its enable parent is not.
+// ref_built is whether a ref is built at all: a disabled or held ref is, so it can show again; a
+// ref gated off by its enable parent is not.
 ref_built :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, r: gamedb.Ref) -> bool {
 	if ws == nil {return !gamedb.ref_effective_disabled(db, r)}
-	if d, ok := worldstate.get(ws, r.form_id); ok && .Disabled in d.live {return true}
+	if d, ok := worldstate.get(ws, r.form_id); ok && (.Disabled in d.live || .Held in d.live) {return true}
 	return worldstate.ref_enabled(ws, db, r.form_id)
 }
 
@@ -109,7 +109,7 @@ apply_delta :: proc(ws: ^worldstate.World_State, r: ^Sim_Ref) {
 	if ws == nil {return}
 	d, ok := worldstate.get(ws, r.form_id)
 	if !ok {return}
-	if .Disabled in d.live && d.disabled {
+	if worldstate.hidden(d) {
 		r.disabled = true
 		return
 	}

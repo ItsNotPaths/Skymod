@@ -169,9 +169,8 @@ Saved_Rank :: struct {
 	male, female: string,
 }
 
-Saved_Stolen :: struct {
-	holder, item, owner: Form_ID,
-	count:               i32,
+Saved_Unit :: struct {
+	id, base, holder, owner: Form_ID,
 }
 
 Saved_Count :: struct {
@@ -325,14 +324,13 @@ Save_Body :: struct {
 	globals:       []Saved_Global,
 	quests:        []Saved_Quest,
 	inventory:     []Saved_Inv,
-	stolen_marks:  []Saved_Stolen,
+	units:         []Saved_Unit,
 	spells:        []Saved_Inv,   // actor -> spell, GIVEN / REMOVED
 	rolled:        []Saved_Inv,   // owner -> item, count: rolled starting contents
 	zone_levels:   []Saved_Level,
 	actor_picks:   []Saved_Alias, // alias = the leveled actor ref, form = its pick
 	outfits:       []Saved_Alias, // alias = the actor or NPC_, form = its OTFT
 	sleep_outfits: []Saved_Alias, // alias = the actor or NPC_, form = its sleep OTFT
-	carried:       []Saved_Alias, // alias = the item ref, form = the container holding it
 	zone_ranges:   []Saved_Range,
 	zone_listeners: []Form_ID,
 	equipment:     []Saved_Equip,
@@ -535,9 +533,8 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for actor, outfit in ws.outfits {append(&outfits, Saved_Alias{actor, outfit})}
 	sleep_outfits := make([dynamic]Saved_Alias, 0, len(ws.sleep_outfits), context.temp_allocator)
 	for actor, outfit in ws.sleep_outfits {append(&sleep_outfits, Saved_Alias{actor, outfit})}
-	// (hole item-save :tags (world save player) :sev gap :needs (item-units)) a save stores counts, carried refs and stolen counts; wanted: units and their data by name, and on load the counts of an item that now has data split into units.
-	carried := make([dynamic]Saved_Alias, 0, len(ws.carried), context.temp_allocator)
-	for ref, holder in ws.carried {append(&carried, Saved_Alias{ref, holder})}
+	units := make([dynamic]Saved_Unit, 0, len(ws.units), context.temp_allocator)
+	for id, u in ws.units {append(&units, Saved_Unit{id, u.base, u.holder, u.owner})}
 	ranges := make([dynamic]Saved_Range, 0, len(ws.zone_ranges), context.temp_allocator)
 	for zone, r in ws.zone_ranges {append(&ranges, Saved_Range{zone, r[0], r[1]})}
 	listeners := make([dynamic]Form_ID, 0, len(ws.zone_listeners), context.temp_allocator)
@@ -572,10 +569,6 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 	for k, a in ws.awareness {append(&awareness, Saved_Awareness{k[0], k[1], a})}
 	relations := make([dynamic]Saved_Relation, 0, len(ws.faction_relations), context.temp_allocator)
 	for k, r in ws.faction_relations {append(&relations, Saved_Relation{k[0], r})}
-	stolen_marks := make([dynamic]Saved_Stolen, 0, len(ws.stolen), context.temp_allocator)
-	for holder, marks in ws.stolen {
-		for k, n in marks {append(&stolen_marks, Saved_Stolen{holder, k[0], k[1], n})}
-	}
 	faction_defs := make([dynamic]Saved_Faction_Def, 0, len(ws.script_factions), context.temp_allocator)
 	for id, sf in ws.script_factions {
 		f := sf.data
@@ -618,14 +611,13 @@ save_to_file :: proc(ws: ^World_State, path: string, m: Save_Manifest, bridge: ^
 		globals       = globals,
 		quests        = quests,
 		inventory     = save_deltas(ws.inventories),
-		stolen_marks  = stolen_marks[:],
+		units         = units[:],
 		spells        = save_deltas(ws.spells),
 		rolled        = rolled[:],
 		zone_levels   = zone_levels[:],
 		actor_picks   = picks[:],
 		outfits       = outfits[:],
 		sleep_outfits = sleep_outfits[:],
-		carried       = carried[:],
 		zone_ranges   = ranges[:],
 		zone_listeners = listeners[:],
 		equipment     = equips[:],
@@ -1028,10 +1020,16 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 		outfit, ook := rf(remap, have_remap, o.form)
 		if aok && ook {ws.sleep_outfits[actor] = outfit}
 	}
-	for r in body.carried {
-		ref, rok := rf(remap, have_remap, r.alias)
-		holder, hok := rf(remap, have_remap, r.form)
-		if rok && hok {ws.carried[ref] = holder}
+	for r in body.units {
+		id, iok := rf(remap, have_remap, r.id)
+		base, bok := rf(remap, have_remap, r.base)
+		if !iok || !bok {continue} // its mod is gone
+		holder, _ := rf(remap, have_remap, r.holder)
+		owner, _ := rf(remap, have_remap, r.owner)
+		ws.units[id] = {base, holder, owner}
+		if holder == 0 {continue}
+		if holder not_in ws.units_of {ws.units_of[holder] = make([dynamic]Form_ID)}
+		append(&ws.units_of[holder], id)
 	}
 	for k in body.keyword_data {
 		location, lok := rf(remap, have_remap, k.key.location)
@@ -1139,14 +1137,6 @@ load_from_file :: proc(ws: ^World_State, path: string, bridge: ^Form_Bridge = ni
 	// each directed entry is set on its own. Entries keyed on a missing mod drop; a secondary ref
 	// (item/faction/b) that won't resolve keeps its saved value (dangles).
 	load_deltas(&ws.inventories, body.inventory, remap, have_remap, rf)
-	for r in body.stolen_marks {
-		h, hok := rf(remap, have_remap, r.holder)
-		i, iok := rf(remap, have_remap, r.item)
-		o, ook := rf(remap, have_remap, r.owner)
-		if !hok || !iok || !ook {continue}
-		if h not_in ws.stolen {ws.stolen[h] = make(map[[2]Form_ID]i32)}
-		(&ws.stolen[h])^[{i, o}] += r.count
-	}
 	load_deltas(&ws.spells, body.spells, remap, have_remap, rf)
 	for a in body.actor_values {
 		actor, kok := rf(remap, have_remap, a.actor)
@@ -1193,7 +1183,7 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for g in body.globals {add_slot(&seen, g.id)}
 	for q in body.quests {add_slot(&seen, q.form_id)}
 	for r in body.inventory {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
-	for r in body.stolen_marks {add_slot(&seen, r.holder);add_slot(&seen, r.item);add_slot(&seen, r.owner)}
+	for r in body.units {add_slot(&seen, r.id);add_slot(&seen, r.base);add_slot(&seen, r.holder);add_slot(&seen, r.owner)}
 	for r in body.spells {add_slot(&seen, r.owner);add_slot(&seen, r.item)}
 	for a in body.actor_values {add_slot(&seen, a.actor)}
 	for f in body.factions {add_slot(&seen, f.actor);add_slot(&seen, f.faction)}
@@ -1256,7 +1246,6 @@ build_bridge :: proc(body: ^Save_Body, bridge: ^Form_Bridge) -> []Saved_Slot {
 	for p in body.actor_picks {add_slot(&seen, p.alias);add_slot(&seen, p.form)}
 	for o in body.outfits {add_slot(&seen, o.alias);add_slot(&seen, o.form)}
 	for o in body.sleep_outfits {add_slot(&seen, o.alias);add_slot(&seen, o.form)}
-	for r in body.carried {add_slot(&seen, r.alias);add_slot(&seen, r.form)}
 	for r in body.zone_ranges {add_slot(&seen, r.zone)}
 	for f in body.zone_listeners {add_slot(&seen, f)}
 	for e in body.equipment {add_slot(&seen, e.actor);add_slot(&seen, e.item)}

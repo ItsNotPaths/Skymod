@@ -1,8 +1,8 @@
 package script
 
-// Inventory natives (docs/scripting-natives.md §B). `self` is the container/actor; items are keyed by
-// their base-object FormID. A count is the starting contents (gamedb) plus the overlay's delta.
-// Not scene geometry → no mark_scene_dirty, except a dropped world item.
+// Inventory natives (docs/scripting-natives.md §B). `self` is the container/actor. A holder keeps
+// plain items as counts of their base and items with data as units (worldstate/items.odin), which keep
+// their ID in the world and out of it. Not scene geometry → no mark_scene_dirty, except a world item.
 
 import "core:math"
 import "../gamedb"
@@ -67,11 +67,12 @@ courier_remove :: proc(c: ^Call, r: worldstate.Courier_Remove) {
 n_add_item :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(c, args, 0))
 	count := max(1, arg_i32(args, 1, 1))
-	if ref == 0 {
+	switch {
+	case ref == 0:
 		give_items(c, c.self, base, count)
-	} else if holder, carried := c.ws.carried[ref]; carried {
-		move_items(c, {base = base, ref = ref, from = holder, to = c.self, count = worldstate.stack_count(c.ws, c.db, ref)})
-	} else if gamedb.is_item(c.db, base) {
+	case c.ws.units[ref].holder != 0:
+		move_items(c, {base = base, ref = ref, from = c.ws.units[ref].holder, to = c.self, count = 1})
+	case gamedb.is_item(c.db, base):
 		take(c, ref, base, c.self)
 	}
 	return nil
@@ -89,15 +90,30 @@ give_items :: proc(c: ^Call, to, base: Form_ID, count: i32) {
 	for e in rolled {move_items(c, {base = e.item, to = to, count = e.count})}
 }
 
-// take puts a world item in a container: its whole stack goes in and the ref leaves the world, carried.
-// (hole item-placement :tags (world save player) :sev gap :needs (item-units)) a pickup adds a count and disables the ref, which stays filed in its cell; a drop mints a new ref for a count or a split stack. Wanted: a unit loses or gains its placement and keeps its ID; a plain ref becomes a count, a plain count a created ref.
+// take puts a world item in `by`. A plain one becomes a count and leaves the world; one with data, or
+// one a theft marks, keeps its ID as a unit (the rest of its placed stack become units of their own)
+// and only loses its placement.
 take :: proc(c: ^Call, form, base, by: Form_ID) {
 	n := worldstate.stack_count(c.ws, c.db, form)
 	victim := report_theft(c, by, form, base, n)
-	move_items(c, {base = base, ref = form, to = by, count = n, via = .Steal if victim != 0 else .World})
-	worldstate.mark_stolen(c.ws, c.db, by, base, victim, n)
-	worldstate.set_disabled(c.ws, form, worldstate.ref_cell(c.ws, c.db, form), true)
+	via: worldstate.Item_Via = .Steal if victim != 0 else .World
 	worldstate.mark_scene_dirty(c.ws, form)
+	if !worldstate.has_data(c.ws, c.db, form) && !marks(c, by, base, victim) {
+		worldstate.destroy_placed(c.ws, c.db, form)
+		move_items(c, {base = base, to = by, count = n, via = via, robbed = victim})
+		return
+	}
+	if form not_in c.ws.units {worldstate.add_unit(c.ws, c.db, form, {base = base})}
+	if cr, ok := &c.ws.created[form]; ok {cr.count = 1}
+	worldstate.unplace(c.ws, form)
+	move_items(c, {base = base, ref = form, count = 1, to = by, via = via, robbed = victim})
+	if n > 1 {move_items(c, {base = base, to = by, count = n - 1, via = via, robbed = victim})}
+}
+
+// marks: a theft from `victim` marks the items `by` takes stolen.
+@(private = "file")
+marks :: proc(c: ^Call, by, base, victim: Form_ID) -> bool {
+	return victim != 0 && worldstate.takes_mark(c.ws, c.db, base) && !worldstate.owns(c.ws, c.db, by, victim)
 }
 
 // report_theft reports `by` taking `count` of `base` from `from` (a loose item or a container), if
@@ -147,73 +163,65 @@ n_remove_all_inventory_event_filters :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
-// move_items moves the counts and queues the move's inventory events for the next tick. A source
-// gives at most what it holds. A carried ref that a move by base takes along is its own move, so
-// it hears OnContainerChanged. The container menu moves items through it too.
-// (hole item-moves :tags (world save player) :sev gap :needs (item-units)) a move takes counts, then carries refs along by a split rule (worldstate.carry) and mints scripted stacks (stack_into, new_stack, item_stack), so one item can become two. Wanted: a unit moves by changing its holder; counts move as counts; RemoveItem by base takes plain units first.
+// move_items moves items and queues their inventory events for the next tick. A source gives at most
+// what it holds. With no destination they are destroyed. A plain item that arrives with data (a
+// scripted base, a theft that marks it) becomes a unit; a stolen unit back with its owner is clean.
 move_items :: proc(c: ^Call, m: worldstate.Item_Move) {
 	m := m
-	marks: []worldstate.Stolen
-	if m.from != 0 {
-		m.count = min(m.count, worldstate.stolen_count(c.ws, c.db, m.from, m.base) if m.stolen else worldstate.inv_count(c.ws, c.db, m.from, m.base))
-		if m.count <= 0 {return}
-		marks = worldstate.unmark_stolen(c.ws, m.from, m.base, worldstate.stolen_moved(c.ws, c.db, m))
-		worldstate.inv_add(c.ws, m.from, m.base, -m.count)
-		if m.from in c.ws.equipment && worldstate.inv_count(c.ws, c.db, m.from, m.base) == 0 {
-			worldstate.unequip(c.ws, c.db, m.from, m.base) // the last one left
+	units, plain := pick(c, m)
+	if m.from == 0 && m.ref not_in c.ws.units {plain = m.count} // new items
+	m.count = plain + i32(len(units))
+	if m.count <= 0 {return}
+	if m.from != 0 {worldstate.inv_add(c.ws, m.from, m.base, -plain)}
+	stolen := marks(c, m.to, m.base, m.robbed)
+	if m.to != 0 && plain > 0 && (stolen || len(gamedb.base_scripts(c.db, m.base)) > 0) {
+		for _ in 0 ..< plain {append(&units, worldstate.new_unit(c.ws, c.db, m.base, m.to))}
+		plain = 0
+	}
+	if m.to != 0 {worldstate.inv_add(c.ws, m.to, m.base, plain)}
+	if plain > 0 {worldstate.move_items(c.ws, {base = m.base, from = m.from, to = m.to, count = plain, via = m.via})}
+	for id in units {
+		worldstate.move_items(c.ws, {base = m.base, ref = id, from = m.from, to = m.to, count = 1, via = m.via})
+		if m.to == 0 {
+			worldstate.drop_unit(c.ws, c.db, id)
+			continue
 		}
+		u := &c.ws.units[id]
+		if stolen && u.owner == 0 {u.owner = m.robbed}
+		if u.owner != 0 && worldstate.owns(c.ws, c.db, m.to, u.owner) {u.owner = 0}
+		worldstate.set_holder(c.ws, c.db, id, m.to)
+		worldstate.settle(c.ws, c.db, id)
 	}
-	if m.to != 0 {
-		worldstate.inv_add(c.ws, m.to, m.base, m.count)
-		for s in marks {worldstate.mark_stolen(c.ws, c.db, m.to, m.base, s.owner, s.count)}
-	} else if m.ref != 0 && len(marks) > 0 {
-		worldstate.set_owner(c.ws, m.ref, marks[0].owner) // dropped, it is still its owner's
-	}
-	rest := m
-	for ref in worldstate.carry(c.ws, c.db, m) {
-		n := worldstate.stack_count(c.ws, c.db, ref)
-		worldstate.move_items(c.ws, {base = m.base, ref = ref, from = m.from, to = m.to, count = n, via = m.via})
-		rest.count -= n
-	}
-	if rest.count > 0 {
-		if m.ref == 0 && m.to != 0 {rest.ref = stack_into(c, m.to, m.base, rest.count)}
-		worldstate.move_items(c.ws, rest)
-	}
+	unequip_gone(c, m.from, m.base)
 	queue_item_event(c, m)
 }
 
-// stack_into puts `count` of a scripted item arriving by count into the container's stack of it,
-// a carried ref that holds the count and runs the item's scripts (Papyrus gives an inventory item its
-// own instance). The first stack is new and returned; later ones join it and return 0. An item
-// without scripts gets no ref.
+// unequip_gone takes `base` off `holder` once it has none left.
 @(private = "file")
-stack_into :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
-	if len(gamedb.base_scripts(c.db, base)) == 0 {return 0}
-	for ref in worldstate.carried_refs(c.ws, c.db, container, base) {
-		if cr, ok := &c.ws.created[ref]; ok {
-			cr.count = max(cr.count, 1) + count
-			return 0
+unequip_gone :: proc(c: ^Call, holder, base: Form_ID) {
+	if holder in c.ws.equipment && worldstate.inv_count(c.ws, c.db, holder, base) == 0 {worldstate.unequip(c.ws, c.db, holder, base)}
+}
+
+// pick is what a move takes from its source: the named unit, else plain items first, then clean
+// units, then stolen ones; only stolen ones when the move asks for them.
+@(private = "file")
+pick :: proc(c: ^Call, m: worldstate.Item_Move) -> (units: [dynamic]Form_ID, plain: i32) {
+	units = make([dynamic]Form_ID, context.temp_allocator)
+	if u, ok := c.ws.units[m.ref]; ok && m.ref != 0 {
+		if u.holder == m.from {append(&units, m.ref)}
+		return
+	}
+	if m.from == 0 {return}
+	if !m.stolen {plain = min(m.count, worldstate.plain_count(c.ws, c.db, m.from, m.base))}
+	held := worldstate.held_units(c.ws, m.from, m.base)
+	for want_stolen in ([2]bool{false, true}) {
+		if m.stolen && !want_stolen {continue}
+		for id in held {
+			if plain + i32(len(units)) >= m.count {return}
+			if (c.ws.units[id].owner != 0) == want_stolen {append(&units, id)}
 		}
 	}
-	return new_stack(c, container, base, count)
-}
-
-// item_stack is the ref an item in a container is to its scripts: a ref the container carries, or,
-// for a scripted item no ref holds yet (starting contents), a new stack of all of it. 0 when there
-// is neither.
-item_stack :: proc(c: ^Call, container, base: Form_ID) -> Form_ID {
-	if refs := worldstate.carried_refs(c.ws, c.db, container, base); len(refs) > 0 {return refs[0]}
-	n := worldstate.inv_count(c.ws, c.db, container, base)
-	if n <= 0 || len(gamedb.base_scripts(c.db, base)) == 0 {return 0}
-	return new_stack(c, container, base, n)
-}
-
-@(private = "file")
-new_stack :: proc(c: ^Call, container, base: Form_ID, count: i32) -> Form_ID {
-	ref := worldstate.create_ref(c.ws, base, 0, {}, {}, 1)
-	(&c.ws.created[ref]).count = count
-	c.ws.carried[ref] = container
-	return ref
+	return
 }
 
 // (hole item-event-owner :tags (quest player) :sev polish :needs (barter)) the player's AIPL and REMP story events name no owner and never say Buy or Pickpocket (a theft says Steal): nothing trades or pickpockets.
@@ -230,8 +238,8 @@ queue_item_event :: proc(c: ^Call, m: worldstate.Item_Move) {
 	}
 }
 
-// DropObject(akObject, aiCount=1): the items leave `self` into the world beside it. A ref it
-// carries of that item drops whole, as itself; otherwise a new ref holds the count.
+// DropObject(akObject, aiCount=1): the items leave `self` into the world beside it. A unit drops as
+// itself; plain items drop as one new ref that holds their count.
 n_drop_object :: proc(c: ^Call, args: []Value) -> Value {
 	base, ref := item_of(c, arg_form(c, args, 0))
 	if dropped := drop_object(c, c.self, base, ref, max(1, arg_i32(args, 1, 1))); dropped != 0 {return dropped}
@@ -242,34 +250,40 @@ DROP_RADIUS :: 70 // 1 m
 DROP_HEIGHT :: 48
 DROP_STEP :: math.PI / 4
 
-drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32, stolen := false) -> Form_ID {
-	ref := ref
-	if ref == 0 || c.ws.carried[ref] != owner {
-		refs := worldstate.carried_refs(c.ws, c.db, owner, base)
-		ref = refs[0] if len(refs) > 0 else 0
-		if ref != 0 && ref in c.ws.created && worldstate.stack_count(c.ws, c.db, ref) > count {
-			(&c.ws.created[ref]).count -= count // part of a stack drops: the stack keeps the rest
-			ref = 0
-		}
-	}
-	count := worldstate.stack_count(c.ws, c.db, ref) if ref != 0 else count
-	count = min(count, worldstate.stolen_count(c.ws, c.db, owner, base) if stolen else worldstate.inv_count(c.ws, c.db, owner, base))
-	if count <= 0 {return 0}
+drop_object :: proc(c: ^Call, owner, base, ref: Form_ID, count: i32, stolen := false) -> (first: Form_ID) {
+	m := worldstate.Item_Move{base = base, ref = ref, from = owner, count = count, via = .World, stolen = stolen}
+	units, plain := pick(c, m)
+	m.count = plain + i32(len(units))
+	if m.count <= 0 {return 0}
 	cell := worldstate.ref_cell(c.ws, c.db, owner)
-	// Each drop lands at the next angle on a ring round the dropper, so items do not pile up.
+	for id in units {
+		pos := drop_spot(c, owner)
+		worldstate.set_moved(c.ws, id, cell, smath.trs(pos, {}, 1), pos)
+		worldstate.set_holder(c.ws, c.db, id, 0)
+		worldstate.mark_scene_dirty(c.ws, id)
+		worldstate.move_items(c.ws, {base = base, ref = id, from = owner, count = 1, via = .World})
+		if first == 0 {first = id}
+	}
+	if plain > 0 {
+		worldstate.inv_add(c.ws, owner, base, -plain)
+		r := worldstate.create_ref(c.ws, base, cell, drop_spot(c, owner), {}, 1)
+		(&c.ws.created[r]).count = plain
+		worldstate.mark_scene_dirty(c.ws, r)
+		worldstate.move_items(c.ws, {base = base, ref = r, from = owner, count = plain, via = .World})
+		if first == 0 {first = r}
+	}
+	unequip_gone(c, owner, base)
+	queue_item_event(c, m)
+	return
+}
+
+// drop_spot is where the next dropped item lands: the next angle on a ring round the dropper, so
+// items do not pile up.
+@(private = "file")
+drop_spot :: proc(c: ^Call, owner: Form_ID) -> [3]f32 {
 	angle := f32(c.ws.drops) * DROP_STEP
 	c.ws.drops += 1
-	pos := worldstate.ref_pos(c.ws, c.db, owner) + {DROP_RADIUS * math.cos(angle), DROP_RADIUS * math.sin(angle), DROP_HEIGHT}
-	if ref != 0 {
-		worldstate.set_moved(c.ws, ref, cell, smath.trs(pos, {}, 1), pos)
-		worldstate.set_disabled(c.ws, ref, cell, false)
-	} else {
-		ref = worldstate.create_ref(c.ws, base, cell, pos, {}, 1)
-		(&c.ws.created[ref]).count = count
-	}
-	worldstate.mark_scene_dirty(c.ws, ref)
-	move_items(c, {base = base, ref = ref, from = owner, count = count, via = .World, stolen = stolen})
-	return ref
+	return worldstate.ref_pos(c.ws, c.db, owner) + {DROP_RADIUS * math.cos(angle), DROP_RADIUS * math.sin(angle), DROP_HEIGHT}
 }
 
 // item_of splits an item argument into its base object and, when the argument is a reference, the ref.

@@ -135,9 +135,9 @@ apply_delta_live :: proc(sp: ^Space, form: Form_ID) {
 	}
 	r, _, live := find_ref(sp, form)
 	if !live {return}
-	if .Disabled in d.live {
-		set_ref_disabled(sp, form, d.disabled)
-		if d.disabled {return}
+	if .Disabled in d.live || .Held in d.live {
+		set_ref_disabled(sp, form, worldstate.hidden(d))
+		if worldstate.hidden(d) {return}
 	}
 	switch {
 	case .Moved in d.live:  place_ref(sp, form, d.world, d.pos, r.scale)

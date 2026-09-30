@@ -726,7 +726,7 @@ test_alias_fills :: proc(t: ^testing.T) {
 	Q9, BOX :: gamedb.Form_ID(0xC09), gamedb.Form_ID(0xA09)
 	q9 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = C, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED | esm.ALIAS_QUEST_OBJECT}}
 	db.quest_baseline[Q9] = {aliases = q9}
-	ws.carried[C] = ws.player
+	worldstate.add_unit(&ws, &db, C, {base = OTHER, holder = ws.player})
 	testing.expect(t, script.start_quest(&c, Q9), "Q9 starts")
 	testing.expect(t, worldstate.quest_object_kept(&ws, &db, ws.player, OTHER), "no drop")
 	testing.expect(t, worldstate.quest_object_kept(&ws, &db, ws.player, OTHER, BOX), "no store")
@@ -735,7 +735,7 @@ test_alias_fills :: proc(t: ^testing.T) {
 	db.quest_baseline[Q9] = {aliases = q9b}
 	testing.expect(t, !worldstate.quest_object_kept(&ws, &db, ws.player, OTHER, BOX), "a Quest Object box of the quest takes it")
 	testing.expect(t, worldstate.holds_quest_object(&ws, &db, ws.player), "its holder is never cleaned up")
-	delete_key(&ws.carried, C)
+	worldstate.set_holder(&ws, &db, C, 0)
 
 	q5 := []gamedb.Quest_Alias{{id = 0, fill = .Specific, target = A, alias = -1, force_into = -1, flags = esm.ALIAS_ALLOW_RESERVED}, {id = 1, fill = .Create_Ref, target = MADE, alias = 0, force_into = -1}}
 	db.quest_baseline[Q5] = {aliases = q5}
@@ -901,7 +901,7 @@ test_condition_tail :: proc(t: ^testing.T) {
 
 	ctx.subject = RING
 	testing.expect(t, conditions.all(&ctx, cond(432, 1)), "GetIsObjectType: armor")
-	ws.carried[RING] = CHEST
+	worldstate.add_unit(&ws, &db, RING, {base = ARMOR, holder = CHEST})
 	testing.expect(t, conditions.all(&ctx, cond(624, CHEST)), "GetInContainer")
 }
 

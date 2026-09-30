@@ -217,7 +217,7 @@ tick_los :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State) {
 // tick_equips starts and ends the enchantments of gear that went on or off
 // (script.sync_constant_effects), then sends OnObjectUnequipped / OnObjectEquipped(akBaseObject,
 // akReference) for each item, in order, to the actor and its aliases and effects, and OnUnequipped /
-// OnEquipped(akActor) to the item's own ref (script.item_stack; a new stack runs OnInit first).
+// OnEquipped(akActor) to the item's own unit (worldstate.unit_for; a new one runs OnInit first).
 tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	c := vm.ctx
 	synced := make([dynamic]script.Form_ID, context.temp_allocator)
@@ -230,7 +230,7 @@ tick_equips :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	changes := slice.clone(ws.equip_changes[:], context.temp_allocator)
 	clear(&ws.equip_changes)
 	refs := make([]script.Form_ID, len(changes), context.temp_allocator)
-	for e, i in changes {refs[i] = script.item_stack(&c, e.actor, e.item)}
+	for e, i in changes {refs[i] = worldstate.unit_for(c.ws, c.db, e.actor, e.item)}
 	sync_refs(vm)
 	for e, i in changes {
 		// Only the player's: NPCs put their outfits on as they load, and their draws are animation.

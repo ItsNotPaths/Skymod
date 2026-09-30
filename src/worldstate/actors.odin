@@ -56,44 +56,6 @@ stack_count :: proc(ws: ^World_State, db: ^gamedb.DB, ref: Form_ID) -> i32 {
 	return max(r.count, 1)
 }
 
-// carry records where an item move leaves its refs (after the counts moved). A named ref goes with
-// the move, or is gone when the move has no destination. A move by base takes the source's carried
-// refs of that base along while they hold more than the source has left, and returns them
-// (temp-allocated). A created stack that holds more than has to go splits: it stays with the rest,
-// and the units that go move by count.
-carry :: proc(ws: ^World_State, db: ^gamedb.DB, m: Item_Move) -> (taken: []Form_ID) {
-	if m.ref != 0 {
-		if m.to != 0 {ws.carried[m.ref] = m.to} else {delete_key(&ws.carried, m.ref)}
-		return
-	}
-	if m.from == 0 {return}
-	refs := carried_refs(ws, db, m.from, m.base)
-	total: i32
-	for r in refs {total += stack_count(ws, db, r)}
-	left := inv_count(ws, db, m.from, m.base)
-	i := len(refs)
-	for i > 0 && total > left {
-		i -= 1
-		n := stack_count(ws, db, refs[i])
-		if cr, ok := &ws.created[refs[i]]; ok && n > total - left {
-			cr.count = n - (total - left)
-			return refs[i + 1:]
-		}
-		total -= n
-		if m.to != 0 {ws.carried[refs[i]] = m.to} else {delete_key(&ws.carried, refs[i])}
-	}
-	return refs[i:]
-}
-
-// carried_refs lists the refs of `base` that `holder` carries, in form order.
-carried_refs :: proc(ws: ^World_State, db: ^gamedb.DB, holder, base: Form_ID) -> []Form_ID {
-	out := make([dynamic]Form_ID, context.temp_allocator)
-	for ref, h in ws.carried {
-		if h == holder && ref_base(ws, db, ref) == base {append(&out, ref)}
-	}
-	slice.sort(out[:])
-	return out[:]
-}
 
 // inv_delta returns owner's delta of item from its starting contents.
 inv_delta :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
@@ -103,9 +65,14 @@ inv_delta :: proc(ws: ^World_State, owner, item: Form_ID) -> i32 {
 	return 0
 }
 
-// inv_count is owner's count of item: its starting contents plus the delta. A leveled list is never
-// an item.
+// inv_count is owner's count of item: its plain ones and its units.
 inv_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32 {
+	return plain_count(ws, db, owner, item) + i32(len(held_units(ws, owner, item)))
+}
+
+// plain_count is owner's count of item held as a count: its starting contents plus the delta. A
+// leveled list is never an item.
+plain_count :: proc(ws: ^World_State, db: ^gamedb.DB, owner, item: Form_ID) -> i32 {
 	if _, leveled := gamedb.leveled_list_of(db, item); leveled {return 0}
 	n := inv_delta(ws, owner, item)
 	for e in inv_start(ws, db, owner) {
@@ -124,6 +91,9 @@ inv_items :: proc(ws: ^World_State, db: ^gamedb.DB, owner: Form_ID) -> []Form_ID
 		for item in delta {
 			if !slice.contains(out[:], item) && inv_count(ws, db, owner, item) > 0 {append(&out, item)}
 		}
+	}
+	for id in held_units(ws, owner) {
+		if base := ws.units[id].base; !slice.contains(out[:], base) {append(&out, base)}
 	}
 	slice.sort(out[:])
 	return out[:]

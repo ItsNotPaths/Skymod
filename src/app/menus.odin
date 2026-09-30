@@ -265,8 +265,9 @@ item_card :: proc(g: ^Game, s: worldstate.Item_Stack) {
 	imgui.Spacing()
 	switch {
 	case item in db.books:
-		if imgui.Button("Read") && read_book(g, script.item_stack(&c, g.sim.ws.player, item), item) {
-			script.move_items(&c, {base = item, from = g.sim.ws.player, count = 1}) // a learned tome is used up
+		book := worldstate.unit_for(&g.sim.ws, &g.db, g.sim.ws.player, item)
+		if imgui.Button("Read") && read_book(g, book, item) {
+			script.move_items(&c, {base = item, ref = book, from = g.sim.ws.player, count = 1}) // a learned tome is used up
 		}
 	case is_used(ws, db, item):
 		if imgui.Button("Use") {script.use_item(&c, g.sim.ws.player, item)}
@@ -417,8 +418,7 @@ container_menu :: proc(g: ^Game) {
 		imgui.SameLine()
 		if imgui.SmallButton(fmt.ctprintf("Take##%x%v", s.item, s.stolen)) {
 			victim := script.report_theft(&c, g.sim.ws.player, box, s.item, s.count)
-			script.move_items(&c, {base = s.item, from = box, to = g.sim.ws.player, count = s.count, via = .Steal if victim != 0 else via, stolen = s.stolen})
-			if !s.stolen {worldstate.mark_stolen(&g.sim.ws, &g.db, g.sim.ws.player, s.item, victim, s.count)}
+			script.move_items(&c, {base = s.item, from = box, to = g.sim.ws.player, count = s.count, via = .Steal if victim != 0 else via, stolen = s.stolen, robbed = victim})
 		}
 	}
 	imgui.Separator()

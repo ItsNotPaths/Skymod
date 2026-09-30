@@ -165,7 +165,7 @@ activate :: proc(g: ^Game, form, by: Form_ID, default_only := false) {
 		take_item(g, form, base, by)
 	case .Book:
 		if by == g.sim.ws.player && read_book(g, form, base) {
-			worldstate.set_disabled(&g.sim.ws, form, worldstate.ref_cell(&g.sim.ws, &g.db, form), true) // a learned tome is used up
+			worldstate.destroy_placed(&g.sim.ws, &g.db, form) // a learned tome is used up
 			worldstate.mark_scene_dirty(&g.sim.ws, form)
 			log.infof("read: %q", interact_subject(g, form))
 		} else {
@@ -228,18 +228,18 @@ grab_update :: proc(g: ^Game) {
 }
 
 // take_item puts a world item in an actor's pack: its whole stack goes in (OnItemAdded, and
-// OnContainerChanged to the ref's scripts, next tick) and the ref leaves the world, carried.
+// OnContainerChanged to a unit's scripts, next tick) and it leaves the world (script.take).
 take_item :: proc(g: ^Game, form, base, by: Form_ID) {
 	c := script.Call{ws = &g.sim.ws, db = &g.db}
 	script.take(&c, form, base, by)
 	if by == g.sim.ws.player {log.infof("take: %q", interact_subject(g, form))}
 }
 
-// read_book is the player reading a book: OnRead to its ref (for a book in the pack, a carried
-// ref of it), then what reading teaches. True when the book is used up.
+// read_book is the player reading a book: OnRead to its ref (for a book in the pack, a unit of
+// it), then what reading teaches. True when the book is used up.
 read_book :: proc(g: ^Game, ref, base: Form_ID) -> bool {
 	if g.repl_ok && ref != 0 {
-		slua.sync_refs(&g.sim.repl.vm) // a stack script.item_stack just made gets its instance first
+		slua.sync_refs(&g.sim.repl.vm) // a unit worldstate.unit_for just made gets its instance first
 		slua.send(&g.sim.repl.vm, ref, "OnRead")
 	}
 	return worldstate.read_book(&g.sim.ws, &g.db, g.sim.ws.player, base)

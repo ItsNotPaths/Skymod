@@ -26,6 +26,7 @@ Ref_Field :: enum u8 {
 	Lock_Level, // SetLockLevel: the lock's level
 	Destroyed, // SetDestroyed: at its last destruction stage. The bit is the whole state
 	Alpha,     // SetAlpha: how opaque an actor draws
+	Held,      // an item ref a holder has (items.odin): not in the world. The bit is the whole state
 }
 
 // (hole combat-damage :tags combat :sev blocker) no hit command on the combat seam: the stand-in fights but no swing lands; no melee hit reaches script.land_attack. Wanted: a Host command a brain calls to land a hit, with a built-in that takes the reach (WEAP DNAM reach x fCombatDistance 141, not decoded) and cone test, calls land_attack and makes a noise (worldstate.make_noise).
@@ -341,6 +342,11 @@ set_deleted :: proc(ws: ^World_State, form_id, cell: Form_ID) {
 	append(&ws.gone_refs, form_id)
 	delete_key(&ws.zones, form_id)
 	stop_visuals_on(ws, form_id)
+}
+
+// hidden: the world does not show a ref with this delta: it is disabled, or a holder has it.
+hidden :: proc(d: Ref_Delta) -> bool {
+	return .Held in d.live || .Disabled in d.live && d.disabled
 }
 
 // is_deleted reports whether a runtime Delete removed the ref.

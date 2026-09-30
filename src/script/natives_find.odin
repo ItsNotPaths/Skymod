@@ -90,7 +90,7 @@ consider :: proc(c: ^Call, s: ^Search, id: Form_ID) {
 	if !s.match(c, s.want, worldstate.ref_base(c.ws, c.db, id)) {return}
 	d := smath.length3(worldstate.ref_pos(c.ws, c.db, id) - s.center)
 	if d > s.radius || worldstate.ref_grid_cell(c.ws, c.db, id) not_in c.ws.attached {return}
-	if id in c.ws.carried || worldstate.is_deleted(c.ws, id) || !worldstate.ref_enabled(c.ws, c.db, id) {return}
+	if c.ws.units[id].holder != 0 || worldstate.is_deleted(c.ws, id) || !worldstate.ref_enabled(c.ws, c.db, id) {return}
 	s.seen += 1
 	keep := rand.int_max(s.seen) == 0 if s.random else d < s.best
 	if keep {s.found, s.best = id, d}

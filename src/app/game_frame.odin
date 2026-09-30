@@ -570,6 +570,7 @@ quickload :: proc(g: ^Game) {
 		return
 	}
 	log.infof("quickload: loaded %s (%d deltas)", g.quicksave_path, m.delta_count)
+	worldstate.split_scripted_counts(&g.sim.ws, &g.db)
 	if g.repl_ok {slua.reload_scripts(&g.sim.repl.vm, &g.db)}
 	plugin.load_data(&g.plugins, g.sim.ws.plugin_blobs)
 	g.sim.trans.location = nil
