@@ -24,8 +24,8 @@ layout(set = 0, binding = 0) uniform sampler2D u_height; // R32F world-Z heightf
 layout(set = 1, binding = 0) uniform UBO {
     mat4 vp;
     vec4 field; // xy = world origin of the height texture; zw = 1 / world extent (→ UV)
-    vec4 texel; // xy = 1 / texture dims (one texel in UV); z = world units per texel; w = height drop
-    vec4 cam;   // xyz = camera world pos (xy = geomorph distance); w = height-drop fade band
+    vec4 texel; // xy = 1 / texture dims (one texel in UV); z = world units per texel; w = height drop at the near edge
+    vec4 cam;   // xy = camera world pos (geomorph distance); z = height drop at the camera; w = height-drop fade band
     vec4 morph; // x = start ratio (of morph_end); y = strength (1 = crack-free); z = distance scale; w = drop fade start
 } ubo;
 
@@ -60,11 +60,12 @@ void main() {
     vec2 uv = (world_xy - ubo.field.xy) * ubo.field.zw;
 
     // Sink the field below true height so the full-detail NEAR terrain (lod-0 cells) wins where the
-    // two overlap — but ONLY close to the camera, where that overlap exists. Fade the sink to zero
-    // by the near-terrain edge (morph.w = fade start, cam.w = fade band) so DISTANT terrain reads at
-    // true height; otherwise it sits ~drop below and distant water floats over it / shows the
-    // per-cell water squares. The ramp happens UNDER the near terrain, so the bend stays hidden.
-    float drop = ubo.texel.w * (1.0 - clamp((dist - ubo.morph.w) / max(ubo.cam.w, 1.0), 0.0, 1.0));
+    // two overlap. Inside the near-terrain edge (morph.w) the sink grows exponentially from texel.w
+    // at the edge to cam.z at the camera. Past the edge it fades to zero over cam.w so DISTANT
+    // terrain reads at true height (else distant water floats over it / shows the per-cell squares).
+    float inward = 1.0 - clamp(dist / max(ubo.morph.w, 1.0), 0.0, 1.0);
+    float fade = 1.0 - clamp((dist - ubo.morph.w) / max(ubo.cam.w, 1.0), 0.0, 1.0);
+    float drop = fade * ubo.texel.w * pow(ubo.cam.z / ubo.texel.w, inward);
     float z = h_at(uv) - drop;
 
     vec3 world = vec3(world_xy, z);

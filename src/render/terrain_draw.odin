@@ -30,8 +30,8 @@ Terrain_Instances :: struct {
 Terrain_Uniforms :: struct {
 	vp:    smath.Mat4,
 	field: [4]f32, // xy = height-texture world origin; zw = 1 / world extent
-	texel: [4]f32, // xy = 1 / texture dims; z = world units per texel; w = height drop
-	cam:   [4]f32, // xyz = camera world pos (xy used for the geomorph distance)
+	texel: [4]f32, // xy = 1 / texture dims; z = world units per texel; w = height drop at the near edge
+	cam:   [4]f32, // xy = camera world pos (geomorph distance); z = height drop at the camera; w = drop fade band
 	morph: [4]f32, // x = morph start ratio; y = strength (1 = crack-free); zw unused
 }
 

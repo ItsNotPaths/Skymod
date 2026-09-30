@@ -23,9 +23,11 @@ import "../render"
 TERR_SUB :: 8
 TERR_PATCH_GRID :: 32
 
-// TERR_DROP sinks the CDLOD field slightly below true height so the full-detail NEAR terrain (drawn
-// on top in the lod-0 cells) wins where the two overlap — no z-fight. (Formerly farland's FAR_DROP.)
-TERR_DROP :: f32(32)
+// The CDLOD field sinks below true height so the full-detail NEAR terrain (lod-0 cells) wins where
+// the two overlap. The sink grows exponentially from TERR_DROP_EDGE at the near-terrain edge to
+// TERR_DROP_NEAR at the camera: slow near the edge, steep close in, where the field peeks through.
+TERR_DROP_EDGE :: f32(64)
+TERR_DROP_NEAR :: f32(512)
 
 // Quadtree LOD: a node is detailed enough (gets emitted as one patch instance) once the camera is
 // farther than terr_lod_k × its world size; nearer than that it subdivides into 4. TERR_LEAF_CELLS
@@ -49,10 +51,10 @@ terr_geomorph_falloff := f32(0.65)
 terr_geomorph_strength := f32(1.0)
 terr_geomorph_distance := f32(1.0)
 
-// The CDLOD field is sunk TERR_DROP below true height so the full-detail NEAR terrain (lod-0 cells)
+// The CDLOD field is sunk (TERR_DROP_*) below true height so the full-detail NEAR terrain (lod-0 cells)
 // wins where they overlap — but that overlap only exists close to the camera. terr_drop_fade_*
 // ramp the sink back to ZERO past the near-terrain edge so DISTANT terrain reads at true height
-// (otherwise it sits ~TERR_DROP low, distant water floats above it and the per-cell water squares
+// (otherwise it sits ~TERR_DROP_EDGE low, distant water floats above it and the per-cell water squares
 // show). The ramp lands UNDER the near terrain, so the bend stays hidden. Derived from full_radius
 // in main (the near-terrain reach), not user knobs; defaults cover the no-override case.
 terr_drop_fade_start := f32(2 * CELL_SIZE)
@@ -75,7 +77,7 @@ Terrain_Field :: struct {
 	patch:     render.Mesh,
 	inst:      render.Terrain_Instances,
 	uni_field: [4]f32, // xy = world origin of the height texture; zw = 1 / world extent
-	uni_texel: [4]f32, // xy = 1 / texture dims; z = world units per texel; w = height drop
+	uni_texel: [4]f32, // xy = 1 / texture dims; z = world units per texel; w = height drop at the near-terrain edge
 	root_gx:   i32, // quadtree root corner (cells) + side (power-of-two cells covering the bbox)
 	root_gy:   i32,
 	root_side: i32,
@@ -231,7 +233,7 @@ build_terrain_field :: proc(s: ^Scene, db: ^gamedb.DB, world_fid: Form_ID) {
 	ext_x := f32(cols) * CELL_SIZE
 	ext_y := f32(rows) * CELL_SIZE
 	s.tfield.uni_field = {ox, oy, 1.0 / ext_x, 1.0 / ext_y}
-	s.tfield.uni_texel = {1.0 / f32(W), 1.0 / f32(H), CELL_SIZE / f32(TERR_SUB), TERR_DROP}
+	s.tfield.uni_texel = {1.0 / f32(W), 1.0 / f32(H), CELL_SIZE / f32(TERR_SUB), TERR_DROP_EDGE}
 	s.tfield.built = true
 }
 
@@ -399,7 +401,7 @@ draw_terrain_field :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4, cam: 
 		vp    = vp,
 		field = s.tfield.uni_field,
 		texel = s.tfield.uni_texel,
-		cam   = {cam.x, cam.y, cam.z, terr_drop_fade_band},
+		cam   = {cam.x, cam.y, TERR_DROP_NEAR, terr_drop_fade_band},
 		morph = {terr_geomorph_falloff, terr_geomorph_strength, terr_geomorph_distance, terr_drop_fade_start},
 	}
 	render.draw_terrain(r, s.tfield.patch, s.tfield.inst, s.tfield.height, s.tfield.ground, s.tfield.index, u)
