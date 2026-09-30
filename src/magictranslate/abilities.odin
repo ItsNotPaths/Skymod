@@ -3,6 +3,7 @@ package magictranslate
 // Ability SPEL to rt.effect: a passive is one effect at the ability's form (user, 2026-09-29), so
 // lists, AddSpell and HasSpell reach it as before, granted at m = 1. Conditions on the spell's
 // entries are live: a gate script switches the effect each second.
+// (hole stage-families :tags (magic records) :sev gap) the vampire stages (AbVampire, VampireSunDamage, VampireStrength) and DLC1SeranaHMSBonusStage are one ability per stage: hand-write each family as one effect with the stage as m, and patch the scripts that AddSpell them to ApplyEffect it.
 
 import "core:fmt"
 import "core:slice"

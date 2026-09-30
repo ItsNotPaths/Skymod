@@ -4,20 +4,27 @@ package magictranslate
 // tags, resistance, stacking and scripts.
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
 // effect_lua writes an MGEF as an effects/ file; false when one of its conditions has no Lua form.
-effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect) -> (text: string, ok: bool) {
+// With `entry` it is a copy for a spell entry with those conditions: a Lua form, the entry's
+// conditions in its start gate.
+effect_lua :: proc(src: ^Source, form: Form_ID, mgef: ^gamedb.Magic_Effect, entry: []gamedb.Condition = nil) -> (text: string, ok: bool) {
 	info := mgef.info
 	status, is_status := status_of(info.archetype)
-	land := land_lua(src, mgef.conditions, dispels(src, form, info), archetype_gate(info.archetype)) or_return
+	gates := make([dynamic]string, context.temp_allocator)
+	if g := archetype_gate(info.archetype); g != "" {append(&gates, g)}
+	if len(entry) > 0 {
+		g := gate_lua(src, entry, MGEF_WHO, "\n        and ") or_return
+		append(&gates, fmt.tprintf("(%s)", g) if strings.contains(g, " or ") else g)
+	}
+	land := land_lua(src, mgef.conditions, dispels(src, form, info), strings.join(gates[:], "\n        and ", context.temp_allocator)) or_return
 	b := strings.builder_make(context.temp_allocator)
-	write_head(&b, src, form, fmt.tprintf("MGEF %s", src.edids[form]), "effect")
-	tags := keyword_tags(src, form)
-	if info.flags & esm.MGEF_HOSTILE != 0 {inject_at(&tags, 0, "hostile")}
-	write_tags(&b, tags[:])
+	write_head(&b, src, form, fmt.tprintf("MGEF %s", src.edids[form]), "effect", entry == nil)
+	write_tags(&b, effect_tags(src, form, info)[:])
 	if av := av_name(info.resist_av); av != "" {fmt.sbprintfln(&b, "  resist = %q,", av)}
 	if info.flags & esm.MGEF_NO_RECAST != 0 {fmt.sbprintln(&b, "  stack = \"keep\",")}
 	if info.archetype == .Peak_Value_Modifier && mgef.related != 0 {
@@ -100,6 +107,42 @@ dispels :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> []s
 	return keyword_tags(src, form)[:]
 }
 
+// effect_tags are an effect's tags: hostile, then what it is (school, tier, element, poison,
+// disease, status, restore, summon, power.duration), then a kw.<editor id> per keyword.
+@(private)
+effect_tags :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> [dynamic]string {
+	out := make([dynamic]string, context.temp_allocator)
+	uses := src.lasting[form]
+	hostile := info.flags & esm.MGEF_HOSTILE != 0
+	if hostile {append(&out, "hostile")}
+	switch s := av_name(info.magic_skill); s {
+	case "Alteration", "Conjuration", "Destruction", "Illusion", "Restoration":
+		append(&out, fmt.tprintf("school.%s", strings.to_lower(s, context.temp_allocator)))
+		TIERS := [?]string{"novice", "apprentice", "adept", "expert", "master"}
+		append(&out, fmt.tprintf("tier.%s", TIERS[min(info.skill_level / 25, 4)]))
+	}
+	kws := keyword_tags(src, form)
+	switch {
+	case av_name(info.resist_av) == "FireResist" || slice.contains(kws[:], "kw.MagicDamageFire"):     append(&out, "magic.fire")
+	case av_name(info.resist_av) == "FrostResist" || slice.contains(kws[:], "kw.MagicDamageFrost"):   append(&out, "magic.frost")
+	case av_name(info.resist_av) == "ElectricResist" || slice.contains(kws[:], "kw.MagicDamageShock"): append(&out, "magic.shock")
+	}
+	if .Poison in uses {append(&out, "poison")}
+	if .Disease in uses {append(&out, "disease")}
+	if hostile && .Long in uses {append(&out, "status")}
+	#partial switch info.archetype {
+	case .Value_Modifier, .Peak_Value_Modifier, .Dual_Value_Modifier:
+		switch av_name(info.primary_av) {
+		case "Health", "Magicka", "Stamina": if !hostile && info.flags & (esm.MGEF_DETRIMENTAL | esm.MGEF_RECOVER) == 0 {append(&out, "restore")}
+		}
+	case .Summon_Creature, .Reanimate:
+		append(&out, "summon")
+	}
+	if info.flags & (esm.MGEF_POWER_AFFECTS_DURATION | esm.MGEF_POWER_AFFECTS_MAGNITUDE) == esm.MGEF_POWER_AFFECTS_DURATION {append(&out, "power.duration")}
+	append(&out, ..kws[:])
+	return out
+}
+
 // keyword_tags is a kw.<editor id> tag per keyword of `form`.
 @(private)
 keyword_tags :: proc(src: ^Source, form: Form_ID) -> [dynamic]string {
@@ -110,13 +153,14 @@ keyword_tags :: proc(src: ^Source, form: Form_ID) -> [dynamic]string {
 	return out
 }
 
-// write_head opens a definition file: the record it came from, then `return rt.<call> {` and its form.
+// write_head opens a definition file: the record it came from, then `return rt.<call> {` and its
+// form, unless it is a Lua form.
 @(private)
-write_head :: proc(b: ^strings.Builder, src: ^Source, form: Form_ID, what, call: string) {
+write_head :: proc(b: ^strings.Builder, src: ^Source, form: Form_ID, what, call: string, with_form := true) {
 	fmt.sbprintfln(b, "-- %s %s", src.files[u32(form >> 32)], what)
 	fmt.sbprintln(b, "local rt = require('skymod.rt')")
 	fmt.sbprintfln(b, "return rt.%s {{", call)
-	fmt.sbprintfln(b, "  form = %q,", form_ref(src, form))
+	if with_form {fmt.sbprintfln(b, "  form = %q,", form_ref(src, form))}
 }
 
 @(private)

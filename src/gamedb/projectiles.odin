@@ -62,3 +62,15 @@ index_placed_hazard :: proc(db: ^DB, rec: esm.Record, ctx: esm.Walk_Context) {
 		enable_opposite = ep.opposite,
 	}
 }
+
+@(private)
+index_shout :: proc(db: ^DB, rec: esm.Record, fm: ^esm.Form_Map) {
+	fl, backing, ok := esm.fields(rec)
+	if !ok {return}
+	defer delete(fl)
+	defer if backing != nil {delete(backing)}
+
+	words := esm.shout_words(fl)
+	for &w in words {w.word, w.spell = esm.remap_form(fm, u32(w.word)), esm.remap_form(fm, u32(w.spell))}
+	db.shouts[rec.form_id] = words
+}

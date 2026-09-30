@@ -291,6 +291,7 @@ DB :: struct {
 	ingredients:           map[Form_ID][]Magic_Effect_Ref, // INGR -> its effects (owned)
 	projectiles:           map[Form_ID]esm.Projectile, // PROJ -> its flight (projectiles.odin)
 	hazards:               map[Form_ID]esm.Hazard,     // HAZD -> its DATA
+	shouts:                map[Form_ID][3]esm.Shout_Word, // SHOU -> its words, remapped
 	placed_hazards:        [dynamic]Form_ID,           // PHZD refs, which ref_by_id holds
 	load_slots:            [dynamic]u32,        // load-order index -> that plugin's slot (Papyrus form ids)
 	respawning_containers: map[Form_ID]bool, // CONT flagged Respawns: its contents reset with its cell
@@ -1138,6 +1139,7 @@ destroy :: proc(db: ^DB) {
 	delete(db.equip_slots)
 	delete(db.projectiles)
 	delete(db.hazards)
+	delete(db.shouts)
 	delete(db.placed_hazards)
 	for _, t in db.equip_types {delete(t.parents, db.allocator)}
 	for _, d in db.destructibles {destroy_destructible(db, d)}
@@ -1727,6 +1729,8 @@ visit :: proc(rec: esm.Record, ctx: esm.Walk_Context, user: rawptr) -> bool {
 	case s == "HAZD":
 		index_base(db, rec, ctx.fm)
 		index_hazard(db, rec, ctx.fm)
+	case s == "SHOU":
+		index_shout(db, rec, ctx.fm)
 	case s == "PHZD":
 		if _, ok := db.cells[ctx.cell_form_id]; ok {index_placed_hazard(db, rec, ctx)}
 	case is_base_type(s):

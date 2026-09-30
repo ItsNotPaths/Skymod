@@ -39,5 +39,5 @@ main :: proc() {
 	append(&order, plugin)
 	st, ok := magictranslate.translate(rest[0], order[:], {plugin}, out)
 	if !ok {os.exit(1)}
-	fmt.printfln("magic2lua: %d effect(s), %d item(s), %d perk(s), %d record(s) not translated -> %s", st.effects, st.items, st.perks, st.skipped, out)
+	fmt.printfln("magic2lua: %d effect(s), %d spell(s) and power(s), %d item(s), %d perk(s), %d record(s) not translated -> %s", st.effects, st.spells, st.items, st.perks, st.skipped, out)
 }

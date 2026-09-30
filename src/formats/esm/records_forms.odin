@@ -508,6 +508,8 @@ MGEF_NO_DURATION :: 0x0000_0200
 MGEF_NO_MAGNITUDE :: 0x0000_0400
 MGEF_NO_AREA :: 0x0000_0800
 MGEF_NO_RECAST :: 0x0002_0000 // a copy already running keeps running; the new one does not land
+MGEF_POWER_AFFECTS_MAGNITUDE :: 0x0020_0000 // a boost (perk, dual cast) raises its magnitude
+MGEF_POWER_AFFECTS_DURATION :: 0x0040_0000 // a boost lengthens it
 MGEF_PAINLESS :: 0x0400_0000
 
 // AV_NONE is the "no actor value" sentinel MGEF stores for the skill / resistance / affected

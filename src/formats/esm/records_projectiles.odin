@@ -2,6 +2,9 @@ package esm
 
 // Projectile is a PROJ's flight. DATA is 92 bytes on 231 of 237 vanilla records; the rest end early,
 // after the fields kept here.
+// UNITS_PER_FOOT turns a record's feet into world units: a unit is 0.5625 inches, so 64 are 3 feet.
+UNITS_PER_FOOT :: f32(64.0 / 3)
+
 Projectile :: struct {
 	type:             Projectile_Type,
 	flags:            u16, // PROJ_*
@@ -10,6 +13,7 @@ Projectile :: struct {
 	range:            f32,
 	explosion:        Form_ID, // raw; used only with PROJ_EXPLOSION
 	impact_force:     f32,
+	cone_spread:      f32, // a cone's half angle, degrees; 0 on flames
 	collision_radius: f32,
 	lifetime:         f32, // seconds; 0 = until its range runs out
 }
@@ -39,6 +43,7 @@ projectile :: proc(fields: []Field) -> (p: Projectile, ok: bool) {
 		range = rf32(d, 12),
 		explosion = Form_ID(rd32(d, 36)),
 		impact_force = rf32(d, 52),
+		cone_spread = rf32(d, 68),
 		collision_radius = rf32(d, 72),
 		lifetime = rf32(d, 76),
 	}, true
@@ -76,6 +81,23 @@ item_damage :: proc(rec_type: string, fields: []Field) -> (damage: f32, projecti
 		damage = f32(rd16(f.data, 8))
 	case rec_type == "AMMO" && len(f.data) >= 12:
 		damage, projectile = rf32(f.data, 8), rd32(f.data, 0)
+	}
+	return
+}
+
+// Shout_Word is one of a SHOU's three words (SNAM): the WOOP, the spell it casts, and its recovery.
+Shout_Word :: struct {
+	word, spell: Form_ID, // raw
+	recovery:    f32, // seconds
+}
+
+// shout_words reads a SHOU's SNAM entries, in order; a missing word is zero.
+shout_words :: proc(fields: []Field) -> (words: [3]Shout_Word) {
+	i := 0
+	for f in fields {
+		if f.type != "SNAM" || len(f.data) < 12 || i >= len(words) {continue}
+		words[i] = {Form_ID(rd32(f.data, 0)), Form_ID(rd32(f.data, 4)), rf32(f.data, 8)}
+		i += 1
 	}
 	return
 }

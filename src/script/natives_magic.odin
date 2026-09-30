@@ -157,8 +157,8 @@ sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
 	}
 	for s in sources {
 		if len(spell_effects(c.ws, actor, s)) > 0 {continue}
-		if ench, ok := gamedb.enchantment_of(c.db, s); ok {
-			start_effects(c, s, ench.effects, true, actor, actor)
+		if entries, ok := enchantment_entries(c, s); ok {
+			start_effects(c, s, entries, true, actor, actor)
 		} else {
 			start_spell(c, s, actor, actor)
 		}
@@ -169,6 +169,14 @@ sync_constant_effects :: proc(c: ^Call, actor: Form_ID) {
 is_ability :: proc(db: ^gamedb.DB, spell: Form_ID) -> bool {
 	sp, ok := gamedb.spell_of(db, spell)
 	return ok && sp.info.type == .Ability
+}
+
+// enchantment_entries are what an enchantment applies: its definition's entries (rt.spell), else
+// its record's.
+enchantment_entries :: proc(c: ^Call, ench: Form_ID) -> ([]gamedb.Magic_Effect_Ref, bool) {
+	if v, ok := worldstate.spell_view(c.ws, c.db, ench); ok && v.defined {return v.entries, true}
+	e, ok := gamedb.enchantment_of(c.db, ench)
+	return e.effects, ok
 }
 
 @(private)

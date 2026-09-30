@@ -185,7 +185,7 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 		if !mok {
 			return false
 		}
-		log.infof("installer: translated %d effect(s), %d item(s) and %d perk(s) to Lua, %d record(s) not", mst.effects, mst.items, mst.perks, mst.skipped)
+		log.infof("installer: translated %d effect(s), %d spell(s) and power(s), %d item(s) and %d perk(s) to Lua, %d record(s) not", mst.effects, mst.spells, mst.items, mst.perks, mst.skipped)
 	}
 	if .UI in stale {
 		ui_dir, _ := filepath.join({content, UI_MOD, BETHASSETS_DIR}, context.temp_allocator)

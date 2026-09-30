@@ -10,7 +10,7 @@ import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
-// (hole perk-translate :tags (magic records player) :sev gap :needs (magic-translate)) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
+// (hole perk-translate :tags (magic records player) :sev gap) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
 // (hole swing-spell :tags combat :sev gap :needs (actor-states)) Apply_Weapon_Swing_Spell (Quick Reflexes, 1 entry) is not translated: it runs on the one blocking as an enemy power attacks, and no actor has a block or power-attack state.
 // (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 

@@ -17,14 +17,18 @@ item_lua :: proc(src: ^Source, form: Form_ID, record: string, applies: []gamedb.
 	return strings.to_string(b)
 }
 
-// write_applies writes the effects a source applies, each by its name with its numbers.
+// write_applies writes the effects a source applies, each by its name (`names`, else the effect's)
+// with its numbers. Where some entries have an area, one without hits only what the shape struck.
 @(private)
-write_applies :: proc(b: ^strings.Builder, src: ^Source, refs: []gamedb.Magic_Effect_Ref) {
+write_applies :: proc(b: ^strings.Builder, src: ^Source, refs: []gamedb.Magic_Effect_Ref, names: []string = nil) {
+	area := false
+	for r in refs {area ||= r.area != 0}
 	fmt.sbprintln(b, "  applies = {")
-	for r in refs {
-		fmt.sbprintf(b, "    {{ %q, m = %v", form_name(src, r.effect), r.magnitude)
+	for r, i in refs {
+		fmt.sbprintf(b, "    {{ %q, m = %v", names[i] if names != nil else form_name(src, r.effect), r.magnitude)
 		if r.duration != 0 {fmt.sbprintf(b, ", d = \"%vs\"", r.duration)}
 		if r.area != 0 {fmt.sbprintf(b, ", area = %v", r.area)}
+		if area && r.area == 0 {fmt.sbprint(b, ", hits = \"direct\"")}
 		fmt.sbprintln(b, " },")
 	}
 	fmt.sbprintln(b, "  },")

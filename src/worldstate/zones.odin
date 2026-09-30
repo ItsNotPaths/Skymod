@@ -18,8 +18,7 @@ Zone :: struct {
 	follow: Form_ID, // it moves with this ref (a cloak); 0: it stays
 }
 
-// UNITS_PER_FOOT turns a record's feet into world units: a unit is 0.5625 inches, so 64 are 3 feet.
-UNITS_PER_FOOT :: f32(64.0 / 3)
+UNITS_PER_FOOT :: esm.UNITS_PER_FOOT
 
 // hazard_zone is the zone a HAZD record makes for `caster`, and the record.
 hazard_zone :: proc(db: ^gamedb.DB, hazard, caster: Form_ID) -> (z: Zone, h: esm.Hazard, ok: bool) {

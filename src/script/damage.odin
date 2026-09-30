@@ -23,8 +23,8 @@ weapon_hit :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Att
 	if !worldstate.awareness(c.ws, target, attacker).detected {kind += {.Sneak}}
 	land_attack(c, attacker, target, weapon, kind, base, projectile != 0)
 	slot, _ := gamedb.equip_slot_of(c.db, weapon)
-	if e, ok := gamedb.enchantment_of(c.db, slot.enchantment); ok {
-		start_effects(c, slot.enchantment, e.effects, false, target, attacker)
+	if entries, ok := enchantment_entries(c, slot.enchantment); ok {
+		start_effects(c, slot.enchantment, entries, false, target, attacker)
 	}
 	append(&c.ws.hits, worldstate.Hit{target, attacker, weapon, projectile, kind})
 	if !forgiven {worldstate.strike(c.ws, target, attacker)}
