@@ -7,7 +7,7 @@ import "../worldhost"
 
 combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 
-// (hole combat-hit-spells :tags (combat magic) :sev gap) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell), and perk_value only changes a number.
+// (hole combat-hit-spells :tags (combat magic) :sev gap :needs (perk-translator)) no perk casts on a hit: Apply_Combat_Hit_Spell (57 SE entries), Apply_Bashing_Spell (4) and Apply_Weapon_Swing_Spell (1) pick a spell (Select_Spell); translated, each is a hit hook that calls ApplyEffect.
 // (hole attack-stamina :tags combat :sev gap :needs (combat-damage)) an attack costs no Stamina: fStaminaAttackWeaponBase 20 and fStaminaAttackWeaponMult 1, fPowerAttackStaminaPenalty 2, Mod_Power_Attack_Stamina (3), fStaminaBashBase 35, fStaminaPowerBashBase 55.
 // land_attack is everything a landed weapon hit does to its target: the combat seam's damage,
 // then the hit hooks (perk functionality scripts), which may change it or stop the hit.
