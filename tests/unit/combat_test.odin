@@ -4,7 +4,9 @@ import "base:runtime"
 import "core:os"
 import "core:testing"
 import "../../src/combat"
+import "../../src/gamedb"
 import "../../src/plugin"
+import "../../src/script"
 import "../../src/worldstate"
 
 // Fake_Combat answers every query the same way for every actor and keeps what the brain sets.
@@ -184,4 +186,18 @@ test_damage_difficulty :: proc(t: ^testing.T) {
 	ws.difficulty = .Novice
 	_, ok := worldstate.load_from_file(&ws, path)
 	testing.expect(t, ok && ws.difficulty == .Master, "the difficulty comes back")
+}
+
+// A weapon hit queues OnHit with its kind: a power attack on a target that had not detected the
+// attacker is a sneak attack too.
+@(test)
+test_weapon_hit_event :: proc(t: ^testing.T) {
+	db: gamedb.DB
+	ws: worldstate.World_State
+	worldstate.init(&ws)
+	defer worldstate.destroy(&ws)
+	c := script.Call{ws = &ws, db = &db}
+	script.weapon_hit(&c, 0xA1, 0xB1, 0xD1, {.Power}, 5)
+	testing.expect_value(t, len(ws.hits), 1)
+	testing.expect_value(t, ws.hits[0], worldstate.Hit{0xB1, 0xA1, 0xD1, 0, {.Power, .Sneak}})
 }

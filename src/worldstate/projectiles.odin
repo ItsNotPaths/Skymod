@@ -24,6 +24,7 @@ in_flight :: proc(ws: ^World_State, ref: Form_ID) -> bool {
 // Hit is an attack that landed, for OnHit: `source` is the weapon or spell, `projectile` the PROJ.
 Hit :: struct {
 	target, aggressor, source, projectile: Form_ID,
+	kind:                                  combat.Attack_Kind,
 }
 
 // strike records that `attacker` hit `victim`, for the victim's combat to answer.

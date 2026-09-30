@@ -19,8 +19,6 @@ import "../../worldstate"
 import "../../formats/esm"
 import "../../formid"
 
-// (hole hit-death-events :tags combat :sev gap ) only a projectile sends OnHit (8 script classes set a stage from it): melee and spells make no hit.
-
 // send queues a ref's `event` for the scripts on it and on each alias it fills.
 send :: proc(vm: ^VM, form: script.Form_ID, event: string, args: ..any) {
 	for r in recipients(vm.ctx.ws, form) {send_own(vm, r, event, ..args)}
@@ -188,9 +186,10 @@ tick_deaths :: proc(vm: ^VM, ws: ^worldstate.World_State) {
 	clear(&ws.deaths)
 }
 
-// tick_hits sends OnHit to each actor hit; no hit is a power, sneak or bash attack, or blocked yet.
+// (hole blocked-hits :tags (combat unclaimed) :sev gap :needs (block-damage)) OnHit's abHitBlocked is always false: nothing blocks.
+// tick_hits sends OnHit to each actor or ref hit, with whether it was a power, sneak or bash attack.
 tick_hits :: proc(vm: ^VM, ws: ^worldstate.World_State) {
-	for h in ws.hits {send(vm, h.target, "OnHit", h.aggressor, h.source, h.projectile, false, false, false, false)}
+	for h in ws.hits {send(vm, h.target, "OnHit", h.aggressor, h.source, h.projectile, .Power in h.kind, .Sneak in h.kind, .Bash in h.kind, false)}
 	clear(&ws.hits)
 }
 
