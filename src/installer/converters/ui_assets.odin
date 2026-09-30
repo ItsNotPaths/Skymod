@@ -1,18 +1,17 @@
-package main
+package converters
 
-// The UI pulled-asset MANIFEST: every vanilla asset baseui extracts to a stable named path (the
-// browse dump in dump_swf_assets and the synthesized reticle are separate).
+// The UI assets the install writes to a stable named path (the bank and the reticle are separate).
 //
 //   • BITMAP   (name != "") — an exported DefineBits symbol, pulled by name.
 //   • INSTANCE (path != "") — a named instance drawn as it sits on the stage, at a frame label. Its
-//     stage rect goes in the SWF's layout file (baseui_write_layout), so Lua places it exactly.
+//     stage rect goes in the SWF's layout file (write_layout), so Lua places it exactly.
 //   • SHAPE    (neither)    — one vector shape, found by its look: native px size + first solid fill.
 //     Character ids change between game builds (the logo is 78 on LE, 554 or 567 on two SE builds);
 //     instance names and looks do not.
 
 UI_Asset :: struct {
 	dest:    string, // output DDS under bethassets (Lua references this stable path)
-	swf:     string, // source SWF/GFX, read through the VFS (a mod can override the source)
+	swf:     string, // source SWF/GFX in the vanilla install
 	name:    string, // BITMAP: exported symbol name
 	path:    string, // INSTANCE: dotted instance names from the root
 	label:   string, // INSTANCE: the frame label to draw ("" = first frame)

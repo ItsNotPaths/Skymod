@@ -38,7 +38,6 @@ run_lua_main_menu :: proc(
 	// headers); rebuilt each menu entry, so changes from the mod manager are reflected.
 	v := mount_game_mods(src, base, profile)
 	defer vfs.destroy(&v)
-	baseui_extract_assets(&v, base) // install-time: convert SWF-embedded UI assets → DDS in bethassets
 
 	// The shared UI substrate session (atlas + ui_render + VM + `engine` host) — the SAME bundle the
 	// load screen runs on (ui_session.odin). ui_session_close (deferred) clears the renderer's stale UI

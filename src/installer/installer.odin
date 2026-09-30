@@ -26,6 +26,7 @@ CONTENT_DIR    :: "content"      // <base>/content — the installed data root
 SCRIPTS_MOD    :: "basescripts"  // <base>/content/basescripts — the content mod holding the base game's scripts
 SCRIPTS_DIR    :: "scripts"      // a mod's scripts folder: <mod>/scripts/<name>.lua and <name>.patch.lua
 AUDIO_MOD      :: "baseaudio"    // <base>/content/baseaudio — the content mod holding converted game audio
+UI_MOD         :: "baseui"       // <base>/content/baseui — the content mod holding our UI and its vanilla art
 BETHASSETS_DIR :: "bethassets"   // a content mod's VFS-mounted asset root
 MANIFEST       :: "manifest.txt" // <base>/content/manifest.txt — the boot gate marker
 Progress       :: converters.Progress
@@ -34,6 +35,7 @@ progress_read  :: converters.progress_read
 SCRIPTS_VERSION :: 4
 AUDIO_VERSION   :: 4
 MAGIC_VERSION   :: 7
+UI_VERSION      :: 1
 
 // Part is a converted piece of the install. Each has its own key in the manifest; a part whose key
 // changed runs again alone, and the others keep their output.
@@ -41,10 +43,11 @@ Part :: enum {
 	Scripts,
 	Audio,
 	Magic,
+	UI,
 }
 
-// part_key is what a part's output depends on: its converter version, and for scripts the shipped
-// rewrites.
+// part_key is what a part's output depends on: its converter version, and for scripts and UI the
+// shipped data.
 @(private)
 part_key :: proc(p: Part) -> string {
 	switch p {
@@ -54,6 +57,8 @@ part_key :: proc(p: Part) -> string {
 		return fmt.tprintf("v%d", AUDIO_VERSION)
 	case .Magic:
 		return fmt.tprintf("v%d", MAGIC_VERSION)
+	case .UI:
+		return fmt.tprintf("v%d %x", UI_VERSION, converters.ui_hash())
 	}
 	return ""
 }
@@ -181,6 +186,16 @@ install :: proc(source, base: string, progress: ^Progress = nil) -> bool {
 			return false
 		}
 		log.infof("installer: translated %d effect(s), %d item(s) and %d perk(s) to Lua, %d record(s) not", mst.effects, mst.items, mst.perks, mst.skipped)
+	}
+	if .UI in stale {
+		ui_dir, _ := filepath.join({content, UI_MOD, BETHASSETS_DIR}, context.temp_allocator)
+		_, v := detect_edition(source)
+		version := fmt.tprintf("%d.%d.%d.%d", v[0], v[1], v[2], v[3])
+		ust, uok := converters.convert_ui(data, ordered, version, ui_dir, progress)
+		if !uok {
+			return false
+		}
+		log.infof("installer: extracted %d UI file(s) for game %s, %d asset(s) missing, %d bank file(s) unlinked", ust.written, version, ust.missing, ust.unlinked)
 	}
 	log.infof("installer: parts redone %v, kept %v", stale, ~stale)
 

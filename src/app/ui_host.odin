@@ -241,7 +241,7 @@ engine_hud :: proc "c" (L: ^lua.State) -> c.int {
 	return 1
 }
 
-// engine_layout(name) → the table interface/<name>_layout.lua returns (written by baseui from the
+// engine_layout(name) → the table interface/<name>_layout.lua returns (written by the installer from the
 // vanilla SWF, read through the VFS so a mod can replace it), or nil when it is missing or fails.
 @(private = "file")
 engine_layout :: proc "c" (L: ^lua.State) -> c.int {

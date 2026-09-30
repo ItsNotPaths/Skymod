@@ -1,7 +1,7 @@
 package main
 
 // --uiassetview: a browser for the extracted UI assets. Reads every DDS already under
-// content/baseui/bethassets (dumped by baseui_extract_assets — no re-extraction here) and shows them
+// content/baseui/bethassets (written by the installer, converters/ui.odin) and shows them
 // one at a time, centered on a neutral panel, with the asset's name/index/size. LEFT/RIGHT arrows cycle
 // (hold to scrub), Esc quits. Invaluable for asset archaeology — finding which shape_<id> is which
 // (the loading-bar track, the H/M/S meter end-cap, a glyph, …) when reimplementing menus + the HUD.

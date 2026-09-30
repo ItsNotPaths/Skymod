@@ -7,7 +7,7 @@ package main
 // they differ only in their per-frame loop (the menu routes input + maps a result verb; the load screen
 // just publishes progress and redraws). New screens reuse this rather than re-plumbing atlas+vm+render.
 //
-// The caller mounts the VFS and synthesizes/extracts the baseui files (baseui_ensure / extract_assets)
+// The caller mounts the VFS and writes the baseui Lua (baseui_ensure)
 // before opening — the session only needs a built VFS to read the font + assets through.
 
 import "core:strings"

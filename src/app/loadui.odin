@@ -24,14 +24,13 @@ LOAD_CLEAR :: [4]f32{0, 0, 0, 1.0} // opaque black behind the load screen (the w
 @(private = "file")
 TIP_SECS :: f32(6) // seconds each loading tip is shown before rotating to the next
 
-// loadui_init opens the persistent load-screen session (baseui synthesized + chrome extracted, atlas
-// built, VM on loading_menu.lua). ok=false (a missing font/atlas) leaves g.loadui.ok false — loadui_frame
+// loadui_init opens the persistent load-screen session (baseui Lua written, atlas built, VM on
+// loading_menu.lua). ok=false (a missing font/atlas) leaves g.loadui.ok false — loadui_frame
 // then falls back to the pre-existing imgui load screen so boot still shows progress.
 loadui_init :: proc(g: ^Game) -> bool {
 	if !baseui_ensure(g.base) {
 		return false
 	}
-	baseui_extract_assets(&g.v, g.base) // install-time: SWF-embedded UI art → DDS in bethassets (idempotent)
 	g.loadui.host.load_level = 1
 	return ui_session_open(&g.loadui, &g.r, &g.v, g.base, "loading_menu.lua")
 }

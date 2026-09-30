@@ -1,24 +1,18 @@
 package main
 
-// The synthesized built-in UI mod ("baseui") in content/. The default player UI — our Lua
-// reimplementation of the base-game menus + assets converted from the user's OWN Skyrim install — is
-// generated into <base>/content/baseui. It's the always-present BASELINE content mod (forced across
-// all profiles, above vanilla + below user mods; see mount_game_mods / content_mod_dirs), packaged
-// like a mods/ mod. Both parts are REGENERATABLE: the Lua from the exe's #load-embedded copies, the
-// assets from the exe's extraction code run against the user's install. Falls back to the imgui menu
-// if no font is found.
+// The built-in UI mod ("baseui") in content/: our Lua menus and the vanilla art for them. It is
+// the always-present BASELINE content mod (forced across all profiles, above vanilla + below user
+// mods; see mount_game_mods / content_mod_dirs). Falls back to the imgui menu if no font is found.
 //
 //   content/baseui/lua/...        the Lua screens + framework (rewritten from #load-embedded each boot)
-//   content/baseui/bethassets/... DDS assets extracted from the install's SWFs (cached; mounted in VFS)
+//   content/baseui/bethassets/... art the installer extracts from the SWFs (converters/ui.odin)
 
-import "core:fmt"
 import "core:log"
-import "core:math"
 import "core:os"
 import "core:path/filepath"
 import "../font"
-import "../formats/dds"
 import "../formats/swf"
+import "../installer"
 import "../ui"
 import "../vfs"
 
@@ -31,14 +25,13 @@ UI_REF_EM :: f32(64)
 // (our UI reimplementation). Its sibling content/baseui/bethassets holds assets converted from the
 // install (mounted into the VFS as the baseline; see mount_game_mods / content_mod_dirs).
 baseui_lua_root :: proc(base: string, allocator := context.allocator) -> string {
-	p, _ := filepath.join({base, "content", "baseui", "lua"}, allocator)
+	p, _ := filepath.join({base, installer.CONTENT_DIR, installer.UI_MOD, "lua"}, allocator)
 	return p
 }
 
-// baseui_assets_dir returns <base>/content/baseui/bethassets — where install-time extraction writes
-// the Bethesda-derived UI assets (at Bethesda-relative paths), mounted into the VFS as the baseline.
+// baseui_assets_dir returns <base>/content/baseui/bethassets, the installer's UI art.
 baseui_assets_dir :: proc(base: string, allocator := context.allocator) -> string {
-	p, _ := filepath.join({base, "content", "baseui", "bethassets"}, allocator)
+	p, _ := filepath.join({base, installer.CONTENT_DIR, installer.UI_MOD, installer.BETHASSETS_DIR}, allocator)
 	return p
 }
 
@@ -54,14 +47,11 @@ baseui_ensure :: proc(base: string) -> bool {
 		if !ok {
 			continue
 		}
-		ensure_parent_dir(path)
+		os.make_directory_all(filepath.dir(path))
 		if os.write_entire_file(path, transmute([]u8)embedded) != nil {
 			log.errorf("ui: could not write %q", path)
 		}
 	}
-	// Create the bethassets dir up front so mount_game_mods mounts it (as a LOOSE root, read live) —
-	// then the extraction below can write into it this same session and the menu sees the files.
-	make_dirs(baseui_assets_dir(base, context.temp_allocator))
 	return true
 }
 
@@ -97,238 +87,3 @@ baseui_build_atlas :: proc(v: ^vfs.VFS) -> (font.Atlas, bool) {
 	return font.make_atlas(fonts[idx], UI_REF_EM, 1024), true
 }
 
-// baseui_extract_assets converts the SWF-EMBEDDED UI assets (sub-shapes/bitmaps that can't be
-// read as files) into DDS under content/baseui/bethassets at install time — cached, so each is done
-// once. Reads the source SWFs THROUGH THE VFS (so a mod could even override the source). The menu then
-// loads the DDS like any other asset, and a mod can override the extracted file. Whole-file assets
-// (fonts_en.swf, credits.txt, the logo .nif + .dds) need NO conversion — read straight from vanilla.
-//
-// NOTE: bethassets is mounted as a LOOSE root, which the VFS reads live from disk — so files written
-// here are visible to the already-built `v` this same session (no remount needed).
-baseui_extract_assets :: proc(v: ^vfs.VFS, base: string) {
-	if v == nil {
-		return
-	}
-	assets := baseui_assets_dir(base, context.temp_allocator)
-	laid_out := make(map[string]bool, allocator = context.temp_allocator)
-	for a in UI_ASSETS {
-		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
-		switch {
-		case a.name != "":
-			extract_swf_bitmap(v, a.swf, a.name, dest)
-		case a.path != "" && !laid_out[a.swf]:
-			write_layout(v, assets, a.swf) // with every instance of that SWF
-			laid_out[a.swf] = true
-		case a.path != "": // written with its SWF above
-		case:
-			extract_shape_by_look(v, a, dest)
-		}
-	}
-	// Browse-and-pick dump: EVERY shape (vector silhouette) + bitmap of the menu SWFs/GFX → DDS under
-	// bethassets/<name>/, so any graphic can be found visually + referenced by `image{source=
-	// "<name>/shape_<id>.dds"}`. Cached per source (skipped once the dir exists). Covers the classic
-	// .swf menus AND the Scaleform interface\exported\*.gfx (CFX) now that swf_body decodes them —
-	// so the loading-bar track (loadingmenu shape 5000) and the H/M/S meter end-cap (hudmenu shape 434)
-	// land here too. See the "Skyrim UI asset IDs" memory for the catalog of which shape is what.
-	dump_swf_assets(v, assets, "interface/startmenu.swf", "startmenu")
-	dump_swf_assets(v, assets, "interface/creditsmenu.swf", "creditsmenu")
-	dump_swf_assets(v, assets, "interface/loadingmenu.swf", "loadingmenu")
-	dump_swf_assets(v, assets, "interface/exported/hudmenu.gfx", "hudmenu")
-	// The HUD crosshair reticle: a small white dot we SYNTHESIZE (the vanilla crosshair isn't reliably
-	// one extractable flat shape, and a dot is trivial to generate cleanly). hud.lua draws + tints it.
-	reticle, _ := filepath.join({assets, "interface", "reticle.dds"}, context.temp_allocator)
-	make_reticle(reticle)
-}
-
-// make_reticle writes a small white antialiased dot to `dest` (once; skips if it exists). White so
-// hud.lua can tint it (image draws texel × colour); Lua also picks the on-screen size.
-@(private = "file")
-make_reticle :: proc(dest: string) {
-	if os.exists(dest) {
-		return
-	}
-	N :: 32          // texture side
-	R :: f32(6)      // dot radius in texels
-	AA :: f32(1.5)   // edge softness (texels the alpha ramps across)
-	rgba := make([]u8, N * N * 4, context.temp_allocator)
-	c := f32(N - 1) * 0.5
-	for y in 0 ..< N {
-		for x in 0 ..< N {
-			dx, dy := f32(x) - c, f32(y) - c
-			d := math.sqrt(dx * dx + dy * dy)
-			a := clamp((R - d) / AA + 0.5, 0, 1) // 1 inside the dot, ramps to 0 across AA texels at the rim
-			i := (y * N + x) * 4
-			rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3] = 255, 255, 255, u8(a * 255)
-		}
-	}
-	ensure_parent_dir(dest)
-	if os.write_entire_file(dest, dds.write_rgba(rgba, N, N, context.temp_allocator)) != nil {
-		log.errorf("ui: could not write %q", dest)
-	} else {
-		log.infof("ui: generated reticle → %s (%dx%d)", filepath.base(dest), N, N)
-	}
-}
-
-// extract_shape_by_look draws the shape of `a.swf` whose first solid fill and native px size match
-// `a`, to `dest` as DDS — once (skips if `dest` exists). Best-effort: a miss just logs.
-@(private = "file")
-extract_shape_by_look :: proc(v: ^vfs.VFS, a: UI_Asset, dest: string) {
-	if os.exists(dest) {
-		return
-	}
-	mv, ok := read_movie(v, a.swf)
-	if !ok {
-		return
-	}
-	for id, c in mv.chars {
-		sh := c.(swf.Shape_Def) or_continue
-		if swf.shape_color(sh) != a.fill {
-			continue
-		}
-		img := swf.render_shape_image(&mv, id, 1, context.temp_allocator) or_continue
-		if img.w != a.size.x || img.h != a.size.y {
-			continue
-		}
-		if a.recolor[3] != 0 {
-			for i := 0; i < len(img.rgba); i += 4 {
-				img.rgba[i], img.rgba[i + 1], img.rgba[i + 2] = a.recolor[0], a.recolor[1], a.recolor[2]
-			}
-		}
-		write_dds(dest, img)
-		log.infof("ui: extracted shape %d → %s (%dx%d)", id, filepath.base(dest), img.w, img.h)
-		return
-	}
-	log.warnf("ui: no %dx%d shape with fill %v in %s", a.size.x, a.size.y, a.fill, a.swf)
-}
-
-// write_layout draws every INSTANCE row of `swf_path` and writes interface/<name>_layout.lua: the
-// stage size, each art file's stage rect, and every named instance's rect (with its animated box per
-// frame label). Written every boot (a few ms), so a changed extractor never leaves stale art.
-@(private = "file")
-write_layout :: proc(v: ^vfs.VFS, assets, swf_path: string) {
-	stem := filepath.stem(swf_path)
-	out, _ := filepath.join({assets, "interface", fmt.tprintf("%s_layout.lua", stem)}, context.temp_allocator)
-	mv, ok := read_movie(v, swf_path)
-	if !ok {
-		return
-	}
-	art := make([dynamic]ui.Art_Rect, context.temp_allocator)
-	for a in UI_ASSETS {
-		if a.swf != swf_path || a.path == "" {
-			continue
-		}
-		img, rok := swf.render_instance(&mv, a.path, a.label, ART_SCALE, a.hide, a.still, context.temp_allocator)
-		if !rok {
-			log.warnf("ui: no instance %q in %s", a.path, swf_path)
-			continue
-		}
-		dest, _ := filepath.join({assets, a.dest}, context.temp_allocator)
-		write_dds(dest, img)
-		append(&art, ui.Art_Rect{a.dest, img.rect})
-	}
-	src := ui.layout_source(&mv, swf_path, art[:], context.temp_allocator)
-	ensure_parent_dir(out)
-	if os.write_entire_file(out, transmute([]u8)src) != nil {
-		log.errorf("ui: could not write %q", out)
-	} else {
-		log.infof("ui: wrote %s", filepath.base(out))
-	}
-}
-
-@(private = "file")
-read_movie :: proc(v: ^vfs.VFS, swf_path: string) -> (swf.Movie, bool) {
-	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
-	if !ok {
-		return {}, false
-	}
-	return swf.parse_movie(raw, context.temp_allocator)
-}
-
-@(private = "file")
-write_dds :: proc(dest: string, img: swf.Image) {
-	ensure_parent_dir(dest)
-	if os.write_entire_file(dest, dds.write_rgba(img.rgba, u32(img.w), u32(img.h), context.temp_allocator)) != nil {
-		log.errorf("ui: could not write %q", dest)
-	}
-}
-
-// dump_swf_assets converts every flat-solid shape (silhouette in its fill colour) + every
-// DefineBitsLossless2 bitmap of `swf_path` into DDS files under bethassets/<name>/ (shape_<id>.dds /
-// bitmap_<id>.dds). Cached: skips if the output dir already exists. Best-effort.
-@(private = "file")
-dump_swf_assets :: proc(v: ^vfs.VFS, assets, swf_path, name: string) {
-	dir, _ := filepath.join({assets, name}, context.temp_allocator)
-	if os.is_dir(dir) {
-		return // already dumped
-	}
-	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
-	if !ok {
-		return
-	}
-	mv, mok := swf.parse_movie(raw, context.temp_allocator)
-	if !mok {
-		return
-	}
-	make_dirs(dir)
-	nshapes := 0
-	for id, c in mv.chars {
-		_ = c.(swf.Shape_Def) or_continue
-		img := swf.render_shape_image(&mv, id, 1, context.temp_allocator) or_continue
-		dest, _ := filepath.join({dir, fmt.tprintf("shape_%d.dds", id)}, context.temp_allocator)
-		write_dds(dest, img)
-		nshapes += 1
-	}
-	nbmp := 0
-	for bm in swf.extract_all_bitmaps(raw, context.temp_allocator) {
-		dest, _ := filepath.join({dir, fmt.tprintf("bitmap_%d.dds", bm.id)}, context.temp_allocator)
-		dd := dds.write_rgba(bm.bmp.rgba, u32(bm.bmp.w), u32(bm.bmp.h), context.temp_allocator)
-		if os.write_entire_file(dest, dd) == nil {
-			nbmp += 1
-		}
-	}
-	log.infof("ui: dumped %d shapes + %d bitmaps from %s → bethassets/%s", nshapes, nbmp, swf_path, name)
-}
-
-// extract_swf_bitmap pulls the named bitmap out of `swf_path` (via the VFS) and writes it as DDS to
-// `dest` — once (skips if `dest` already exists). Best-effort: a miss just leaves the asset absent.
-@(private = "file")
-extract_swf_bitmap :: proc(v: ^vfs.VFS, swf_path, name, dest: string) {
-	if os.exists(dest) {
-		return
-	}
-	raw, ok := vfs.read(v, swf_path, context.temp_allocator)
-	if !ok {
-		return
-	}
-	bmp, bok := swf.extract_bitmap(raw, name, context.temp_allocator)
-	if !bok {
-		log.warnf("ui: could not extract %q from %s", name, swf_path)
-		return
-	}
-	ddata := dds.write_rgba(bmp.rgba, u32(bmp.w), u32(bmp.h), context.temp_allocator)
-	ensure_parent_dir(dest)
-	if os.write_entire_file(dest, ddata) != nil {
-		log.errorf("ui: could not write %q", dest)
-	} else {
-		log.infof("ui: extracted %s → %s (%dx%d)", name, filepath.base(dest), bmp.w, bmp.h)
-	}
-}
-
-// ensure_parent_dir creates the directory chain holding `path` (best-effort).
-@(private = "file")
-ensure_parent_dir :: proc(path: string) {
-	make_dirs(filepath.dir(path))
-}
-
-// make_dirs creates `dir` and any missing parents (os.make_directory is single-level).
-@(private = "file")
-make_dirs :: proc(dir: string) {
-	if dir == "" || dir == "." || dir == "/" || os.is_dir(dir) {
-		return
-	}
-	parent := filepath.dir(dir)
-	if parent != dir {
-		make_dirs(parent)
-	}
-	_ = os.make_directory(dir)
-}

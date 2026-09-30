@@ -12,8 +12,8 @@ import "../actorstate"
 import "../render"
 import "../worldstate"
 
-// hud_init opens the persistent HUD session on hud.lua. baseui (chrome + reticle asset) and a font
-// atlas are already ensured by loadui_init, which runs earlier in game_setup. ok=false (font/atlas
+// hud_init opens the persistent HUD session on hud.lua. The baseui Lua is already written by
+// loadui_init, which runs earlier in game_setup. ok=false (font/atlas
 // failed) leaves g.hud.ok false and frame_hud becomes a no-op — the game still plays, just without
 // the styled prompt.
 hud_init :: proc(g: ^Game) -> bool {

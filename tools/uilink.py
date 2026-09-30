@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-"""uilink — build the cross-edition UI-asset LINK TABLE.
+"""uilink — build the UI bank LINK TABLE (src/installer/converters/ui_links.tsv). Dev only.
 
-Every asset baseui pulls from the game lands in content/baseui/bethassets as an uncompressed-RGBA DDS
-(the curated interface/*.dds AND the per-source browse dumps startmenu/ creditsmenu/ loadingmenu/
-hudmenu/, each full of shape_<id>.dds / bitmap_<id>.dds). A shape's Scaleform character id differs
-between Legendary (LE) and Special (SE) Edition — and ids get REUSED for unrelated art — so a bare id is
-not a stable cross-edition key. This tool links them by APPEARANCE so references stay consistent.
+The installer dumps every shape and bitmap of a few SWFs into content/baseui/bethassets/<source>/.
+A character id differs between game versions (and ids get REUSED for unrelated art), so the table
+links them by APPEARANCE: one id column per exe product version. The installer names each file by
+the first column's id, or <kind>_x<own id>.dds when this version has no link for it.
 
-Workflow (LE and SE live on different machines):
-  1. On the LE box:  python3 uilink.py gen  <LE bethassets dir>  tools/asset_links.tsv
-     → writes one row per pulled asset with its LE id + a pixel FINGERPRINT (size, colour, silhouette
-       dhash). se_id is left 0. Commit this table.
-  2. On the SE box:  python3 uilink.py match <SE bethassets dir> tools/asset_links.tsv
-     → for each row, finds the SE shape whose fingerprint matches the stored LE fingerprint (per source,
-       per kind, one-to-one) and fills se_id in place. No LE install needed — the fingerprint is in the
-       table. Review the UNMATCHED report, then commit.
+Workflow (the installs can live on different machines):
+  1. On LE:  python3 uilink.py gen   <LE bethassets dir> <table.tsv> 1.9.32.0
+     → one row per bank file: its id + a pixel FINGERPRINT (size, colour, silhouette dhash).
+  2. Per other version:  python3 uilink.py match <bethassets dir> <table.tsv> <version>
+     → fills that version's column from its unlinked (_x) files, by fingerprint, one-to-one.
+     Review the UNMATCHED report, then commit and reinstall.
 
 Pure stdlib (no numpy/PIL) so it runs anywhere. DDS here is always 128-byte header + w*h*4 bytes RGBA.
 """
@@ -86,8 +83,8 @@ def hamming(a, b):
 
 # ---- asset enumeration -------------------------------------------------------
 
-def scan(bethassets):
-    """List (source, kind, id, path) for every dumped shape/bitmap under bethassets."""
+def scan(bethassets, unlinked_only=False):
+    """List (source, kind, id, path) for every bank file under bethassets; id is the file's own for _x."""
     out = []
     for src in SOURCES:
         d = os.path.join(bethassets, src)
@@ -96,15 +93,17 @@ def scan(bethassets):
         for kind in ("shape", "bitmap"):
             for p in sorted(glob.glob(os.path.join(d, kind + "_*.dds"))):
                 stem = os.path.basename(p)[len(kind) + 1:-4]
-                if stem.isdigit():
+                unlinked = stem.startswith("x")
+                stem = stem.lstrip("x")
+                if stem.isdigit() and (unlinked or not unlinked_only):
                     out.append((src, kind, int(stem), p))
     return out
 
 
-COLS = ("source", "kind", "le_id", "se_id", "w", "h", "cov", "rgb", "dhash")
+FP_COLS = ("w", "h", "cov", "rgb", "dhash")
 
 
-def gen(bethassets, out_tsv):
+def gen(bethassets, out_tsv, version):
     rows = []
     for src, kind, cid, path in scan(bethassets):
         dds = read_dds(path)
@@ -113,16 +112,19 @@ def gen(bethassets, out_tsv):
             continue
         w, h, px = dds
         cov, (r, g, b), dh = fingerprint(w, h, px)
-        rows.append(dict(source=src, kind=kind, le_id=cid, se_id=0, w=w, h=h,
-                         cov=f"{cov:.3f}", rgb=f"{r:02x}{g:02x}{b:02x}", dhash=f"{dh:016x}"))
-    write_tsv(out_tsv, rows)
-    print(f"gen: {len(rows)} assets → {out_tsv} (se_id=0; run `match` on the SE box to fill)")
+        rows.append({"source": src, "kind": kind, version: cid, "w": w, "h": h,
+                     "cov": f"{cov:.3f}", "rgb": f"{r:02x}{g:02x}{b:02x}", "dhash": f"{dh:016x}"})
+    write_tsv(out_tsv, ["source", "kind", version, *FP_COLS], rows)
+    print(f"gen: {len(rows)} assets → {out_tsv} (run `match` per other version)")
 
 
-def match(bethassets, tsv):
-    rows = read_tsv(tsv)
-    se = scan(bethassets)
-    # Fingerprint every SE asset once, bucketed by (source, kind).
+def match(bethassets, tsv, version):
+    cols, all_rows = read_tsv(tsv)
+    if version not in cols:
+        cols.insert(cols.index("w"), version)
+    rows = [r for r in all_rows if int(r.get(version) or 0) == 0]  # the rows this version still lacks
+    se = scan(bethassets, unlinked_only=True)
+    # Fingerprint every unlinked file once, bucketed by (source, kind).
     se_fp = {}
     for src, kind, cid, path in se:
         dds = read_dds(path)
@@ -135,7 +137,7 @@ def match(bethassets, tsv):
     matched = unmatched = 0
     for key, group in bucket(rows).items():
         cands = list(se_fp.get(key, []))
-        # Score every LE×SE pair, then assign greedily 1:1 (best global pairs first).
+        # Score every row×file pair, then assign greedily 1:1 (best global pairs first).
         pairs = []
         for li, lr in enumerate(group):
             for si, sc in enumerate(cands):
@@ -147,14 +149,14 @@ def match(bethassets, tsv):
         for d, li, si in pairs:
             if li in lused or si in sused:
                 continue
-            group[li]["se_id"] = cands[si]["id"]
+            group[li][version] = cands[si]["id"]
             lused.add(li); sused.add(si); matched += 1
         for li, lr in enumerate(group):
             if li not in lused:
                 unmatched += 1
-                print(f"UNMATCHED  {lr['source']}/{lr['kind']}_{lr['le_id']}  "
+                print(f"UNMATCHED  {lr['source']}/{lr['kind']}_{lr[cols[2]]}  "
                       f"({lr['w']}x{lr['h']} #{lr['rgb']})", file=sys.stderr)
-    write_tsv(tsv, rows)
+    write_tsv(tsv, cols, all_rows)
     print(f"match: {matched} linked, {unmatched} unmatched → {tsv}")
 
 
@@ -185,30 +187,30 @@ def bucket(rows):
     return b
 
 
-def write_tsv(path, rows):
+def write_tsv(path, cols, rows):
     with open(path, "w") as f:
-        f.write("\t".join(COLS) + "\n")
+        f.write("\t".join(cols) + "\n")
         for r in rows:
-            f.write("\t".join(str(r[c]) for c in COLS) + "\n")
+            f.write("\t".join(str(r.get(c, 0)) for c in cols) + "\n")
 
 
 def read_tsv(path):
     with open(path) as f:
         lines = [ln.rstrip("\n") for ln in f if ln.strip()]
     hdr = lines[0].split("\t")
-    return [dict(zip(hdr, ln.split("\t"))) for ln in lines[1:]]
+    return hdr, [dict(zip(hdr, ln.split("\t"))) for ln in lines[1:]]
 
 
 # ---- cli ---------------------------------------------------------------------
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    if len(a) == 3 and a[0] == "gen":
-        gen(a[1], a[2])
-    elif len(a) == 3 and a[0] == "match":
-        match(a[1], a[2])
+    if len(a) == 4 and a[0] == "gen":
+        gen(a[1], a[2], a[3])
+    elif len(a) == 4 and a[0] == "match":
+        match(a[1], a[2], a[3])
     else:
         print(__doc__)
-        print("usage:\n  uilink.py gen   <LE bethassets dir> <out.tsv>\n"
-              "  uilink.py match <SE bethassets dir> <table.tsv>", file=sys.stderr)
+        print("usage:\n  uilink.py gen   <bethassets dir> <table.tsv> <version>\n"
+              "  uilink.py match <bethassets dir> <table.tsv> <version>", file=sys.stderr)
         sys.exit(2)
