@@ -127,7 +127,7 @@ refund_perks :: proc(ws: ^World_State, db: ^gamedb.DB, actor: Form_ID, skill: st
 
 @(private)
 skill_index :: proc(skill: string) -> (int, bool) {
-	for name, i in gamedb.AV_NAMES[6:24] {
+	for name, i in esm.AV_NAMES[6:24] {
 		if name == skill {return i, true}
 	}
 	return 0, false
@@ -141,7 +141,7 @@ read_book :: proc(ws: ^World_State, db: ^gamedb.DB, actor, book: Form_ID) -> (us
 	if b.skill < 0 {return give_spell(ws, db, actor, b.spell)}
 	if book in ws.books_read || b.skill < 6 || b.skill >= 24 {return false}
 	ws.books_read[book] = true
-	raise_skill(ws, db, actor, gamedb.AV_NAMES[b.skill], 1)
+	raise_skill(ws, db, actor, esm.AV_NAMES[b.skill], 1)
 	return false
 }
 

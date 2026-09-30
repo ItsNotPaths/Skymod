@@ -3090,3 +3090,20 @@ test_equip_decode :: proc(t: ^testing.T) {
 	parents, all := esm.equip_type([]esm.Field{{type = "PNAM", data = {0x43, 0x3F, 1, 0, 0x42, 0x3F, 1, 0}}, {type = "DATA", data = {1, 0, 0, 0}}}, context.temp_allocator)
 	testing.expect(t, all && len(parents) == 2 && parents[0] == 0x13F43 && parents[1] == 0x13F42, "BothHands")
 }
+
+// Gear stats from IronSword's CRDT (LE 16 bytes, SE 24) and IronCuirass's armor type (BODT, BOD2).
+@(test)
+test_gear_decode :: proc(t: ^testing.T) {
+	dnam: [100]u8
+	(^f32)(&dnam[4])^, (^f32)(&dnam[8])^, (^i32)(&dnam[76])^ = 1.3, 0.7, 6
+	le := esm.gear("WEAP", {{type = "DNAM", data = dnam[:]}, {type = "CRDT", data = {3, 0, 0, 0, 0, 0, 0x80, 0x3F, 1, 0, 0, 0, 0xAA, 0, 0, 0}}})
+	testing.expect(t, le.speed == 1.3 && le.reach == 0.7 && le.skill == 6, "DNAM speed, reach, skill")
+	testing.expect(t, le.crit_damage == 3 && le.crit_mult == 1 && le.crit_spell == 0xAA, "LE CRDT")
+	se := esm.gear("WEAP", {{type = "CRDT", data = {3, 0, 0x15, 0, 0, 0, 0x80, 0x3F, 1, 0, 0, 0, 1, 0, 0, 0, 0xBB, 0, 0, 0, 0, 0, 0, 0}}})
+	testing.expect(t, se.crit_damage == 3 && se.crit_spell == 0xBB && se.skill == -1, "SE CRDT")
+	iron := esm.gear("ARMO", {{type = "DNAM", data = {0xC4, 0x09, 0, 0}}, {type = "BOD2", data = {4, 0, 0, 0, 1, 0, 0, 0}}})
+	testing.expect(t, iron.armor_rating == 25 && iron.armor_type == .Heavy, "SE armor")
+	hide := esm.gear("ARMO", {{type = "BODT", data = {4, 0, 0, 0, 0, 0x64, 0x73, 0, 0, 0, 0, 0}}})
+	testing.expect_value(t, hide.armor_type, esm.Armor_Type.Light)
+	testing.expect_value(t, esm.gear("ARMO", {{type = "BODT", data = {4, 0, 0, 0, 0, 0, 0, 0}}}).armor_type, esm.Armor_Type.Clothing)
+}

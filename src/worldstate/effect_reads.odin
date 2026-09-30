@@ -138,7 +138,7 @@ condition_param :: proc(ws: ^World_State, db: ^gamedb.DB, kind: esm.Condition_Pa
 condition_number :: proc(text: string) -> (v: u64, ok: bool) {
 	if v, ok := strconv.parse_i64(text); ok {return u64(v), true}
 	name := gamedb.actor_value_name(text) or_return
-	for av, i in gamedb.AV_NAMES {
+	for av, i in esm.AV_NAMES {
 		if av == name {return u64(i), true}
 	}
 	return 0, false

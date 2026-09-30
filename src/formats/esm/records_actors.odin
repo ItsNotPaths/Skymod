@@ -292,6 +292,41 @@ perk_entries :: proc(fields: []Field, allocator := context.allocator) -> [dynami
 // slots with no authored name.
 ACTOR_VALUE_COUNT :: 164
 
+// The engine's actor values. An actor value is its name here, in this case; MGEF, RACE, CLAS and
+// CTDA store an index into this table. AVIF records do not give the names: 9 EDIDs differ (21 is
+// AVMysticism) and 15 indices have no record at all.
+
+AV_NAMES := [ACTOR_VALUE_COUNT]string {
+	"Aggression", "Confidence", "Energy", "Morality", "Mood", "Assistance",
+	"OneHanded", "TwoHanded", "Marksman", "Block", "Smithing", "HeavyArmor",
+	"LightArmor", "Pickpocket", "Lockpicking", "Sneak", "Alchemy", "Speechcraft",
+	"Alteration", "Conjuration", "Destruction", "Illusion", "Restoration", "Enchanting",
+	"Health", "Magicka", "Stamina", "HealRate", "MagickaRate", "StaminaRate",
+	"SpeedMult", "InventoryWeight", "CarryWeight", "CritChance", "MeleeDamage", "UnarmedDamage",
+	"Mass", "VoicePoints", "VoiceRate", "DamageResist", "PoisonResist", "FireResist",
+	"ElectricResist", "FrostResist", "MagicResist", "DiseaseResist", "PerceptionCondition", "EnduranceCondition",
+	"LeftAttackCondition", "RightAttackCondition", "LeftMobilityCondition", "RightMobilityCondition", "BrainCondition", "Paralysis",
+	"Invisibility", "NightEye", "DetectLifeRange", "WaterBreathing", "WaterWalking", "IgnoreCrippledLimbs",
+	"Fame", "Infamy", "JumpingBonus", "WardPower", "RightItemCharge", "ArmorPerks",
+	"ShieldPerks", "WardDeflection", "Variable01", "Variable02", "Variable03", "Variable04",
+	"Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
+	"BowSpeedBonus", "FavorActive", "FavorsPerDay", "FavorsPerDayTimer", "LeftItemCharge", "AbsorbChance",
+	"Blindness", "WeaponSpeedMult", "ShoutRecoveryMult", "BowStaggerBonus", "Telekinesis", "FavorPointsBonus",
+	"LastBribedIntimidated", "LastFlattered", "MovementNoiseMult", "BypassVendorStolenCheck", "BypassVendorKeywordCheck", "WaitingForPlayer",
+	"OneHandedMod", "TwoHandedMod", "MarksmanMod", "BlockMod", "SmithingMod", "HeavyArmorMod",
+	"LightArmorMod", "PickPocketMod", "LockpickingMod", "SneakMod", "AlchemyMod", "SpeechcraftMod",
+	"AlterationMod", "ConjurationMod", "DestructionMod", "IllusionMod", "RestorationMod", "EnchantingMod",
+	"OneHandedSkillAdvance", "TwoHandedSkillAdvance", "MarksmanSkillAdvance", "BlockSkillAdvance", "SmithingSkillAdvance", "HeavyArmorSkillAdvance",
+	"LightArmorSkillAdvance", "PickPocketSkillAdvance", "LockpickingSkillAdvance", "SneakSkillAdvance", "AlchemySkillAdvance", "SpeechcraftSkillAdvance",
+	"AlterationSkillAdvance", "ConjurationSkillAdvance", "DestructionSkillAdvance", "IllusionSkillAdvance", "RestorationSkillAdvance", "EnchantingSkillAdvance",
+	"LeftWeaponSpeedMult", "DragonSouls", "CombatHealthRegenMult", "OneHandedPowerMod", "TwoHandedPowerMod", "MarksmanPowerMod",
+	"BlockPowerMod", "SmithingPowerMod", "HeavyArmorPowerMod", "LightArmorPowerMod", "PickPocketPowerMod", "LockpickingPowerMod",
+	"SneakPowerMod", "AlchemyPowerMod", "SpeechcraftPowerMod", "AlterationPowerMod", "ConjurationPowerMod", "DestructionPowerMod",
+	"IllusionPowerMod", "RestorationPowerMod", "EnchantingPowerMod", "DragonRend", "AttackDamageMult", "HealRateMult",
+	"MagickaRateMult", "StaminaRateMult", "WerewolfPerks", "VampirePerks", "GrabActorOffset", "Grabbed",
+	"DEPRECATED05", "ReflectDamage",
+}
+
 // Actor_Value_Block is one contiguous run of AVIF records: `lo`..`hi` local formIDs map onto
 // ActorValue indices starting at `first`. The mapping is NOT file order and NOT a single
 // offset — Skyrim's AVIF records sit in four separate formID runs whose order differs from the

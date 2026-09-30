@@ -1019,6 +1019,50 @@ biped_slots :: proc(fields: []Field) -> (u32, bool) {
 	return 0, false
 }
 
+Armor_Type :: enum u8 {
+	Light,
+	Heavy,
+	Clothing,
+}
+
+// Gear is a WEAP's or ARMO's combat stats.
+Gear :: struct {
+	speed, reach: f32,
+	skill:        i32, // an AV index; -1 = none
+	crit_damage:  u16,
+	crit_mult:    f32,
+	crit_spell:   Form_ID, // raw in the record
+	armor_rating: f32, // DNAM / 100, as the game shows it
+	armor_type:   Armor_Type,
+}
+
+// gear reads a WEAP's DNAM and CRDT or an ARMO's DNAM and armor type. CRDT is 16 bytes on LE (spell
+// at 12) and 24 on SE (spell at 16); the armor type is in BOD2 at 4 (SE) or BODT at 8 (LE), and a
+// short BODT has none.
+gear :: proc(rec_type: string, fields: []Field) -> (g: Gear) {
+	g.skill = -1
+	switch rec_type {
+	case "WEAP":
+		if f, ok := find_field(fields, "DNAM"); ok && len(f.data) >= 80 {
+			g.speed, g.reach, g.skill = rf32(f.data, 4), rf32(f.data, 8), i32(rd32(f.data, 76))
+		}
+		if f, ok := find_field(fields, "CRDT"); ok && len(f.data) >= 16 {
+			g.crit_damage, g.crit_mult = rd16(f.data, 0), rf32(f.data, 4)
+			g.crit_spell = Form_ID(rd32(f.data, 16 if len(f.data) >= 24 else 12))
+		}
+	case "ARMO":
+		if f, ok := find_field(fields, "DNAM"); ok && len(f.data) >= 4 {g.armor_rating = f32(i32(rd32(f.data, 0))) / 100}
+		kind := u32(Armor_Type.Clothing)
+		if f, ok := find_field(fields, "BOD2"); ok && len(f.data) >= 8 {
+			kind = rd32(f.data, 4)
+		} else if f, ok := find_field(fields, "BODT"); ok && len(f.data) >= 12 {
+			kind = rd32(f.data, 8)
+		}
+		g.armor_type = Armor_Type(min(kind, u32(Armor_Type.Clothing)))
+	}
+	return
+}
+
 // equip_type reads an EQUP: its parent slots (PNAM, raw formIDs, allocated) and whether an item of
 // this type takes all of them (DATA; BothHands) or any one (EitherHand).
 equip_type :: proc(fields: []Field, allocator := context.allocator) -> (parents: []u32, use_all: bool) {

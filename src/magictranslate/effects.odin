@@ -142,7 +142,7 @@ scale :: proc(f: string, k: f32) -> string {
 
 @(private)
 av_name :: proc(i: i32) -> string {
-	return gamedb.AV_NAMES[i] if i >= 0 && int(i) < len(gamedb.AV_NAMES) else ""
+	return esm.AV_NAMES[i] if i >= 0 && int(i) < len(esm.AV_NAMES) else ""
 }
 
 // write_scripts writes an effect's VMAD scripts as its moment scripts and their properties.

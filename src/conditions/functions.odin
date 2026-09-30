@@ -805,7 +805,7 @@ fn_has_loaded_3d :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f3
 @(private = "file")
 fn_get_actor_value_percent :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	if c.param1 >= esm.ACTOR_VALUE_COUNT {return 0, false}
-	name := gamedb.AV_NAMES[c.param1]
+	name := esm.AV_NAMES[c.param1]
 	most := worldstate.av_max(ctx.ws, ctx.db, on, name)
 	return worldstate.av_current(ctx.ws, ctx.db, on, name) / most if most > 0 else 1, true
 }
@@ -814,14 +814,14 @@ fn_get_actor_value_percent :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_
 @(private = "file")
 fn_get_actor_value :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	if c.param1 >= esm.ACTOR_VALUE_COUNT {return 0, false}
-	return worldstate.av_current(ctx.ws, ctx.db, on, gamedb.AV_NAMES[c.param1]), true
+	return worldstate.av_current(ctx.ws, ctx.db, on, esm.AV_NAMES[c.param1]), true
 }
 
 // GetBaseActorValue(index). On a PERK take-gate this is the skill requirement.
 @(private = "file")
 fn_get_base_actor_value :: proc(ctx: ^Context, c: gamedb.Condition, on: Form_ID) -> (f32, bool) {
 	if c.param1 >= esm.ACTOR_VALUE_COUNT {return 0, false}
-	return worldstate.av_base(ctx.ws, ctx.db, on, gamedb.AV_NAMES[c.param1]), true
+	return worldstate.av_base(ctx.ws, ctx.db, on, esm.AV_NAMES[c.param1]), true
 }
 
 @(private = "file")

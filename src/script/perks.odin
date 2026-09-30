@@ -6,6 +6,7 @@ package script
 import "core:math/rand"
 import "core:slice"
 import "../conditions"
+import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
@@ -51,8 +52,8 @@ apply_entry :: proc(c: ^Call, e: gamedb.Perk_Entry, owner: Form_ID, v: f32) -> f
 	x := e.values[0]
 	av_times :: proc(c: ^Call, e: gamedb.Perk_Entry, owner: Form_ID) -> f32 {
 		i := int(e.values[0])
-		if i < 0 || i >= len(gamedb.AV_NAMES) {return 0}
-		return worldstate.av_current(c.ws, c.db, owner, gamedb.AV_NAMES[i]) * e.values[1]
+		if i < 0 || i >= len(esm.AV_NAMES) {return 0}
+		return worldstate.av_current(c.ws, c.db, owner, esm.AV_NAMES[i]) * e.values[1]
 	}
 	#partial switch e.function {
 	case .Set_Value:

@@ -136,7 +136,7 @@ view_equip_slot :: proc(db: ^gamedb.DB, form: Form_ID) -> (v: plugin.Equip_Slot,
 	e := db.equip_slots[form] or_return
 	return {
 		kind = u8(e.kind), biped = e.biped, etyp = e.etyp, weapon_type = e.weapon_type,
-		enchantment = e.enchantment, damage = e.damage, projectile = e.projectile,
+		enchantment = e.enchantment, damage = e.damage, projectile = e.projectile, gear = e.gear,
 	}, true
 }
 

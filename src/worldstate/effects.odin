@@ -162,8 +162,8 @@ term_av :: proc(ws: ^World_State, db: ^gamedb.DB, e: Active_Effect, term: Effect
 	case:
 		return av_name(ws, term.av)
 	}
-	if index < 0 || int(index) >= len(gamedb.AV_NAMES) {return "", false}
-	return gamedb.AV_NAMES[index], true
+	if index < 0 || int(index) >= len(esm.AV_NAMES) {return "", false}
+	return esm.AV_NAMES[index], true
 }
 
 // effect_classes is the script classes an effect runs (lower case): its definition's scripts, or its

@@ -243,6 +243,7 @@ Equip_Slot :: struct {
 	enchantment:  Form_ID,
 	damage:       f32,
 	projectile:   Form_ID,
+	gear:         esm.Gear, // a WEAP's or ARMO's combat stats
 }
 
 Equip_Type :: struct {

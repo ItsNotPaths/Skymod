@@ -349,7 +349,7 @@ n_get_resistance :: proc(c: ^Call, args: []Value) -> Value {
 n_get_associated_skill :: proc(c: ^Call, args: []Value) -> Value {
 	m, _ := gamedb.magic_effect_of(c.db, c.self)
 	skill := m.info.magic_skill
-	return gamedb.AV_NAMES[skill] if skill >= 0 && skill < esm.ACTOR_VALUE_COUNT else ""
+	return esm.AV_NAMES[skill] if skill >= 0 && skill < esm.ACTOR_VALUE_COUNT else ""
 }
 
 n_get_template :: proc(c: ^Call, args: []Value) -> Value {

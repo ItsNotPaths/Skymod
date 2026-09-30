@@ -527,7 +527,7 @@ tick_jail_bed :: proc(ws: ^World_State) {
 // lose_skill_progress clears the progress toward the next level of random skills: all 18 for a
 // 7-day sentence, proportionally fewer for a shorter one (UESP).
 lose_skill_progress :: proc(ws: ^World_State, actor: Form_ID, days: i32) {
-	skills := gamedb.AV_NAMES[6:24]
+	skills := esm.AV_NAMES[6:24]
 	order := rand.perm(len(skills), context.temp_allocator)
 	for i in order[:min(len(skills), int((i32(len(skills)) * days + 6) / 7))] {
 		if advance, ok := gamedb.skill_advance_av(skills[i]); ok {av_set_base(ws, actor, advance, 0)}

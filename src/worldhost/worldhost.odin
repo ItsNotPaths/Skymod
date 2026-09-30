@@ -37,6 +37,7 @@ world :: proc(d: ^Data) -> plugin.World {
 		game_hours    = game_hours,
 		record        = record,
 		has_tag       = has_tag,
+		worn          = worn,
 	}
 }
 
@@ -107,6 +108,16 @@ has_tag :: proc "c" (data: rawptr, form: Form_ID, pattern: cstring) -> bool {
 	d := (^Data)(data)
 	context = d.ctx
 	return worldstate.has_tag(d.ws, d.db, form, string(pattern))
+}
+
+@(private = "file")
+worn :: proc "c" (data: rawptr, actor: Form_ID) -> plugin.Span(Form_ID) {
+	d := (^Data)(data)
+	context = d.ctx
+	eq := worldstate.equipment(d.ws, d.db, actor).worn
+	items := make([]Form_ID, len(eq), context.temp_allocator)
+	for w, i in eq {items[i] = w.item}
+	return plugin.span(items)
 }
 
 @(private = "file")

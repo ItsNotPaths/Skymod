@@ -8,6 +8,7 @@ import "core:fmt"
 import "core:slice"
 import imgui "../../vendor/odin-imgui"
 import "../audio"
+import "../formats/esm"
 import "../formid"
 import "../gamedb"
 import "../handoff"
@@ -330,9 +331,9 @@ magic_tab :: proc(g: ^Game, spell: Form_ID) -> int {
 	i := gamedb.spell_costliest_effect(&g.db, spell) or_else -1
 	if i < 0 {return 0}
 	m, _ := gamedb.magic_effect_of(&g.db, sp.effects[i].effect)
-	if m.info.magic_skill < 0 || int(m.info.magic_skill) >= len(gamedb.AV_NAMES) {return 0}
+	if m.info.magic_skill < 0 || int(m.info.magic_skill) >= len(esm.AV_NAMES) {return 0}
 	for tab, t in MAGIC_TABS {
-		if string(tab) == gamedb.AV_NAMES[m.info.magic_skill] {return t}
+		if string(tab) == esm.AV_NAMES[m.info.magic_skill] {return t}
 	}
 	return 0
 }
@@ -376,7 +377,7 @@ skills_menu :: proc(g: ^Game) {
 		}
 	}
 	imgui.Separator()
-	for skill, i in gamedb.AV_NAMES[6:24] {
+	for skill, i in esm.AV_NAMES[6:24] {
 		level := worldstate.av_current(ws, db, g.sim.ws.player, skill)
 		cap := worldstate.av_train_cap(ws, db, g.sim.ws.player, skill)
 		advance, _ := gamedb.skill_advance_av(skill)

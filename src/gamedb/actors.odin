@@ -5,7 +5,7 @@ package gamedb
 // FormIDs pointing at records nobody indexed — stored, but dead. Decoders live in
 // src/formats/esm/records_actors.odin; this file owns the storage, the remap and the queries.
 //
-// AVIF gives an actor value's description and perk tree; its name and index come from AV_NAMES.
+// AVIF gives an actor value's description and perk tree; its name and index come from esm.AV_NAMES.
 
 import "core:strings"
 import "../formats/esm"
@@ -24,7 +24,7 @@ Race :: struct {
 }
 
 // Class is a CLAS's level-up weighting: which skills an NPC of this class favours and how
-// its health/magicka/stamina split. `training_skill` is an actor-value index (AV_NAMES).
+// its health/magicka/stamina split. `training_skill` is an actor-value index (esm.AV_NAMES).
 Class :: struct {
 	info:        esm.Class_Info,
 	description: string, // DESC (owned; "" when absent)
@@ -277,7 +277,7 @@ outfit_items :: proc(db: ^DB, outfit: Form_ID) -> []Form_ID {
 }
 
 // actor_race_bonuses returns an actor base's racial skill bonuses, resolved through its RACE.
-// Each entry's `skill` is an actor-value index (AV_NAMES). `count` is how
+// Each entry's `skill` is an actor-value index (esm.AV_NAMES). `count` is how
 // many of the returned slots are populated; it's 0 when the actor or its race isn't indexed, or
 // the race grants none. Returned BY VALUE (not as a slice) because the array lives inside a
 // map value — a slice of it would dangle the moment the map rehashed.
@@ -319,7 +319,7 @@ actor_value_info :: proc(db: ^DB, form: Form_ID) -> (Actor_Value_Info, bool) {
 }
 
 // actor_value_display returns an actor value's player-facing name: its AVIF FULL when the record
-// has one (24 of the 149 do), else its AV_NAMES name. ok=false for an index outside the table.
+// has one (24 of the 149 do), else its esm.AV_NAMES name. ok=false for an index outside the table.
 actor_value_display :: proc(db: ^DB, index: i32) -> (string, bool) {
 	if index < 0 || index >= esm.ACTOR_VALUE_COUNT {
 		return "", false
@@ -329,7 +329,7 @@ actor_value_display :: proc(db: ^DB, index: i32) -> (string, bool) {
 			return full, true
 		}
 	}
-	return AV_NAMES[index], true
+	return esm.AV_NAMES[index], true
 }
 
 // actor_value_by_index returns the AVIF form defining ActorValue `index`. ok=false when no

@@ -14,7 +14,7 @@ test_effect_resistance :: proc(t: ^testing.T) {
 	NPC :: gamedb.Form_ID(0x700)
 	FIRE, BUFF, BOLT, IGNORING, VENOM :: gamedb.Form_ID(0x901), gamedb.Form_ID(0x902), gamedb.Form_ID(0x800), gamedb.Form_ID(0x801), gamedb.Form_ID(0x802)
 	FIRE_RESIST :: i32(41)
-	testing.expect_value(t, gamedb.AV_NAMES[FIRE_RESIST], "FireResist")
+	testing.expect_value(t, esm.AV_NAMES[FIRE_RESIST], "FireResist")
 	db: gamedb.DB
 	db.magic_effects = make(map[gamedb.Form_ID]gamedb.Magic_Effect, context.temp_allocator)
 	db.magic_effects[FIRE] = {info = {flags = esm.MGEF_HOSTILE, resist_av = FIRE_RESIST}}

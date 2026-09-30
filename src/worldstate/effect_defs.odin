@@ -141,7 +141,7 @@ effect_resistance :: proc(ws: ^World_State, db: ^gamedb.DB, effect: Form_ID) -> 
 	if d, ok := ws.effect_defs[effect]; ok {return d.resist}
 	mgef, _ := gamedb.magic_effect_of(db, effect)
 	i := mgef.info.resist_av
-	return gamedb.AV_NAMES[i] if i >= 0 && int(i) < len(gamedb.AV_NAMES) else ""
+	return esm.AV_NAMES[i] if i >= 0 && int(i) < len(esm.AV_NAMES) else ""
 }
 
 // effect_by_name is the effect a name means: a defined one, else a record's by editor id or as

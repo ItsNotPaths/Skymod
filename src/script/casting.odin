@@ -11,6 +11,7 @@ package script
 
 import "core:strings"
 import "../audio"
+import "../formats/esm"
 import "../gamedb"
 import "../worldstate"
 
@@ -94,5 +95,5 @@ spell_school :: proc(ws: ^worldstate.World_State, db: ^gamedb.DB, spell: Form_ID
 	m, _ := gamedb.magic_effect_of(db, sp.effects[i].effect)
 	av := m.info.magic_skill
 	if av < 6 || av >= 24 {return}
-	return gamedb.AV_NAMES[av], true
+	return esm.AV_NAMES[av], true
 }

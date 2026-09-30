@@ -16,6 +16,7 @@ import "../../audio"
 import "../../gamedb"
 import "../../sighthost"
 import "../../worldstate"
+import "../../formats/esm"
 import "../../formid"
 
 // (hole hit-death-events :tags combat :sev gap :needs (combat-damage)) only a projectile sends OnHit (8 script classes set a stage from it): melee and spells make no hit.
@@ -321,7 +322,7 @@ story_member :: proc(e: worldstate.Story_Event, m: string) -> any {
 	case "F1": return boxed(e.form)
 	case "V1": return boxed(e.value1)
 	case "V2": return boxed(e.value2)
-	case "S1": return boxed(gamedb.AV_NAMES[e.value1] if e.value1 >= 0 && int(e.value1) < len(gamedb.AV_NAMES) else "")
+	case "S1": return boxed(esm.AV_NAMES[e.value1] if e.value1 >= 0 && int(e.value1) < len(esm.AV_NAMES) else "")
 	}
 	return nil
 }

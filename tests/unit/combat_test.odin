@@ -76,3 +76,47 @@ test_combat_plugin :: proc(t: ^testing.T) {
 	h := Fake_Combat{confidence = 2}
 	testing.expect_value(t, fight(t, &table, &h, {actor = 0xA1, struck_by = 0x14}), combat.Fight{})
 }
+
+// Fake_Gear is one attacker (0xA1, OneHanded 50, UnarmedDamage 4) hitting a target (0xB1) that
+// wears a heavy cuirass (0xC1, rating 25) with HeavyArmor 50. The sword is 0xD1 (skill 6).
+Fake_Gear :: struct {
+	world: plugin.World,
+	worn:  [1]plugin.Form_ID,
+}
+
+fake_gear_world :: proc(g: ^Fake_Gear) -> ^plugin.World {
+	g.world = fake_world(g)
+	g.worn = {0xC1}
+	g.world.actor_value = proc "c" (data: rawptr, actor: plugin.Form_ID, name: cstring, part: plugin.AV_Part) -> f32 {
+		switch name {
+		case "OneHanded", "HeavyArmor": return 50
+		case "UnarmedDamage":           return 4
+		}
+		return 0
+	}
+	g.world.worn = proc "c" (data: rawptr, actor: plugin.Form_ID) -> plugin.Span(plugin.Form_ID) {
+		return plugin.span((^Fake_Gear)(data).worn[:]) if actor == 0xB1 else {}
+	}
+	g.world.record = proc "c" (data: rawptr, form: plugin.Form_ID, kind: plugin.Record_Kind, out: rawptr) -> bool {
+		s := (^plugin.Equip_Slot)(out)
+		switch form {
+		case 0xC1: s.gear = {skill = -1, armor_rating = 25, armor_type = .Heavy}
+		case 0xD1: s.weapon_type, s.gear = 1, {skill = 6}
+		case:      return false
+		}
+		return kind == .Equip_Slot
+	}
+	return &g.world
+}
+
+// A hit scales with the weapon skill and loses what the target's armor stops.
+@(test)
+test_damage_gear :: proc(t: ^testing.T) {
+	g: Fake_Gear
+	w := fake_gear_world(&g)
+	damage := combat.BUILTIN.damage
+	// 10 x (1 + 0.5 x 50%) = 12.5; the NPC's cuirass: 25 x (1 + 1.5 x 50%) = 43.75 at 0.12% = 5.25%
+	testing.expect(t, abs(damage(w, {0xA1, 0xB1, 0xD1}, 10) - 12.5 * (1 - 0.0525)) < 1e-4, "sword on armor")
+	testing.expect_value(t, damage(w, {0xA1, 0xE1, 0xD1}, 10), 12.5)
+	testing.expect_value(t, damage(w, {0xA1, 0xE1, 0}, 10), 4) // fists: UnarmedDamage
+}

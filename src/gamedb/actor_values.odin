@@ -4,48 +4,14 @@ import "base:runtime"
 import "core:strings"
 import "../formats/esm"
 
-// The engine's actor values. An actor value is its name here, in this case; MGEF, RACE, CLAS and
-// CTDA store an index into this table. AVIF records do not give the names: 9 EDIDs differ (21 is
-// AVMysticism) and 15 indices have no record at all.
-
-AV_NAMES := [esm.ACTOR_VALUE_COUNT]string {
-	"Aggression", "Confidence", "Energy", "Morality", "Mood", "Assistance",
-	"OneHanded", "TwoHanded", "Marksman", "Block", "Smithing", "HeavyArmor",
-	"LightArmor", "Pickpocket", "Lockpicking", "Sneak", "Alchemy", "Speechcraft",
-	"Alteration", "Conjuration", "Destruction", "Illusion", "Restoration", "Enchanting",
-	"Health", "Magicka", "Stamina", "HealRate", "MagickaRate", "StaminaRate",
-	"SpeedMult", "InventoryWeight", "CarryWeight", "CritChance", "MeleeDamage", "UnarmedDamage",
-	"Mass", "VoicePoints", "VoiceRate", "DamageResist", "PoisonResist", "FireResist",
-	"ElectricResist", "FrostResist", "MagicResist", "DiseaseResist", "PerceptionCondition", "EnduranceCondition",
-	"LeftAttackCondition", "RightAttackCondition", "LeftMobilityCondition", "RightMobilityCondition", "BrainCondition", "Paralysis",
-	"Invisibility", "NightEye", "DetectLifeRange", "WaterBreathing", "WaterWalking", "IgnoreCrippledLimbs",
-	"Fame", "Infamy", "JumpingBonus", "WardPower", "RightItemCharge", "ArmorPerks",
-	"ShieldPerks", "WardDeflection", "Variable01", "Variable02", "Variable03", "Variable04",
-	"Variable05", "Variable06", "Variable07", "Variable08", "Variable09", "Variable10",
-	"BowSpeedBonus", "FavorActive", "FavorsPerDay", "FavorsPerDayTimer", "LeftItemCharge", "AbsorbChance",
-	"Blindness", "WeaponSpeedMult", "ShoutRecoveryMult", "BowStaggerBonus", "Telekinesis", "FavorPointsBonus",
-	"LastBribedIntimidated", "LastFlattered", "MovementNoiseMult", "BypassVendorStolenCheck", "BypassVendorKeywordCheck", "WaitingForPlayer",
-	"OneHandedMod", "TwoHandedMod", "MarksmanMod", "BlockMod", "SmithingMod", "HeavyArmorMod",
-	"LightArmorMod", "PickPocketMod", "LockpickingMod", "SneakMod", "AlchemyMod", "SpeechcraftMod",
-	"AlterationMod", "ConjurationMod", "DestructionMod", "IllusionMod", "RestorationMod", "EnchantingMod",
-	"OneHandedSkillAdvance", "TwoHandedSkillAdvance", "MarksmanSkillAdvance", "BlockSkillAdvance", "SmithingSkillAdvance", "HeavyArmorSkillAdvance",
-	"LightArmorSkillAdvance", "PickPocketSkillAdvance", "LockpickingSkillAdvance", "SneakSkillAdvance", "AlchemySkillAdvance", "SpeechcraftSkillAdvance",
-	"AlterationSkillAdvance", "ConjurationSkillAdvance", "DestructionSkillAdvance", "IllusionSkillAdvance", "RestorationSkillAdvance", "EnchantingSkillAdvance",
-	"LeftWeaponSpeedMult", "DragonSouls", "CombatHealthRegenMult", "OneHandedPowerMod", "TwoHandedPowerMod", "MarksmanPowerMod",
-	"BlockPowerMod", "SmithingPowerMod", "HeavyArmorPowerMod", "LightArmorPowerMod", "PickPocketPowerMod", "LockpickingPowerMod",
-	"SneakPowerMod", "AlchemyPowerMod", "SpeechcraftPowerMod", "AlterationPowerMod", "ConjurationPowerMod", "DestructionPowerMod",
-	"IllusionPowerMod", "RestorationPowerMod", "EnchantingPowerMod", "DragonRend", "AttackDamageMult", "HealRateMult",
-	"MagickaRateMult", "StaminaRateMult", "WerewolfPerks", "VampirePerks", "GrabActorOffset", "Grabbed",
-	"DEPRECATED05", "ReflectDamage",
-}
 
 @(private = "file")
-av_by_name: map[string]string // lower-case -> AV_NAMES entry
+av_by_name: map[string]string // lower-case -> esm.AV_NAMES entry
 
 @(init, private = "file")
 index_av_names :: proc "contextless" () {
 	context = runtime.default_context()
-	for name in AV_NAMES {av_by_name[strings.to_lower(name)] = name}
+	for name in esm.AV_NAMES {av_by_name[strings.to_lower(name)] = name}
 }
 
 @(fini, private = "file")
@@ -94,7 +60,7 @@ av_kind :: proc(av: string) -> AV_Kind {
 	switch av {
 	case "Health", "Magicka", "Stamina": return .Latched
 	}
-	for name in AV_NAMES[6:24] {
+	for name in esm.AV_NAMES[6:24] {
 		if name == av {return .Latched} // the skills
 	}
 	return .Static
@@ -102,7 +68,7 @@ av_kind :: proc(av: string) -> AV_Kind {
 
 // skill_xp_of is a skill's XP rates from its AVIF (`skill` a canonical name).
 skill_xp_of :: proc(db: ^DB, skill: string) -> (xp: esm.Skill_XP, ok: bool) {
-	for name, i in AV_NAMES {
+	for name, i in esm.AV_NAMES {
 		if name != skill {continue}
 		info := db.actor_value_info[db.actor_value_by_index[i32(i)]] or_return
 		return info.skill, info.has_skill
@@ -116,7 +82,7 @@ skill_advance_av :: proc(skill: string) -> (string, bool) {
 	return actor_value_name(strings.concatenate({skill, "SkillAdvance"}, context.temp_allocator))
 }
 
-// actor_value_name is the AV_NAMES entry for a name in any case.
+// actor_value_name is the esm.AV_NAMES entry for a name in any case.
 actor_value_name :: proc(name: string) -> (av: string, ok: bool) {
 	buf: [AV_NAME_MAX]u8
 	key := av_key(name, buf[:]) or_return
@@ -159,10 +125,10 @@ actor_value_base :: proc(db: ^DB, form: Form_ID, av: string, pick: Form_ID = 0, 
 	case "StaminaRate":   return race.info.stamina_rate
 	case "UnarmedDamage": return race.info.unarmed_damage
 	}
-	for name, i in AV_NAMES[:6] {
+	for name, i in esm.AV_NAMES[:6] {
 		if name == av {return f32(template_part(db, base, esm.ACBS_TEMPLATE_AI_DATA, pick).ai[i])}
 	}
-	for name, i in AV_NAMES[6:24] {
+	for name, i in esm.AV_NAMES[6:24] {
 		if name == av {return f32(skill_base(db, stats, race, i, player_level))}
 	}
 	return implicit_base(av)

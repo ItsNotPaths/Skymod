@@ -83,6 +83,7 @@ Equip_Slot :: struct {
 	enchantment: Form_ID, // EITM: the ENCH it carries; 0 = none
 	damage:      f32,     // WEAP DATA u16, AMMO DATA f32
 	projectile:  Form_ID, // AMMO: the PROJ it flies as
+	gear:        esm.Gear, // crit_spell remapped
 }
 
 Equip_Kind :: enum u8 {
@@ -141,6 +142,8 @@ index_equip :: proc(db: ^DB, rec: esm.Record, kind: Equip_Kind, fm: ^esm.Form_Ma
 	if e, has := esm.subrecord_formid(fl, "EITM"); has {slot.enchantment = esm.remap_form(fm, e)}
 	damage, projectile := esm.item_damage(rec.type, fl)
 	slot.damage, slot.projectile = damage, esm.remap_form(fm, projectile)
+	slot.gear = esm.gear(rec.type, fl)
+	slot.gear.crit_spell = esm.remap_form(fm, u32(slot.gear.crit_spell))
 	db.equip_slots[rec.form_id] = slot
 }
 

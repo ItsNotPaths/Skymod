@@ -8,7 +8,7 @@ package worldstate
 import "../gamedb"
 import "../actorstate"
 
-// (hole npc-auto-equip :tags ai :sev gap :needs (gear-stats armor-rating)) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
+// (hole npc-auto-equip :tags ai :sev gap) an NPC never swaps to better armor or picks a weapon from its inventory (UESP Followers): nothing rates gear. Decided: it re-picks when its inventory changes (or every 1 s if that is cheaper); the pick is AI package logic.
 
 Worn :: struct {
 	item:  Form_ID,
