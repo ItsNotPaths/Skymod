@@ -341,6 +341,7 @@ land_casts :: proc(f: ^Fixture) {
 fixture_destroy :: proc(f: ^Fixture) {
 	slua.destroy(&f.vm)
 	worldstate.destroy(&f.ws)
+	delete(f.db.form_kinds) // loading an effect marks its form a MagicEffect
 	script.destroy(&f.reg)
 	os.remove_all(f.dir)
 }
@@ -1620,7 +1621,7 @@ test_hazards :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(f.ws.zones), 2)
 	for _, z in f.ws.zones {testing.expect(t, z.caster == 0 && z.left == 30 && abs(z.shape.half.x - 64) < 0.01, "a trap's hazard, 3 feet")}
 
-	f.ws.zones = {} // a fresh start for the placed hazard
+	clear(&f.ws.zones) // a fresh start for the placed hazard
 	f.db.placed_hazards = make([dynamic]gamedb.Form_ID, context.temp_allocator)
 	append(&f.db.placed_hazards, PLACED)
 	f.ws.attached[CELL] = make([dynamic]script.Form_ID)
@@ -1722,7 +1723,6 @@ test_rt_effect :: proc(t: ^testing.T) {
 	testing.expect(t, worldstate.has_tag(&f.ws, &f.db, BURN, "magic"), "tags")
 	f.db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
 	f.db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = BURN, magnitude = 4, duration = 99}, {effect = GATED, magnitude = 4, duration = 99}}}
-	f.db.form_kinds = make(map[gamedb.Form_ID]gamedb.Form_Kind, context.temp_allocator)
 	f.db.form_kinds[SPELL] = .Spell
 	worldstate.av_set_base(&f.ws, TARGET, "Health", 100)
 	PERK :: gamedb.Form_ID(0x950)
