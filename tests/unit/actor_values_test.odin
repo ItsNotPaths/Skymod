@@ -147,63 +147,6 @@ test_actor_bounds :: proc(t: ^testing.T) {
 	testing.expect_value(t, gamedb.actor_bounds(&db, OTHER), gamedb.HUMAN_BOUNDS)
 }
 
-// A record perk's entry points run highest priority first, and a failing condition tab skips its entry.
-@(test)
-test_perk_value :: proc(t: ^testing.T) {
-	NPC :: gamedb.Form_ID(0x20)
-	PERK :: gamedb.Form_ID(0x30)
-	OTHER :: gamedb.Form_ID(0x31)
-	HAS_PERK :: 448
-	db: gamedb.DB
-	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
-	db.actors[NPC] = {perks = {PERK}}
-	gate := []gamedb.Condition{{function = HAS_PERK, op = .Equal, value = 1, param1 = u64(OTHER)}}
-	db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
-	db.perks[PERK] = {entries = {
-		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, priority = 0, values = {1.5, 0}},
-		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, priority = 1, values = {10, 0}},
-		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, values = {1000, 0}, tabs = {{0, gate}}},
-		{kind = .Entry_Point, point = .Mod_Spell_Cost, function = .Set_Value, values = {0, 0}},
-	}}
-	ws: worldstate.World_State
-	worldstate.init(&ws)
-	defer worldstate.destroy(&ws)
-	c := script.Call{ws = &ws, db = &db}
-
-	testing.expect_value(t, script.perk_value(&c, .Mod_Spell_Magnitude, NPC, 10), 30)
-	worldstate.perk_remove(&ws, NPC, PERK)
-	testing.expect_value(t, script.perk_value(&c, .Mod_Spell_Magnitude, NPC, 10), 10)
-}
-
-// A spell's magnitude goes through the caster's Mod Spell Magnitude perks and the target's Mod
-// Incoming Spell Magnitude perks.
-@(test)
-test_effect_magnitude_perks :: proc(t: ^testing.T) {
-	CASTER, TARGET :: gamedb.Form_ID(0x20), gamedb.Form_ID(0x21)
-	SPELL, MGEF, CASTER_PERK, TARGET_PERK :: gamedb.Form_ID(0x900), gamedb.Form_ID(0x901), gamedb.Form_ID(0x30), gamedb.Form_ID(0x31)
-	db: gamedb.DB
-	db.actors = make(map[gamedb.Form_ID]gamedb.Actor_Base, context.temp_allocator)
-	db.actors[CASTER] = {perks = {CASTER_PERK}}
-	db.actors[TARGET] = {perks = {TARGET_PERK}}
-	db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
-	db.perks[CASTER_PERK] = {entries = {{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, values = {2, 0}}}}
-	db.perks[TARGET_PERK] = {entries = {{kind = .Entry_Point, point = .Mod_Incoming_Spell_Magnitude, function = .Multiply_Value, values = {0.25, 0}}}}
-	db.spells = make(map[gamedb.Form_ID]gamedb.Spell, context.temp_allocator)
-	db.spells[SPELL] = {info = {cast_type = .Fire_And_Forget}, effects = []gamedb.Magic_Effect_Ref{{effect = MGEF, magnitude = 10, duration = 5}}}
-	db.magic_effects = make(map[gamedb.Form_ID]gamedb.Magic_Effect, context.temp_allocator)
-	db.magic_effects[MGEF] = {info = {resist_av = esm.AV_NONE}}
-	ws: worldstate.World_State
-	worldstate.init(&ws)
-	defer worldstate.destroy(&ws)
-	c := script.Call{ws = &ws, db = &db}
-
-	script.start_spell(&c, SPELL, TARGET, CASTER)
-	h := script.spell_effects(&ws, TARGET, SPELL)[0]
-	testing.expect_value(t, ws.effects[h].magnitude, 5) // x2, then x0.25
-	script.start_spell(&c, SPELL, CASTER, TARGET)
-	testing.expect_value(t, ws.effects[script.spell_effects(&ws, CASTER, SPELL)[0]].magnitude, 10) // reversed: neither perk applies
-}
-
 // Sprinting spends 7 stamina a second, 2% more per unit of worn armor weight; a held weapon's weight
 // does not count.
 @(test)

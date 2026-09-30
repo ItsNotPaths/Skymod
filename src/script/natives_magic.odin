@@ -315,9 +315,9 @@ use_item :: proc(c: ^Call, actor, item: Form_ID) -> bool {
 // start_effects starts each effect of `source` whose MGEF's conditions pass. The source's own
 // conditions for that effect decide whether it is active, now and at each second's recheck (CK
 // wiki, Magic Effect: Target Conditions). They run on the target, with the caster as the condition
-// target. A spell's magnitude and duration go through the caster's Mod Spell perks and the
-// target's Mod Incoming Spell perks, then a record's resistance (worldstate.resisted), then the
-// landing hooks (the last resists a defined effect) and the effect's land; effects stack by
+// target. A record's magnitude goes through its resistance (worldstate.resisted), then every
+// effect's through the magichit hooks (perks, then mods; the last resists a defined effect) and
+// the effect's own; effects stack by
 // worldstate.stack_effect. A timed effect goes on for its taper after its duration.
 // (hole concentration-conditions :tags (magic unclaimed) :sev polish :needs (concentration)) a concentration spell inverts the checks: its spell-side conditions once at the cast start, its effect-side each second as the effect reapplies. Both run the fire-and-forget way.
 @(private)
@@ -334,15 +334,8 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 		def, defined := c.ws.effect_defs[e.effect] // its land stands in for the MGEF's conditions
 		if !defined && !conditions.all(&ctx, mgef.conditions) {continue}
 		taper := 0 if lasts else def.taper if defined else mgef.info.taper_duration
-		magnitude, duration := e.magnitude, f32(e.duration)
-		// (hole spell-perk-sources :tags magic :sev gap :needs (perk-translate)) Mod Spell Magnitude and Duration reach spells only; vanilla applies them to potions and enchantments too (mechanics.md: the Fortify Restoration loop runs through it). Landing hooks already run for every source; this goes once those perks are hooks.
-		if is_spell {
-			magnitude = perk_value(c, .Mod_Spell_Magnitude, caster, magnitude, source, target)
-			magnitude = perk_value(c, .Mod_Incoming_Spell_Magnitude, target, magnitude, source)
-			duration = perk_value(c, .Mod_Spell_Duration, caster, duration, source, target)
-			duration = perk_value(c, .Mod_Incoming_Spell_Duration, target, duration, source)
-		}
-		m := magnitude if defined else worldstate.resisted(c.ws, c.db, source, e.effect, target, magnitude)
+		duration := f32(e.duration)
+		m := e.magnitude if defined else worldstate.resisted(c.ws, c.db, source, e.effect, target, e.magnitude)
 		m, duration = effect_numbers(c, hit, e.effect, m, duration)
 		eff := worldstate.Active_Effect{effect = e.effect, spell = source, target = target, caster = caster, lasts = lasts, duration = duration, taper = taper, magnitude = m, item = i}
 		eff.inactive = !conditions.all(&ctx, e.conditions)

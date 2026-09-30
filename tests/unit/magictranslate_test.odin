@@ -203,3 +203,53 @@ return rt.perk {
 }
 `)
 }
+
+// Magic perk entries land in magichit and magiccost hooks: a spell tab's keyword and school tests are
+// the effect's tags, its half-cost perk the spell's; a multiplier on magnitude lengthens an effect
+// that a boost lengthens (boost), an add stays on m; Mod Incoming runs on the one hit.
+@(test)
+test_magic_translate_magic_perk :: proc(t: ^testing.T) {
+	src: magictranslate.Source
+	src.files = make(map[u32]string, context.temp_allocator)
+	src.edids = make(map[gamedb.Form_ID]string, context.temp_allocator)
+	src.db.form_by_edid = make(map[string]gamedb.Form_ID, context.temp_allocator)
+	src.db.perks = make(map[gamedb.Form_ID]gamedb.Perk, context.temp_allocator)
+	src.files[0] = "Skyrim.esm"
+	PERK, FIRE :: gamedb.Form_ID(0x581E7), gamedb.Form_ID(0x1CEAD)
+	for n in ([?]struct {f: gamedb.Form_ID, e: string}{{PERK, "AugmentedFlames"}, {FIRE, "MagicDamageFire"}}) {
+		src.edids[n.f] = n.e
+		src.db.form_by_edid[strings.to_lower(n.e, context.temp_allocator)] = n.f
+	}
+	illusion: u64
+	for name, i in esm.AV_NAMES {if name == "Illusion" {illusion = u64(i)}}
+	has_kw, _ := esm.condition_function_by_name("EPMagic_SpellHasKeyword")
+	has_skill, _ := esm.condition_function_by_name("EPMagic_SpellHasSkill")
+	casting, _ := esm.condition_function_by_name("SpellHasCastingPerk")
+	src.db.perks[PERK] = {entries = {
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Multiply_Value, values = {1.25, 0}, tabs = {{tab = 1, conditions = {{function = has_kw, op = .Equal, value = 1, param1 = u64(FIRE)}}}}},
+		{kind = .Entry_Point, point = .Mod_Spell_Magnitude, function = .Add_Value, values = {8, 0}, tabs = {{tab = 1, conditions = {{function = has_skill, op = .Equal, value = 1, param1 = illusion}}}}},
+		{kind = .Entry_Point, point = .Mod_Spell_Cost, function = .Multiply_Value, values = {0.5, 0}, tabs = {{tab = 1, conditions = {{function = casting, op = .Equal, value = 1, param1 = u64(PERK)}}}}},
+		{kind = .Entry_Point, point = .Mod_Incoming_Spell_Magnitude, function = .Multiply_Value, values = {0.5, 0}},
+	}}
+	text, ok := magictranslate.perk_lua(&src, magictranslate.perk_chain(&src, PERK))
+	testing.expect(t, ok, "every entry has a Lua form")
+	testing.expect_value(t, text, `-- Skyrim.esm PERK AugmentedFlames
+local rt = require('skymod.rt')
+
+local function cast(c)
+  if c.actor.av.AugmentedFlames.value >= 1 and c.source and c.source:HasTag("casting.AugmentedFlames") then c.cost.mult = c.cost.mult * 0.5 end
+end
+
+local function effect(e)
+  local boost = e.effect:HasTag("power.duration") and e.d or e.m
+  if e.actor and e.actor.av.AugmentedFlames.value >= 1 and e.source and e.effect:HasTag("kw.MagicDamageFire") then boost.mult = boost.mult * 1.25 end
+  if e.actor and e.actor.av.AugmentedFlames.value >= 1 and e.source and e.effect:HasTag("school.illusion") then e.m.add = e.m.add + 8 end
+  if e.target.av.AugmentedFlames.value >= 1 then boost.mult = boost.mult * 0.5 end
+end
+
+return rt.perk {
+  ranks = { "AugmentedFlames" },
+  hooks = { magiccost = cast, magichit = effect },
+}
+`)
+}

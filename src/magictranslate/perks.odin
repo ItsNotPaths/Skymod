@@ -10,42 +10,56 @@ import "core:strings"
 import "../formats/esm"
 import "../gamedb"
 
-// (hole perk-translate :tags (magic records player) :sev gap) the 607 magic perk entry points are not translated: each becomes Lua in a landing or cost hook (Multiply, Add, Set and `1 + AV * k` are plain code, entry priority is hook order), Apply_Combat_Hit_Spell and Select_Spell become event scripts. Measure first which fit (build/out/wsM/edges.md section 1).
+// (hole magic-perk-points :tags (magic player) :sev gap) not translated: Mod_Spell_Range_To_Location (11 entries), Mod_Commanded_Actor_Limit (Twin Souls; the limit is the CommandedActorLimit AV), Apply_Sneaking_Spell, Apply_Reanimate_Spell and Mod_Shout_OK. The crafting, dual-cast, ward and soul points wait on their own holes.
 // (hole swing-spell :tags combat :sev gap :needs (actor-states)) Apply_Weapon_Swing_Spell (Quick Reflexes, 1 entry) is not translated: it runs on the one blocking as an enemy power attacks, and no actor has a block or power-attack state.
 // (hole perk-priority :tags combat :sev polish) two Sets on one part: the last hook's wins, so entry priority counts only within a chain; across perks it is file order.
 
 // Point is where an entry point's entries land: the perk file's function (FN_KINDS), its context,
 // the part they change, the Lua ref each tab's conditions run on (tab 0 the owner), and a test the
-// moment itself needs.
+// moment itself needs. A magic point's tab 1 is the spell, its tests answered by `tagged`'s tags;
+// `boost`: a multiplier goes to the duration of an effect a boost lengthens (power.duration).
 @(private)
 Point :: struct {
 	fn, ctx, part: string,
 	tabs:          [3]string,
 	only:          string,
+	tagged:        string,
+	boost:         bool,
 }
 
 // FN_KINDS are the hook kinds each function of a perk file runs as: an entry about weapon hits
 // counts for melee and archery alike.
 @(private)
-FN_KINDS := [?][2]string{{"cost", "meleecost"}, {"hit", "meleehit"}, {"hit", "archhit"}, {"armor", "armorhit"}}
+FN_KINDS := [?][2]string{{"cost", "meleecost"}, {"hit", "meleehit"}, {"hit", "archhit"}, {"armor", "armorhit"}, {"cast", "magiccost"}, {"effect", "magichit"}}
+
+@(private)
+CASTER :: [3]string{"e.actor", "e.source", "e.target"}
+
+@(private)
+RECEIVER :: [3]string{"e.target", "e.source", "e.actor"}
 
 @(private)
 ATTACKER :: [3]string{"h.actor", "h.source", "h.target"}
 
 @(private)
 POINTS := #partial [gamedb.Entry_Point]Point {
-	.Calculate_Weapon_Damage          = {"hit", "h", "h.damage", ATTACKER, ""},
-	.Mod_Attack_Damage                = {"hit", "h", "h.damage", ATTACKER, ""},
-	.Mod_Incoming_Damage              = {"hit", "h", "h.damage", {"h.target", "h.actor", "h.source"}, ""},
-	.Mod_Target_Damage_Resistance     = {"hit", "h", "h.armor_pen", ATTACKER, ""},
-	.Calculate_My_Critical_Hit_Chance = {"hit", "h", "h.crit_chance", ATTACKER, ""},
-	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER, ""},
-	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER, ""},
-	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER, ""},
-	.Apply_Combat_Hit_Spell           = {"hit", "h", "", ATTACKER, ""},
-	.Apply_Bashing_Spell              = {"hit", "h", "", ATTACKER, "h.bash"},
-	.Mod_Power_Attack_Stamina         = {"cost", "c", "c.cost", {"c.actor", "c.source", ""}, "c.power"},
-	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.actor", "a.source", ""}, ""},
+	.Calculate_Weapon_Damage          = {"hit", "h", "h.damage", ATTACKER, "", "", false},
+	.Mod_Attack_Damage                = {"hit", "h", "h.damage", ATTACKER, "", "", false},
+	.Mod_Incoming_Damage              = {"hit", "h", "h.damage", {"h.target", "h.actor", "h.source"}, "", "", false},
+	.Mod_Target_Damage_Resistance     = {"hit", "h", "h.armor_pen", ATTACKER, "", "", false},
+	.Calculate_My_Critical_Hit_Chance = {"hit", "h", "h.crit_chance", ATTACKER, "", "", false},
+	.Calculate_My_Critical_Hit_Damage = {"hit", "h", "h.crit_damage", ATTACKER, "", "", false},
+	.Mod_Power_Attack_Damage          = {"hit", "h", "h.power_mult", ATTACKER, "", "", false},
+	.Mod_Sneak_Attack_Mult            = {"hit", "h", "h.sneak_mult", ATTACKER, "", "", false},
+	.Apply_Combat_Hit_Spell           = {"hit", "h", "", ATTACKER, "", "", false},
+	.Apply_Bashing_Spell              = {"hit", "h", "", ATTACKER, "h.bash", "", false},
+	.Mod_Power_Attack_Stamina         = {"cost", "c", "c.cost", {"c.actor", "c.source", ""}, "c.power", "", false},
+	.Mod_Armor_Rating                 = {"armor", "a", "a.rating", {"a.actor", "a.source", ""}, "", "", false},
+	.Mod_Spell_Cost                   = {"cast", "c", "c.cost", {"c.actor", "c.source", ""}, "", "c.source", false},
+	.Mod_Spell_Magnitude              = {"effect", "e", "e.m", CASTER, "", "e.effect", true},
+	.Mod_Spell_Duration               = {"effect", "e", "e.d", CASTER, "", "e.effect", false},
+	.Mod_Incoming_Spell_Magnitude     = {"effect", "e", "e.m", RECEIVER, "", "e.effect", true},
+	.Mod_Incoming_Spell_Duration      = {"effect", "e", "e.d", RECEIVER, "", "e.effect", false},
 }
 
 // perk_chain is the chain a perk heads, first rank first; nil when another perk ranks up into it.
@@ -72,6 +86,7 @@ chain_wanted :: proc(src: ^Source, chain: []Form_ID) -> bool {
 // point; false when one has a condition or function with no Lua form.
 perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 	lines := make(map[string][dynamic]string, context.temp_allocator)
+	ctxs := make(map[string]string, context.temp_allocator) // function -> its context's name
 	for member, rank in chain {
 		entries := slice.clone(src.db.perks[member].entries, context.temp_allocator)
 		slice.stable_sort_by(entries, proc(a, b: gamedb.Perk_Entry) -> bool {return a.priority > b.priority})
@@ -81,6 +96,7 @@ perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 			gate := entry_gate(src, chain, rank, e, pt) or_return
 			change := change_lua(src, pt, e) or_return
 			if pt.fn not_in lines {lines[pt.fn] = make([dynamic]string, context.temp_allocator)}
+			ctxs[pt.fn] = pt.ctx
 			append(&lines[pt.fn], fmt.tprintf("  if %s then %s end", gate, change))
 		}
 	}
@@ -88,9 +104,10 @@ perk_lua :: proc(src: ^Source, chain: []Form_ID) -> (text: string, ok: bool) {
 	b := strings.builder_make(context.temp_allocator)
 	fmt.sbprintfln(&b, "-- %s PERK %s", src.files[u32(chain[0] >> 32)], src.edids[chain[0]])
 	fmt.sbprintln(&b, "local rt = require('skymod.rt')")
-	for fn in ([]string{"cost", "hit", "armor"}) {
+	for fn in ([]string{"cost", "hit", "armor", "cast", "effect"}) {
 		body := lines[fn] or_continue
-		fmt.sbprintfln(&b, "\nlocal function %s(%s)", fn, fn[:1])
+		fmt.sbprintfln(&b, "\nlocal function %s(%s)", fn, ctxs[fn])
+		if fn == "effect" {fmt.sbprintln(&b, "  local boost = e.effect:HasTag(\"power.duration\") and e.d or e.m")}
 		for l in body {fmt.sbprintln(&b, l)}
 		fmt.sbprintln(&b, "end")
 	}
@@ -120,7 +137,7 @@ entry_gate :: proc(src: ^Source, chain: []Form_ID, rank: int, e: gamedb.Perk_Ent
 	top := 0
 	parts := make([dynamic]string, context.temp_allocator)
 	for tab in e.tabs {
-		who := Who{pt.ctx, pt.tabs[tab.tab] if tab.tab < len(pt.tabs) else "", ""}
+		who := Who{pt.ctx, pt.tabs[tab.tab] if tab.tab < len(pt.tabs) else "", "", pt.tagged if tab.tab == 1 else ""}
 		if who.subject == "" {return "", false}
 		conds := tab.conditions
 		if tab.tab == 0 {conds, top = drop_rank_tests(chain, rank, conds)}
@@ -136,6 +153,7 @@ entry_gate :: proc(src: ^Source, chain: []Form_ID, rank: int, e: gamedb.Perk_Ent
 	case top > 0:         inject_at(&parts, 0, fmt.tprintf("%s >= %d and %s <= %d", av, rank + 1, av, top))
 	case:                 inject_at(&parts, 0, fmt.tprintf("%s >= %d", av, rank + 1))
 	}
+	if pt.tabs[0] == "e.actor" {inject_at(&parts, 0, "e.actor")} // an applied effect may have no caster
 	return strings.join(parts[:], " and ", context.temp_allocator), true
 }
 
@@ -176,6 +194,7 @@ gated_on_unbuilt :: proc(e: gamedb.Perk_Entry) -> bool {
 @(private)
 change_lua :: proc(src: ^Source, pt: Point, e: gamedb.Perk_Entry) -> (text: string, ok: bool) {
 	p, v := pt.part, e.values[0]
+	if pt.boost && (e.function == .Multiply_Value || e.function == .Multiply_1_Plus_AV_Mult) {p = "boost"}
 	#partial switch e.function {
 	case .Select_Spell:
 		if e.form == 0 {return "", false}

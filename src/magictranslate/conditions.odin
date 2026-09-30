@@ -10,13 +10,14 @@ import "../formats/esm"
 import "../gamedb"
 
 // Who names, in Lua, the context a gate runs in and the refs a condition's Subject and Target are;
-// "" where that run-on has no Lua form.
+// "" where that run-on has no Lua form. On a perk's spell tab, `tagged` is the ref whose tags answer
+// the spell tests (EPMagic_SpellHasKeyword, EPMagic_SpellHasSkill, HasKeyword).
 Who :: struct {
-	ctx, subject, target: string,
+	ctx, subject, target, tagged: string,
 }
 
 // MGEF_WHO: an effect's magichit, where Subject is the one hit and Target the caster.
-MGEF_WHO :: Who{"e", "e.target", "e.actor"}
+MGEF_WHO :: Who{"e", "e.target", "e.actor", ""}
 
 // land_lua writes an effect's own magichit hook: false from it when the `extra` test or the
 // conditions fail, then each dispel (DispelTagged); "" for none. ok=false when a condition has no
@@ -68,6 +69,16 @@ gate_lua :: proc(src: ^Source, conds: []gamedb.Condition, who: Who, and_: string
 condition_lua :: proc(src: ^Source, c: gamedb.Condition, who: Who) -> (text: string, ok: bool) {
 	if .Swap in c.flags || .Use_Aliases in c.flags || .Use_Pack_Data in c.flags {return "", false}
 	info := esm.condition_function(c.function)
+	if who.tagged != "" {
+		test, spell_test := spell_test_lua(src, c, info, who)
+		if spell_test {
+			switch truth(c.op, c.value) {
+			case .Yes:     return test, test != ""
+			case .No:      return fmt.tprintf("not %s", test), test != ""
+			case .Unclear: return "", false
+			}
+		}
+	}
 	call := call_lua(src, c, info, who) or_return
 	global := .Use_Global in c.flags
 	if esm.condition_answers_bool(info.name) {
@@ -80,6 +91,20 @@ condition_lua :: proc(src: ^Source, c: gamedb.Condition, who: Who) -> (text: str
 	OPS := [esm.Condition_Op]string{.Equal = "==", .NotEqual = "~=", .Greater = ">", .GreaterOrEqual = ">=", .Less = "<", .LessOrEqual = "<="}
 	value := fmt.tprintf("%s.global.%s", who.ctx, src.edids[c.global]) if global else fmt.tprint(c.value)
 	return fmt.tprintf("%s %s %s", call, OPS[c.op], value), true
+}
+
+// spell_test_lua writes a perk's spell-tab test by tags: a keyword of the effect (the spell's, for a
+// cost), its school, the half-cost perk the spell counts as, or which spell it is. An EPMagic_ test
+// with none is "" (not translated).
+@(private)
+spell_test_lua :: proc(src: ^Source, c: gamedb.Condition, info: esm.Condition_Function, who: Who) -> (test: string, is_spell_test: bool) {
+	switch info.name {
+	case "EPMagic_SpellHasKeyword", "HasKeyword": return fmt.tprintf("%s:HasTag(\"kw.%s\")", who.tagged, src.edids[Form_ID(c.param1)]), true
+	case "EPMagic_SpellHasSkill":                 return fmt.tprintf("%s:HasTag(\"school.%s\")", who.tagged, strings.to_lower(av_name(i32(c.param1)), context.temp_allocator)), true
+	case "SpellHasCastingPerk":                   return fmt.tprintf("%s:HasTag(\"casting.%s\")", who.subject, src.edids[Form_ID(c.param1)]), true
+	case "GetIsID":                               return fmt.tprintf("%s == rt.ref(%q)", who.subject, form_name(src, Form_ID(c.param1))), true
+	}
+	return "", strings.has_prefix(info.name, "EPMagic_")
 }
 
 // call_lua writes the function a condition asks, called on its subject; a global by the naming rule.
