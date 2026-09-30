@@ -192,6 +192,8 @@ Runtime :: struct {
 	talking:         Form_ID,               // the actor in dialogue with the player; 0 when none
 	force_greet:     Force_Greet,           // an NPC asking to talk to the player; 0 speaker when none
 	barks:           [dynamic]Bark,         // lines said outside conversations and scenes
+	notes:           [dynamic]Note,         // notifications, oldest first (hud.odin); not saved
+	foe:             Foe,                   // the actor the player last hit (hud.odin); not saved
 	noises:          [dynamic]Noise,        // sounds since detection last listened (awareness.odin); not saved
 	asks:            [dynamic]Ask,          // message boxes asked for, oldest first (asks.odin); not saved
 	answers:         map[Form_ID]i32,       // message -> the button picked on its last box; not saved
@@ -321,6 +323,7 @@ destroy :: proc(ws: ^World_State) {
 	delete(ws.zone_waits)
 	delete(ws.story_events)
 	delete(ws.barks)
+	destroy_notes(ws)
 	delete(ws.noises)
 	delete(ws.asks)
 	delete(ws.answers)

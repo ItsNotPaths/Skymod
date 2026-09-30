@@ -207,6 +207,7 @@ Snapshot :: struct {
 	drops:  int, // the dev drop-test balls, posed in `bodies` as ref 0
 	actors: [dynamic]Actor_View,
 	act:    Act_View, // what the crosshair is on
+	hud:    Hud_View, // the player's meters, foe and notifications (hud.odin)
 	subtitles: [dynamic]Text_Span, // the lines being said now
 	talk:   Talk_View, // the player's conversation
 	visuals: [dynamic]Visual_View, // the effects scripts and magic started (graphics_host.odin)
@@ -217,6 +218,7 @@ snapshot_destroy :: proc(s: ^Snapshot) {
 	world.poses_destroy(&s.bodies)
 	delete(s.actors)
 	delete(s.subtitles)
+	delete(s.hud.notes)
 	delete(s.visuals)
 	delete(s.talk.choices)
 	delete(s.text)
@@ -267,6 +269,7 @@ publish_snapshot :: proc(g: ^Game) {
 	s.drops = len(g.sim.drops)
 	view_actors(g, s)
 	s.act = view_act(s, resolve_activation(g, g.sim.input.aim))
+	view_hud(g, s)
 	view_subtitles(g, s)
 	view_talk(g, s)
 	view_visuals(g, s)

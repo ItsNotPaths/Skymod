@@ -27,9 +27,11 @@ Hit :: struct {
 	kind:                                  combat.Attack_Kind,
 }
 
-// strike records that `attacker` hit `victim`, for the victim's combat to answer.
+// strike records that `attacker` hit `victim`, for the victim's combat to answer and the HUD's foe.
 strike :: proc(ws: ^World_State, victim, attacker: Form_ID) {
-	if attacker != 0 && attacker != victim {ws.struck[victim] = attacker}
+	if attacker == 0 || attacker == victim {return}
+	ws.struck[victim] = attacker
+	if attacker == ws.player {ws.foe = {victim, ws.clock.played}}
 }
 
 // (hole friend-hit-reset :tags combat :sev polish) unsourced: whether a friend's count of hits ever resets; it never does.

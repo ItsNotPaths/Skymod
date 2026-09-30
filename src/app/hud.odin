@@ -9,6 +9,7 @@ package main
 // lifetime and publishes the resolved activation target into the host each frame.
 
 import "../render"
+import "../worldstate"
 
 // hud_init opens the persistent HUD session on hud.lua. baseui (chrome + reticle asset) and a font
 // atlas are already ensured by loadui_init, which runs earlier in game_setup. ok=false (font/atlas
@@ -43,6 +44,7 @@ frame_hud :: proc(g: ^Game) {
 		return
 	}
 
+	g.hud.host.snap = &g.snap
 	tgt := g.snap.act
 	g.hud.host.act_present = tgt.present
 	g.hud.host.act_kind = activate_kind_tag[tgt.kind]
@@ -52,4 +54,53 @@ frame_hud :: proc(g: ^Game) {
 
 	w, h := ui_screen_size()
 	ui_session_draw(&g.hud, w, h)
+}
+
+// Hud_View is what the HUD shows of the player: its meters, the foe it last hit, notifications.
+Hud_View :: struct {
+	health, magicka, stamina: Meter_View,
+	combat: bool, // the player fights, or is fought
+	foe:    Foe_View,
+	notes:  [dynamic]Note_View, // oldest first
+}
+
+Meter_View :: struct {
+	cur, max: f32,
+}
+
+Foe_View :: struct {
+	present:  bool,
+	name:     Text_Span,
+	health:   Meter_View,
+	age:      f32, // seconds since the player last hit it
+	fighting: bool, // it fights the player
+}
+
+Note_View :: struct {
+	text: Text_Span,
+	age:  f32, // seconds since it was posted
+}
+
+view_hud :: proc(g: ^Game, s: ^Snapshot) {
+	ws := &g.sim.ws
+	meter :: proc(g: ^Game, actor: Form_ID, av: string) -> Meter_View {
+		return {worldstate.av_current(&g.sim.ws, &g.db, actor, av), worldstate.av_max(&g.sim.ws, &g.db, actor, av)}
+	}
+	h := &s.hud
+	h.health = meter(g, ws.player, "Health")
+	h.magicka = meter(g, ws.player, "Magicka")
+	h.stamina = meter(g, ws.player, "Stamina")
+	h.combat = worldstate.in_combat(ws, ws.player)
+	h.foe = {}
+	if f := ws.foe; f.ref != 0 {
+		h.foe = {
+			present  = true,
+			name     = add_text(s, worldstate.display_name(ws, &g.db, f.ref)),
+			health   = meter(g, f.ref, "Health"),
+			age      = f32(ws.clock.played - f.at),
+			fighting = ws.ai.fighting[f.ref] == ws.player,
+		}
+	}
+	clear(&h.notes)
+	for n in ws.notes {append(&h.notes, Note_View{add_text(s, n.text), f32(ws.clock.played - n.at)})}
 }

@@ -358,7 +358,7 @@ n_trace :: proc(c: ^Call, args: []Value) -> Value {
 }
 
 n_notification :: proc(c: ^Call, args: []Value) -> Value {
-	log.infof("[notification] %s", arg_str(args, 0))
+	worldstate.notify(c.ws, arg_str(args, 0))
 	return nil
 }
 

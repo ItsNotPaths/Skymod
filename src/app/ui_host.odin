@@ -48,6 +48,8 @@ UI_Host :: struct {
 	act_name:       string, // the object's own display name
 	act_dest:       string, // a door's destination place name ("Riverwood Trader")
 	act_locked:     bool,
+	// The frame's sim snapshot (engine.hud()), set by frame_hud. nil = no HUD data.
+	snap:           ^Snapshot,
 	// The open message box (engine.message_box()), owned by Game.box. Unset = no box.
 	box:            Maybe(Box_Text),
 	// Button-prompt resolution (engine.prompt(action)): the live input manager + the pad
@@ -78,6 +80,7 @@ install_engine_api :: proc(vm: ^ui.VM) {
 	ui.register_host(L, vm, "credits", engine_credits)
 	ui.register_host(L, vm, "load_progress", engine_load_progress)
 	ui.register_host(L, vm, "activation", engine_activation)
+	ui.register_host(L, vm, "hud", engine_hud)
 	ui.register_host(L, vm, "prompt", engine_prompt)
 	ui.register_host(L, vm, "play_sound", engine_play_sound)
 	ui.register_host(L, vm, "message_box", engine_message_box)
@@ -181,6 +184,49 @@ engine_activation :: proc "c" (L: ^lua.State) -> c.int {
 	set_str_field(L, "name", host.act_name)
 	set_str_field(L, "dest", host.act_dest)
 	lua.pushboolean(L, b32(host.act_locked));lua.setfield(L, -2, "locked")
+	return 1
+}
+
+// engine_hud() → the player's meters, foe and notifications from the frame's snapshot (Hud_View):
+// { health = {cur, max}, magicka, stamina, combat, foe = {name, health, age, fighting} or nil,
+//   notes = { {text, age}, ... } }. nil when no snapshot is set.
+@(private = "file")
+engine_hud :: proc "c" (L: ^lua.State) -> c.int {
+	vm := ui.vm_from_upvalue(L)
+	context = vm.host_ctx
+	s := (cast(^UI_Host)vm.user).snap
+	if s == nil {
+		lua.pushnil(L)
+		return 1
+	}
+	meter :: proc(L: ^lua.State, key: cstring, m: Meter_View) {
+		lua.createtable(L, 0, 2)
+		lua.pushnumber(L, lua.Number(m.cur));lua.setfield(L, -2, "cur")
+		lua.pushnumber(L, lua.Number(m.max));lua.setfield(L, -2, "max")
+		lua.setfield(L, -2, key)
+	}
+	h := &s.hud
+	lua.createtable(L, 0, 6)
+	meter(L, "health", h.health)
+	meter(L, "magicka", h.magicka)
+	meter(L, "stamina", h.stamina)
+	lua.pushboolean(L, b32(h.combat));lua.setfield(L, -2, "combat")
+	if h.foe.present {
+		lua.createtable(L, 0, 4)
+		set_str_field(L, "name", text(s, h.foe.name))
+		meter(L, "health", h.foe.health)
+		lua.pushnumber(L, lua.Number(h.foe.age));lua.setfield(L, -2, "age")
+		lua.pushboolean(L, b32(h.foe.fighting));lua.setfield(L, -2, "fighting")
+		lua.setfield(L, -2, "foe")
+	}
+	lua.createtable(L, i32(len(h.notes)), 0)
+	for n, i in h.notes {
+		lua.createtable(L, 0, 2)
+		set_str_field(L, "text", text(s, n.text))
+		lua.pushnumber(L, lua.Number(n.age));lua.setfield(L, -2, "age")
+		lua.seti(L, -2, lua.Integer(i))
+	}
+	lua.setfield(L, -2, "notes")
 	return 1
 }
 
