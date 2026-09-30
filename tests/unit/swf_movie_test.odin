@@ -81,7 +81,7 @@ test_swf_layout_moving_box :: proc(t: ^testing.T) {
 	for m in e.moving {
 		switch m.label {
 		case "Full":  testing.expect_value(t, m.rect, swf.Rect{100, 50, 110, 60})
-		case "Empty": testing.expect_value(t, m.rect, swf.Rect{90, 50, 100, 60}) // slid left
+		case "Empty": testing.expect(t, swf.rect_empty(m.rect)) // slid out from under the mask
 		}
 	}
 }
@@ -105,5 +105,5 @@ test_swf_layout_source_loads :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, num(L, {"art", "interface/hud/meter.dds", "w"}), 12)
 	testing.expect_value(t, num(L, {"instances", "Meter", "rect", "x"}), 100)
-	testing.expect_value(t, num(L, {"instances", "Meter", "moving", "Empty", "x"}), 90)
+	testing.expect_value(t, num(L, {"instances", "Meter", "moving", "Full", "w"}), 10)
 }

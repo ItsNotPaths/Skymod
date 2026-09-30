@@ -48,8 +48,17 @@ moving :: proc(mv: ^Movie, s: Sprite, m: Matrix, allocator: Allocator) -> []Labe
 	out := make([dynamic]Label_Rect, allocator)
 	for label, frame in s.labels {
 		r := EMPTY_RECT
+		clip, until := Rect{}, u16(0)
 		for p in s.frames[clamp(frame, 0, len(s.frames) - 1)] {
-			if varies[p.depth] {r = rect_union(r, bounds(mv, p.id, label, mat_mul(m, p.mat)))} // a clip layer's box is what it shows
+			b := bounds(mv, p.id, label, mat_mul(m, p.mat))
+			if p.clip != 0 {
+				clip, until = b, p.clip
+				if varies[p.depth] {r = rect_union(r, b)} // a scaling clip layer's box is what it shows
+				continue
+			}
+			if !varies[p.depth] {continue}
+			if p.depth <= until {b = rect_intersect(b, clip)} // a fill sliding under a still mask
+			r = rect_union(r, b)
 		}
 		append(&out, Label_Rect{label, to_px(r)})
 	}
