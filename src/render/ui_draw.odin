@@ -37,7 +37,7 @@ Batch_Kind :: enum {
 // Bar_Params is the meter-fill shader's per-quad uniform (std140: two vec4s → mirrors bar.frag's UBO).
 Bar_Params :: struct {
 	fill: [4]f32, // rgba fill tint
-	mask: [4]f32, // x = value (fill fraction 0..1); yzw reserved
+	mask: [4]f32, // x = value (fill fraction 0..1); y = grows from (0 left, 1 centre, 2 right); zw reserved
 }
 #assert(size_of(Bar_Params) == 32)
 

@@ -45,6 +45,7 @@ parse_node :: proc(L: ^lua.State, idx: c.int) -> Node {
 	if s, ok := field_str(L, idx, "action"); ok {n.action = strings.clone(s)}
 	if s, ok := field_str(L, idx, "source"); ok {n.image = strings.clone(s)}
 	if s, ok := field_str(L, idx, "align"); ok {n.align = node_align(s)}
+	if s, ok := field_str(L, idx, "from"); ok {n.from = node_align(s)}
 	if field_bool(L, idx, "modal") {n.modal = true}
 	if field_bool(L, idx, "flip_x") {n.flip_x = true}
 	// `slice` = the horizontal 3-slice cap widths (source px): a number → symmetric {n,n}, or {l,r}.

@@ -12,7 +12,7 @@
 --              end-caps), also 3-sliced — its caps/border define the fill's visible window.
 --
 -- API — "a bar using this deco at this width with this fill":
---   bar{ size={w,h}, value=0..1, fill="#c8a24b",
+--   bar{ size={w,h}, value=0..1, fill="#c8a24b", from="left"|"center"|"right",
 --        frame="interface/bar_frame.dds", frame_color="#e0e0e0",   -- deco frame + its RGBA tint (the art
 --                                                                  --   is white, so ANY colour works)
 --        bg="interface/bar_bg.dds", bg_color="#000000",            -- background frame + its tint
@@ -57,6 +57,7 @@ function bar(t)
     offset = { ix, iy },
     size = { w - 2 * ix, h - 2 * iy },
     value = t.value or 0,
+    from = t.from,           -- "left" (default), "center" or "right": where the fill grows from
     color = t.fill or "#c8a24b",
   }
 

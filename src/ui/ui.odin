@@ -62,7 +62,8 @@ Node :: struct {
 	align:    Align,   // Column/Row: cross-axis alignment of children
 	scale:    f32,     // Text: glyph scale vs the atlas px size (0 → 1.0); a title scales up, body down
 	wrap:     f32,     // Text: max line width in px for word-wrap (0 = single line, no wrap)
-	value:    f32,     // Bar: fill fraction 0..1 (the shader masks the fill to this along +x)
+	value:    f32,     // Bar: fill fraction 0..1 (the shader masks the fill to this)
+	from:     Align,   // Bar: where the fill grows from: Start = left, Center = both ways, End = right
 	color:    Color,
 	text:     string, // owned by the loader's allocator (free with destroy)
 	image:    string, // Image: art source name (resolved to a texture by the backend); owned
@@ -98,6 +99,7 @@ Draw_Cmd :: struct {
 	text:  string, // borrowed (Text)
 	image: string, // borrowed (Image source name)
 	value: f32,    // Bar: fill fraction 0..1 (fed to the bar shader as the sheen mask)
+	from:  Align,  // Bar: where the fill grows from
 	flip_x: bool,  // Image: sample the texture mirrored horizontally
 	slice: [2]f32, // Image: 3-slice cap widths {left,right} in source px (0 = draw as a single quad)
 }
@@ -266,10 +268,10 @@ emit :: proc(n: ^Node, out: ^[dynamic]Draw_Cmd, dim := false) {
 	case .Rect, .Effect:
 		append(out, Draw_Cmd{kind = .Rect, rect = n.screen, color = n.color})
 	case .Bar:
-		// FILL only — the shader masks the glossy fill to `value` along +x. The track/frame chrome are
+		// FILL only — the shader masks the glossy fill to `value`. The track/frame chrome are
 		// sibling nodes (Rect/Image) that emit through the normal paths, so the two layers stay separate.
 		col := n.color if n.color[3] > 0 else Color{0.78, 0.635, 0.29, 1} // default warm gold fill
-		append(out, Draw_Cmd{kind = .Bar, rect = n.screen, color = col, value = clamp(n.value, 0, 1)})
+		append(out, Draw_Cmd{kind = .Bar, rect = n.screen, color = col, value = clamp(n.value, 0, 1), from = n.from})
 	case .Text:
 		col := n.color
 		if dim {
