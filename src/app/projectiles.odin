@@ -26,8 +26,8 @@ tick_projectiles :: proc(g: ^Game) {
 }
 
 // (hole fire-without-ammo :tags (combat script mods) :sev polish) Weapon.Fire with no ammo launches nothing. No vanilla ref does it (the two scripts that pass None attach to nothing), and a WEAP names no projectile, so a default would be ours: a data-driven projectile per weapon type, for mods.
-// fire launches a Weapon.Fire from the source's ProjectileNode (its origin without one), along the
-// node's +Y, once the archcost hooks let it go; the Stamina they set is spent.
+// fire launches a Weapon.Fire from the source's ProjectileNode (an actor's chest, else its origin
+// without one), along the node's +Y, once the archcost hooks let it go; the Stamina they set is spent.
 @(private = "file")
 fire :: proc(g: ^Game, f: worldstate.Fire) {
 	ammo, _ := gamedb.equip_slot_of(&g.db, f.ammo)
@@ -40,10 +40,12 @@ fire :: proc(g: ^Game, f: worldstate.Fire) {
 	if cost > 0 {worldstate.av_damage(&g.sim.ws, &g.db, f.source, "Stamina", cost)}
 	weapon, _ := gamedb.equip_slot_of(&g.db, f.weapon)
 	m := smath.trs(worldstate.ref_pos(&g.sim.ws, &g.db, f.source), worldstate.ref_rot(&g.sim.ws, &g.db, f.source), worldstate.ref_scale(&g.sim.ws, &g.db, f.source))
+	has_node := false
 	if modl, ok := gamedb.model_of(&g.db, worldstate.ref_base(&g.sim.ws, &g.db, f.source)); ok {
-		if node, nok := collisions.projectile_node(&g.collisions, models.intern(modl)); nok {m = m * node}
+		if node, nok := collisions.projectile_node(&g.collisions, models.intern(modl)); nok {m, has_node = m * node, true}
 	}
 	pos, dir := (m * [4]f32{0, 0, 0, 1}).xyz, (m * [4]f32{0, 1, 0, 0}).xyz
+	if is_actor_ref(g, f.source) && !has_node {pos = worldstate.actor_chest(&g.sim.ws, &g.db, f.source)}
 	cell := worldstate.ref_cell(&g.sim.ws, &g.db, f.source)
 	worldstate.launch(&g.sim.ws, &g.db, ammo.projectile, cell, pos, dir, f.source, f.weapon, weapon.damage + ammo.damage)
 }
