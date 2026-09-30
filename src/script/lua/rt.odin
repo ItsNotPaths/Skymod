@@ -366,13 +366,18 @@ run_hit :: proc(data: rawptr, a: ^combat.Attack) -> bool {
 	defer lua.settop(L, top)
 	if !push_rt_fn(L, "hit") {return true}
 	for f in ([3]worldstate.Form_ID{a.attacker, a.target, a.weapon}) {push_value(L, f if f != 0 else nil)}
-	if lua.pcall(L, 3, 1, 0) != 0 {
+	for k in ([3]combat.Attack_Kind{{.Power}, {.Sneak}, {.Bash}}) {lua.pushboolean(L, b32(k <= a.kind))}
+	if lua.pcall(L, 6, 1, 0) != 0 {
 		log.errorf("lua: hit hooks: %s", to_string(L, -1))
 		return true
 	}
 	if !lua.istable(L, -1) {return false}
 	get_part(L, "damage", &a.damage)
 	get_part(L, "armor_pen", &a.armor_pen)
+	get_part(L, "crit_chance", &a.crit_chance)
+	get_part(L, "crit_damage", &a.crit_damage)
+	get_part(L, "power_mult", &a.power_mult)
+	get_part(L, "sneak_mult", &a.sneak_mult)
 	return true
 }
 

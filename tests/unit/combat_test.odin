@@ -78,7 +78,7 @@ test_combat_plugin :: proc(t: ^testing.T) {
 }
 
 // fake_gear_world is one attacker (0xA1, OneHanded 50, UnarmedDamage 4) and a target with
-// HeavyArmor 50. 0xC1 is a heavy cuirass (rating 25), 0xD1 a sword (skill 6).
+// HeavyArmor 50. 0xC1 is a heavy cuirass (rating 25), 0xD1 a sword (skill 6, crit damage 3).
 fake_gear_world :: proc(w: ^plugin.World) {
 	w^ = fake_world(nil)
 	w.actor_value = proc "c" (data: rawptr, actor: plugin.Form_ID, name: cstring, part: plugin.AV_Part) -> f32 {
@@ -92,23 +92,23 @@ fake_gear_world :: proc(w: ^plugin.World) {
 		s := (^plugin.Equip_Slot)(out)
 		switch form {
 		case 0xC1: s.gear = {skill = -1, armor_rating = 25, armor_type = .Heavy}
-		case 0xD1: s.weapon_type, s.gear = 1, {skill = 6}
+		case 0xD1: s.weapon_type, s.gear = 1, {skill = 6, crit_damage = 3}
 		case:      return false
 		}
 		return kind == .Equip_Slot
 	}
 }
 
-// A hit scales with the weapon skill and loses what the target's armor stops; the hooks' parts
-// change the weapon's damage, each piece's rating and the armor rating as a whole.
+// A hit scales with the weapon skill, gains a crit's damage and a power or sneak attack's
+// multiplier, and loses what the target's armor stops; the hooks' parts change each number.
 @(test)
 test_damage_gear :: proc(t: ^testing.T) {
 	w: plugin.World
 	fake_gear_world(&w)
 	damage := combat.BUILTIN.damage
-	KEEP :: combat.KEEP
-	cuirass := []combat.Piece{{0xC1, KEEP}}
-	sword := combat.Attack{attacker = 0xA1, target = 0xB1, weapon = 0xD1, damage = KEEP, armor_pen = KEEP, armor = plugin.span(cuirass)}
+	cuirass := []combat.Piece{{0xC1, combat.KEEP}}
+	sword := combat.attack(0xA1, 0xB1, 0xD1)
+	sword.roll, sword.armor = 0.5, plugin.span(cuirass)
 	// 10 x (1 + 0.5 x 50%) = 12.5; the NPC's cuirass: 25 x (1 + 1.5 x 50%) = 43.75 at 0.12% = 5.25%
 	near :: proc(a, b: f32) -> bool {return abs(a - b) < 1e-4}
 	testing.expect(t, near(damage(&w, sword, 10), 12.5 * (1 - 0.0525)), "sword on armor")
@@ -131,4 +131,21 @@ test_damage_gear :: proc(t: ^testing.T) {
 	thick := sword
 	thick.armor = plugin.span(doubled)
 	testing.expect(t, near(damage(&w, thick, 10), 12.5 * (1 - 0.105)), "a piece's rating doubled")
+
+	// the sword's CRDT adds 3 on a crit: CritChance 0 never, a perk's 60% over the 0.5 roll does
+	crit := bare
+	crit.crit_chance = {set = 60, has_set = true}
+	testing.expect_value(t, damage(&w, crit, 10), 15.5)
+	crit.crit_damage = {mult = 2}
+	testing.expect_value(t, damage(&w, crit, 10), 18.5)
+	crit.roll = 0.7
+	testing.expect_value(t, damage(&w, crit, 10), 12.5)
+	power := bare
+	power.kind = {.Power}
+	testing.expect_value(t, damage(&w, power, 10), 25) // 1 + fPowerAttackDefaultBonus
+	sneak := bare
+	sneak.kind = {.Sneak}
+	testing.expect_value(t, damage(&w, sneak, 10), 37.5) // a one-handed sword: x3
+	sneak.sneak_mult = {mult = 2.5}
+	testing.expect_value(t, damage(&w, sneak, 10), 93.75)
 }

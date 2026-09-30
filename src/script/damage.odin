@@ -2,6 +2,7 @@ package script
 
 // The host side of the combat seam's damage (src/combat).
 
+import "core:math/rand"
 import "../combat"
 import "../gamedb"
 import "../plugin"
@@ -15,8 +16,9 @@ combat_table := combat.BUILTIN // the built-in brain and damage, or a plugin's
 // land_attack is everything a landed weapon hit does to its target. The hit hooks (perks, as Lua)
 // fill its parts or stop it, the armor hooks each worn piece's rating, then the combat seam's
 // damage composes them.
-land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, base: f32) {
-	a := combat.Attack{attacker = attacker, target = target, weapon = weapon, damage = combat.KEEP, armor_pen = combat.KEEP}
+land_attack :: proc(c: ^Call, attacker, target, weapon: Form_ID, kind: combat.Attack_Kind, base: f32) {
+	a := combat.attack(attacker, target, weapon, kind)
+	a.roll = rand.float32()
 	h := c.ws.hooks
 	if h.hit != nil && !h.hit(h.data, &a) {return}
 	a.armor = plugin.span(worn_armor(c, target))

@@ -2034,6 +2034,7 @@ C.__fn["ongameloaded"] = function(self)
   rt.hook("Silver", { hit = function(h) if h.weapon then h.damage.add = h.damage.add + 20 end end })
   rt.hook("Armsman", { hit = function(h) h.damage.mult = h.damage.mult * 2 end })
   rt.hook("Unseen", { hit = function(h) if not h.attacker then return false end end })
+  rt.hook("AssassinsBlade", { hit = function(h) if h.sneak then h.sneak_mult.mult = h.sneak_mult.mult * 2.5 end end })
   rt.hook("Juggernaut", { armor = function(a) a.rating.mult = a.rating.mult * 1.2 end })
   rt.hook("Dragonhide", { armor = function(a) if a.item then a.rating.set = 0 end end })
 end
@@ -2096,11 +2097,12 @@ test_landing_hooks :: proc(t: ^testing.T) {
 	testing.expect(t, !ok, "the cost hook refuses it")
 
 	h := f.ws.hooks
-	a := combat.Attack{attacker = CASTER, target = TARGET, weapon = PLAIN, damage = combat.KEEP, armor_pen = combat.KEEP}
+	a := combat.attack(CASTER, TARGET, PLAIN, {.Sneak})
 	testing.expect(t, h.hit(h.data, &a), "the hit goes on")
 	testing.expect_value(t, a.damage, combat.Part{add = 20, mult = 2})
 	testing.expect_value(t, a.armor_pen, combat.KEEP)
-	a = {target = TARGET}
+	testing.expect_value(t, a.sneak_mult, combat.Part{mult = 2.5})
+	a = combat.attack(0, TARGET, 0)
 	testing.expect(t, !h.hit(h.data, &a), "a hit hook stops the hit")
 	rating := combat.KEEP
 	h.armor(h.data, TARGET, PLAIN, &rating)

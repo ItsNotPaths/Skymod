@@ -16,7 +16,8 @@ n_weapon_fire :: proc(c: ^Call, args: []Value) -> Value {
 // projectile_hit is a flight striking a live actor: its damage, the weapon's enchantment, OnHit.
 projectile_hit :: proc(c: ^Call, f: worldstate.Flight, target: Form_ID) {
 	worldstate.report_crime(c.ws, c.db, f.shooter, target, .Assault, 0)
-	land_attack(c, f.shooter, target, f.weapon, f.damage)
+	sneak := !worldstate.awareness(c.ws, target, f.shooter).detected
+	land_attack(c, f.shooter, target, f.weapon, {.Sneak} if sneak else {}, f.damage)
 	slot, _ := gamedb.equip_slot_of(c.db, f.weapon)
 	if e, ok := gamedb.enchantment_of(c.db, slot.enchantment); ok {
 		start_effects(c, slot.enchantment, e.effects, false, target, f.shooter)

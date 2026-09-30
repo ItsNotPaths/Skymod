@@ -1255,10 +1255,12 @@ rt.global = setmetatable({}, { __index = function(_, name) return global_value(n
 -- any effect lands on anyone, from any source, before the effect's own land, with its context
 -- (e.caster, e.target, e.spell, e.effect, e.m, e.d, the tunables); cost runs as a spell is cast
 -- (c.caster, c.spell, c.cost); hit runs as a weapon hit lands, before the combat seam's damage
--- (h.attacker, h.target, h.weapon); armor runs on each armor piece a hit meets (a.wearer, a.item).
--- land, cost and hit return false to stop that effect, cast or hit. hit and armor change parts, not
--- numbers: h.damage (the weapon's damage), h.armor_pen (the target's armor rating) and a.rating are
--- { add = 0, mult = 1 }, and a hook may give set; the seam makes set, else (value + add) * mult. Hooks run in the order
+-- (h.attacker, h.target, h.weapon; h.power, h.sneak and h.bash say what kind of attack); armor runs
+-- on each armor piece a hit meets (a.wearer, a.item). land, cost and hit return false to stop that
+-- effect, cast or hit. hit and armor change parts, not numbers: h.damage (the weapon's damage),
+-- h.armor_pen (the target's armor rating), h.crit_chance (percent), h.crit_damage, h.power_mult,
+-- h.sneak_mult and a.rating are { add = 0, mult = 1 }, and a hook may give set; the seam makes set,
+-- else (value + add) * mult. Hooks run in the order
 -- they were added, which follows mod priority. Only inside OnGameLoaded; they last until the next
 -- new game or load.
 -- resist is the core Resist hook: a hostile effect's power, cut by each resistance of the target
@@ -1352,10 +1354,14 @@ end
 
 local function part() return { add = 0, mult = 1 } end
 
--- rt.hit(attacker, target, weapon) runs the hit hooks: the context with its parts, or false when the
--- hit is stopped.
-function rt.hit(attacker, target, weapon)
-  local h = { attacker = attacker, target = target, weapon = weapon, damage = part(), armor_pen = part(), global = rt.global }
+-- rt.hit(attacker, target, weapon, power, sneak, bash) runs the hit hooks: the context with its
+-- parts, or false when the hit is stopped.
+function rt.hit(attacker, target, weapon, power, sneak, bash)
+  local h = {
+    attacker = attacker, target = target, weapon = weapon, power = power, sneak = sneak, bash = bash,
+    damage = part(), armor_pen = part(), crit_chance = part(), crit_damage = part(), power_mult = part(),
+    sneak_mult = part(), global = rt.global,
+  }
   if not run_hooks("hit", h) then return false end
   return h
 end
