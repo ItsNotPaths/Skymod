@@ -21,6 +21,7 @@ import "core:strings"
 
 import "../assetdb"
 import "../collisions"
+import "../formid"
 import "../gamedb"
 import smath "../math"
 import "../models"
@@ -500,7 +501,7 @@ draw :: proc(s: ^Scene, r: ^render.Renderer, vp: smath.Mat4) {
 				if inst.model == nil {
 					continue // not streamed in yet
 				}
-				inst.shown = s.time
+				inst.shown = s.time if inst.form_id < formid.CREATED_FORM_BASE else s.time - FADE_IN // a created ref shows at once: an arrow flies for a fraction of the fade
 			}
 			if pretty_hidden(s, &inst) {
 				continue // --pretty: blank-white untextured placeholder — hidden
