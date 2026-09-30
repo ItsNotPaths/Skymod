@@ -1,6 +1,7 @@
 package unit_tests
 
-// hud.lua: which meters show, the foe bar and the notification feed. worldstate.notify keeps the newest.
+// hud.lua: which meters show, the compass letters in view, the sneak eye, the foe bar and the
+// notification feed. worldstate.notify keeps the newest.
 
 import "core:testing"
 import lua "../../vendor/lua"
@@ -44,7 +45,7 @@ test_hud_full_meters_hidden :: proc(t: ^testing.T) {
 		activation = function() return { present = false } end,
 		hud = function() return {
 			health = { cur = 100, max = 100 }, magicka = { cur = 50, max = 50 }, stamina = { cur = 80, max = 80 },
-			combat = false, notes = {},
+			combat = false, heading = 0, notes = {},
 		} end,
 	}`)
 	testing.expect(t, ok)
@@ -54,6 +55,9 @@ test_hud_full_meters_hidden :: proc(t: ^testing.T) {
 	defer delete(f.texts)
 	collect(&tree, &f)
 	testing.expect_value(t, len(f.bars), 0)
+	testing.expect(t, has(f.texts[:], "N"))
+	testing.expect(t, !has(f.texts[:], "S"))
+	testing.expect(t, !has(f.texts[:], "HIDDEN")) // not sneaking
 }
 
 @(test)
@@ -64,7 +68,7 @@ test_hud_hurt_foe_and_notes :: proc(t: ^testing.T) {
 		activation = function() return { present = false } end,
 		hud = function() return {
 			health = { cur = 40, max = 100 }, magicka = { cur = 50, max = 50 }, stamina = { cur = 80, max = 80 },
-			combat = true,
+			combat = true, heading = 90, sneaking = true, detection = 1, detected = true,
 			foe = { name = "Bandit", health = { cur = 10, max = 60 }, age = 10, fighting = true },
 			notes = { { text = "old", age = 9 }, { text = "Quest started", age = 1 } },
 		} end,
@@ -80,6 +84,9 @@ test_hud_hurt_foe_and_notes :: proc(t: ^testing.T) {
 	testing.expect(t, has(f.texts[:], "Bandit"))
 	testing.expect(t, has(f.texts[:], "Quest started"))
 	testing.expect(t, !has(f.texts[:], "old"))
+	testing.expect(t, has(f.texts[:], "DETECTED"))
+	testing.expect(t, has(f.texts[:], "E")) // facing east: N and S just out of view, W behind
+	testing.expect(t, !has(f.texts[:], "W"))
 }
 
 @(test)

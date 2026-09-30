@@ -8,6 +8,7 @@ package main
 // gameplay frames. The screen itself is pure Lua (hud.lua) — this file only owns the session's
 // lifetime and publishes the resolved activation target into the host each frame.
 
+import "../actorstate"
 import "../render"
 import "../worldstate"
 
@@ -45,6 +46,7 @@ frame_hud :: proc(g: ^Game) {
 	}
 
 	g.hud.host.snap = &g.snap
+	g.hud.host.heading = g.cam.yaw
 	tgt := g.snap.act
 	g.hud.host.act_present = tgt.present
 	g.hud.host.act_kind = activate_kind_tag[tgt.kind]
@@ -60,6 +62,9 @@ frame_hud :: proc(g: ^Game) {
 Hud_View :: struct {
 	health, magicka, stamina: Meter_View,
 	combat: bool, // the player fights, or is fought
+	sneaking:  bool,
+	detection: f32, // 0..1: the most any actor has noticed the player
+	detected:  bool, // some actor has detected the player
 	foe:    Foe_View,
 	notes:  [dynamic]Note_View, // oldest first
 }
@@ -91,6 +96,13 @@ view_hud :: proc(g: ^Game, s: ^Snapshot) {
 	h.magicka = meter(g, ws.player, "Magicka")
 	h.stamina = meter(g, ws.player, "Stamina")
 	h.combat = worldstate.in_combat(ws, ws.player)
+	h.sneaking = actorstate.current(&ws.states, ws.player) == actorstate.SNEAK
+	h.detection, h.detected = 0, false
+	for pair, a in ws.awareness {
+		if pair[1] != ws.player {continue}
+		h.detection = max(h.detection, a.level)
+		h.detected ||= a.detected
+	}
 	h.foe = {}
 	if f := ws.foe; f.ref != 0 {
 		h.foe = {

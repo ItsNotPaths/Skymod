@@ -8,6 +8,7 @@ package main
 
 import "core:c"
 import "core:fmt"
+import "core:math"
 import "core:path/filepath"
 import "core:os"
 import "base:runtime"
@@ -50,6 +51,7 @@ UI_Host :: struct {
 	act_locked:     bool,
 	// The frame's sim snapshot (engine.hud()), set by frame_hud. nil = no HUD data.
 	snap:           ^Snapshot,
+	heading:        f32, // the camera's yaw (radians about +Z, 0 = east), set by frame_hud
 	// The open message box (engine.message_box()), owned by Game.box. Unset = no box.
 	box:            Maybe(Box_Text),
 	// Button-prompt resolution (engine.prompt(action)): the live input manager + the pad
@@ -188,13 +190,15 @@ engine_activation :: proc "c" (L: ^lua.State) -> c.int {
 }
 
 // engine_hud() → the player's meters, foe and notifications from the frame's snapshot (Hud_View):
-// { health = {cur, max}, magicka, stamina, combat, foe = {name, health, age, fighting} or nil,
-//   notes = { {text, age}, ... } }. nil when no snapshot is set.
+// { health = {cur, max}, magicka, stamina, combat, sneaking, detection (0..1), detected, heading (degrees
+//   clockwise from north), foe = {name, health, age, fighting} or nil, notes = { {text, age}, ... } }.
+// nil when no snapshot is set.
 @(private = "file")
 engine_hud :: proc "c" (L: ^lua.State) -> c.int {
 	vm := ui.vm_from_upvalue(L)
 	context = vm.host_ctx
-	s := (cast(^UI_Host)vm.user).snap
+	host := cast(^UI_Host)vm.user
+	s := host.snap
 	if s == nil {
 		lua.pushnil(L)
 		return 1
@@ -211,6 +215,11 @@ engine_hud :: proc "c" (L: ^lua.State) -> c.int {
 	meter(L, "magicka", h.magicka)
 	meter(L, "stamina", h.stamina)
 	lua.pushboolean(L, b32(h.combat));lua.setfield(L, -2, "combat")
+	lua.pushboolean(L, b32(h.sneaking));lua.setfield(L, -2, "sneaking")
+	lua.pushnumber(L, lua.Number(h.detection));lua.setfield(L, -2, "detection")
+	lua.pushboolean(L, b32(h.detected));lua.setfield(L, -2, "detected")
+	heading := math.mod(math.mod(90 - math.to_degrees(host.heading), 360) + 360, 360)
+	lua.pushnumber(L, lua.Number(heading));lua.setfield(L, -2, "heading")
 	if h.foe.present {
 		lua.createtable(L, 0, 4)
 		set_str_field(L, "name", text(s, h.foe.name))
