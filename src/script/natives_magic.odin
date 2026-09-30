@@ -203,6 +203,12 @@ n_spell_cast :: proc(c: ^Call, args: []Value) -> Value {
 	return nil
 }
 
+// tick_ai_casts lands the spells packages cast (UseMagic) since the last tick.
+tick_ai_casts :: proc(c: ^Call) {
+	for o in c.ws.ai.casts {start_spell(c, o.spell, o.target, o.caster)}
+	clear(&c.ws.ai.casts)
+}
+
 // RemoteCast(akSource, akBlameActor, akTarget): the blamed actor is the caster.
 n_spell_remote_cast :: proc(c: ^Call, args: []Value) -> Value {
 	if is_ability(c.db, c.self) {return nil}

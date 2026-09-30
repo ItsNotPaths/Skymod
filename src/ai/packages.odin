@@ -183,8 +183,10 @@ run_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	case "Activate":                      return proc_activate(c)
 	case "Say":                           return proc_say(c)
 	case "DialogueActivate":              return proc_dialogue_activate(c)
-	// (hole proc-combat :tags (ai combat) :sev gap) UseWeapon, UseMagic and Shout fail: a package cannot make an actor attack, cast or shout at a target (CW battles, archers, dragons).
-	case "UseWeapon", "UseMagic", "Shout": return .Failed
+	case "UseWeapon":                     return proc_use_weapon(c)
+	case "UseMagic":                      return proc_use_magic(c)
+	// (hole proc-shout :tags (ai combat magic) :sev gap :needs (shouts)) Shout fails: no shout has its words' spells to cast (dragons, Paarthurnax's lessons).
+	case "Shout":                         return .Failed
 	// (hole flight :tags (animation combat unclaimed) :sev gap) Hover, Orbit and FlightGrab fail: no dragon flies.
 	case "Hover", "Orbit", "FlightGrab":  return .Failed
 	}

@@ -17,12 +17,18 @@ AI_Link :: struct {
 	moves:      [dynamic]Location_Move, // NPCs that changed location since the VM last looked (AI)
 	fighting:   map[Form_ID]Form_ID, // actor -> whom it fights this tick (AI)
 	combat_asks: [dynamic]Combat_Ask, // StartCombat and StopCombat, for the AI's next tick
+	casts:      [dynamic]Cast_Order, // spells a package casts (UseMagic), for the scripts to land (AI)
 	skipped:    f64, // game hours a wait or GameHour write skipped that the AI has not walked yet
 }
 
 // Location_Move is an actor going from one location to another: OnLocationChange and a CLOC story event.
 Location_Move :: struct {
 	actor, old, now: Form_ID,
+}
+
+// Cast_Order is an actor casting a spell at a target, as Spell.Cast does.
+Cast_Order :: struct {
+	caster, spell, target: Form_ID,
 }
 
 // Combat_Ask is StartCombat(target) or, with target 0, StopCombat.
@@ -110,4 +116,5 @@ destroy_ai_link :: proc(l: ^AI_Link) {
 	delete(l.moves)
 	delete(l.fighting)
 	delete(l.combat_asks)
+	delete(l.casts)
 }

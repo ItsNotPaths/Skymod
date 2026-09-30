@@ -423,6 +423,7 @@ tick_begin :: proc(vm: ^VM, db: ^gamedb.DB, ws: ^worldstate.World_State, t: ^Tra
 	step(vm, .Scenes, &at)
 	tick_info_fragments(vm)
 	script.tick_courier(&vm.ctx)
+	script.tick_ai_casts(&vm.ctx)
 	step(vm, .Fragments, &at)
 }
 

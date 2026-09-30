@@ -5,6 +5,7 @@ package ai
 
 import "core:math/linalg"
 import "../actorstate"
+import "../combat"
 import "../formid"
 import "../gamedb"
 import "../sighthost"
@@ -255,4 +256,53 @@ lua_procedure :: proc(c: ^Proc_Context, name: string) -> Status {
 	status := c.w.lua.run(c.w.lua.user, name, c.cond.subject, c.dt, inputs[:], &goal)
 	c.agent.mover.goal = goal
 	return status
+}
+
+// proc_use_weapon attacks its Target (input 2) with what is in the actor's right hand: it closes to
+// fCombatDistance and swings, or fires from where it stands with a bow or crossbow, once each Min
+// Pause (input 9). Done after End After This Many Barrages (input 11) unless Never End (input 4);
+// Do No Damage (input 7) only stands and aims. Barrage sizes are not read: one attack a barrage.
+proc_use_weapon :: proc(c: ^Proc_Context) -> Status {
+	ws, db, actor := c.cond.ws, c.cond.db, c.cond.subject
+	st := &c.agent.nodes[c.node]
+	target := input_target(c, 2)
+	if target == 0 || worldstate.is_dead(ws, db, target) {return .Done}
+	weapon := worldstate.in_slot(ws, db, actor, .RightHand)
+	slot, _ := gamedb.equip_slot_of(db, weapon)
+	ranged := slot.weapon_type == combat.BOW || slot.weapon_type == combat.CROSSBOW
+	at := worldstate.ref_pos(ws, db, target)
+	reach := gamedb.setting_float(db, "fCombatDistance", 141)
+	if !ranged && linalg.length(at.xy - c.feet.xy) > reach {
+		c.agent.mover.goal = {active = true, point = at, radius = reach, gait = .Run}
+		return .Running
+	}
+	c.agent.mover.goal = {}
+	st.timer -= c.dt
+	if st.timer > 0 || (input_value(c, 7, bool) or_else false) {return .Running}
+	st.timer = max(input_value(c, 9, f32) or_else 0, combat.SWING_EVERY)
+	if ranged {
+		if ammo := worldstate.in_slot(ws, db, actor, .Ammo); ammo != 0 {worldstate.request_fire(ws, actor, weapon, ammo)}
+	} else {
+		worldstate.request_swing(ws, actor, {})
+	}
+	st.child += 1
+	if input_value(c, 4, bool) or_else false {return .Running}
+	return .Done if st.child >= max(input_value(c, 11, i32) or_else 1, 1) else .Running
+}
+
+// proc_use_magic casts its Spell (input 1) at its Target (input 2), again after CooldownTimeMin
+// (input 6), NumToCastMax times (input 9; once when unset).
+proc_use_magic :: proc(c: ^Proc_Context) -> Status {
+	ws, db, actor := c.cond.ws, c.cond.db, c.cond.subject
+	st := &c.agent.nodes[c.node]
+	spell_in, _ := input_value(c, 1, gamedb.Package_Target) // a spell is an object input
+	spell := spell_in.form
+	target := input_target(c, 2)
+	if spell == 0 {return .Failed}
+	st.timer -= c.dt
+	if st.timer > 0 {return .Running}
+	append(&ws.ai.casts, worldstate.Cast_Order{actor, spell, target if target != 0 else actor})
+	st.timer = max(input_value(c, 6, f32) or_else 0, combat.SWING_EVERY)
+	st.child += 1
+	return .Done if st.child >= max(input_value(c, 9, i32) or_else 1, 1) else .Running
 }
