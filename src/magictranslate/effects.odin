@@ -4,6 +4,7 @@ package magictranslate
 // tags, resistance, stacking and scripts.
 
 import "core:fmt"
+import "core:reflect"
 import "core:slice"
 import "core:strings"
 import "../formats/esm"
@@ -107,14 +108,15 @@ dispels :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> []s
 	return keyword_tags(src, form)[:]
 }
 
-// effect_tags are an effect's tags: hostile, then what it is (school, tier, element, poison,
-// disease, status, restore, summon, power.duration), then a kw.<editor id> per keyword.
+// effect_tags are an effect's tags: hostile, then what it is (its archetype, school, tier, element,
+// poison, disease, status, restore, summon, power.duration), then a kw.<editor id> per keyword.
 @(private)
 effect_tags :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) -> [dynamic]string {
 	out := make([dynamic]string, context.temp_allocator)
 	uses := src.lasting[form]
 	hostile := info.flags & esm.MGEF_HOSTILE != 0
 	if hostile {append(&out, "hostile")}
+	append(&out, archetype_tag(info.archetype))
 	switch s := av_name(info.magic_skill); s {
 	case "Alteration", "Conjuration", "Destruction", "Illusion", "Restoration":
 		append(&out, fmt.tprintf("school.%s", strings.to_lower(s, context.temp_allocator)))
@@ -141,6 +143,14 @@ effect_tags :: proc(src: ^Source, form: Form_ID, info: esm.Magic_Effect_Info) ->
 	if info.flags & (esm.MGEF_POWER_AFFECTS_DURATION | esm.MGEF_POWER_AFFECTS_MAGNITUDE) == esm.MGEF_POWER_AFFECTS_DURATION {append(&out, "power.duration")}
 	append(&out, ..kws[:])
 	return out
+}
+
+// archetype_tag names the record archetype an effect came from (archetype.calm), so one hook reaches
+// every effect of it.
+@(private)
+archetype_tag :: proc(a: esm.Effect_Archetype) -> string {
+	name, _ := reflect.enum_name_from_value(a)
+	return fmt.tprintf("archetype.%s", strings.to_lower(name, context.temp_allocator))
 }
 
 // keyword_tags is a kw.<editor id> tag per keyword of `form`.

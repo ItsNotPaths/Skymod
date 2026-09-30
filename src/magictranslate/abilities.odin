@@ -72,6 +72,7 @@ ability_parts :: proc(src: ^Source, sp: gamedb.Spell) -> (p: Parts, ok: bool) {
 			if class := gamedb.archetype_class(info.archetype); class != "" {append(&p.scripts, archetype_script(class, info.archetype, mgef.related))}
 		}
 		append(&p.scripts, ..gamedb.form_scripts(&src.db, e.effect))
+		if t := archetype_tag(info.archetype); !slice.contains(p.tags[:], t) {append(&p.tags, t)}
 		for t in keyword_tags(src, e.effect) {
 			if !slice.contains(p.tags[:], t) {append(&p.tags, t)}
 		}
