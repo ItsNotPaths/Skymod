@@ -5,6 +5,7 @@ package magicphys
 // last tick and the live bodies; the model moves them, asks the host what a segment strikes, and
 // answers through the host procs, applied after tick returns. A plugin replaces Table.tick.
 
+import "core:math"
 import "../magic"
 import "../plugin"
 
@@ -87,12 +88,13 @@ Host :: struct {
 }
 
 Input :: struct {
-	host:   Host,
-	table:  ^Table,
-	dt:     f32,
-	actors: plugin.Span(plugin.Actor), // the loaded actors: sprays and auras test them
-	casts:  plugin.Span(Cast),
-	bodies: plugin.Span(Body), // as of the last tick
+	host:    Host,
+	table:   ^Table,
+	dt:      f32,
+	gravity: [3]f32, // the world's, units/s²
+	actors:  plugin.Span(plugin.Actor), // the loaded actors: sprays and auras test them
+	casts:   plugin.Span(Cast),
+	bodies:  plugin.Span(Body), // as of the last tick
 }
 
 Table :: struct {
@@ -101,10 +103,116 @@ Table :: struct {
 
 BUILTIN :: Table{tick_builtin}
 
-// (hole spell-shapes :tags (magic combat) :sev gap) the built-in has no primitives: every cast lands on its target at once. Wanted: Beam strikes along its range at once, Projectile flies by speed and gravity and strikes along each tick's step, Spray's front moves out and hits the actors inside its cone, Aura hits the actors inside its sphere; a burst leaves an Aura where a beam or projectile lands; a held shape lives while the cast is held. `hits = "direct"` entries go only to the actor struck (62 of 227 area spells mix areas); an area needs line of sight (strike).
+// tick_builtin launches this tick's casts and moves the live bodies. A beam strikes at once; a
+// projectile strikes along each tick's step; a spray's front hits each actor in its cone as it
+// passes them; an aura hits the actors inside it. A spray or aura that lasts hits everyone inside
+// again each whole second. A beam or projectile that lands leaves an aura of its burst radius, which
+// skips the actor it struck.
 tick_builtin :: proc "c" (inp: ^Input) {
 	h := inp.host
 	for c in plugin.items(inp.casts) {
-		if c.target != 0 {h.hit(h.data, {c.spell, c.caster, c.target, true})}
+		d := h.def(h.data, c.spell)
+		b := Body{spell = c.spell, caster = c.caster, shape = d.shape, pos = c.from, dir = c.aim}
+		switch d.shape.kind {
+		case .None:
+			if c.target != 0 {h.hit(h.data, {c.spell, c.caster, c.target, true})}
+		case .Beam, .Projectile:
+			if d.shape.kind == .Projectile && d.shape.speed > 0 {
+				b.vel = c.aim * d.shape.speed
+				step(inp, &b)
+			} else if s := h.strike(h.data, c.from, c.from + c.aim * d.shape.range, d.shape.radius, c.caster); s.hit {
+				land(inp, b, s)
+			}
+		case .Spray, .Aura:
+			step(inp, &b)
+		}
 	}
+	for b in plugin.items(inp.bodies) {
+		b := b
+		step(inp, &b)
+	}
+}
+
+// step moves a body one tick and hits what it reaches; a new body (id 0) spawns if it lives on.
+@(private = "file")
+step :: proc "contextless" (inp: ^Input, b: ^Body) {
+	h := inp.host
+	sh := b.shape
+	if sh.follow {
+		a := h.anchor(h.data, b.caster, "")
+		b.pos, b.dir = a.pos, a.dir
+	}
+	was, age := b.age, b.age + inp.dt
+	alive: bool
+	switch sh.kind {
+	case .None, .Beam:
+	case .Projectile:
+		to := b.pos + b.vel * inp.dt
+		if s := h.strike(h.data, b.pos, to, sh.radius, b.caster); s.hit {
+			land(inp, b^, s)
+		} else {
+			b.pos, b.vel = to, b.vel + inp.gravity * sh.gravity * inp.dt
+			alive = sh.speed > 0 && age * sh.speed < sh.range
+		}
+	case .Spray:
+		front := sh.range if sh.speed <= 0 else min(b.reach + sh.speed * inp.dt, sh.range)
+		pulse := b.id != 0 && math.floor(age) > math.floor(was)
+		for a in plugin.items(inp.actors) {
+			d := a.pos - b.pos
+			dist := math.sqrt(d.x * d.x + d.y * d.y + d.z * d.z)
+			ahead := dist > 0 && (d.x * b.dir.x + d.y * b.dir.y + d.z * b.dir.z) / dist >= math.cos(sh.spread)
+			if a.id == b.caster || !ahead || dist > front || !(pulse || dist >= b.reach || b.id == 0) {continue}
+			if sees(inp, b.pos, a.id, b.caster) {h.hit(h.data, {b.spell, b.caster, a.id, false})}
+		}
+		b.reach = front
+		alive = front < sh.range || age < sh.lasts
+	case .Aura:
+		if b.id == 0 || math.floor(age) > math.floor(was) {burst(inp, b^, sh.radius, 0)}
+		alive = age < sh.lasts
+	}
+	b.age = age
+	switch {
+	case !alive && b.id != 0: h.remove(h.data, b.id)
+	case alive && b.id == 0:  h.spawn(h.data, b^)
+	case alive:               h.put(h.data, b^)
+	}
+}
+
+// land is a beam or projectile striking: the actor struck is hit, then its burst goes off there.
+@(private = "file")
+land :: proc "contextless" (inp: ^Input, b: Body, s: Strike) {
+	h := inp.host
+	struck := s.other if is_actor(inp, s.other) else 0
+	if struck != 0 {h.hit(h.data, {b.spell, b.caster, struck, true})}
+	if b.shape.burst > 0 {
+		at := b
+		at.pos = s.pos - b.dir * 16 // off the surface it struck, so the surface does not hide the actors
+		burst(inp, at, b.shape.burst, struck)
+	}
+}
+
+// burst hits every actor but the caster and `skip` within `radius` of the body that it can see.
+@(private = "file")
+burst :: proc "contextless" (inp: ^Input, b: Body, radius: f32, skip: Form_ID) {
+	h := inp.host
+	for a in plugin.items(inp.actors) {
+		d := a.pos - b.pos
+		if a.id == b.caster || a.id == skip || d.x * d.x + d.y * d.y + d.z * d.z > radius * radius {continue}
+		if sees(inp, b.pos, a.id, b.caster) {h.hit(h.data, {b.spell, b.caster, a.id, false})}
+	}
+}
+
+// sees is whether no object stands between `from` and the actor's chest; actors do not block.
+@(private = "file")
+sees :: proc "contextless" (inp: ^Input, from: [3]f32, actor, caster: Form_ID) -> bool {
+	h := inp.host
+	s := h.strike(h.data, from, h.anchor(h.data, actor, "").pos, 0, caster)
+	return !s.hit || is_actor(inp, s.other)
+}
+
+@(private = "file")
+is_actor :: proc "contextless" (inp: ^Input, id: Form_ID) -> bool {
+	if id == 0 {return false}
+	for a in plugin.items(inp.actors) {if a.id == id {return true}}
+	return false
 }

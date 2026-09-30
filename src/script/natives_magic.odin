@@ -303,7 +303,7 @@ start_effects :: proc(c: ^Call, source: Form_ID, effects: []gamedb.Magic_Effect_
 	if !hit_lands(c, hit) {return}
 	ctx := condition_context(c, target, caster)
 	_, is_spell := worldstate.spell_view(c.ws, c.db, source)
-	if is_spell && caster != 0 && caster != target {append(&c.ws.hits, worldstate.Hit{target, caster, source, 0, {}})} // OnHit; the spell's projectile waits on spell-shapes
+	if is_spell && caster != 0 && caster != target {append(&c.ws.hits, worldstate.Hit{target, caster, source, 0, {}})} // OnHit; a spell has no PROJ form to name
 	starting := make([dynamic]worldstate.Active_Effect, context.temp_allocator)
 	for e, i in effects {
 		mgef, _ := gamedb.magic_effect_of(c.db, e.effect)

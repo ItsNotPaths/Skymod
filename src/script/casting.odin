@@ -4,7 +4,7 @@ package script
 // front, a Self spell hits the caster and any other goes to `target` through cast_spell.
 // (hole cast-animation :tags (magic animation unclaimed) :sev gap :needs (animation)) casting is instant: no charge and release from the cast clip.
 // (hole spell-use :tags (magic unclaimed) :sev gap :needs (actor-states)) one way to use a spell: pay its SPIT cost at once. Wanted: charged (a charge time, then release), held (drain while held) and item_charge (an enchanted weapon or staff spends its charge), costs as named AVs. Leaning (proposed 2026-09-30, not confirmed): a caster asks once for a Cast state (hand, spell); the state owns the timing, a charged spell releasing itself when charged (AI) or on button-up (player; early is a cancel), a held one draining until asked to leave; ai.proc_use_magic then asks for that state instead of an instant cast, CastTimeMin/Max (inputs 4, 5) as the hold time.
-// (hole concentration :tags (magic unclaimed) :sev gap :needs (spell-use spell-shapes)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
+// (hole concentration :tags (magic unclaimed) :sev gap :needs (spell-use)) no held cast: a concentration spell should drain its cost while held and re-apply its effects once a second to what its shape touches, restarting the running copy.
 // (hole dual-cast :tags (magic unclaimed) :sev gap :needs (spell-use)) no dual cast: both hands on one spell, a Can Dual Cast perk per school, fMagicDualCastingEffectivenessBase 2.2, CostMult 2.8, not with the No Dual Cast Modifications flag.
 // (hole cast-cost :tags magic :sev gap) the cost is the SPIT base through the cost hooks: no 1 - (skill/400)^0.65 skill multiplier.
 
@@ -52,7 +52,7 @@ cast_hand :: proc(c: ^Call, caster: Form_ID, hand: gamedb.Slot, target: Form_ID)
 // use_power uses `words` words of a defined power or shout at `target` (0 = nothing under the aim):
 // a self-shaped one hits `caster`. False while it cools down.
 // (hole shouts :tags (magic input player) :sev gap) nothing uses the Voice slot: no Shout action or hold to charge more words (user, 2026-09-28: tap for one, hold for more, up to the unlocked words), no SetVoiceRecoveryTime/GetVoiceRecoveryTime on the Voice timer AV, no GetCurrentShoutVariation, and record SHOUs and powers are not defined powers yet.
-// (hole power-bodies :tags magic :sev gap :needs (spell-shapes)) a power or shout lands on its target at once: it does not go through the magicphys seam, so a shout has no cone.
+// (hole power-bodies :tags magic :sev gap) a power or shout lands on its target at once: it does not go through the magicphys seam, so a shout has no cone.
 use_power :: proc(c: ^Call, caster, power: Form_ID, words: int, target: Form_ID) -> bool {
 	entries := worldstate.power_word(c.ws, c.db, caster, power, words) or_return
 	hit := caster if c.ws.power_defs[power].shape == "self" else target

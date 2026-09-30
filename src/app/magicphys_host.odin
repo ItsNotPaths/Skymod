@@ -49,12 +49,13 @@ tick_magicphys :: proc(g: ^Game) {
 	wd := worldhost.Data{context, ws, &g.db}
 	view := worldhost.world(&wd)
 	inp := magicphys.Input {
-		host   = {&view, &h, magicphys_def, magicphys_anchor, magicphys_strike, magicphys_spawn, magicphys_put, magicphys_remove, magicphys_hit},
-		table  = &g.sim.magicphys,
-		dt     = TICK_DT,
-		actors = plugin.span(g.sim.actors.actors[:]),
-		casts  = plugin.span(casts[:]),
-		bodies = plugin.span(g.sim.spell_bodies.list[:]),
+		host    = {&view, &h, magicphys_def, magicphys_anchor, magicphys_strike, magicphys_spawn, magicphys_put, magicphys_remove, magicphys_hit},
+		table   = &g.sim.magicphys,
+		dt      = TICK_DT,
+		gravity = physics.GRAVITY,
+		actors  = plugin.span(g.sim.actors.actors[:]),
+		casts   = plugin.span(casts[:]),
+		bodies  = plugin.span(g.sim.spell_bodies.list[:]),
 	}
 	g.sim.magicphys.tick(&inp)
 	apply_bodies(&g.sim.spell_bodies, h.puts[:], h.removes[:])
@@ -62,7 +63,7 @@ tick_magicphys :: proc(g: ^Game) {
 	for hit in h.hits {script.start_spell(&c, hit.spell, hit.target, hit.caster)}
 }
 
-// (hole spell-body-saves :tags (magic save) :sev gap :needs (spell-shapes)) spell bodies are not saved: a spell in flight at a save is gone after a load.
+// (hole spell-body-saves :tags (magic save) :sev gap) spell bodies are not saved: a spell in flight at a save is gone after a load.
 spell_bodies_destroy :: proc(b: ^Spell_Bodies) {
 	delete(b.list)
 }
@@ -145,7 +146,8 @@ magicphys_remove :: proc "c" (data: rawptr, id: magicphys.Body_ID) {
 	append(&h.removes, id)
 }
 
-// (hole location-landing :tags magic :sev gap :needs (spell-shapes)) a spell lands only on an actor: a Target_Location projectile (81 MGEFs: runes, walls, summons) that lands on the ground has nothing to place its effects at.
+// (hole area-entries :tags magic :sev gap) a hit lands every entry of the spell: `hits = "direct"` entries (62 of 227 area spells mix areas) land on area hits too, and an actor struck and in the burst gets the spell once, as a direct hit.
+// (hole location-landing :tags magic :sev gap) a spell lands only on an actor: a Target_Location projectile (81 MGEFs: runes, walls, summons) that lands on the ground has nothing to place its effects at.
 @(private = "file")
 magicphys_hit :: proc "c" (data: rawptr, hit: magic.Hit) {
 	h := (^Magicphys_Host)(data)
